@@ -1,0 +1,24 @@
+// A short scene using most of the syntax at once.
+{"title_page":{"fields":[{"key":"Title","values":[{"text":"SALT AND STATIC","runs":[{"text":"SALT AND STATIC","bold":true,"underline":true}]}]},{"key":"Credit","values":[{"text":"Written by"}]},{"key":"Author","values":[{"text":"Jo Example"}]},{"key":"Draft date","values":[{"text":"10/13/2026"}]},{"key":"Contact","values":[{"text":"jo@example.com"},{"text":"555-0100"}]}]}}
+{"type":"section","text":"Act One","depth":1}
+{"type":"synopsis","text":"Maya finds the radio."}
+{"type":"scene_heading","text":"EXT. LIGHTHOUSE - DUSK","scene_number":"1"}
+{"type":"action","text":"Waves hit the rocks. MAYA (30s, salt in her hair) climbs the last stairs."}
+{"type":"action","text":"She stops. A sound.","runs":[{"text":"She stops. A sound."},{"note":"Make the sound eerier?"}]}
+{"type":"character","text":"MAYA"}
+{"type":"parenthetical","text":"(to herself)"}
+{"type":"dialogue","text":"Hello?"}
+{"type":"character","text":"THEO (V.O.)"}
+{"type":"dialogue","text":"Hello.","runs":[{"text":"Hello.","italic":true}]}
+{"type":"character","text":"MAYA"}
+{"type":"dialogue","text":"Who's there?"}
+{"type":"character","text":"THEO (V.O.)","dual":true}
+{"type":"dialogue","text":"Who's there?"}
+{"type":"action","text":"STATIC","centered":true}
+{"type":"boneyard","text":" Cut: the original ending.\nTHEO\nGoodbye.\n"}
+{"type":"transition","text":"CUT TO:"}
+{"type":"scene_heading","text":"INT. RADIO ROOM - NIGHT","scene_number":"2"}
+{"type":"action","text":"The radio glows. A card on the table:"}
+{"type":"action","text":"    Channel 9\n    Midnight"}
+{"type":"page_break"}
+{"type":"action","text":"THE END"}

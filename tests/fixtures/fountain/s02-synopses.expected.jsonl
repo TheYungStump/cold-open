@@ -1,0 +1,6 @@
+// A line starting with = is a synopsis, for a section or for a scene.
+{"type":"section","text":"Act One","depth":1}
+{"type":"synopsis","text":"Maya comes home."}
+{"type":"scene_heading","text":"INT. KITCHEN - DAY"}
+{"type":"synopsis","text":"Breakfast goes wrong."}
+{"type":"action","text":"Eggs everywhere."}

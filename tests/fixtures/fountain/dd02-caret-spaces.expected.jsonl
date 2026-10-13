@@ -1,0 +1,9 @@
+// Any number of spaces (including none) may sit between the name and the caret.
+{"type":"character","text":"MAYA"}
+{"type":"dialogue","text":"Left."}
+{"type":"character","text":"THEO","dual":true}
+{"type":"dialogue","text":"Right."}
+{"type":"character","text":"MAYA"}
+{"type":"dialogue","text":"Up."}
+{"type":"character","text":"THEO","dual":true}
+{"type":"dialogue","text":"Down."}

@@ -1,0 +1,3 @@
+// Title page values may use emphasis.
+{"title_page":{"fields":[{"key":"Title","values":[{"text":"THE LIGHTHOUSE","runs":[{"text":"THE LIGHTHOUSE","bold":true,"underline":true}]}]},{"key":"Author","values":[{"text":"Jo Example"}]}]}}
+{"type":"scene_heading","text":"INT. LIGHTHOUSE - NIGHT"}

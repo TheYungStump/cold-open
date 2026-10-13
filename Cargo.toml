@@ -1,0 +1,34 @@
+[workspace]
+resolver = "3"
+members = ["crates/screenplay", "crates/fountain", "crates/core", "crates/cli"]
+exclude = ["fuzz"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+# File::lock (used for journal locking) was stabilized in 1.89.
+rust-version = "1.89"
+repository = "https://github.com/TheYungStump/cold-open"
+authors = ["The Cold Open contributors"]
+
+[workspace.dependencies]
+coldopen-screenplay = { path = "crates/screenplay", version = "0.1.0" }
+coldopen-fountain = { path = "crates/fountain", version = "0.1.0" }
+coldopen-core = { path = "crates/core", version = "0.1.0" }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+clap = { version = "4.5", features = ["derive"] }
+
+# Dev-only.
+proptest = "1.5"
+tempfile = "3.10"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

@@ -1,0 +1,3 @@
+// Asterisks with a space on the inner side cannot open or close emphasis.
+{"type":"action","text":"Press *4 for sales or *5 for support."}
+{"type":"action","text":"Press 4 for sales or 5 for support.","runs":[{"text":"Press "},{"text":"4 for sales or 5","italic":true},{"text":" for support."}]}

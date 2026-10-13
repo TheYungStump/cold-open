@@ -1,0 +1,3 @@
+// A backslash makes an asterisk literal, even inside bold.
+{"type":"scene_heading","text":"INT. VAULT - NIGHT"}
+{"type":"action","text":"The code is *4471*.","runs":[{"text":"The code is "},{"text":"*4471*","bold":true},{"text":"."}]}

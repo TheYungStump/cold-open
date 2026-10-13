@@ -25,3 +25,14 @@ rustc-ice-*.txt
 
 # Copyrighted test scripts (local only, never committed)
 /corpus/
+
+# cargo-fuzz working directories
+/fuzz/target/
+/fuzz/corpus/
+/fuzz/artifacts/
+/fuzz/coverage/
+
+# Cold Open crash journals and in-flight save temp files
+.*.coldopen-journal
+.*.coldopen-journal.*
+.*.coldopen-save-*.tmp

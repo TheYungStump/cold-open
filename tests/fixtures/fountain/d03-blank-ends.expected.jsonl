@@ -1,0 +1,4 @@
+// A truly empty line ends the dialogue.
+{"type":"character","text":"THEO"}
+{"type":"dialogue","text":"Wait here."}
+{"type":"action","text":"Maya does not wait."}

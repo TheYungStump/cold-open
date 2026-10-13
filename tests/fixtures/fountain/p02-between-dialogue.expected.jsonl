@@ -1,0 +1,5 @@
+// A parenthetical may also follow dialogue inside the same speech.
+{"type":"character","text":"THEO"}
+{"type":"dialogue","text":"I think so."}
+{"type":"parenthetical","text":"(beat)"}
+{"type":"dialogue","text":"Maybe."}

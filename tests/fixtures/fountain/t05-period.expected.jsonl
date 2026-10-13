@@ -1,0 +1,4 @@
+// A leading period turns a transition-shaped line into a scene heading.
+{"type":"action","text":"Theo frowns."}
+{"type":"scene_heading","text":"CUT TO:"}
+{"type":"action","text":"He sighs."}

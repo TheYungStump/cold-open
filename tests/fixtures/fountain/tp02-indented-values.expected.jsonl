@@ -1,0 +1,4 @@
+// Values may sit on following lines indented by three or more spaces or a tab;
+// each indented line is one more value for the key.
+{"title_page":{"fields":[{"key":"Title","values":[{"text":"The Lighthouse"},{"text":"Keeper"}]},{"key":"Author","values":[{"text":"Jo Example"},{"text":"Sam Sample"}]},{"key":"Contact","values":[{"text":"12 Harbor Road"},{"text":"Port Town"}]}]}}
+{"type":"scene_heading","text":"INT. LIGHTHOUSE - NIGHT"}

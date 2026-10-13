@@ -1,0 +1,4 @@
+// A transition must be uppercase; otherwise the line is action.
+{"type":"scene_heading","text":"INT. CAR - DAY"}
+{"type":"action","text":"Cut to:"}
+{"type":"action","text":"Maya drives."}

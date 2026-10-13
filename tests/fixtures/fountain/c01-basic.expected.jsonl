@@ -1,0 +1,4 @@
+// An uppercase line with a blank line before and text after is a character; the text is dialogue.
+{"type":"scene_heading","text":"INT. DINER - NIGHT"}
+{"type":"character","text":"THEO"}
+{"type":"dialogue","text":"Two coffees, please."}

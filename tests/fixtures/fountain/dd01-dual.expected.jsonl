@@ -1,0 +1,5 @@
+// A caret after the second character makes the two speeches simultaneous.
+{"type":"character","text":"MAYA"}
+{"type":"dialogue","text":"Now!"}
+{"type":"character","text":"THEO","dual":true}
+{"type":"dialogue","text":"Now!"}

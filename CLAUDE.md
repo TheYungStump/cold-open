@@ -1,6 +1,6 @@
-# Scriptwright — notes for AI agents
+# Cold Open — notes for AI agents
 
-> "Scriptwright" is a placeholder name. Once the real name is chosen, find-and-replace it here, in crate names and in the binary name.
+> The product name is **Cold Open**. The binary and crate prefix are `coldopen`.
 
 A free, open-source screenwriting app in Rust. It reads and writes Fountain and Final Draft (.fdx) files, never loses work, and every action is a command reachable from the GUI, a CLI, JSON over stdio and an MCP server.
 
@@ -19,7 +19,7 @@ Front ends never mutate the document directly. If something can be done in the G
 | `crates/screenplay` | MIT OR Apache-2.0 | 1 | Shared screenplay types: element kinds, title page, a plain document AST. No app logic. |
 | `crates/fountain` | MIT OR Apache-2.0 | 1 | Fountain parser and writer over `screenplay` types. |
 | `crates/core` | GPL-3.0-or-later | 1 | Document with stable element ids, `Command` enum, dispatcher, undo/redo, command journal, atomic save, version snapshots. |
-| `crates/cli` | GPL-3.0-or-later | 1 | The `scriptwright` binary: subcommands plus `serve --stdio`. |
+| `crates/cli` | GPL-3.0-or-later | 1 | The `coldopen` binary: subcommands plus `serve --stdio`. |
 | `crates/layout` | MIT OR Apache-2.0 | 2 | Text layout with bundled fonts, pagination rules, PDF export. |
 | `crates/fdx` | MIT OR Apache-2.0 | 4 | .fdx reader and writer, unknown-element passthrough, repair report. |
 | `crates/app` | GPL-3.0-or-later | 3 | iced desktop app with a custom page-view editor widget. |

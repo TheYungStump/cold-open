@@ -1,0 +1,4 @@
+// Equals signs followed by text are a synopsis, not a page break; one = is removed.
+{"type":"scene_heading","text":"INT. ROOM - DAY"}
+{"type":"synopsis","text":"= x"}
+{"type":"synopsis","text":"== y"}

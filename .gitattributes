@@ -1,0 +1,5 @@
+# Store and check out text as LF on every OS so output is byte-identical everywhere.
+* text=auto eol=lf
+
+# Fixtures are compared byte-for-byte, including deliberate CRLF and BOM cases.
+tests/fixtures/** -text

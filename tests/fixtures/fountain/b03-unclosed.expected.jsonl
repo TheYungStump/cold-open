@@ -1,0 +1,4 @@
+// Without a closing */ the /* is literal text.
+{"type":"scene_heading","text":"INT. CAR - DAY"}
+{"type":"action","text":"Theo deletes /* half the scene."}
+{"type":"action","text":"Nothing happens."}

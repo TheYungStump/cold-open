@@ -1,0 +1,9 @@
+// Each recognized prefix, followed by a period or a space, makes a scene heading.
+{"type":"scene_heading","text":"INT. KITCHEN - NIGHT"}
+{"type":"scene_heading","text":"EXT. ROOFTOP - DAY"}
+{"type":"scene_heading","text":"EST. HARBOR TOWN - DAWN"}
+{"type":"scene_heading","text":"INT./EXT. VAN - MOVING"}
+{"type":"scene_heading","text":"INT/EXT. GREENHOUSE - DAY"}
+{"type":"scene_heading","text":"I/E PHONE BOOTH - NIGHT"}
+{"type":"scene_heading","text":"INT KITCHEN - LATER"}
+{"type":"scene_heading","text":"EXT ROOFTOP - CONTINUOUS"}

@@ -1,0 +1,2 @@
+// Italic, bold, bold italic and underline.
+{"type":"action","text":"She is very tired and really hungry, extremely so, with one wish.","runs":[{"text":"She is "},{"text":"very","italic":true},{"text":" tired and "},{"text":"really","bold":true},{"text":" hungry, "},{"text":"extremely","bold":true,"italic":true},{"text":" so, with "},{"text":"one","underline":true},{"text":" wish."}]}

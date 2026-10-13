@@ -1,0 +1,4 @@
+// Without a closing ) the lines are dialogue. The writer escapes the
+// leading ( so it cannot be read as a parenthetical.
+{"type":"character","text":"THEO"}
+{"type":"dialogue","text":"(this never closes\nand keeps going."}

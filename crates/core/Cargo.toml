@@ -1,0 +1,23 @@
+[package]
+name = "coldopen-core"
+description = "Cold Open document model, command dispatcher, undo/redo, crash journal and atomic saves."
+license = "GPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+coldopen-screenplay.workspace = true
+coldopen-fountain.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

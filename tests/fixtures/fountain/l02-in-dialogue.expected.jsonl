@@ -1,0 +1,5 @@
+// Lyrics may be sung inside a character's speech.
+{"type":"character","text":"MAYA"}
+{"type":"lyric","text":"Salt on the window\nsalt on my tongue"}
+{"type":"parenthetical","text":"(stops)"}
+{"type":"dialogue","text":"That's all I remember."}

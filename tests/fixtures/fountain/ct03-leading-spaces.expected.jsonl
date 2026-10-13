@@ -1,0 +1,3 @@
+// Leading spaces are not kept for centered text.
+{"type":"scene_heading","text":"INT. THEATER - NIGHT"}
+{"type":"action","text":"THE END","centered":true}

@@ -1,0 +1,4 @@
+// Leading spaces in action are kept; a tab becomes four spaces.
+{"type":"scene_heading","text":"INT. PIER - NIGHT"}
+{"type":"action","text":"The note reads:"}
+{"type":"action","text":"    Meet me at the pier.\n    Midnight.\n    Come alone."}

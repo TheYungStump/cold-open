@@ -1,0 +1,3 @@
+// Consecutive centered lines form one centered element.
+{"type":"scene_heading","text":"INT. THEATER - NIGHT"}
+{"type":"action","text":"ACT ONE\nThe Lighthouse","centered":true}

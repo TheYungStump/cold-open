@@ -1,0 +1,2 @@
+// Emphasis never carries across a line break, so both asterisks stay literal.
+{"type":"action","text":"Theo and Maya *trade a look.\nThis is going to be fun.*"}

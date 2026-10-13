@@ -1,0 +1,5 @@
+// A note alone between blank lines is a note element, and adds no spacing.
+{"type":"action","text":"Maya reads the letter."}
+{"type":"note","text":"Should the letter be longer?"}
+{"type":"character","text":"THEO"}
+{"type":"dialogue","text":"What does it say?"}

@@ -1,0 +1,3 @@
+// Boneyard inside a line is hidden but keeps its position.
+{"type":"scene_heading","text":"INT. CAR - DAY"}
+{"type":"action","text":"Maya grabs the  keys.","runs":[{"text":"Maya grabs the "},{"boneyard":"red"},{"text":" keys."}]}

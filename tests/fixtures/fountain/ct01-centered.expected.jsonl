@@ -1,0 +1,3 @@
+// Text between > and < is centered action.
+{"type":"scene_heading","text":"INT. THEATER - NIGHT"}
+{"type":"action","text":"THE END","centered":true}

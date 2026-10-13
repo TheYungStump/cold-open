@@ -1,0 +1,2 @@
+// Styles combine: italic nested inside underline.
+{"type":"action","text":"She whispers an italic word inside underline to him.","runs":[{"text":"She whispers "},{"text":"an ","underline":true},{"text":"italic","italic":true,"underline":true},{"text":" word inside underline","underline":true},{"text":" to him."}]}

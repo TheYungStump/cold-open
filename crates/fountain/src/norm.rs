@@ -1,0 +1,459 @@
+//! Fountain normal form (spec §10): the layout-neutral rewrites that the
+//! reader applies, so `parse(write(s)) == normalize(s)` for any script the
+//! writer can express.
+
+use coldopen_screenplay::{Element, ElementKind, RichText, Run, Script, Style, TitleField};
+
+use crate::classify::default_gap;
+
+/// One line of rich text: runs with no line breaks inside them.
+pub(crate) type RLine = Vec<Run>;
+
+/// Splits rich text at line breaks. Empty text gives one empty line.
+pub(crate) fn split(rt: &RichText) -> Vec<RLine> {
+    let mut lines: Vec<RLine> = vec![Vec::new()];
+    for run in rt.runs() {
+        match run {
+            Run::Text { text, style } => {
+                for (k, part) in text.split('\n').enumerate() {
+                    if k > 0 {
+                        lines.push(Vec::new());
+                    }
+                    if !part.is_empty()
+                        && let Some(l) = lines.last_mut()
+                    {
+                        l.push(Run::styled(part, *style));
+                    }
+                }
+            }
+            hidden => {
+                if let Some(l) = lines.last_mut() {
+                    l.push(hidden.clone());
+                }
+            }
+        }
+    }
+    lines
+}
+
+pub(crate) fn join(lines: Vec<RLine>) -> RichText {
+    let mut runs = Vec::new();
+    for (k, l) in lines.into_iter().enumerate() {
+        if k > 0 {
+            runs.push(Run::plain("\n"));
+        }
+        runs.extend(l);
+    }
+    RichText::new(runs)
+}
+
+pub(crate) fn visible(line: &[Run]) -> String {
+    let mut s = String::new();
+    for r in line {
+        if let Run::Text { text, .. } = r {
+            s.push_str(text);
+        }
+    }
+    s
+}
+
+pub(crate) fn has_hidden(line: &[Run]) -> bool {
+    line.iter().any(Run::is_hidden)
+}
+
+/// A line with no visible text and no hidden runs.
+pub(crate) fn is_empty_line(line: &[Run]) -> bool {
+    visible(line).is_empty() && !has_hidden(line)
+}
+
+/// A line with hidden runs but nothing visible.
+pub(crate) fn is_hidden_only(line: &[Run]) -> bool {
+    has_hidden(line) && visible(line).trim().is_empty()
+}
+
+enum Cell {
+    C(char, Style),
+    H(Run),
+}
+
+fn cells(line: &[Run]) -> Vec<Cell> {
+    let mut out = Vec::new();
+    for r in line {
+        match r {
+            Run::Text { text, style } => out.extend(text.chars().map(|c| Cell::C(c, *style))),
+            h => out.push(Cell::H(h.clone())),
+        }
+    }
+    out
+}
+
+fn uncells(cells: Vec<Cell>) -> RLine {
+    let runs = cells
+        .into_iter()
+        .map(|c| match c {
+            Cell::C(ch, s) => Run::styled(ch.to_string(), s),
+            Cell::H(r) => r,
+        })
+        .collect();
+    RichText::new(runs).into_runs()
+}
+
+fn with_cells(line: &[Run], f: impl FnOnce(&mut Vec<Cell>)) -> RLine {
+    let mut c = cells(line);
+    f(&mut c);
+    uncells(c)
+}
+
+fn is_ws_cell(c: &Cell) -> bool {
+    matches!(c, Cell::C(ch, _) if ch.is_whitespace())
+}
+
+pub(crate) fn trim_start(line: &[Run]) -> RLine {
+    with_cells(line, |c| {
+        let first = c
+            .iter()
+            .position(|x| matches!(x, Cell::C(ch, _) if !ch.is_whitespace()))
+            .unwrap_or(c.len());
+        let mut i = 0;
+        c.retain(|x| {
+            let keep = i >= first || !is_ws_cell(x);
+            i += 1;
+            keep
+        });
+    })
+}
+
+pub(crate) fn trim_end(line: &[Run]) -> RLine {
+    with_cells(line, |c| {
+        let last = c
+            .iter()
+            .rposition(|x| matches!(x, Cell::C(ch, _) if !ch.is_whitespace()))
+            .map_or(0, |p| p + 1);
+        let mut i = 0;
+        c.retain(|x| {
+            let keep = i < last || !is_ws_cell(x);
+            i += 1;
+            keep
+        });
+    })
+}
+
+pub(crate) fn trim(line: &[Run]) -> RLine {
+    trim_end(&trim_start(line))
+}
+
+fn expand_tabs(line: &[Run]) -> RLine {
+    line.iter()
+        .map(|r| match r {
+            Run::Text { text, style } if text.contains('\t') => {
+                Run::styled(text.replace('\t', "    "), *style)
+            }
+            other => other.clone(),
+        })
+        .collect()
+}
+
+/// Bold and italic on whitespace at the edges of a styled span cannot be
+/// written (emphasis needs a non-space next to each marker) and cannot be
+/// seen, so they are dropped. Underline is visible and left alone.
+fn drop_edge_ws_styles(line: &[Run]) -> RLine {
+    with_cells(line, |c| {
+        for flag in [0u8, 1] {
+            let get = |s: &Style| if flag == 0 { s.bold } else { s.italic };
+            let chars: Vec<usize> = (0..c.len())
+                .filter(|&i| matches!(c[i], Cell::C(..)))
+                .collect();
+            let mut k = 0;
+            while k < chars.len() {
+                let on = matches!(&c[chars[k]], Cell::C(_, s) if get(s));
+                if !on {
+                    k += 1;
+                    continue;
+                }
+                let start = k;
+                while k < chars.len() && matches!(&c[chars[k]], Cell::C(_, s) if get(s)) {
+                    k += 1;
+                }
+                let span = &chars[start..k];
+                let mut clear: Vec<usize> = Vec::new();
+                clear.extend(span.iter().copied().take_while(|&i| is_ws_cell(&c[i])));
+                clear.extend(
+                    span.iter()
+                        .rev()
+                        .copied()
+                        .take_while(|&i| is_ws_cell(&c[i])),
+                );
+                for i in clear {
+                    if let Cell::C(_, s) = &mut c[i] {
+                        if flag == 0 {
+                            s.bold = false;
+                        } else {
+                            s.italic = false;
+                        }
+                    }
+                }
+            }
+        }
+    })
+}
+
+/// Joins hidden-only lines to the previous line (or the next, if first), as
+/// the reader does (spec §5).
+fn merge_hidden_only(lines: Vec<RLine>) -> Vec<RLine> {
+    if lines.iter().all(|l| !is_hidden_only(l)) || lines.iter().all(|l| is_hidden_only(l)) {
+        return lines;
+    }
+    let mut out: Vec<RLine> = Vec::new();
+    let mut prefix: RLine = Vec::new();
+    for l in lines {
+        if is_hidden_only(&l) {
+            let hidden: Vec<Run> = l.into_iter().filter(Run::is_hidden).collect();
+            match out.last_mut() {
+                Some(prev) => prev.extend(hidden),
+                None => prefix.extend(hidden),
+            }
+        } else {
+            let mut l = l;
+            if !prefix.is_empty() {
+                let mut p = std::mem::take(&mut prefix);
+                p.append(&mut l);
+                l = p;
+            }
+            out.push(l);
+        }
+    }
+    out
+}
+
+pub(crate) fn normalize_text(e: &Element) -> RichText {
+    use ElementKind::*;
+    if e.kind.is_raw_text() || e.kind == PageBreak {
+        return e.text.clone();
+    }
+    let lines = split(&e.text);
+    let lines: Vec<RLine> = lines
+        .iter()
+        .map(|l| {
+            let l = match (e.kind, e.centered) {
+                (Action, false) => trim_end(&expand_tabs(l)),
+                _ => trim(l),
+            };
+            drop_edge_ws_styles(&l)
+        })
+        .collect();
+    join(merge_hidden_only(lines))
+}
+
+fn normalize_title(fields: &[TitleField]) -> Vec<TitleField> {
+    fields
+        .iter()
+        .map(|f| TitleField {
+            key: f.key.clone(),
+            values: f
+                .values
+                .iter()
+                .map(|v| {
+                    join(
+                        split(v)
+                            .iter()
+                            .map(|l| drop_edge_ws_styles(&trim(l)))
+                            .collect(),
+                    )
+                })
+                .filter(|v| !v.is_empty())
+                .collect(),
+        })
+        .collect()
+}
+
+/// Splits action at empty lines: each empty run becomes spacing.
+fn split_action(e: Element, idx: usize, out: &mut Vec<(Element, usize)>, carry: &mut u32) {
+    let lines = split(&e.text);
+    if !lines.iter().any(|l| is_empty_line(l)) || lines.iter().all(|l| is_empty_line(l)) {
+        out.push((e, idx));
+        return;
+    }
+    let mut parts: Vec<(u32, Vec<RLine>)> = Vec::new();
+    let mut empties = 0u32;
+    for l in lines {
+        if is_empty_line(&l) {
+            empties += 1;
+            continue;
+        }
+        match parts.last_mut() {
+            Some((_, ls)) if empties == 0 => ls.push(l),
+            _ => parts.push((empties, vec![l])),
+        }
+        empties = 0;
+    }
+    *carry += empties;
+    for (k, (lead, ls)) in parts.into_iter().enumerate() {
+        let mut part = e.clone();
+        part.text = join(ls);
+        if k == 0 {
+            if lead > 0 {
+                let base = e.space_before.map_or(1, u32::from);
+                part.space_before = Some(clamp(base + lead));
+            }
+        } else {
+            // Each empty line is one blank line between the parts.
+            part.space_before = Some(clamp(lead));
+        }
+        out.push((part, idx));
+    }
+}
+
+fn clamp(n: u32) -> u8 {
+    u8::try_from(n).unwrap_or(u8::MAX)
+}
+
+fn mergeable(a: &Element, b: &Element) -> bool {
+    use ElementKind::*;
+    let gap = b
+        .space_before
+        .map_or_else(|| default_gap(Some(a.kind), b.kind), u32::from);
+    gap == 0
+        && match (a.kind, b.kind) {
+            (Action, Action) => a.centered == b.centered,
+            (Dialogue, Dialogue) | (Lyric, Lyric) => true,
+            _ => false,
+        }
+}
+
+/// The Fountain normal form of a script, with the index of the source
+/// element for each element of the result.
+pub(crate) fn normalize_with_map(script: &Script) -> (Script, Vec<usize>) {
+    // 1. Text of each element; action split at empty lines.
+    let mut split_out: Vec<(Element, usize)> = Vec::new();
+    let mut carry = 0u32;
+    for (idx, e) in script.elements.iter().enumerate() {
+        let mut e = e.clone();
+        e.text = normalize_text(&e);
+        if carry > 0 && e.kind.is_printing() {
+            let base = e.space_before.map_or(1, u32::from);
+            e.space_before = Some(clamp(base + carry));
+            carry = 0;
+        }
+        if e.kind == ElementKind::Action {
+            split_action(e, idx, &mut split_out, &mut carry);
+        } else {
+            split_out.push((e, idx));
+        }
+    }
+
+    // 2. Merge neighbours the reader would read as one element.
+    let mut merged: Vec<(Element, usize)> = Vec::new();
+    for (e, idx) in split_out {
+        if let Some((last, _)) = merged.last_mut()
+            && last.kind.is_printing()
+            && e.kind.is_printing()
+            && mergeable(last, &e)
+        {
+            let mut lines = split(&last.text);
+            lines.extend(split(&e.text));
+            last.text = join(lines);
+            continue;
+        }
+        merged.push((e, idx));
+    }
+
+    // 3. Spacing that equals the default is left unset.
+    let mut prev: Option<ElementKind> = None;
+    for (e, _) in &mut merged {
+        if e.kind.is_transparent() {
+            e.space_before = None;
+            continue;
+        }
+        match prev {
+            None => e.space_before = None,
+            Some(_) => {
+                if e.space_before.map(u32::from) == Some(default_gap(prev, e.kind)) {
+                    e.space_before = None;
+                }
+            }
+        }
+        prev = Some(e.kind);
+    }
+
+    let (elements, map) = merged.into_iter().unzip();
+    (
+        Script {
+            title_page: coldopen_screenplay::TitlePage {
+                fields: normalize_title(&script.title_page.fields),
+            },
+            elements,
+        },
+        map,
+    )
+}
+
+/// The Fountain normal form of a script (spec §10). For any script the
+/// writer reports no losses for, `parse(write(s)).script == normalize(s)`.
+pub fn normalize(script: &Script) -> Script {
+    normalize_with_map(script).0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const B: Style = Style {
+        bold: true,
+        italic: false,
+        underline: false,
+    };
+
+    #[test]
+    fn edge_whitespace_loses_bold() {
+        let l = vec![Run::plain("a"), Run::styled(" b ", B), Run::plain("c")];
+        assert_eq!(
+            drop_edge_ws_styles(&l),
+            vec![Run::plain("a "), Run::styled("b", B), Run::plain(" c")]
+        );
+    }
+
+    #[test]
+    fn action_splits_at_empty_lines() {
+        let s = Script {
+            elements: vec![
+                Element::new(ElementKind::Action, "a\n\nb\n\n\nc"),
+                Element::new(ElementKind::Action, "d"),
+            ],
+            ..Default::default()
+        };
+        let n = normalize(&s);
+        let texts: Vec<(String, Option<u8>)> = n
+            .elements
+            .iter()
+            .map(|e| (e.text.plain_text(), e.space_before))
+            .collect();
+        assert_eq!(
+            texts,
+            vec![
+                ("a".into(), None),
+                ("b".into(), None),
+                ("c".into(), Some(2)),
+                ("d".into(), None)
+            ]
+        );
+    }
+
+    #[test]
+    fn merges_and_drops_default_spacing() {
+        let s = Script {
+            elements: vec![
+                Element::new(ElementKind::Character, "BOB"),
+                Element::new(ElementKind::Dialogue, "a"),
+                Element::new(ElementKind::Dialogue, "b"),
+                Element::new(ElementKind::Action, "x").space_before(1),
+                Element::new(ElementKind::Action, "y").space_before(0),
+            ],
+            ..Default::default()
+        };
+        let n = normalize(&s);
+        assert_eq!(n.elements.len(), 3);
+        assert_eq!(n.elements[1].text.plain_text(), "a\nb");
+        assert_eq!(n.elements[2].text.plain_text(), "x\ny");
+        assert_eq!(n.elements[2].space_before, None);
+    }
+}

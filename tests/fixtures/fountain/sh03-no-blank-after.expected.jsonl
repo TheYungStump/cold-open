@@ -1,0 +1,5 @@
+// Without a blank line after it, a prefixed line is not a scene heading.
+// An all-uppercase one then meets the character rule; a lowercase one is action.
+{"type":"character","text":"INT. GARAGE - DAY"}
+{"type":"dialogue","text":"The door rattles."}
+{"type":"action","text":"int. shed - day\nThe roof leaks."}

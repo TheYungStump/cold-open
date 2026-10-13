@@ -1,0 +1,2 @@
+// Delimiters without a partner are literal text.
+{"type":"action","text":"A **bold start and an _under that never end."}

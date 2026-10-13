@@ -1,0 +1,4 @@
+// A #...# with other characters, or an escaped opening #, stays in the heading text.
+{"type":"scene_heading","text":"INT. BARN - DAY #1 A#"}
+{"type":"scene_heading","text":"INT. BARN - NIGHT #"}
+{"type":"scene_heading","text":"INT. BARN - DAWN #2#"}

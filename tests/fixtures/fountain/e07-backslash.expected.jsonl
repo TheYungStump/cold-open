@@ -1,0 +1,4 @@
+// A backslash before punctuation escapes it; before anything else it is literal.
+// The writer adds escapes only where they change the meaning.
+{"type":"scene_heading","text":"INT. OFFICE - DAY"}
+{"type":"action","text":"Type a backslash: \\ and a star: *. The file is in C:\\Users\\maya."}

@@ -1,0 +1,9 @@
+// Marker characters with nothing after them still mean their element, except a
+// lone period, which is not followed by a letter or digit.
+{"type":"character","text":""}
+{"type":"action","text":"."}
+{"type":"transition","text":""}
+{"type":"lyric","text":""}
+{"type":"section","text":"","depth":1}
+{"type":"synopsis","text":""}
+{"type":"action","text":""}

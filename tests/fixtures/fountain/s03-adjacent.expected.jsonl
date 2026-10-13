@@ -1,0 +1,6 @@
+// A section line inside a paragraph splits it; the spacing between the visible
+// lines stays at zero.
+{"type":"scene_heading","text":"INT. KITCHEN - DAY"}
+{"type":"action","text":"Toast pops."}
+{"type":"section","text":"A section between lines","depth":1}
+{"type":"action","text":"Toast burns.","space_before":0}

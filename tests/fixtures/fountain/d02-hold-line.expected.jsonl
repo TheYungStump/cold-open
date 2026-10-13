@@ -1,0 +1,4 @@
+// A line of two spaces keeps an empty line inside dialogue.
+{"type":"character","text":"MAYA"}
+{"type":"dialogue","text":"One.\n\nTwo."}
+{"type":"action","text":"Theo stares."}

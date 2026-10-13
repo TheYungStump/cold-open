@@ -1,0 +1,7 @@
+// A line holding only a note joins the line above it, leaving no empty line.
+// Notes with no visible text around them become note elements.
+{"type":"scene_heading","text":"INT. DESK - NIGHT"}
+{"type":"action","text":"Maya writes.\nTheo reads.","runs":[{"text":"Maya writes."},{"note":"about the line above"},{"text":"\nTheo reads."}]}
+{"type":"note","text":"first"}
+{"type":"note","text":"second"}
+{"type":"action","text":"Done."}

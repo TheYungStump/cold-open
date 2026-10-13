@@ -1,0 +1,4 @@
+// A parenthesized line right after a character is a parenthetical.
+{"type":"character","text":"MAYA"}
+{"type":"parenthetical","text":"(whispering)"}
+{"type":"dialogue","text":"Is it gone?"}

@@ -1,0 +1,39 @@
+[package]
+name = "coldopen-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "GPL-3.0-or-later"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Its own workspace: needs nightly and libFuzzer, so it stays out of the
+# main build. Run with `cargo +nightly fuzz run <target>` from this folder.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+coldopen-fountain = { path = "../crates/fountain" }
+coldopen-core = { path = "../crates/core" }
+
+[[bin]]
+name = "fountain_roundtrip"
+path = "fuzz_targets/fountain_roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "envelope"
+path = "fuzz_targets/envelope.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "journal_replay"
+path = "fuzz_targets/journal_replay.rs"
+test = false
+doc = false
+bench = false

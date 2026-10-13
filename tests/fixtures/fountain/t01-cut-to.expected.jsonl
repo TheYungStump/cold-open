@@ -1,0 +1,4 @@
+// An uppercase line ending in TO: with blank lines around it is a transition.
+{"type":"action","text":"Maya slams the door."}
+{"type":"transition","text":"CUT TO:"}
+{"type":"scene_heading","text":"EXT. STREET - DAY"}

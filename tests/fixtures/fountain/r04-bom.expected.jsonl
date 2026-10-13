@@ -1,0 +1,3 @@
+// A leading byte-order mark is ignored.
+{"type":"scene_heading","text":"INT. ROOM - DAY"}
+{"type":"action","text":"A chair."}

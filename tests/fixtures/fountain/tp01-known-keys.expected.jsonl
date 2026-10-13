@@ -1,0 +1,4 @@
+// Key: value lines at the very start form the title page.
+{"title_page":{"fields":[{"key":"Title","values":[{"text":"The Lighthouse Keeper"}]},{"key":"Credit","values":[{"text":"Written by"}]},{"key":"Author","values":[{"text":"Jo Example"}]},{"key":"Source","values":[{"text":"Based on a dream"}]},{"key":"Draft date","values":[{"text":"10/13/2026"}]},{"key":"Contact","values":[{"text":"jo@example.com"}]}]}}
+{"type":"action","text":"FADE IN:"}
+{"type":"scene_heading","text":"EXT. LIGHTHOUSE - DUSK"}

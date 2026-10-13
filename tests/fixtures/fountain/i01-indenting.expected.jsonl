@@ -1,0 +1,7 @@
+// Tabs before characters, parentheticals, dialogue and transitions are ignored.
+{"type":"scene_heading","text":"INT. GARAGE - DAY"}
+{"type":"action","text":"Maya checks the engine."}
+{"type":"character","text":"THEO"}
+{"type":"parenthetical","text":"(nervous)"}
+{"type":"dialogue","text":"Will it start?"}
+{"type":"transition","text":"CUT TO:"}

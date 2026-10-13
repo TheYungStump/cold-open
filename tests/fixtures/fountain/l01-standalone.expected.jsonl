@@ -1,0 +1,4 @@
+// Lines starting with a tilde are lyrics; the tilde is removed.
+{"type":"action","text":"The radio crackles."}
+{"type":"lyric","text":"Under the harbor lights\nwe sang till the tide came in"}
+{"type":"action","text":"Static."}

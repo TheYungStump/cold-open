@@ -1,0 +1,6 @@
+// Boneyard may span blank lines and whole scenes; its content is kept verbatim.
+{"type":"scene_heading","text":"INT. OFFICE - DAY"}
+{"type":"action","text":"Theo signs the papers."}
+{"type":"boneyard","text":"\nINT. HALLWAY - DAY\n\nMaya runs.\n\nMAYA\nWait!\n"}
+{"type":"scene_heading","text":"EXT. PARKING LOT - DAY"}
+{"type":"action","text":"Too late."}

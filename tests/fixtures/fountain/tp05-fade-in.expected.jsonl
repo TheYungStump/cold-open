@@ -1,0 +1,3 @@
+// A key with no value anywhere is not a title page, so a script may open with FADE IN:.
+{"type":"action","text":"FADE IN:"}
+{"type":"scene_heading","text":"EXT. FIELD - DAY"}

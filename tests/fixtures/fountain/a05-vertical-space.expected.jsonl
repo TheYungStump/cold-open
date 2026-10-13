@@ -1,0 +1,4 @@
+// Extra blank lines between action paragraphs are kept as space_before.
+{"type":"action","text":"She waits."}
+{"type":"action","text":"Still waiting.","space_before":3}
+{"type":"action","text":"Done."}

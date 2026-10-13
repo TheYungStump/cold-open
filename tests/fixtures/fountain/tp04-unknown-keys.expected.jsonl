@@ -1,0 +1,3 @@
+// Keys the app does not use are kept, in order, as metadata. A key may have no value.
+{"title_page":{"fields":[{"key":"Title","values":[{"text":"Harbor Lights"}]},{"key":"Revision","values":[{"text":"Blue"}]},{"key":"WGA Registration","values":[{"text":"12345"}]},{"key":"Notes","values":[]}]}}
+{"type":"scene_heading","text":"INT. DOCK - NIGHT"}

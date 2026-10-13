@@ -1,0 +1,4 @@
+// A note cannot cross an empty line; the [[ is then literal text.
+{"type":"scene_heading","text":"INT. DESK - NIGHT"}
+{"type":"action","text":"Maya writes [[a note that"}
+{"type":"action","text":"never closes."}

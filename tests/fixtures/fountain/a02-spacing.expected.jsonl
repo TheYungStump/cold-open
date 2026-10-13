@@ -1,0 +1,4 @@
+// Single and double spacing are both kept as written.
+{"type":"action","text":"Thunder."}
+{"type":"action","text":"Rain.\nWind."}
+{"type":"action","text":"Silence."}

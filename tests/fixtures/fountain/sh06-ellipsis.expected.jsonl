@@ -1,0 +1,4 @@
+// Two or more leading periods never force a scene heading.
+{"type":"action","text":"...and the music stops."}
+{"type":"character","text":"MAYA"}
+{"type":"dialogue","text":"...hello?"}

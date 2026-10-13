@@ -1,0 +1,10 @@
+// A single leading period forces a scene heading and is removed.
+// A forced heading needs no blank line after it; what follows sits directly below.
+{"type":"scene_heading","text":"SNOW GLOBE POV"}
+{"type":"action","text":"A tiny village, shaken."}
+{"type":"scene_heading","text":"inside the clock tower"}
+{"type":"action","text":"Gears turn."}
+{"type":"scene_heading","text":"MIRROR POV"}
+{"type":"action","text":"She stares back.","space_before":0}
+{"type":"scene_heading","text":"INT. HALL - NIGHT"}
+{"type":"action","text":"Footsteps.","space_before":0}

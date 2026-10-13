@@ -1,0 +1,3 @@
+// A note inside a line stays at its position as a hidden run.
+{"type":"scene_heading","text":"INT. ATTIC - DAY"}
+{"type":"action","text":"Maya opens the trunk and gasps.","runs":[{"text":"Maya opens the trunk"},{"note":"or a suitcase?"},{"text":" and gasps."}]}

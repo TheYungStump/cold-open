@@ -1,0 +1,5 @@
+// The caret must be the last character, and an escaped caret is literal.
+{"type":"character","text":"THEO ^ (V.O.)"}
+{"type":"dialogue","text":"Hello?"}
+{"type":"character","text":"THEO^"}
+{"type":"dialogue","text":"Hello again."}

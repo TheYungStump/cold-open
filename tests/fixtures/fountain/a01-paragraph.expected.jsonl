@@ -1,0 +1,3 @@
+// Consecutive lines form one action element, keeping each line break.
+{"type":"action","text":"Maya climbs the ladder.\nOne rung creaks.\nShe keeps going."}
+{"type":"action","text":"At the top, a door."}

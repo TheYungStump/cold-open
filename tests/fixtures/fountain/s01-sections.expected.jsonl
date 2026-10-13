@@ -1,0 +1,5 @@
+// Leading # marks a section; the number of #s is its depth.
+{"type":"section","text":"Act One","depth":1}
+{"type":"section","text":"The Arrival","depth":2}
+{"type":"section","text":"Scene Ideas","depth":3}
+{"type":"scene_heading","text":"INT. STATION - DAY"}

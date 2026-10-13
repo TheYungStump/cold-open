@@ -1,0 +1,5 @@
+// A centered line inside action splits it without changing the spacing.
+{"type":"scene_heading","text":"INT. LOBBY - DAY"}
+{"type":"action","text":"The screen reads:"}
+{"type":"action","text":"WELCOME","centered":true,"space_before":0}
+{"type":"action","text":"She smiles.","space_before":0}

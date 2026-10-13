@@ -1,0 +1,5 @@
+// A leading @ forces a character and keeps mixed case; the @ is removed.
+{"type":"character","text":"McAVOY"}
+{"type":"dialogue","text":"You're late."}
+{"type":"character","text":"bob"}
+{"type":"dialogue","text":"I know."}

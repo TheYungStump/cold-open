@@ -1,0 +1,4 @@
+// A character name needs at least one letter; digits alone are action.
+{"type":"character","text":"UNIT 7"}
+{"type":"dialogue","text":"Beep."}
+{"type":"action","text":"42\nSkidoo."}

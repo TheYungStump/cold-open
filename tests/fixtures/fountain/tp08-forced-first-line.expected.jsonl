@@ -1,0 +1,4 @@
+// A first action line shaped like "Key: value" would be a title page, so it is
+// forced with ! and the writer keeps the ! for the same reason.
+{"type":"action","text":"Note: the house is empty."}
+{"type":"action","text":"Wind moves the curtains."}

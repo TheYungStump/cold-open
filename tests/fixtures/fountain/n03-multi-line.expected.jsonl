@@ -1,0 +1,3 @@
+// A note may span lines without splitting the visible line it sits in.
+{"type":"scene_heading","text":"INT. HALL - DAY"}
+{"type":"action","text":"The phone rings. Maya ignores it.","runs":[{"text":"The phone rings."},{"note":"Maybe a doorbell\ninstead of a phone."},{"text":" Maya ignores it."}]}

@@ -1,0 +1,3 @@
+// A line of two spaces keeps an empty line inside a note.
+{"type":"scene_heading","text":"INT. HALL - DAY"}
+{"type":"action","text":"Theo waits. He sighs.","runs":[{"text":"Theo waits."},{"note":"Needs work.\n\nOr coffee."},{"text":" He sighs."}]}

@@ -1,0 +1,8 @@
+// A trailing #...# of letters, digits, dashes and periods is the scene number.
+{"type":"scene_heading","text":"INT. BARN - DAY","scene_number":"1"}
+{"type":"scene_heading","text":"INT. BARN - DAY","scene_number":"1A"}
+{"type":"scene_heading","text":"INT. BARN - DAY","scene_number":"1a"}
+{"type":"scene_heading","text":"INT. BARN - DAY","scene_number":"A1"}
+{"type":"scene_heading","text":"INT. BARN - DAY","scene_number":"I-1-A"}
+{"type":"scene_heading","text":"INT. BARN - DAY","scene_number":"1."}
+{"type":"scene_heading","text":"INT. BARN - DAY - FLASHBACK (1987)","scene_number":"110A"}

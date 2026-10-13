@@ -1,0 +1,4 @@
+// A leading > forces any line to be a transition and is removed.
+{"type":"action","text":"They embrace."}
+{"type":"transition","text":"Fade to gold."}
+{"type":"transition","text":"SMASH CUT:"}

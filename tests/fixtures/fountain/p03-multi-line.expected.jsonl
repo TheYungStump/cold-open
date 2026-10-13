@@ -1,0 +1,4 @@
+// A parenthetical runs from a line starting with ( to the line ending with ).
+{"type":"character","text":"MAYA"}
+{"type":"parenthetical","text":"(slowly, as if reading\nfrom a card)"}
+{"type":"dialogue","text":"We regret to inform you."}

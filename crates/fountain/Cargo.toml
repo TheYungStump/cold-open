@@ -1,0 +1,19 @@
+[package]
+name = "coldopen-fountain"
+description = "Fountain screenplay parser and writer that never panics and round-trips meaning exactly."
+license = "MIT OR Apache-2.0"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+coldopen-screenplay.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+proptest.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,6 @@
+// Three or more equals signs alone on a line make a page break.
+{"type":"action","text":"The end of act one."}
+{"type":"page_break"}
+{"type":"action","text":"The start of act two."}
+{"type":"page_break"}
+{"type":"action","text":"More."}

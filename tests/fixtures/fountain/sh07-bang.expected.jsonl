@@ -1,0 +1,3 @@
+// A leading exclamation mark makes a prefixed line action and is removed.
+{"type":"action","text":"INT. NOT A HEADING"}
+{"type":"action","text":"Just a line."}

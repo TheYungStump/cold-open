@@ -1,0 +1,7 @@
+// An uppercase action line followed by text reads as a character and dialogue;
+// the leading exclamation mark is the fix.
+{"type":"scene_heading","text":"INT. MUSEUM - NIGHT"}
+{"type":"action","text":"The guard dozes."}
+{"type":"character","text":"ALARMS BLARE EVERYWHERE"}
+{"type":"dialogue","text":"The guard jolts awake."}
+{"type":"action","text":"ALARMS BLARE EVERYWHERE\nThe guard jolts awake."}

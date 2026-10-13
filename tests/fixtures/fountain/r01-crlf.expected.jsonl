@@ -1,0 +1,4 @@
+// CRLF, lone CR and LF line endings all read the same; output uses LF.
+{"type":"scene_heading","text":"INT. ROOM - DAY"}
+{"type":"character","text":"MAYA"}
+{"type":"dialogue","text":"Hello.\nAgain."}

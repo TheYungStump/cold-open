@@ -1,0 +1,5 @@
+// A space after the colon means the line no longer ends in TO:, so it is action.
+// The writer keeps that meaning by forcing the action with !.
+{"type":"action","text":"Maya reads the script aloud."}
+{"type":"action","text":"CUT TO:"}
+{"type":"action","text":"She laughs."}
