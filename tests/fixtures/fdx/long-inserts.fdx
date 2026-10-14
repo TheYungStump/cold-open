@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FinalDraft DocumentType="Script" Version="4">
+  <Content>
+    <Paragraph Type="Character">
+      <Text>OSKAR</Text>
+    </Paragraph>
+    <Paragraph Type="Dialogue">
+      <Text>The markers in this file are far too long.</Text>
+    </Paragraph>
+  </Content>
+  <MoresAndContinueds>
+    <DialogueBreaks BottomOfPage="Yes" DialogueBottom="(there is more of this speech on the next page)" DialogueTop="(cont'd)&#10;from the page before" TopOfNext="Yes"/>
+  </MoresAndContinueds>
+  <HeaderAndFooter HeaderVisible="Yes">
+    <Header>
+      <Paragraph>
+        <DynamicLabel Type="Page #"/>
+        <Text>. is the page we are on</Text>
+      </Paragraph>
+    </Header>
+  </HeaderAndFooter>
+</FinalDraft>

@@ -1,0 +1,30 @@
+{
+  "script": {
+    "elements": [
+      {
+        "text": "WREN",
+        "type": "character"
+      },
+      {
+        "text": "This speech may break across a page.",
+        "type": "dialogue"
+      }
+    ]
+  },
+  "overrides": {},
+  "title_lines": [],
+  "scenes": [],
+  "report": [
+    "section_missing",
+    "settings_missing",
+    "scene_continueds_unsupported"
+  ],
+  "format": {
+    "contd": "(cont'd)",
+    "more": "(more)",
+    "scene_continueds": {
+      "bottom": "(continued)",
+      "top": "continued:"
+    }
+  }
+}

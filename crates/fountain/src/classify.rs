@@ -10,15 +10,37 @@ use crate::line::{
 
 // ---- Shape tests on visible text (escapes still present) ----
 
-/// `t` has its leading whitespace removed.
-pub(crate) fn is_scene_heading_prefix(t: &str) -> bool {
-    const PREFIXES: [&str; 6] = ["INT./EXT", "INT/EXT", "I/E", "INT", "EXT", "EST"];
-    PREFIXES.iter().any(|p| {
+/// The six scene heading prefixes on the syntax page (spec §6.2 rule 5).
+const SYNTAX_PAGE_PREFIXES: [&str; 6] = ["INT./EXT", "INT/EXT", "I/E", "INT", "EXT", "EST"];
+
+/// Reversed forms that writers also use (spec §6.2 rule 5). `EXT./INT`
+/// needs no entry: it already matches as `EXT` followed by `.`.
+const REVERSED_PREFIXES: [&str; 2] = ["EXT/INT", "E/I"];
+
+/// True when `t` starts with one of `prefixes`, in any case, followed by
+/// `.` or a space. Each prefix is tried on its own, so the order of the
+/// list does not change the result: `EXT/INT.` fails as `EXT` (a `/`
+/// follows) and still matches as `EXT/INT`.
+fn starts_with_prefix(t: &str, prefixes: &[&str]) -> bool {
+    prefixes.iter().any(|p| {
         t.len() > p.len()
             && t.is_char_boundary(p.len())
             && t[..p.len()].eq_ignore_ascii_case(p)
             && matches!(t.as_bytes()[p.len()], b'.' | b' ')
     })
+}
+
+/// The reader's rule: the syntax page's prefixes and the reversed ones.
+/// `t` has its leading whitespace removed.
+pub(crate) fn is_scene_heading_prefix(t: &str) -> bool {
+    starts_with_prefix(t, &REVERSED_PREFIXES) || starts_with_prefix(t, &SYNTAX_PAGE_PREFIXES)
+}
+
+/// Only the syntax page's prefixes. The writer leaves a heading unforced
+/// only when this holds, so readers that follow the syntax page alone still
+/// see a scene heading (spec §9). `t` has its leading whitespace removed.
+pub(crate) fn is_strict_scene_heading_prefix(t: &str) -> bool {
+    starts_with_prefix(t, &SYNTAX_PAGE_PREFIXES)
 }
 
 pub(crate) fn is_page_break(t: &str) -> bool {
@@ -92,16 +114,10 @@ pub(crate) fn split_scene_number(t: &str) -> Option<(usize, String)> {
     None
 }
 
-/// Spacing used when `space_before` is unset (spec §7).
+/// Spacing used when `space_before` is unset (spec §7). The rule lives in
+/// `coldopen-screenplay` so layout uses the same one.
 pub(crate) fn default_gap(prev: Option<ElementKind>, kind: ElementKind) -> u32 {
-    use ElementKind::*;
-    if kind.is_dialogue_member()
-        && matches!(prev, Some(Character | Parenthetical | Dialogue | Lyric))
-    {
-        0
-    } else {
-        1
-    }
+    u32::from(kind.default_gap(prev))
 }
 
 // ---- Entries: lines after hidden-only lines are merged ----
@@ -616,6 +632,28 @@ mod tests {
         assert!(is_scene_heading_prefix("i/e x"));
         assert!(!is_scene_heading_prefix("INTERIOR"));
         assert!(!is_scene_heading_prefix("INT"));
+        // Reversed forms: the reader accepts them, the strict rule does not.
+        for t in ["EXT/INT. BUS", "e/i car", "ext/int bus", "E/I. X"] {
+            assert!(is_scene_heading_prefix(t), "{t}");
+            assert!(!is_strict_scene_heading_prefix(t), "{t}");
+        }
+        for t in ["EXT/INTERIOR", "E/IX", "E/I", "EXT/INT", "E/I:X"] {
+            assert!(!is_scene_heading_prefix(t), "{t}");
+            assert!(!is_strict_scene_heading_prefix(t), "{t}");
+        }
+        // The syntax page's six, and `EXT./INT` through `EXT.`, pass both.
+        for t in [
+            "INT. X",
+            "EXT X",
+            "est. x",
+            "INT./EXT. X",
+            "int/ext x",
+            "I/E X",
+            "EXT./INT. VAN",
+        ] {
+            assert!(is_scene_heading_prefix(t), "{t}");
+            assert!(is_strict_scene_heading_prefix(t), "{t}");
+        }
         assert!(is_page_break("==="));
         assert!(!is_page_break("=="));
         assert!(is_centered(">X<"));

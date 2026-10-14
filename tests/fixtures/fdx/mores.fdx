@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FinalDraft DocumentType="Script" Version="4">
+  <Content>
+    <Paragraph Type="Character">
+      <Text>WREN</Text>
+    </Paragraph>
+    <Paragraph Type="Dialogue">
+      <Text>This speech may break across a page.</Text>
+    </Paragraph>
+  </Content>
+  <MoresAndContinueds>
+    <DialogueBreaks AutomaticCharacterContinueds="No" BottomOfPage="Yes" DialogueBottom="(more)" DialogueTop="(cont'd)" TopOfNext="Yes"/>
+    <SceneBreaks ContinuedNumber="Yes" SceneBottom="(continued)" SceneBottomOfPage="Yes" SceneTop="continued:" SceneTopOfNext="Yes"/>
+  </MoresAndContinueds>
+</FinalDraft>

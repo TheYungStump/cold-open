@@ -1,0 +1,54 @@
+{
+  "script": {
+    "elements": [
+      {
+        "text": "INT. LIGHTHOUSE KITCHEN - NIGHT",
+        "type": "scene_heading"
+      },
+      {
+        "text": "Rain drums on the glass. ODILE (60s) stirs a pot that has been empty for an hour.",
+        "type": "action"
+      },
+      {
+        "text": "  Two spaces lead this line.\nA second line follows, with two after it.  ",
+        "type": "action"
+      },
+      {
+        "text": "ODILE",
+        "type": "character"
+      },
+      {
+        "text": "(to the pot)",
+        "type": "parenthetical"
+      },
+      {
+        "text": "You could at least pretend to boil.",
+        "type": "dialogue"
+      },
+      {
+        "text": "Round and round the kettle goes",
+        "type": "lyric"
+      },
+      {
+        "text": "CLOSE ON THE KETTLE",
+        "type": "shot"
+      },
+      {
+        "text": "CUT TO:",
+        "type": "transition"
+      },
+      {
+        "text": "THE END",
+        "type": "general"
+      }
+    ]
+  },
+  "overrides": {},
+  "title_lines": [],
+  "scenes": [],
+  "report": [
+    "section_missing",
+    "settings_missing"
+  ],
+  "format": {}
+}

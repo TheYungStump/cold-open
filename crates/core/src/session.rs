@@ -56,7 +56,7 @@ impl Session {
             Class::Query => self.query(cmd),
             Class::Edit => self.edit(cmd),
             Class::History => self.history(cmd),
-            Class::Session => Err(CommandError::new(
+            Class::Session | Class::Output => Err(CommandError::new(
                 "invalid_request",
                 format!("{} is handled by the dispatcher", cmd.name()),
             )),
@@ -91,10 +91,18 @@ impl Session {
                     Ok(json!({ "format": "json", "text": text + "
 ", "losses": [] }))
                 }
+                "pages" => {
+                    let (layout, _) = self.layout(&coldopen_layout::Options::default());
+                    let text = match coldopen_layout::Fonts::new() {
+                        Ok(fonts) => layout.page_view(&fonts),
+                        Err(_) => layout.page_view(&coldopen_layout::AllGlyphs),
+                    };
+                    Ok(json!({ "format": "pages", "text": text, "losses": [] }))
+                }
                 other => Err(CommandError::new(
                     "unsupported_format",
                     format!(
-                        "\"{other}\" is not a supported export format; use \"fountain\" or \"json\""
+                        "\"{other}\" is not a supported export format; use \"fountain\", \"json\" or \"pages\""
                     ),
                 )),
             },
@@ -113,12 +121,34 @@ impl Session {
             .collect()
     }
 
+    /// Lays out the document with the default page format. Layout runs on
+    /// the Fountain normal form, so the pages are the same after a save and
+    /// reload (docs/specs/layout.md §4.8). The second value maps each laid-out
+    /// element to the index of the block it came from.
+    pub fn layout(
+        &self,
+        options: &coldopen_layout::Options,
+    ) -> (coldopen_layout::Layout, Vec<usize>) {
+        let (script, map) = coldopen_fountain::normalize_with_map(&self.doc.to_script());
+        let layout =
+            coldopen_layout::layout(&script, &coldopen_layout::ValidFormat::default(), options);
+        (layout, map)
+    }
+
     pub fn scene_list(&self) -> Vec<Value> {
+        let (layout, map) = self.layout(&coldopen_layout::Options::default());
+        // Laid-out elements whose source block falls in [start, end).
+        let elements = |start: usize, end: usize| {
+            map.partition_point(|&b| b < start)..map.partition_point(|&b| b < end)
+        };
         self.doc
             .scenes()
             .iter()
             .enumerate()
             .map(|(k, s)| {
+                let range = elements(s.start, s.end);
+                let page = range.clone().find_map(|e| layout.first_page(e));
+                let eighths = layout.eighths(range);
                 let blocks = &self.doc.blocks[s.start..s.end];
                 let head = &blocks[0];
                 let synopsis = blocks
@@ -133,6 +163,8 @@ impl Session {
                     "synopsis": synopsis,
                     "blocks": blocks.len(),
                     "words": blocks.iter().map(|b| word_count(&b.element)).sum::<usize>(),
+                    "page": page,
+                    "eighths": eighths,
                 })
             })
             .collect()

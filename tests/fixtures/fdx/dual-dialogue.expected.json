@@ -1,0 +1,74 @@
+{
+  "script": {
+    "elements": [
+      {
+        "text": "The twins reach the door at the same moment.",
+        "type": "action"
+      },
+      {
+        "text": "PIP",
+        "type": "character"
+      },
+      {
+        "text": "(breathless)",
+        "type": "parenthetical"
+      },
+      {
+        "text": "Mine.",
+        "type": "dialogue"
+      },
+      {
+        "dual": true,
+        "text": "POPPY",
+        "type": "character"
+      },
+      {
+        "text": "Ours,\ntechnically.",
+        "type": "dialogue"
+      },
+      {
+        "text": "PIP",
+        "type": "character"
+      },
+      {
+        "text": "Only one voice here.",
+        "type": "dialogue"
+      },
+      {
+        "text": "Still one.",
+        "type": "dialogue"
+      },
+      {
+        "text": "PIP",
+        "type": "character"
+      },
+      {
+        "text": "Left.",
+        "type": "dialogue"
+      },
+      {
+        "dual": true,
+        "text": "POPPY",
+        "type": "character"
+      },
+      {
+        "text": "Right.",
+        "type": "dialogue"
+      },
+      {
+        "text": "A stray outer note.",
+        "type": "general"
+      }
+    ]
+  },
+  "overrides": {},
+  "title_lines": [],
+  "scenes": [],
+  "report": [
+    "section_missing",
+    "settings_missing",
+    "dual_dialogue_shape",
+    "dual_dialogue_text"
+  ],
+  "format": {}
+}

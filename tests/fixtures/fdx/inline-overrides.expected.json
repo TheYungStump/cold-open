@@ -1,0 +1,58 @@
+{
+  "script": {
+    "elements": [
+      {
+        "text": "Settings alone.",
+        "type": "action"
+      },
+      {
+        "centered": true,
+        "text": "A CENTERED SIGN",
+        "type": "action"
+      },
+      {
+        "text": "Equal values, written differently, change nothing.",
+        "type": "action"
+      },
+      {
+        "text": "Two lines of space above this one.",
+        "type": "action"
+      },
+      {
+        "text": "General text with a line above it.",
+        "type": "general"
+      },
+      {
+        "text": "An indent we cannot express.",
+        "type": "action"
+      },
+      {
+        "text": "MARGO",
+        "type": "character"
+      },
+      {
+        "text": "Centered dialogue is not a thing we keep.",
+        "type": "dialogue"
+      }
+    ]
+  },
+  "overrides": {
+    "3": 24,
+    "4": 12
+  },
+  "title_lines": [],
+  "scenes": [],
+  "report": [
+    "section_missing",
+    "settings_missing",
+    "paragraph_format_ignored",
+    "paragraph_format_ignored"
+  ],
+  "format": {
+    "elements": {
+      "general": {
+        "space_before": 0
+      }
+    }
+  }
+}

@@ -1,6 +1,6 @@
 [package]
 name = "coldopen-cli"
-description = "The coldopen command-line tool: convert, scenes, run and serve --stdio."
+description = "The coldopen command-line tool: convert, export, pages, scenes, run and serve --stdio."
 license = "GPL-3.0-or-later"
 version.workspace = true
 edition.workspace = true
@@ -14,6 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 coldopen-core.workspace = true
+coldopen-fonts.workspace = true
 serde_json.workspace = true
 clap.workspace = true
 

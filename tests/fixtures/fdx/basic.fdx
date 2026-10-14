@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
+<FinalDraft DocumentType="Script" Template="No" Version="4">
+  <Content>
+    <Paragraph Type="Scene Heading">
+      <Text>INT. LIGHTHOUSE KITCHEN - NIGHT</Text>
+    </Paragraph>
+    <Paragraph Type="Action">
+      <Text>Rain drums on the glass. ODILE (60s) stirs a pot that has been empty for an hour.</Text>
+    </Paragraph>
+    <Paragraph Type="Action">
+      <Text>  Two spaces lead this line.
+A second line follows, with two after it.  </Text>
+    </Paragraph>
+    <Paragraph Type="Character">
+      <Text>ODILE</Text>
+    </Paragraph>
+    <Paragraph Type="Parenthetical">
+      <Text>(to the pot)</Text>
+    </Paragraph>
+    <Paragraph Type="Dialogue">
+      <Text>You could at least pretend to boil.</Text>
+    </Paragraph>
+    <Paragraph Type="Lyric">
+      <Text>Round and round the kettle goes</Text>
+    </Paragraph>
+    <Paragraph Type="Shot">
+      <Text>CLOSE ON THE KETTLE</Text>
+    </Paragraph>
+    <Paragraph Type="Transition">
+      <Text>CUT TO:</Text>
+    </Paragraph>
+    <Paragraph Type="General">
+      <Text>THE END</Text>
+    </Paragraph>
+  </Content>
+</FinalDraft>

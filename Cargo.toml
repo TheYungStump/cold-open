@@ -1,7 +1,15 @@
 [workspace]
 resolver = "3"
-members = ["crates/screenplay", "crates/fountain", "crates/core", "crates/cli"]
-exclude = ["fuzz"]
+members = [
+    "crates/screenplay",
+    "crates/fountain",
+    "crates/fonts",
+    "crates/layout",
+    "crates/fdx",
+    "crates/core",
+    "crates/cli",
+]
+exclude = ["fuzz", "tools/refpdf"]
 
 [workspace.package]
 version = "0.1.0"
@@ -14,12 +22,26 @@ authors = ["The Cold Open contributors"]
 [workspace.dependencies]
 coldopen-screenplay = { path = "crates/screenplay", version = "0.1.0" }
 coldopen-fountain = { path = "crates/fountain", version = "0.1.0" }
+coldopen-fonts = { path = "crates/fonts", version = "0.1.0" }
+coldopen-layout = { path = "crates/layout", version = "0.1.0" }
 coldopen-core = { path = "crates/core", version = "0.1.0" }
+coldopen-fdx = { path = "crates/fdx", version = "0.1.0" }
 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
 clap = { version = "4.5", features = ["derive"] }
+# Pinned exactly: each patch release moves to a newer Unicode version, which
+# would move line breaks. Bump only with re-blessed layout goldens.
+unicode-width = { version = "=0.2.2", default-features = false }
+ttf-parser = { version = "0.25.1", default-features = false, features = ["std"] }
+pdf-writer = "0.15"
+# Its default `variable-fonts` feature pulls in skrifa, write-fonts and kurbo,
+# which a static TrueType font never needs.
+subsetter = { version = "0.2.6", default-features = false }
+miniz_oxide = "0.9"
+# XML for .fdx (docs/spec.md, "Technology"); no default features.
+quick-xml = "0.42"
 
 # Dev-only.
 proptest = "1.5"

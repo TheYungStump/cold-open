@@ -1,0 +1,21 @@
+[package]
+name = "coldopen-fdx"
+description = "Tolerant .fdx screenplay reader that never panics and reports everything it could not carry over."
+license = "MIT OR Apache-2.0"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+coldopen-screenplay.workspace = true
+quick-xml.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+proptest.workspace = true
+
+[lints]
+workspace = true

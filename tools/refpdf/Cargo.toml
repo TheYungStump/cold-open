@@ -1,0 +1,26 @@
+[package]
+name = "refpdf"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+description = "Dev-only: positioned text from reference PDFs for the layout gate. Never shipped."
+
+# Its own workspace, like fuzz/: a dev tool with its own dependencies that
+# stays out of the main build. Run it with --manifest-path or from here.
+[workspace]
+
+[dependencies]
+# Pinned exactly: the panic guards and the preflight in src/extract.rs are
+# written against this version's behavior. Its re-exported lopdf is used
+# directly, so lopdf is not a separate dependency.
+pdf-extract = "=0.12.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# 0.10 is the version lopdf already pulls in, so this adds no new crates.
+sha2 = "0.10"
+
+# pdf-extract and lopdf are slow unoptimized; optimizing only the
+# dependencies keeps `cargo test` on the full corpus to a few seconds.
+[profile.dev.package."*"]
+opt-level = 2

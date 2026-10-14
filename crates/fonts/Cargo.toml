@@ -1,0 +1,13 @@
+[package]
+name = "coldopen-fonts"
+description = "The Courier Prime faces Cold Open bundles for layout and PDF output, under the SIL Open Font License 1.1."
+# The font files are OFL-1.1; the few lines of Rust that expose them are MIT OR Apache-2.0.
+license = "OFL-1.1 AND (MIT OR Apache-2.0)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,173 @@
+%PDF-1.7
+%\x80\x80\x80\x80
+
+1 0 obj
+<</Type/Catalog/Pages 2 0 R>>
+endobj
+4 0 obj
+<</Type/Font/Subtype/Type0/BaseFont/SBWIXL+CourierPrime-Regular/Encoding/Identity-H/DescendantFonts[5 0 R]/ToUnicode 8 0 R>>
+endobj
+5 0 obj
+<</Type/Font/Subtype/CIDFontType2/BaseFont/SBWIXL+CourierPrime-Regular/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/FontDescriptor 6 0 R/DW 600/CIDToGIDMap/Identity>>
+endobj
+6 0 obj
+<</Type/FontDescriptor/FontName/SBWIXL+CourierPrime-Regular/Flags 35/FontBBox[-370.60547 -256.83594 1567.8711 892.08984]/ItalicAngle 0/Ascent 781.25/Descent -341.79688/CapHeight 579.58984/StemV 80/FontFile2 7 0 R>>
+endobj
+7 0 obj
+<</Length 8938/Filter/FlateDecode/Length1 16836>>
+stream
+[font program: 16836 bytes, fnv64 7344c3052c53e846]
+endstream
+endobj
+8 0 obj
+<</Length 580/Type/CMap/Filter/FlateDecode>>
+stream
+%!PS-Adobe-3.0 Resource-CMap
+%%DocumentNeededResources: procset CIDInit
+%%IncludeResource: procset CIDInit
+%%BeginResource: CMap Adobe-Identity-UCS
+%%Title: (Adobe-Identity-UCS Adobe Identity 0)
+%%Version: 1
+%%EndComments
+/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo 3 dict dup begin
+    /Registry (Adobe) def
+    /Ordering (Identity) def
+    /Supplement 0 def
+end def
+/CMapName /Adobe-Identity-UCS def
+/CMapVersion 1 def
+/CMapType 0 def
+/WMode 0 def
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+53 beginbfchar
+<0000> <FFFD>
+<0001> <0020>
+<0002> <0021>
+<0003> <002C>
+<0004> <002D>
+<0005> <002E>
+<0006> <0041>
+<0007> <0043>
+<0008> <0044>
+<0009> <0045>
+<000A> <0046>
+<000B> <0049>
+<000C> <004B>
+<000D> <0053>
+<000E> <0054>
+<000F> <0055>
+<0010> <0058>
+<0011> <0059>
+<0012> <005A>
+<0013> <0061>
+<0014> <0062>
+<0015> <0063>
+<0016> <0064>
+<0017> <0065>
+<0018> <0066>
+<0019> <0067>
+<001A> <0068>
+<001B> <0069>
+<001C> <006C>
+<001D> <006D>
+<001E> <006E>
+<001F> <006F>
+<0020> <0070>
+<0021> <0072>
+<0022> <0073>
+<0023> <0074>
+<0024> <0077>
+<0025> <0078>
+<0026> <0079>
+<0027> <007A>
+<0028> <00C9>
+<0029> <00E8>
+<002A> <00E9>
+<002B> <00EB>
+<002C> <00FB>
+<002D> <0107>
+<002E> <0141>
+<002F> <015B>
+<0030> <2014>
+<0031> <2019>
+<0032> <201C>
+<0033> <201D>
+<0034> <2026>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+%%EndResource
+%%EOF
+endstream
+endobj
+10 0 obj
+<</Length 325/Filter/FlateDecode>>
+stream
+BT
+/F0 12 Tf
+1 0 0 1 108 711 Tm
+(\000\t\000\020\000\016\000\005\000\001\000\007\000\006\000\n\000\(\000\001\000\004\000\001\000\b\000\006\000\021) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 108 687 Tm
+(\000\022\000\037\000+\000\001\000\037\000!\000\026\000\027\000!\000"\000\001\000\023\000\001\000\025\000!\000\)\000\035\000\027\000\001\000\024\000!\000,\000\034\000*\000\027\000\005\000\001\0002\000\013\000#\0001\000"\000\001\000 \000\027\000!\000\030\000\027\000\025\000#\000\003\0003\000\001\000"\000\032\000\027\000\001\000"\000\023\000&\000"\000\001\0000\000\001\000\023\000\036\000\026) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 108 675 Tm
+(\000"\000\035\000\033\000\034\000\027\000"\0004) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 108 651 Tm
+(\000\006\000\001\000"\000\033\000\031\000\036\000\001\000!\000\027\000\023\000\026\000"\000\001\000\000\000\000\000\000\000\000\000\000\000\000\000\001\000\036\000\027\000%\000#\000\001\000#\000\037\000\001\000\023\000\001\000\000\000\000\000\001\000\023\000\036\000\026\000\001\000\023\000\036\000\001\000\027\000\001\000\035\000\023\000\026\000\027\000\001\000\037\000\030\000\001\000#\000$\000\037\000\001\000 \000\023\000!\000#\000"\000\005) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 266.4 627 Tm
+(\000.\000\017\000\f\000\006\000\r\000\022) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 180 615 Tm
+(\000\007\000'\000\027\000/\000-\000\002) Tj
+ET
+endstream
+endobj
+9 0 obj
+<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Contents 10 0 R/Resources<</Font<</F0 4 0 R>>>>>>
+endobj
+2 0 obj
+<</Type/Pages/Kids[9 0 R]/Count 1>>
+endobj
+3 0 obj
+<</Producer(Cold Open)>>
+endobj
+xref
+0 11
+0000000000 65535 f\x0d
+0000000016 00000 n\x0d
+0000010820 00000 n\x0d
+0000010871 00000 n\x0d
+0000000061 00000 n\x0d
+0000000201 00000 n\x0d
+0000000404 00000 n\x0d
+0000000634 00000 n\x0d
+0000009655 00000 n\x0d
+0000010707 00000 n\x0d
+0000010313 00000 n\x0d
+trailer
+<</Size 11/Root 1 0 R/Info 3 0 R/ID[<D86B73E07901F16D579452129A8A56AA><D86B73E07901F16D579452129A8A56AA>]>>
+startxref
+10911
+%%EOF
+% warning missing_glyph: 日本語🙂
+% warning missing_mark: ́

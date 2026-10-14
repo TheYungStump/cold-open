@@ -1,0 +1,101 @@
+{
+  "script": {
+    "elements": [
+      {
+        "runs": [
+          {
+            "text": "Plain, "
+          },
+          {
+            "bold": true,
+            "text": "bold, "
+          },
+          {
+            "italic": true,
+            "text": "italic, "
+          },
+          {
+            "text": "underlined, ",
+            "underline": true
+          },
+          {
+            "bold": true,
+            "text": "both, ",
+            "underline": true
+          },
+          {
+            "bold": true,
+            "italic": true,
+            "text": "reversed"
+          },
+          {
+            "text": "."
+          }
+        ],
+        "text": "Plain, bold, italic, underlined, both, reversed.",
+        "type": "action"
+      },
+      {
+        "runs": [
+          {
+            "bold": true,
+            "text": "Two bold runs merge."
+          }
+        ],
+        "text": "Two bold runs merge.",
+        "type": "action"
+      },
+      {
+        "runs": [
+          {
+            "text": "SHOUTED "
+          },
+          {
+            "bold": true,
+            "text": "AND BOLD"
+          },
+          {
+            "text": " and quiet."
+          }
+        ],
+        "text": "SHOUTED AND BOLD and quiet.",
+        "type": "action"
+      },
+      {
+        "runs": [
+          {
+            "italic": true,
+            "text": "Struck, read as italic."
+          }
+        ],
+        "text": "Struck, read as italic.",
+        "type": "action"
+      },
+      {
+        "text": "Defaults say nothing. Everything else is noted.",
+        "type": "dialogue"
+      },
+      {
+        "text": "Tab\tinside.",
+        "type": "action"
+      }
+    ]
+  },
+  "overrides": {},
+  "title_lines": [],
+  "scenes": [],
+  "report": [
+    "section_missing",
+    "settings_missing",
+    "run_all_caps",
+    "unknown_style",
+    "run_font",
+    "run_size",
+    "run_color",
+    "run_background",
+    "run_adornment",
+    "run_revision",
+    "tab_character"
+  ],
+  "format": {}
+}

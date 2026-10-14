@@ -1,0 +1,38 @@
+# Output must not depend on the OS, the clock, the environment or hash-map
+# order (docs/specs/layout.md §1, §12). System math libraries disagree in the
+# last bit for these functions, so layout never calls them.
+disallowed-methods = [
+    { path = "f32::sin", reason = "libm results differ across OSes" },
+    { path = "f32::cos", reason = "libm results differ across OSes" },
+    { path = "f32::tan", reason = "libm results differ across OSes" },
+    { path = "f32::sin_cos", reason = "libm results differ across OSes" },
+    { path = "f32::atan2", reason = "libm results differ across OSes" },
+    { path = "f32::powf", reason = "libm results differ across OSes" },
+    { path = "f32::powi", reason = "precision is unspecified" },
+    { path = "f32::exp", reason = "libm results differ across OSes" },
+    { path = "f32::ln", reason = "libm results differ across OSes" },
+    { path = "f32::log10", reason = "libm results differ across OSes" },
+    { path = "f32::hypot", reason = "libm results differ across OSes" },
+    { path = "f32::mul_add", reason = "falls back to libm without FMA" },
+    { path = "f64::sin", reason = "libm results differ across OSes" },
+    { path = "f64::cos", reason = "libm results differ across OSes" },
+    { path = "f64::tan", reason = "libm results differ across OSes" },
+    { path = "f64::sin_cos", reason = "libm results differ across OSes" },
+    { path = "f64::atan2", reason = "libm results differ across OSes" },
+    { path = "f64::powf", reason = "libm results differ across OSes" },
+    { path = "f64::powi", reason = "precision is unspecified" },
+    { path = "f64::exp", reason = "libm results differ across OSes" },
+    { path = "f64::ln", reason = "libm results differ across OSes" },
+    { path = "f64::log10", reason = "libm results differ across OSes" },
+    { path = "f64::hypot", reason = "libm results differ across OSes" },
+    { path = "f64::mul_add", reason = "falls back to libm without FMA" },
+    { path = "std::time::SystemTime::now", reason = "output must not depend on the clock" },
+    { path = "std::env::var", reason = "output must not depend on the environment" },
+    { path = "std::env::var_os", reason = "output must not depend on the environment" },
+]
+disallowed-types = [
+    { path = "std::collections::HashMap", reason = "iteration order is random; use BTreeMap" },
+    { path = "std::collections::HashSet", reason = "iteration order is random; use BTreeSet" },
+    { path = "std::hash::DefaultHasher", reason = "unspecified across Rust releases" },
+    { path = "std::collections::hash_map::RandomState", reason = "random per map" },
+]

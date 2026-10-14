@@ -1,0 +1,30 @@
+{
+  "script": {
+    "elements": [
+      {
+        "text": "WREN",
+        "type": "character"
+      },
+      {
+        "text": "No inserts at all, and an empty top string that does not matter.",
+        "type": "dialogue"
+      }
+    ]
+  },
+  "overrides": {},
+  "title_lines": [],
+  "scenes": [],
+  "report": [
+    "section_missing",
+    "settings_missing",
+    "starting_page"
+  ],
+  "format": {
+    "contd": null,
+    "contd_after_action": true,
+    "more": null,
+    "page_numbers": {
+      "visible": false
+    }
+  }
+}

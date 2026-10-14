@@ -39,6 +39,8 @@ pub enum Command {
     SceneList(Empty),
     #[serde(rename = "scene.move")]
     SceneMove(SceneMove),
+    #[serde(rename = "export.pdf")]
+    ExportPdf(ExportPdf),
     #[serde(rename = "undo")]
     Undo(Empty),
     #[serde(rename = "redo")]
@@ -52,11 +54,14 @@ pub enum Class {
     Query,
     Edit,
     History,
+    /// Writes a file from the document without changing it; not undoable
+    /// and not journaled.
+    Output,
 }
 
 impl Command {
     /// Every command name, in a stable order (for a command palette).
-    pub const NAMES: [&'static str; 16] = [
+    pub const NAMES: [&'static str; 17] = [
         "doc.new",
         "doc.open",
         "doc.save",
@@ -71,6 +76,7 @@ impl Command {
         "text.replace",
         "scene.list",
         "scene.move",
+        "export.pdf",
         "undo",
         "redo",
     ];
@@ -91,6 +97,7 @@ impl Command {
             Command::TextReplace(_) => "text.replace",
             Command::SceneList(_) => "scene.list",
             Command::SceneMove(_) => "scene.move",
+            Command::ExportPdf(_) => "export.pdf",
             Command::Undo(_) => "undo",
             Command::Redo(_) => "redo",
         }
@@ -104,7 +111,16 @@ impl Command {
             | Command::DocClose(_) => Class::Session,
             Command::DocGet(_) | Command::DocExport(_) | Command::SceneList(_) => Class::Query,
             Command::Undo(_) | Command::Redo(_) => Class::History,
-            _ => Class::Edit,
+            Command::ExportPdf(_) => Class::Output,
+            // Listed one by one so a new command cannot fall into a class
+            // by accident.
+            Command::BlockInsert(_)
+            | Command::BlockSetType(_)
+            | Command::BlockSetText(_)
+            | Command::BlockSetAttrs(_)
+            | Command::BlockDelete(_)
+            | Command::TextReplace(_)
+            | Command::SceneMove(_) => Class::Edit,
         }
     }
 
@@ -329,6 +345,18 @@ pub struct SceneMove {
     pub before: Option<BlockId>,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExportPdf {
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub watermark: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub scene_numbers: bool,
+    #[serde(default = "yes")]
+    pub title_page: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -345,6 +373,7 @@ mod tests {
                 "block.set_text" | "block.set_attrs" | "block.delete" => json!({"id": "b_1"}),
                 "text.replace" => json!({"find": "a", "with": "b"}),
                 "scene.move" => json!({"id": "b_1"}),
+                "export.pdf" => json!({"path": "x.pdf"}),
                 _ => json!({}),
             };
             let cmd = Command::from_parts(name, params).unwrap();
@@ -371,6 +400,20 @@ mod tests {
         };
         assert_eq!(a.scene_number, Some(None));
         assert_eq!(a.space_before, None);
+    }
+
+    #[test]
+    fn export_pdf_defaults() {
+        let Command::ExportPdf(p) =
+            Command::from_parts("export.pdf", json!({"path": "a.pdf"})).unwrap()
+        else {
+            panic!()
+        };
+        assert!(p.title_page);
+        assert!(!p.scene_numbers);
+        assert_eq!(p.watermark, None);
+        assert_eq!(Command::ExportPdf(p).class(), Class::Output);
+        assert!(Command::from_parts("export.pdf", json!({})).is_err());
     }
 
     #[test]

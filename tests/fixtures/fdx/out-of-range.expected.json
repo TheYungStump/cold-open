@@ -1,0 +1,79 @@
+{
+  "script": {
+    "elements": [
+      {
+        "text": "The kettle starts to sing.",
+        "type": "action"
+      },
+      {
+        "text": "Negative space above is not kept.",
+        "type": "action"
+      },
+      {
+        "text": "Nor is more space than a page holds.",
+        "type": "action"
+      },
+      {
+        "text": "A whole body of space is the most a paragraph keeps.",
+        "type": "action"
+      },
+      {
+        "text": "IDA",
+        "type": "character"
+      },
+      {
+        "text": "Who left it on?",
+        "type": "dialogue"
+      }
+    ]
+  },
+  "overrides": {
+    "3": 648
+  },
+  "title_lines": [
+    {
+      "align": "center",
+      "left": 108,
+      "right": 540,
+      "space_before": 0,
+      "text": {
+        "text": "THE KETTLE"
+      }
+    },
+    {
+      "align": "center",
+      "left": 108,
+      "right": 540,
+      "space_before": 648,
+      "text": {
+        "text": "far below"
+      }
+    },
+    {
+      "align": "left",
+      "left": 108,
+      "right": 540,
+      "space_before": 0,
+      "text": {
+        "text": "Draft"
+      }
+    }
+  ],
+  "scenes": [],
+  "report": [
+    "section_missing",
+    "invalid_value",
+    "settings_missing",
+    "invalid_value",
+    "invalid_value",
+    "invalid_value",
+    "invalid_value"
+  ],
+  "format": {
+    "elements": {
+      "shot": {
+        "space_before": 24
+      }
+    }
+  }
+}

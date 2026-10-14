@@ -36,3 +36,6 @@ rustc-ice-*.txt
 .*.coldopen-journal
 .*.coldopen-journal.*
 .*.coldopen-save-*.tmp
+
+# Reference data extracted from corpus PDFs (holds script text)
+*.ref.json

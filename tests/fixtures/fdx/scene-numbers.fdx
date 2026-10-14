@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FinalDraft DocumentType="Script" Version="4">
+  <Content>
+    <Paragraph Number="1" Type="Scene Heading">
+      <SceneProperties Length="3/8" Page="1" Title="Arrival"/>
+      <Text>EXT. HARBOUR - DAWN</Text>
+    </Paragraph>
+    <Paragraph Type="Action">
+      <Text>Gulls argue over a single chip.</Text>
+    </Paragraph>
+    <Paragraph Number=" 2A " Type="Scene Heading">
+      <SceneProperties Page="1"/>
+      <Text>INT. FERRY OFFICE - CONTINUOUS</Text>
+    </Paragraph>
+    <Paragraph Number="   " Type="Scene Heading">
+      <Text>INT. FERRY OFFICE - BACK ROOM</Text>
+    </Paragraph>
+    <Paragraph Number="9" Type="Action">
+      <SceneProperties Page="2"/>
+      <Text>A number on action is dropped, and so are its properties.</Text>
+    </Paragraph>
+  </Content>
+</FinalDraft>

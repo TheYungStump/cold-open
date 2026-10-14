@@ -34,7 +34,7 @@
 | `command`, `params` | The command exactly as applied. |
 | `result` | The command's result, including assigned ids, so replay can confirm it reached the same state. |
 
-Only edits, `undo` and `redo` are written. Queries and session commands are not.
+Only edits, `undo` and `redo` are written. Queries, output commands and session commands are not. Replay stops at any entry that is not an edit, `undo` or `redo`, so a damaged or hand-made journal can never make recovery write files.
 
 ## Writing
 

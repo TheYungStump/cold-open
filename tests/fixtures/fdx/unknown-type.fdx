@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FinalDraft DocumentType="Script" Version="4">
+  <Content>
+    <Paragraph Type="New Act">
+      <Text>ACT ONE</Text>
+    </Paragraph>
+    <Paragraph Type="action">
+      <Text>Type names ignore case.</Text>
+    </Paragraph>
+    <Paragraph>
+      <Text>No type at all.</Text>
+    </Paragraph>
+    <Paragraph Type="End of Act">
+      <Text>END OF ACT ONE</Text>
+    </Paragraph>
+    <Paragraph Type="New Act">
+      <Text>ACT TWO</Text>
+    </Paragraph>
+    <Paragraph Type="Action">
+      <ScriptNote/>
+      <Text>An element we don't read sits in this paragraph.</Text>
+    </Paragraph>
+  </Content>
+</FinalDraft>

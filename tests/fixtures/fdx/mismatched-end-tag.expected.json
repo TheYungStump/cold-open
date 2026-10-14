@@ -1,0 +1,28 @@
+{
+  "script": {
+    "elements": [
+      {
+        "text": "The run is never closed, the paragraph is.",
+        "type": "action"
+      },
+      {
+        "text": "A stray end tag follows this text.",
+        "type": "action"
+      },
+      {
+        "text": "The last paragraph reads normally.",
+        "type": "action"
+      }
+    ]
+  },
+  "overrides": {},
+  "title_lines": [],
+  "scenes": [],
+  "report": [
+    "mismatched_end_tag",
+    "stray_end_tag",
+    "section_missing",
+    "settings_missing"
+  ],
+  "format": {}
+}

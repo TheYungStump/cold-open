@@ -1,0 +1,13 @@
+// The reversed prefixes EXT/INT and E/I make scene headings too, in any case,
+// when followed by a period or a space. EXT./INT. already matches as EXT.
+// The syntax page lists neither, so the writer forces them with a period.
+// A reversed prefix must be followed by a period or a space, and the line must
+// be the paragraph's only line.
+{"type":"scene_heading","text":"EXT/INT. BUS - DAY"}
+{"type":"scene_heading","text":"E/I CAR - NIGHT"}
+{"type":"scene_heading","text":"ext/int bus stop"}
+{"type":"scene_heading","text":"EXT./INT. VAN - MOVING"}
+{"type":"action","text":"EXT/INTERIOR DESIGN"}
+{"type":"action","text":"E/IX"}
+{"type":"action","text":"E/I"}
+{"type":"action","text":"E/I X marks the spot.\nThe map is old."}

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FinalDraft DocumentType="Script" Version="4">
+  <Content>
+    <Paragraph StartsNewPage="Yes" Type="Action">
+      <Text>The first paragraph needs no break before it.</Text>
+    </Paragraph>
+    <Paragraph Type="Action">
+      <Text>An ordinary paragraph.</Text>
+    </Paragraph>
+    <Paragraph StartsNewPage="Yes" Type="Action">
+      <Text>This one starts a page.</Text>
+    </Paragraph>
+    <Paragraph Type="New Act">
+      <Text>ACT TWO</Text>
+    </Paragraph>
+    <Paragraph Type="New Act" StartsNewPage="No">
+      <Text>NOT A NEW PAGE</Text>
+    </Paragraph>
+    <Paragraph StartsNewPage="No" Type="Scene Heading">
+      <Text>INT. ATTIC - DAY</Text>
+    </Paragraph>
+    <Paragraph StartsNewPage="Maybe" Type="Action">
+      <Text>A bad value keeps the default.</Text>
+    </Paragraph>
+  </Content>
+  <ElementSettings Type="Scene Heading">
+    <ParagraphSpec StartsNewPage="Yes"/>
+  </ElementSettings>
+  <ElementSettings Type="New Act">
+    <ParagraphSpec Alignment="Center" StartsNewPage="Yes"/>
+  </ElementSettings>
+</FinalDraft>

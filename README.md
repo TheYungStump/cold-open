@@ -2,7 +2,7 @@
 
 Cold Open is a free, open-source screenwriting app. It reads and writes Fountain and Final Draft (.fdx) files and never loses your work. Every action is a command, and you can drive it from the desktop app, the command line, JSON over stdio, or an MCP server.
 
-**Status:** phase 1 of 6, the core and the command-line tool. The desktop app, PDF output and .fdx support come in later phases. See [`docs/spec.md`](docs/spec.md) for the full plan.
+**Status:** phase 2 of 6: the core, the command-line tool, pagination and PDF export. The desktop app comes next; full .fdx support follows it. See [`docs/spec.md`](docs/spec.md) for the full plan.
 
 ## Build
 
@@ -41,11 +41,32 @@ coldopen scenes draft.fountain
 The output looks like this:
 
 ```
-   1  1  EXT. LIGHTHOUSE - DUSK  (15 blocks, 39 words)
-   2  2  INT. RADIO ROOM - NIGHT  (5 blocks, 18 words)
+   1  1    p. 1     3/8  EXT. LIGHTHOUSE - DUSK  (15 blocks, 39 words)
+   2  2    p. 1     2/8  INT. RADIO ROOM - NIGHT  (5 blocks, 18 words)
 ```
 
-Add `--json` for machine-readable output.
+Each line shows the page the scene starts on and its length in eighths of a page. Add `--json` for machine-readable output.
+
+### Export a PDF
+
+```bash
+coldopen export draft.fountain draft.pdf
+coldopen export draft.fountain review.pdf --watermark "DRAFT" --scene-numbers
+```
+
+The PDF uses the bundled Courier Prime font and comes out byte for byte the same on Windows, macOS and Linux. `--no-title-page` leaves out the title page. Characters the font has no glyph for (for example Chinese or emoji) print as a box, and the command says which.
+
+### See the pages as text
+
+```bash
+coldopen pages draft.fountain
+```
+
+prints every page the way it prints, as plain text on a 10-characters-per-inch grid, with a header line per page saying why it ended. It is handy for checking page breaks.
+
+### Licenses
+
+`coldopen licenses` prints Cold Open's license and the SIL Open Font License of the bundled Courier Prime fonts.
 
 ### Run a batch of edits
 
@@ -105,7 +126,7 @@ The details are in [`docs/specs/journal.md`](docs/specs/journal.md).
 Cold Open supports everything on the [Fountain syntax page](https://fountain.io/syntax):
 
 - the title page
-- scene headings, including forced headings and scene numbers
+- scene headings, including forced headings and scene numbers, plus the reversed `EXT/INT` and `E/I` prefixes that some writers use
 - action, characters, dialogue, parentheticals and dual dialogue
 - lyrics, transitions and centered text
 - emphasis
@@ -141,7 +162,7 @@ cd fuzz
 cargo +nightly fuzz run fountain_roundtrip
 ```
 
-The other targets are `envelope` and `journal_replay`. A scheduled workflow runs all three every Sunday; you can also start it by hand from the Actions tab.
+The other targets are `envelope`, `journal_replay` and `fdx_read`. A scheduled workflow runs all four every Sunday; you can also start it by hand from the Actions tab.
 
 ## Layout
 
@@ -149,7 +170,12 @@ The other targets are `envelope` and `journal_replay`. A scheduled workflow runs
 | --- | --- | --- |
 | `crates/screenplay` | MIT OR Apache-2.0 | Screenplay types: elements, rich text, title page |
 | `crates/fountain` | MIT OR Apache-2.0 | The Fountain parser and writer |
+| `crates/fonts` | OFL-1.1 (fonts), MIT OR Apache-2.0 (code) | The bundled Courier Prime faces |
+| `crates/layout` | MIT OR Apache-2.0 | Layout on a character grid, pagination, page view and PDF export |
+| `crates/fdx` | MIT OR Apache-2.0 | A read-only .fdx reader (phase 2); writing and repair come in phase 4 |
 | `crates/core` | GPL-3.0-or-later | Document, commands, dispatcher, undo, journal, atomic save |
 | `crates/cli` | GPL-3.0-or-later | The `coldopen` binary |
 
-The format libraries are permissively licensed so other apps can use them. The app itself is GPL-3.0-or-later; see [LICENSE](LICENSE).
+The format libraries are permissively licensed so other apps can use them. The app itself is GPL-3.0-or-later; see [LICENSE](LICENSE). The Courier Prime fonts are under the SIL Open Font License 1.1 (`crates/fonts/fonts/OFL.txt`); PDFs you export are yours and are not covered by it.
+
+`tools/refpdf` is a development tool that measures reference PDFs for the layout tests; it is never shipped.

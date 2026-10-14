@@ -1,0 +1,28 @@
+{
+  "script": {
+    "elements": [
+      {
+        "text": "INT. ARCHIVE - NIGHT",
+        "type": "scene_heading"
+      },
+      {
+        "text": "This paragraph survives the cut.",
+        "type": "action"
+      },
+      {
+        "text": "So does this partial one, up to here",
+        "type": "action"
+      }
+    ]
+  },
+  "overrides": {},
+  "title_lines": [],
+  "scenes": [],
+  "report": [
+    "truncated_xml",
+    "unclosed_element",
+    "section_missing",
+    "settings_missing"
+  ],
+  "format": {}
+}

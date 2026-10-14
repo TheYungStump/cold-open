@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FinalDraft DocumentType="Script" Version="4">
+  <Content>
+    <Paragraph Type="Action">
+      <Text>Plain, </Text><Text Style="Bold">bold, </Text><Text Style="Italic">italic, </Text><Text Style="Underline">underlined, </Text><Text Style="Bold+Underline">both, </Text><Text Style="Italic+Bold">reversed</Text><Text Style="">.</Text>
+    </Paragraph>
+    <Paragraph Type="Action">
+      <Text Style="Bold">Two bold </Text><Text Style="Bold">runs merge.</Text>
+    </Paragraph>
+    <Paragraph Type="Action">
+      <Text Style="AllCaps">shouted </Text><Text Style="Bold+AllCaps">and bold</Text><Text> and quiet.</Text>
+    </Paragraph>
+    <Paragraph Type="Action">
+      <Text Style="Strikeout+Italic">Struck, read as italic.</Text>
+    </Paragraph>
+    <Paragraph Type="Dialogue">
+      <Text Font="Courier Prime" Size="12" Color="#000000000000" Background="#FFFFFFFFFFFF" AdornmentStyle="0" RevisionID="0">Defaults say nothing. </Text><Text Font="Arial" Size="14" Color="#FFFF00000000" Background="#FFFFFFFF0000" AdornmentStyle="1" RevisionID="2">Everything else is noted.</Text>
+    </Paragraph>
+    <Paragraph Type="Action">
+      <Text>Tab	inside.</Text>
+    </Paragraph>
+  </Content>
+</FinalDraft>

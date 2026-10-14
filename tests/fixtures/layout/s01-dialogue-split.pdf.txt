@@ -1,0 +1,207 @@
+%PDF-1.7
+%\x80\x80\x80\x80
+
+1 0 obj
+<</Type/Catalog/Pages 2 0 R>>
+endobj
+4 0 obj
+<</Type/Font/Subtype/Type0/BaseFont/RLBLLY+CourierPrime-Regular/Encoding/Identity-H/DescendantFonts[5 0 R]/ToUnicode 8 0 R>>
+endobj
+5 0 obj
+<</Type/Font/Subtype/CIDFontType2/BaseFont/RLBLLY+CourierPrime-Regular/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/FontDescriptor 6 0 R/DW 600/CIDToGIDMap/Identity>>
+endobj
+6 0 obj
+<</Type/FontDescriptor/FontName/RLBLLY+CourierPrime-Regular/Flags 35/FontBBox[-370.60547 -256.83594 1567.8711 892.08984]/ItalicAngle 0/Ascent 781.25/Descent -341.79688/CapHeight 579.58984/StemV 80/FontFile2 7 0 R>>
+endobj
+7 0 obj
+<</Length 7418/Filter/FlateDecode/Length1 12988>>
+stream
+[font program: 12988 bytes, fnv64 f4a086da7f30acdb]
+endstream
+endobj
+8 0 obj
+<</Length 495/Type/CMap/Filter/FlateDecode>>
+stream
+%!PS-Adobe-3.0 Resource-CMap
+%%DocumentNeededResources: procset CIDInit
+%%IncludeResource: procset CIDInit
+%%BeginResource: CMap Adobe-Identity-UCS
+%%Title: (Adobe-Identity-UCS Adobe Identity 0)
+%%Version: 1
+%%EndComments
+/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo 3 dict dup begin
+    /Registry (Adobe) def
+    /Ordering (Identity) def
+    /Supplement 0 def
+end def
+/CMapName /Adobe-Identity-UCS def
+/CMapVersion 1 def
+/CMapType 0 def
+/WMode 0 def
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+34 beginbfchar
+<0001> <0020>
+<0002> <0027>
+<0003> <0028>
+<0004> <0029>
+<0005> <002E>
+<0006> <0031>
+<0007> <0032>
+<0008> <0033>
+<0009> <0034>
+<000A> <0035>
+<000B> <0036>
+<000C> <0037>
+<000D> <0041>
+<000E> <0043>
+<000F> <0044>
+<0010> <0045>
+<0011> <004D>
+<0012> <004E>
+<0013> <004F>
+<0014> <0052>
+<0015> <0053>
+<0016> <0054>
+<0017> <0059>
+<0018> <0061>
+<0019> <0063>
+<001A> <0065>
+<001B> <0066>
+<001C> <0069>
+<001D> <006B>
+<001E> <006C>
+<001F> <006E>
+<0020> <006F>
+<0021> <0070>
+<0022> <0074>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+%%EndResource
+%%EOF
+endstream
+endobj
+10 0 obj
+<</Length 210/Filter/FlateDecode>>
+stream
+BT
+/F0 12 Tf
+1 0 0 1 108 207 Tm
+(\000\r\000\001\000\036\000\034\000\037\000\032\000\001\000\006\000\001\000 \000\033\000\001\000\030\000\031\000"\000\034\000 \000\037\000\005) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 108 195 Tm
+(\000\r\000\001\000\036\000\034\000\037\000\032\000\001\000\007\000\001\000 \000\033\000\001\000\030\000\031\000"\000\034\000 \000\037\000\005) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 108 183 Tm
+(\000\r\000\001\000\036\000\034\000\037\000\032\000\001\000\b\000\001\000 \000\033\000\001\000\030\000\031\000"\000\034\000 \000\037\000\005) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 108 171 Tm
+(\000\r\000\001\000\036\000\034\000\037\000\032\000\001\000\t\000\001\000 \000\033\000\001\000\030\000\031\000"\000\034\000 \000\037\000\005) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 108 159 Tm
+(\000\r\000\001\000\036\000\034\000\037\000\032\000\001\000\n\000\001\000 \000\033\000\001\000\030\000\031\000"\000\034\000 \000\037\000\005) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 108 147 Tm
+(\000\r\000\001\000\036\000\034\000\037\000\032\000\001\000\013\000\001\000 \000\033\000\001\000\030\000\031\000"\000\034\000 \000\037\000\005) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 108 135 Tm
+(\000\r\000\001\000\036\000\034\000\037\000\032\000\001\000\f\000\001\000 \000\033\000\001\000\030\000\031\000"\000\034\000 \000\037\000\005) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 230.4 111 Tm
+(\000\021\000\r\000\027\000\r) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 180 99 Tm
+(\000\025\000!\000 \000\035\000\032\000\037\000\001\000\036\000\034\000\037\000\032\000\001\000\006\000\005) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 180 87 Tm
+(\000\025\000!\000 \000\035\000\032\000\037\000\001\000\036\000\034\000\037\000\032\000\001\000\007\000\005) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 230.4 75 Tm
+(\000\003\000\021\000\023\000\024\000\020\000\004) Tj
+ET
+endstream
+endobj
+9 0 obj
+<</Type/Page/MediaBox[0 0 612 288]/Parent 2 0 R/Contents 10 0 R/Resources<</Font<</F0 4 0 R>>>>>>
+endobj
+12 0 obj
+<</Length 151/Filter/FlateDecode>>
+stream
+BT
+/F0 12 Tf
+1 0 0 1 230.4 207 Tm
+(\000\021\000\r\000\027\000\r\000\001\000\003\000\016\000\023\000\022\000\026\000\002\000\017\000\004) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 180 195 Tm
+(\000\025\000!\000 \000\035\000\032\000\037\000\001\000\036\000\034\000\037\000\032\000\001\000\b\000\005) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 180 183 Tm
+(\000\025\000!\000 \000\035\000\032\000\037\000\001\000\036\000\034\000\037\000\032\000\001\000\t\000\005) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 309.6 243 Tm
+(\000\007\000\005) Tj
+ET
+endstream
+endobj
+11 0 obj
+<</Type/Page/MediaBox[0 0 612 288]/Parent 2 0 R/Contents 12 0 R/Resources<</Font<</F0 4 0 R>>>>>>
+endobj
+2 0 obj
+<</Type/Pages/Kids[9 0 R 11 0 R]/Count 2>>
+endobj
+3 0 obj
+<</Producer(Cold Open)>>
+endobj
+xref
+0 13
+0000000000 65535 f\x0d
+0000000016 00000 n\x0d
+0000009434 00000 n\x0d
+0000009492 00000 n\x0d
+0000000061 00000 n\x0d
+0000000201 00000 n\x0d
+0000000404 00000 n\x0d
+0000000634 00000 n\x0d
+0000008135 00000 n\x0d
+0000008987 00000 n\x0d
+0000008708 00000 n\x0d
+0000009320 00000 n\x0d
+0000009100 00000 n\x0d
+trailer
+<</Size 13/Root 1 0 R/Info 3 0 R/ID[<097F4D20C25A5D43D36CF724B8FD0D32><097F4D20C25A5D43D36CF724B8FD0D32>]>>
+startxref
+9532
+%%EOF

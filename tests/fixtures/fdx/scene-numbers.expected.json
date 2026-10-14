@@ -1,0 +1,52 @@
+{
+  "script": {
+    "elements": [
+      {
+        "scene_number": "1",
+        "text": "EXT. HARBOUR - DAWN",
+        "type": "scene_heading"
+      },
+      {
+        "text": "Gulls argue over a single chip.",
+        "type": "action"
+      },
+      {
+        "scene_number": "2A",
+        "text": "INT. FERRY OFFICE - CONTINUOUS",
+        "type": "scene_heading"
+      },
+      {
+        "text": "INT. FERRY OFFICE - BACK ROOM",
+        "type": "scene_heading"
+      },
+      {
+        "text": "A number on action is dropped, and so are its properties.",
+        "type": "action"
+      }
+    ]
+  },
+  "overrides": {},
+  "title_lines": [],
+  "scenes": [
+    {
+      "element": 0,
+      "length": "3/8",
+      "page": "1",
+      "title": "Arrival"
+    },
+    {
+      "element": 2,
+      "length": null,
+      "page": "1",
+      "title": null
+    }
+  ],
+  "report": [
+    "section_missing",
+    "settings_missing",
+    "invalid_scene_number",
+    "scene_number_ignored",
+    "scene_properties_ignored"
+  ],
+  "format": {}
+}

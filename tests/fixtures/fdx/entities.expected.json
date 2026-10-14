@@ -1,0 +1,39 @@
+{
+  "script": {
+    "elements": [
+      {
+        "text": "Salt & pepper, Wren’s cup, a dash—and <tags> with \"quotes\" & 'apostrophes'.",
+        "type": "action"
+      },
+      {
+        "text": "CDATA keeps <b>this</b> & that literally.",
+        "type": "action"
+      },
+      {
+        "text": "An unknown&nbsp;entity and a bad reference &#0; stay as written; a lone & is fine.",
+        "type": "action"
+      },
+      {
+        "text": "FIRST TYPE WINS",
+        "type": "character"
+      },
+      {
+        "scene_number": "4&bogus;",
+        "text": "EXT. PIER - DUSK",
+        "type": "scene_heading"
+      }
+    ]
+  },
+  "overrides": {},
+  "title_lines": [],
+  "scenes": [],
+  "report": [
+    "duplicate_attribute",
+    "attribute_value",
+    "section_missing",
+    "settings_missing",
+    "unknown_entity",
+    "bad_char_ref"
+  ],
+  "format": {}
+}

@@ -16,6 +16,8 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 coldopen-fountain = { path = "../crates/fountain" }
 coldopen-core = { path = "../crates/core" }
+coldopen-layout = { path = "../crates/layout" }
+coldopen-fdx = { path = "../crates/fdx" }
 
 [[bin]]
 name = "fountain_roundtrip"
@@ -34,6 +36,13 @@ bench = false
 [[bin]]
 name = "journal_replay"
 path = "fuzz_targets/journal_replay.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fdx_read"
+path = "fuzz_targets/fdx_read.rs"
 test = false
 doc = false
 bench = false

@@ -1,0 +1,31 @@
+{
+  "script": {
+    "elements": [
+      {
+        "text": "Before the gap.",
+        "type": "action"
+      },
+      {
+        "text": "",
+        "type": "action"
+      },
+      {
+        "text": "",
+        "type": "general"
+      },
+      {
+        "text": "After the gap.",
+        "type": "action"
+      }
+    ]
+  },
+  "overrides": {},
+  "title_lines": [],
+  "scenes": [],
+  "report": [
+    "section_missing",
+    "settings_missing",
+    "trailing_empty_dropped"
+  ],
+  "format": {}
+}

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FinalDraft DocumentType="Script" Version="4">
+  <Content>
+    <Paragraph Type="Action">
+      <Text>The margins below leave no room for this line.</Text>
+    </Paragraph>
+  </Content>
+  <PageLayout BottomMargin="400" HeaderMargin="36" TopMargin="500">
+    <PageSize Height="11.00" Width="8.50"/>
+  </PageLayout>
+  <ElementSettings Type="Action">
+    <ParagraphSpec LeftIndent="1.00" RightIndent="9.00" SpaceBefore="12"/>
+  </ElementSettings>
+</FinalDraft>

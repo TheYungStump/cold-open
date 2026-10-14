@@ -3,3 +3,8 @@
 
 # Fixtures are compared byte-for-byte, including deliberate CRLF and BOM cases.
 tests/fixtures/** -text
+
+# Fonts and PDFs are binary everywhere, whatever git's heuristic says.
+*.ttf binary
+*.otf binary
+*.pdf binary

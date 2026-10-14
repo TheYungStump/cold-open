@@ -1,0 +1,19 @@
+{
+  "script": {
+    "elements": [
+      {
+        "text": "The margins below leave no room for this line.",
+        "type": "action"
+      }
+    ]
+  },
+  "overrides": {},
+  "title_lines": [],
+  "scenes": [],
+  "report": [
+    "section_missing",
+    "settings_missing",
+    "invalid_format"
+  ],
+  "format": {}
+}

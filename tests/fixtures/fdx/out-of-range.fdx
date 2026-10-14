@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FinalDraft DocumentType="Script" Version="4">
+  <Content>
+    <Paragraph Type="Action">
+      <Text>The kettle starts to sing.</Text>
+    </Paragraph>
+    <Paragraph SpaceBefore="-12" Type="Action">
+      <Text>Negative space above is not kept.</Text>
+    </Paragraph>
+    <Paragraph SpaceBefore="21474836.47" Type="Action">
+      <Text>Nor is more space than a page holds.</Text>
+    </Paragraph>
+    <Paragraph SpaceBefore="648" Type="Action">
+      <Text>A whole body of space is the most a paragraph keeps.</Text>
+    </Paragraph>
+    <Paragraph Type="Character">
+      <Text>IDA</Text>
+    </Paragraph>
+    <Paragraph Type="Dialogue">
+      <Text>Who left it on?</Text>
+    </Paragraph>
+  </Content>
+  <ElementSettings Type="Shot">
+    <ParagraphSpec SpaceBefore="24" Spacing="10000000"/>
+  </ElementSettings>
+  <TitlePage>
+    <Content>
+      <Paragraph Alignment="Center">
+        <Text>THE KETTLE</Text>
+      </Paragraph>
+      <Paragraph Alignment="Center" SpaceBefore="21474836.47">
+        <Text>far below</Text>
+      </Paragraph>
+      <Paragraph SpaceBefore="-6">
+        <Text>Draft</Text>
+      </Paragraph>
+    </Content>
+  </TitlePage>
+</FinalDraft>

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FinalDraft DocumentType="Script" Version="4">
+  <Content>
+    <Paragraph Type="Action">
+      <Text>The twins reach the door at the same moment.</Text>
+    </Paragraph>
+    <Paragraph Alignment="Left" FirstIndent="0.00" Leading="Regular" LeftIndent="1.50" RightIndent="7.50" SpaceBefore="12" Spacing="1" StartsNewPage="No" Type="General">
+      <DualDialogue>
+        <Paragraph Type="Character">
+          <Text>PIP</Text>
+        </Paragraph>
+        <Paragraph Type="Parenthetical">
+          <Text>(breathless)</Text>
+        </Paragraph>
+        <Paragraph Type="Dialogue">
+          <Text>Mine.</Text>
+        </Paragraph>
+        <Paragraph Type="Character">
+          <Text>POPPY</Text>
+        </Paragraph>
+        <Paragraph Type="Dialogue">
+          <Text>Ours,
+technically.</Text>
+        </Paragraph>
+      </DualDialogue>
+      <Text></Text>
+    </Paragraph>
+    <Paragraph Type="General">
+      <DualDialogue>
+        <Paragraph Type="Character">
+          <Text>PIP</Text>
+        </Paragraph>
+        <Paragraph Type="Dialogue">
+          <Text>Only one voice here.</Text>
+        </Paragraph>
+        <Paragraph Type="Dialogue">
+          <Text>Still one.</Text>
+        </Paragraph>
+      </DualDialogue>
+    </Paragraph>
+    <Paragraph Type="General">
+      <DualDialogue>
+        <Paragraph Type="Character">
+          <Text>PIP</Text>
+        </Paragraph>
+        <Paragraph Type="Dialogue">
+          <Text>Left.</Text>
+        </Paragraph>
+        <Paragraph Type="Character">
+          <Text>POPPY</Text>
+        </Paragraph>
+        <Paragraph Type="Dialogue">
+          <Text>Right.</Text>
+        </Paragraph>
+      </DualDialogue>
+      <Text>A stray outer note.</Text>
+    </Paragraph>
+  </Content>
+</FinalDraft>

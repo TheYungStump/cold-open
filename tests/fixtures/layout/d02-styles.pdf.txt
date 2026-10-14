@@ -1,0 +1,369 @@
+%PDF-1.7
+%\x80\x80\x80\x80
+
+1 0 obj
+<</Type/Catalog/Pages 2 0 R>>
+endobj
+4 0 obj
+<</Type/Font/Subtype/Type0/BaseFont/MUMOKZ+CourierPrime-Regular/Encoding/Identity-H/DescendantFonts[5 0 R]/ToUnicode 8 0 R>>
+endobj
+5 0 obj
+<</Type/Font/Subtype/CIDFontType2/BaseFont/MUMOKZ+CourierPrime-Regular/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/FontDescriptor 6 0 R/DW 600/CIDToGIDMap/Identity>>
+endobj
+6 0 obj
+<</Type/FontDescriptor/FontName/MUMOKZ+CourierPrime-Regular/Flags 35/FontBBox[-370.60547 -256.83594 1567.8711 892.08984]/ItalicAngle 0/Ascent 781.25/Descent -341.79688/CapHeight 579.58984/StemV 80/FontFile2 7 0 R>>
+endobj
+7 0 obj
+<</Length 6567/Filter/FlateDecode/Length1 12048>>
+stream
+[font program: 12048 bytes, fnv64 ec12ed31452862ad]
+endstream
+endobj
+8 0 obj
+<</Length 474/Type/CMap/Filter/FlateDecode>>
+stream
+%!PS-Adobe-3.0 Resource-CMap
+%%DocumentNeededResources: procset CIDInit
+%%IncludeResource: procset CIDInit
+%%BeginResource: CMap Adobe-Identity-UCS
+%%Title: (Adobe-Identity-UCS Adobe Identity 0)
+%%Version: 1
+%%EndComments
+/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo 3 dict dup begin
+    /Registry (Adobe) def
+    /Ordering (Identity) def
+    /Supplement 0 def
+end def
+/CMapName /Adobe-Identity-UCS def
+/CMapVersion 1 def
+/CMapType 0 def
+/WMode 0 def
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+29 beginbfchar
+<0001> <0020>
+<0002> <002C>
+<0003> <002D>
+<0004> <002E>
+<0005> <0041>
+<0006> <0044>
+<0007> <0049>
+<0008> <004D>
+<0009> <004E>
+<000A> <004F>
+<000B> <0053>
+<000C> <0054>
+<000D> <0055>
+<000E> <0059>
+<000F> <0061>
+<0010> <0064>
+<0011> <0065>
+<0012> <0068>
+<0013> <0069>
+<0014> <006C>
+<0015> <006D>
+<0016> <006E>
+<0017> <006F>
+<0018> <0072>
+<0019> <0073>
+<001A> <0074>
+<001B> <0075>
+<001C> <0077>
+<001D> <0079>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+%%EndResource
+%%EOF
+endstream
+endobj
+9 0 obj
+<</Type/Font/Subtype/Type0/BaseFont/GBUZMJ+CourierPrime-Bold/Encoding/Identity-H/DescendantFonts[10 0 R]/ToUnicode 13 0 R>>
+endobj
+10 0 obj
+<</Type/Font/Subtype/CIDFontType2/BaseFont/GBUZMJ+CourierPrime-Bold/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/FontDescriptor 11 0 R/DW 600/CIDToGIDMap/Identity>>
+endobj
+11 0 obj
+<</Type/FontDescriptor/FontName/GBUZMJ+CourierPrime-Bold/Flags 35/FontBBox[-387.20703 -265.625 1586.9141 892.08984]/ItalicAngle 0/Ascent 781.25/Descent -341.79688/CapHeight 579.58984/StemV 120/FontFile2 12 0 R>>
+endobj
+12 0 obj
+<</Length 3525/Filter/FlateDecode/Length1 6696>>
+stream
+[font program: 6696 bytes, fnv64 3a4a80fcaa9c37c7]
+endstream
+endobj
+13 0 obj
+<</Length 357/Type/CMap/Filter/FlateDecode>>
+stream
+%!PS-Adobe-3.0 Resource-CMap
+%%DocumentNeededResources: procset CIDInit
+%%IncludeResource: procset CIDInit
+%%BeginResource: CMap Adobe-Identity-UCS
+%%Title: (Adobe-Identity-UCS Adobe Identity 0)
+%%Version: 1
+%%EndComments
+/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo 3 dict dup begin
+    /Registry (Adobe) def
+    /Ordering (Identity) def
+    /Supplement 0 def
+end def
+/CMapName /Adobe-Identity-UCS def
+/CMapVersion 1 def
+/CMapType 0 def
+/WMode 0 def
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+4 beginbfchar
+<0001> <0062>
+<0002> <0064>
+<0003> <006C>
+<0004> <006F>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+%%EndResource
+%%EOF
+endstream
+endobj
+14 0 obj
+<</Type/Font/Subtype/Type0/BaseFont/OJVFFL+CourierPrime-Italic/Encoding/Identity-H/DescendantFonts[15 0 R]/ToUnicode 18 0 R>>
+endobj
+15 0 obj
+<</Type/Font/Subtype/CIDFontType2/BaseFont/OJVFFL+CourierPrime-Italic/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/FontDescriptor 16 0 R/DW 600/CIDToGIDMap/Identity>>
+endobj
+16 0 obj
+<</Type/FontDescriptor/FontName/OJVFFL+CourierPrime-Italic/Flags 99/FontBBox[-450.1953 -256.34766 1546.875 892.08984]/ItalicAngle -10/Ascent 781.25/Descent -341.79688/CapHeight 579.58984/StemV 80/FontFile2 17 0 R>>
+endobj
+17 0 obj
+<</Length 3876/Filter/FlateDecode/Length1 7068>>
+stream
+[font program: 7068 bytes, fnv64 6623111e3a73e67e]
+endstream
+endobj
+18 0 obj
+<</Length 364/Type/CMap/Filter/FlateDecode>>
+stream
+%!PS-Adobe-3.0 Resource-CMap
+%%DocumentNeededResources: procset CIDInit
+%%IncludeResource: procset CIDInit
+%%BeginResource: CMap Adobe-Identity-UCS
+%%Title: (Adobe-Identity-UCS Adobe Identity 0)
+%%Version: 1
+%%EndComments
+/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo 3 dict dup begin
+    /Registry (Adobe) def
+    /Ordering (Identity) def
+    /Supplement 0 def
+end def
+/CMapName /Adobe-Identity-UCS def
+/CMapVersion 1 def
+/CMapType 0 def
+/WMode 0 def
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+5 beginbfchar
+<0001> <0061>
+<0002> <0063>
+<0003> <0069>
+<0004> <006C>
+<0005> <0074>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+%%EndResource
+%%EOF
+endstream
+endobj
+19 0 obj
+<</Type/Font/Subtype/Type0/BaseFont/YWAEYU+CourierPrime-BoldItalic/Encoding/Identity-H/DescendantFonts[20 0 R]/ToUnicode 23 0 R>>
+endobj
+20 0 obj
+<</Type/Font/Subtype/CIDFontType2/BaseFont/YWAEYU+CourierPrime-BoldItalic/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/FontDescriptor 21 0 R/DW 600/CIDToGIDMap/Identity>>
+endobj
+21 0 obj
+<</Type/FontDescriptor/FontName/YWAEYU+CourierPrime-BoldItalic/Flags 99/FontBBox[-459.47266 -266.11328 1568.8477 892.08984]/ItalicAngle -10/Ascent 781.25/Descent -341.79688/CapHeight 579.58984/StemV 120/FontFile2 22 0 R>>
+endobj
+22 0 obj
+<</Length 3698/Filter/FlateDecode/Length1 6696>>
+stream
+[font program: 6696 bytes, fnv64 0d2a618bc022bc41]
+endstream
+endobj
+23 0 obj
+<</Length 360/Type/CMap/Filter/FlateDecode>>
+stream
+%!PS-Adobe-3.0 Resource-CMap
+%%DocumentNeededResources: procset CIDInit
+%%IncludeResource: procset CIDInit
+%%BeginResource: CMap Adobe-Identity-UCS
+%%Title: (Adobe-Identity-UCS Adobe Identity 0)
+%%Version: 1
+%%EndComments
+/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo 3 dict dup begin
+    /Registry (Adobe) def
+    /Ordering (Identity) def
+    /Supplement 0 def
+end def
+/CMapName /Adobe-Identity-UCS def
+/CMapVersion 1 def
+/CMapType 0 def
+/WMode 0 def
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+4 beginbfchar
+<0001> <0062>
+<0002> <0068>
+<0003> <006F>
+<0004> <0074>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+%%EndResource
+%%EOF
+endstream
+endobj
+25 0 obj
+<</Length 310/Filter/FlateDecode>>
+stream
+BT
+/F0 12 Tf
+1 0 0 1 108 711 Tm
+(\000\007\000\t\000\f\000\004\000\001\000\013\000\f\000\r\000\006\000\007\000\n\000\001\000\003\000\001\000\006\000\005\000\016) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 108 687 Tm
+(\000\f\000\022\000\023\000\031\000\001\000\022\000\017\000\031\000\001) Tj
+ET
+BT
+/F1 12 Tf
+1 0 0 1 172.8 687 Tm
+(\000\001\000\004\000\003\000\002) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 201.6 687 Tm
+(\000\002\000\001) Tj
+ET
+BT
+/F2 12 Tf
+1 0 0 1 216 687 Tm
+(\000\003\000\005\000\001\000\004\000\003\000\002) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 259.2 687 Tm
+(\000\002\000\001) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 273.6 687 Tm
+(\000\033\000\026\000\020\000\021\000\030\000\024\000\023\000\026\000\021\000\020) Tj
+ET
+273.6 685.1543 72 0.76171875 re
+f
+BT
+/F0 12 Tf
+1 0 0 1 345.6 687 Tm
+(\000\001\000\017\000\026\000\020\000\001) Tj
+ET
+BT
+/F3 12 Tf
+1 0 0 1 381.6 687 Tm
+(\000\001\000\003\000\004\000\002) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 410.4 687 Tm
+(\000\001\000\034\000\027\000\030\000\020\000\031\000\004) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 266.4 663 Tm
+(\000\b\000\005\000\016\000\005) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 180 651 Tm
+(\000\007\000\001) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 194.4 651 Tm
+(\000\030\000\021\000\017\000\024\000\024\000\035) Tj
+ET
+194.4 649.1543 43.2 0.76171875 re
+f
+BT
+/F0 12 Tf
+1 0 0 1 237.6 651 Tm
+(\000\001\000\025\000\021\000\017\000\026\000\001\000\023\000\032\000\004) Tj
+ET
+endstream
+endobj
+24 0 obj
+<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Contents 25 0 R/Resources<</Font<</F0 4 0 R/F1 9 0 R/F2 14 0 R/F3 19 0 R>>>>>>
+endobj
+2 0 obj
+<</Type/Pages/Kids[24 0 R]/Count 1>>
+endobj
+3 0 obj
+<</Producer(Cold Open)>>
+endobj
+xref
+0 26
+0000000000 65535 f\x0d
+0000000016 00000 n\x0d
+0000022762 00000 n\x0d
+0000022814 00000 n\x0d
+0000000061 00000 n\x0d
+0000000201 00000 n\x0d
+0000000404 00000 n\x0d
+0000000634 00000 n\x0d
+0000007284 00000 n\x0d
+0000007836 00000 n\x0d
+0000007975 00000 n\x0d
+0000008177 00000 n\x0d
+0000008405 00000 n\x0d
+0000012013 00000 n\x0d
+0000012449 00000 n\x0d
+0000012591 00000 n\x0d
+0000012795 00000 n\x0d
+0000013026 00000 n\x0d
+0000016985 00000 n\x0d
+0000017428 00000 n\x0d
+0000017574 00000 n\x0d
+0000017782 00000 n\x0d
+0000018020 00000 n\x0d
+0000021801 00000 n\x0d
+0000022619 00000 n\x0d
+0000022240 00000 n\x0d
+trailer
+<</Size 26/Root 1 0 R/Info 3 0 R/ID[<FD09A678BED0F4742A2925C79A963BCD><FD09A678BED0F4742A2925C79A963BCD>]>>
+startxref
+22854
+%%EOF

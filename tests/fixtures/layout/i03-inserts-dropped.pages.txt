@@ -1,0 +1,29 @@
+=== page 1 · body 1 · explicit · inserts_dropped@3 ===
+
+
+
+
+
+
+               A line 1 of action.
+               A line 2 of action.
+               A line 3 of action.
+               A line 4 of action.
+               A line 5 of action.
+               A line 6 of action.
+               A line 7 of action.
+               A line 8 of action.
+               A line 9 of action.
+
+                                MAYA
+                         One line.
+=== page 2 · body 2 · end ===
+
+
+
+                                           2.
+
+
+                                MAYA (CONT'D)
+                             (then)
+                         Another line.

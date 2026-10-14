@@ -1,0 +1,5 @@
+// A first line that starts with a scene heading prefix is not a title page,
+// even when it is shaped like "Key: value". Reversed prefixes count too.
+// The writer forces the heading with a period, as for any reversed prefix.
+{"type":"scene_heading","text":"EXT/INT. CAR: DAY"}
+{"type":"action","text":"Rain beads on the windshield."}

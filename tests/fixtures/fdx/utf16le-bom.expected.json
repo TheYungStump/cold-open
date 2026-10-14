@@ -1,0 +1,19 @@
+{
+  "script": {
+    "elements": [
+      {
+        "text": "Saved as UTF-16: café, naïve, “quoted” — and £ signs.",
+        "type": "action"
+      }
+    ]
+  },
+  "overrides": {},
+  "title_lines": [],
+  "scenes": [],
+  "report": [
+    "encoding_utf16",
+    "section_missing",
+    "settings_missing"
+  ],
+  "format": {}
+}

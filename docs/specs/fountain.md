@@ -1,10 +1,12 @@
 # Fountain: how Cold Open reads and writes it
 
 - **Date:** 2026-10-13
+- **Updated:** 2026-10-13 (phase 2): reversed scene heading prefixes (§4, §6.2, §9).
 - **Status:** implemented in `crates/fountain` (phase 1)
 - **Sources:**
   - The public Fountain syntax page, <https://fountain.io/syntax>, read 2026-10-13.
   - The CommonMark specification 0.31.2, <https://spec.commonmark.org/0.31.2/>, for the emphasis and backslash-escape rules. The Fountain page defers to the Markdown conventions for both.
+  - The phase 1 review of real scripts in our private corpus, 2026-10-13, for the reversed scene heading prefixes (§6.2). Only the prefix spellings were noted; no script text was copied.
 - No other material was used. This document is written in our own words. Where the syntax page leaves a case open, the rule we chose is marked **Resolution**.
 
 ## 1. Goals
@@ -51,7 +53,7 @@ The title page is looked for in the first paragraph of the file, after skipping 
   - a **key line**: a key, a colon, then an optional inline value. The key starts with a letter or digit, then continues with letters, digits, spaces, or the characters `-` `_` `.` `'` `/` `&`. It does not end in a space.
   - a **continuation line**: three or more spaces, or a tab, then a value. It belongs to the key above it.
 - At least one key has a value, either inline or on a continuation line. This keeps a script that opens with `FADE IN:` from being read as a title page.
-- The first line is not a scene heading by prefix (§6.2).
+- The first line is not a scene heading by prefix (§6.2 rule 5). This uses the reader's full prefix list, reversed forms included, so a file that opens with `EXT/INT. CAR: DAY` has no title page.
 
 Each key keeps its spelling and its position. Its values are the inline value (if not empty) followed by each continuation value, each trimmed and parsed for emphasis. Keys are not interpreted. The usual ones (Title, Credit, Author/Authors, Source, Draft date, Contact) are matched without regard to case by code that needs them. Unknown keys are kept.
 
@@ -100,10 +102,12 @@ The rules are tried in this order:
 2. **`@` (forced Character).** The `@` is removed, mixed case is kept, and a dialogue group follows (§6.3). A forced character does not need a following line.
 3. **`.` followed by a letter or digit (forced Scene Heading).** The `.` is removed. A line starting with `..` is never forced, so action and dialogue can begin with an ellipsis. A forced heading does not need a blank line after it.
 4. **`>` not matched by §6.1 (forced Transition).** The `>` is removed.
-5. **Scene Heading by prefix.** The line must be the paragraph's only line (a blank line follows). It must start, ignoring case, with `INT`, `EXT`, `EST`, `INT./EXT`, `INT/EXT` or `I/E`, followed by `.` or a space.
+5. **Scene Heading by prefix.** The line must be the paragraph's only line (a blank line follows). It must start, ignoring case, with `INT`, `EXT`, `EST`, `INT./EXT`, `INT/EXT`, `I/E`, `EXT/INT` or `E/I`, followed by `.` or a space. `EXT./INT` needs no entry of its own: it starts with `EXT` followed by `.`.
 6. **Transition by shape.** The line must be the paragraph's only line, contain no lowercase letters, and end in `TO:`. It is checked **before trailing whitespace is removed**, so the syntax page's escape (a space after the colon) makes it Action.
 7. **Character by shape.** Another line must follow in the paragraph (a hold line counts). The name is the line with any trailing `^` removed, up to its first `(`. The name must contain at least one uppercase letter and no lowercase letters, so "R2D2" qualifies and "23" does not. The extension in parentheses may be in any case.
 8. **Otherwise, Action** (§6.4).
+
+**Resolution (2026-10-13):** The syntax page lists only six prefixes: `INT`, `EXT`, `EST`, `INT./EXT`, `INT/EXT` and `I/E`. Writers also use the reversed forms `EXT/INT` and `E/I`; the phase 1 review of real scripts found them in use. The reader accepts them as well. A reader that follows only the syntax page would not, so the writer always forces a heading that starts with a reversed prefix with `.` (§9). The text stays portable and reads back the same.
 
 **Resolution:** Scripts without letter case have no uppercase letters, so a Chinese name never matches rule 7 by itself. Use `@`, as the syntax page recommends.
 
@@ -202,6 +206,8 @@ Empty lines inside dialogue or a note are written as two spaces.
 **Forcing and escaping.** The writer adds a marker only where the canonical text would otherwise be read back differently. It checks this with the parser's own classifier.
 
 - **Forcing markers** at paragraph start: `!` for Action, `@` for Character, `.` for Scene Heading, `>` for Transition.
+  - A scene heading is left unforced only when it starts with one of the syntax page's six prefixes. One that starts with a reversed prefix (`EXT/INT`, `E/I`) is always forced, as in `.E/I CAR - NIGHT`, even though our own reader would not need it.
+  - Every other check uses the reader's full prefix list. Action such as "E/I is a label." on its own line therefore gets a `!`.
 - **Line-start escapes:**
   - `\#`, `\=`, `\~` and `\>` on action lines that would read as markers;
   - `\(` and `\~` on dialogue lines;
@@ -211,6 +217,7 @@ Empty lines inside dialogue or a note are written as two spaces.
   - `\\` before punctuation;
   - `\[` before `[[`;
   - `\/` before `*`, so a literal `/*` never opens boneyard (escaping the `/` works even when the `*` is an emphasis marker).
+- **Emphasis around notes and boneyard.** Markers are placed in the first of several arrangements that reads back exactly. A style that carries on past a note stays open across it (`**a [[n]] b**`). **Resolution (2026-10-14):** when the style changes right after a note or boneyard, closing the old style there can put two delimiter runs side by side (`**bold[[n]]***it*`), which reads back differently. The writer then also tries closing the old style before the hidden span (`**bold**[[n]]*it*`). It tries that last, so lines that already read back keep their written form. Found by the round-trip property test with a multi-line note.
 - If the script has no title page but its first paragraph would read as one, that paragraph is forced.
 - A line inside an element that holds only notes or boneyard would join the line next to it when read back (§5). The writer wraps it in an empty emphasis pair, `*[[note]]*`, which prints nothing but keeps it a line of its own.
 

@@ -1,0 +1,34 @@
+=== page 1 · body 1 · natural · dual_too_tall@2 ===
+
+
+
+
+
+
+                                MAYA
+                         Short line 1.
+                         Short line 2.
+
+
+
+                                BOB
+                         Reply line 1.
+                         Reply line 2.
+                         Reply line 3.
+                         Reply line 4.
+                                (MORE)
+=== page 2 · body 2 · end ===
+
+
+
+                                           2.
+
+
+                                BOB (CONT'D)
+                         Reply line 5.
+                         Reply line 6.
+                         Reply line 7.
+                         Reply line 8.
+                         Reply line 9.
+                         Reply line 10.
+                         Reply line 11.

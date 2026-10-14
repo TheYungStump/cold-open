@@ -1,0 +1,102 @@
+{
+  "script": {
+    "elements": [
+      {
+        "text": "The script itself is one line.",
+        "type": "action"
+      }
+    ]
+  },
+  "overrides": {},
+  "title_lines": [
+    {
+      "align": "left",
+      "left": 72,
+      "right": 540,
+      "space_before": 0,
+      "text": {
+        "text": ""
+      }
+    },
+    {
+      "align": "center",
+      "left": 72,
+      "right": 540,
+      "space_before": 0,
+      "text": {
+        "runs": [
+          {
+            "bold": true,
+            "text": "THE LAST LIGHTHOUSE",
+            "underline": true
+          }
+        ],
+        "text": "THE LAST LIGHTHOUSE"
+      }
+    },
+    {
+      "align": "center",
+      "left": 72,
+      "right": 540,
+      "space_before": 24,
+      "text": {
+        "text": "Written by"
+      }
+    },
+    {
+      "align": "center",
+      "left": 72,
+      "right": 540,
+      "space_before": 0,
+      "text": {
+        "runs": [
+          {
+            "text": "Ada "
+          },
+          {
+            "italic": true,
+            "text": "Quill"
+          }
+        ],
+        "text": "Ada Quill"
+      }
+    },
+    {
+      "align": "left",
+      "left": 72,
+      "right": 288,
+      "space_before": 12,
+      "text": {
+        "text": "ada@example.com\n555-0100"
+      }
+    },
+    {
+      "align": "right",
+      "left": 108,
+      "right": 540,
+      "space_before": 0,
+      "text": {
+        "text": "Draft of 13 October"
+      }
+    },
+    {
+      "align": "left",
+      "left": 108,
+      "right": 540,
+      "space_before": 0,
+      "text": {
+        "text": "No attributes at all."
+      }
+    }
+  ],
+  "scenes": [],
+  "report": [
+    "section_missing",
+    "settings_missing",
+    "invalid_value",
+    "alignment_full",
+    "run_all_caps",
+    "title_format_ignored"
+  ],
+  "format": {}
+}

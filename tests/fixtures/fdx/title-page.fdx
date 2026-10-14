@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FinalDraft DocumentType="Script" Version="4">
+  <Content>
+    <Paragraph Type="Action">
+      <Text>The script itself is one line.</Text>
+    </Paragraph>
+  </Content>
+  <TitlePage>
+    <HeaderAndFooter HeaderVisible="Yes"/>
+    <Content>
+      <Paragraph Alignment="Full" FirstIndent="0.00" Leading="Regular" LeftIndent="1.00" RightIndent="7.50" SpaceBefore="0" Spacing="1" StartsNewPage="No">
+        <Text></Text>
+      </Paragraph>
+      <Paragraph Alignment="Center" FirstIndent="0.00" Leading="Regular" LeftIndent="1.00" RightIndent="7.50" SpaceBefore="0" Spacing="1" StartsNewPage="No">
+        <Text Style="Bold+Underline+AllCaps">the last lighthouse</Text>
+      </Paragraph>
+      <Paragraph Alignment="Center" FirstIndent="0.00" Leading="Regular" LeftIndent="1.00" RightIndent="7.50" SpaceBefore="24" Spacing="1" StartsNewPage="No">
+        <Text>Written by</Text>
+      </Paragraph>
+      <Paragraph Alignment="Center" LeftIndent="1.00" RightIndent="7.50">
+        <Text>Ada </Text><Text Style="Italic">Quill</Text>
+      </Paragraph>
+      <Paragraph Alignment="Left" FirstIndent="0.50" Leading="Regular" LeftIndent="1.00" RightIndent="4.00" SpaceBefore="12" Spacing="1" StartsNewPage="No">
+        <Tabstops>
+          <Tabstop Position="6.00" Type="Left"/>
+        </Tabstops>
+        <Text>ada@example.com
+555-0100</Text>
+      </Paragraph>
+      <Paragraph Alignment="Right" LeftIndent="6.00" RightIndent="5.00">
+        <Text>Draft of 13 October</Text>
+      </Paragraph>
+      <Paragraph>
+        <Text>No attributes at all.</Text>
+      </Paragraph>
+    </Content>
+    <TextState Scaling="100"/>
+  </TitlePage>
+</FinalDraft>

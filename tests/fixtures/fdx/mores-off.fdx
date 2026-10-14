@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FinalDraft DocumentType="Script" Version="4">
+  <Content>
+    <Paragraph Type="Character">
+      <Text>WREN</Text>
+    </Paragraph>
+    <Paragraph Type="Dialogue">
+      <Text>No inserts at all, and an empty top string that does not matter.</Text>
+    </Paragraph>
+  </Content>
+  <MoresAndContinueds>
+    <DialogueBreaks AutomaticCharacterContinueds="Yes" BottomOfPage="No" DialogueBottom="(MORE)" DialogueTop="" TopOfNext="No"/>
+    <SceneBreaks SceneBottomOfPage="No" SceneTopOfNext="No"/>
+  </MoresAndContinueds>
+  <HeaderAndFooter HeaderFirstPage="No" HeaderVisible="No" StartingPage="3">
+    <Header>
+      <Paragraph>
+        <DynamicLabel Type="Page #"/>
+        <Text>.</Text>
+      </Paragraph>
+    </Header>
+  </HeaderAndFooter>
+</FinalDraft>

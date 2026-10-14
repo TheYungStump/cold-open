@@ -1,0 +1,89 @@
+{
+  "script": {
+    "elements": [
+      {
+        "text": "INT. SIGNAL BOX - NIGHT",
+        "type": "scene_heading"
+      },
+      {
+        "text": "Levers in a row, one of them taped over.",
+        "type": "action"
+      }
+    ]
+  },
+  "overrides": {},
+  "title_lines": [],
+  "scenes": [],
+  "report": [
+    "sections_ignored",
+    "value_rounded",
+    "alignment_full",
+    "line_spacing",
+    "unknown_paginate_as",
+    "duplicate_settings",
+    "settings_for_unmodelled_type",
+    "settings_font_ignored",
+    "scene_number_side"
+  ],
+  "format": {
+    "break_at_sentences": false,
+    "contd_after_action": true,
+    "elements": {
+      "action": {
+        "left": 100.8,
+        "right": 539.93
+      },
+      "character": {
+        "left": 259.2,
+        "right": 522
+      },
+      "dialogue": {
+        "left": 172.8,
+        "right": 439.2,
+        "space_before": 18
+      },
+      "general": {
+        "left": 100.8,
+        "right": 532.8,
+        "space_before": 0
+      },
+      "lyric": {
+        "align": "center",
+        "left": 172.8,
+        "paginate_as": "dialogue",
+        "right": 496.8,
+        "space_before": 0
+      },
+      "parenthetical": {
+        "first_indent": -8.64,
+        "left": 223.2,
+        "right": 388.8,
+        "space_before": 0
+      },
+      "scene_heading": {
+        "bold": true,
+        "left": 100.8,
+        "right": 532.8,
+        "space_before": 24
+      },
+      "shot": {
+        "left": 100.8,
+        "right": 532.8,
+        "underline": true
+      },
+      "transition": {
+        "left": 388.8,
+        "right": 532.8
+      }
+    },
+    "header_top": 40.5,
+    "margin_bottom": 54,
+    "margin_top": 81,
+    "page_numbers": {
+      "first": 1,
+      "suffix": "-"
+    },
+    "scene_number_left": 57.6,
+    "scene_number_right": 543.6
+  }
+}

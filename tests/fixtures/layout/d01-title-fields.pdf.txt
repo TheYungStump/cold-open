@@ -1,0 +1,247 @@
+%PDF-1.7
+%\x80\x80\x80\x80
+
+1 0 obj
+<</Type/Catalog/Pages 2 0 R>>
+endobj
+4 0 obj
+<</Type/Font/Subtype/Type0/BaseFont/TKYFKH+CourierPrime-Regular/Encoding/Identity-H/DescendantFonts[5 0 R]/ToUnicode 8 0 R>>
+endobj
+5 0 obj
+<</Type/Font/Subtype/CIDFontType2/BaseFont/TKYFKH+CourierPrime-Regular/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/FontDescriptor 6 0 R/DW 600/CIDToGIDMap/Identity>>
+endobj
+6 0 obj
+<</Type/FontDescriptor/FontName/TKYFKH+CourierPrime-Regular/Flags 35/FontBBox[-370.60547 -256.83594 1567.8711 892.08984]/ItalicAngle 0/Ascent 781.25/Descent -341.79688/CapHeight 579.58984/StemV 80/FontFile2 7 0 R>>
+endobj
+7 0 obj
+<</Length 8443/Filter/FlateDecode/Length1 15564>>
+stream
+[font program: 15564 bytes, fnv64 27c4b7bb570aa911]
+endstream
+endobj
+8 0 obj
+<</Length 521/Type/CMap/Filter/FlateDecode>>
+stream
+%!PS-Adobe-3.0 Resource-CMap
+%%DocumentNeededResources: procset CIDInit
+%%IncludeResource: procset CIDInit
+%%BeginResource: CMap Adobe-Identity-UCS
+%%Title: (Adobe-Identity-UCS Adobe Identity 0)
+%%Version: 1
+%%EndComments
+/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo 3 dict dup begin
+    /Registry (Adobe) def
+    /Ordering (Identity) def
+    /Supplement 0 def
+end def
+/CMapName /Adobe-Identity-UCS def
+/CMapVersion 1 def
+/CMapType 0 def
+/WMode 0 def
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+40 beginbfchar
+<0001> <0020>
+<0002> <002D>
+<0003> <002E>
+<0004> <0030>
+<0005> <0031>
+<0006> <0032>
+<0007> <0036>
+<0008> <0040>
+<0009> <0041>
+<000A> <0042>
+<000B> <0043>
+<000C> <0045>
+<000D> <0047>
+<000E> <0048>
+<000F> <0049>
+<0010> <004B>
+<0011> <004D>
+<0012> <004E>
+<0013> <0054>
+<0014> <0057>
+<0015> <0061>
+<0016> <0062>
+<0017> <0063>
+<0018> <0064>
+<0019> <0065>
+<001A> <0067>
+<001B> <0068>
+<001C> <0069>
+<001D> <006B>
+<001E> <006C>
+<001F> <006D>
+<0020> <006E>
+<0021> <006F>
+<0022> <0070>
+<0023> <0072>
+<0024> <0073>
+<0025> <0074>
+<0026> <0077>
+<0027> <0078>
+<0028> <0079>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+%%EndResource
+%%EOF
+endstream
+endobj
+9 0 obj
+<</Type/Font/Subtype/Type0/BaseFont/BIPWXR+CourierPrime-Italic/Encoding/Identity-H/DescendantFonts[10 0 R]/ToUnicode 13 0 R>>
+endobj
+10 0 obj
+<</Type/Font/Subtype/CIDFontType2/BaseFont/BIPWXR+CourierPrime-Italic/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/FontDescriptor 11 0 R/DW 600/CIDToGIDMap/Identity>>
+endobj
+11 0 obj
+<</Type/FontDescriptor/FontName/BIPWXR+CourierPrime-Italic/Flags 99/FontBBox[-450.1953 -256.34766 1546.875 892.08984]/ItalicAngle -10/Ascent 781.25/Descent -341.79688/CapHeight 579.58984/StemV 80/FontFile2 12 0 R>>
+endobj
+12 0 obj
+<</Length 4190/Filter/FlateDecode/Length1 7852>>
+stream
+[font program: 7852 bytes, fnv64 52c85182dc13cf44]
+endstream
+endobj
+13 0 obj
+<</Length 383/Type/CMap/Filter/FlateDecode>>
+stream
+%!PS-Adobe-3.0 Resource-CMap
+%%DocumentNeededResources: procset CIDInit
+%%IncludeResource: procset CIDInit
+%%BeginResource: CMap Adobe-Identity-UCS
+%%Title: (Adobe-Identity-UCS Adobe Identity 0)
+%%Version: 1
+%%EndComments
+/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo 3 dict dup begin
+    /Registry (Adobe) def
+    /Ordering (Identity) def
+    /Supplement 0 def
+end def
+/CMapName /Adobe-Identity-UCS def
+/CMapVersion 1 def
+/CMapType 0 def
+/WMode 0 def
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+9 beginbfchar
+<0001> <0020>
+<0002> <0045>
+<0003> <0047>
+<0004> <0048>
+<0005> <0049>
+<0006> <004C>
+<0007> <004E>
+<0008> <004F>
+<0009> <0054>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+%%EndResource
+%%EOF
+endstream
+endobj
+15 0 obj
+<</Length 237/Filter/FlateDecode>>
+stream
+BT
+/F2 12 Tf
+1 0 0 1 273.6 495 Tm
+(\000\t\000\004\000\002\000\001\000\006\000\b\000\007\000\003\000\001\000\007\000\005\000\003\000\004\000\t) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 288 471 Tm
+(\000\024\000#\000\034\000%\000%\000\031\000 \000\001\000\026\000\() Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 288 447 Tm
+(\000\t\000\003\000\001\000\024\000#\000\034\000%\000\031\000#) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 266.4 423 Tm
+(\000\n\000\025\000$\000\031\000\030\000\001\000!\000 \000\001\000\025\000\001\000$\000%\000!\000#\000\() Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 108 99 Tm
+(\000\005\000\001\000\021\000\025\000#\000\027\000\033\000\001\000\006\000\004\000\006\000\007) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 108 87 Tm
+(\000\t\000\003\000\001\000\024\000#\000\034\000%\000\031\000#) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 108 75 Tm
+(\000&\000#\000\034\000%\000\031\000#\000\b\000\031\000'\000\025\000\037\000"\000\036\000\031\000\003\000\027\000!\000\037) Tj
+ET
+endstream
+endobj
+14 0 obj
+<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Contents 15 0 R/Resources<</Font<</F0 4 0 R/F2 9 0 R>>>>>>
+endobj
+17 0 obj
+<</Length 148/Filter/FlateDecode>>
+stream
+BT
+/F0 12 Tf
+1 0 0 1 108 711 Tm
+(\000\017\000\022\000\023\000\003\000\001\000\020\000\017\000\023\000\013\000\016\000\f\000\022\000\001\000\002\000\001\000\022\000\017\000\r\000\016\000\023) Tj
+ET
+BT
+/F0 12 Tf
+1 0 0 1 108 687 Tm
+(\000\t\000\001\000\035\000\031\000%\000%\000\036\000\031\000\001\000$\000%\000\025\000#\000%\000$\000\001\000%\000!\000\001\000$\000\034\000 \000\032\000\003) Tj
+ET
+endstream
+endobj
+16 0 obj
+<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Contents 17 0 R/Resources<</Font<</F0 4 0 R/F2 9 0 R>>>>>>
+endobj
+2 0 obj
+<</Type/Pages/Kids[14 0 R 16 0 R]/Count 2>>
+endobj
+3 0 obj
+<</Producer(Cold Open)/Title(The Long Night)>>
+endobj
+xref
+0 18
+0000000000 65535 f\x0d
+0000000016 00000 n\x0d
+0000015839 00000 n\x0d
+0000015898 00000 n\x0d
+0000000061 00000 n\x0d
+0000000201 00000 n\x0d
+0000000404 00000 n\x0d
+0000000634 00000 n\x0d
+0000009160 00000 n\x0d
+0000009759 00000 n\x0d
+0000009900 00000 n\x0d
+0000010104 00000 n\x0d
+0000010335 00000 n\x0d
+0000014608 00000 n\x0d
+0000015376 00000 n\x0d
+0000015070 00000 n\x0d
+0000015716 00000 n\x0d
+0000015499 00000 n\x0d
+trailer
+<</Size 18/Root 1 0 R/Info 3 0 R/ID[<320A1C64E6F9173A69B86EA2934E1E07><320A1C64E6F9173A69B86EA2934E1E07>]>>
+startxref
+15960
+%%EOF

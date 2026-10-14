@@ -80,13 +80,91 @@ fn scenes_table_and_json() {
     assert_eq!(lines.len(), 2);
     assert_eq!(
         lines[0],
-        "   1  1  EXT. LIGHTHOUSE - DUSK  (15 blocks, 39 words)"
+        "   1  1    p. 1     3/8  EXT. LIGHTHOUSE - DUSK  (15 blocks, 39 words)"
     );
-    assert!(lines[1].starts_with("   2  2  INT. RADIO ROOM - NIGHT"));
+    assert!(lines[1].starts_with("   2  2    p. 1     2/8  INT. RADIO ROOM - NIGHT"));
 
     let o = coldopen(&["scenes", "--json", s(&fixture("z01-short-scene.fountain"))]);
     let v: Value = serde_json::from_slice(&o.stdout).unwrap();
     assert_eq!(v["scenes"][1]["number"], "2");
+    assert_eq!(v["scenes"][1]["page"], 1);
+    assert_eq!(v["scenes"][1]["eighths"], 2);
+}
+
+#[test]
+fn export_and_pages() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = script(dir.path());
+    let out = dir.path().join("out.pdf");
+    let o = coldopen(&["export", s(&input), s(&out)]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let first = fs::read(&out).unwrap();
+    assert!(first.starts_with(b"%PDF-"));
+    // Exporting again gives the same bytes.
+    let o = coldopen(&["export", s(&input), s(&out)]);
+    assert!(o.status.success());
+    assert_eq!(fs::read(&out).unwrap(), first);
+    // Options change the output; a watermark and scene numbers both draw.
+    let o = coldopen(&[
+        "export",
+        s(&input),
+        s(&out),
+        "--watermark",
+        "DRAFT",
+        "--scene-numbers",
+        "--no-title-page",
+    ]);
+    assert!(o.status.success());
+    assert_ne!(fs::read(&out).unwrap(), first);
+    // Reading only: no journal or temp file is left next to the input.
+    for e in fs::read_dir(dir.path()).unwrap() {
+        let name = e.unwrap().file_name().to_string_lossy().into_owned();
+        assert!(
+            !name.contains("coldopen-journal") && !name.contains("coldopen-save"),
+            "{name}"
+        );
+    }
+    // A missing glyph is a warning, not a failure.
+    let odd = dir.path().join("odd.fountain");
+    fs::write(&odd, "Snow falls on 日本.\n").unwrap();
+    let o = coldopen(&["export", s(&odd), s(&out)]);
+    assert!(o.status.success());
+    assert!(String::from_utf8_lossy(&o.stderr).contains("日本"));
+
+    let o = coldopen(&["pages", s(&input)]);
+    assert!(o.status.success());
+    let text = String::from_utf8(o.stdout).unwrap();
+    assert!(text.starts_with("=== page 1 · title ===\n"), "{text}");
+    assert!(
+        text.contains("=== page 2 · body 1 · explicit ===\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("               EXT. LIGHTHOUSE - DUSK\n"),
+        "{text}"
+    );
+}
+
+#[test]
+fn convert_refuses_pdf_and_export_refuses_other_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = script(dir.path());
+    let o = coldopen(&["convert", s(&input), s(&dir.path().join("x.pdf"))]);
+    assert!(!o.status.success());
+    assert!(String::from_utf8_lossy(&o.stderr).contains("coldopen export"));
+    let o = coldopen(&["export", s(&input), s(&dir.path().join("x.fountain"))]);
+    assert!(!o.status.success());
+    assert!(String::from_utf8_lossy(&o.stderr).contains("unsupported_format"));
+}
+
+#[test]
+fn licenses_include_the_font_license() {
+    let o = coldopen(&["licenses"]);
+    assert!(o.status.success());
+    let text = String::from_utf8(o.stdout).unwrap();
+    assert!(text.contains("GNU General Public License"));
+    assert!(text.contains("SIL OPEN FONT LICENSE Version 1.1"));
+    assert!(text.contains("Courier Prime"));
 }
 
 #[test]

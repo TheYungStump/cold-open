@@ -1,0 +1,19 @@
+{
+  "script": {
+    "elements": [
+      {
+        "text": "Old bytes: café, it’s “fine” – €5.",
+        "type": "action"
+      }
+    ]
+  },
+  "overrides": {},
+  "title_lines": [],
+  "scenes": [],
+  "report": [
+    "encoding_windows_1252",
+    "section_missing",
+    "settings_missing"
+  ],
+  "format": {}
+}

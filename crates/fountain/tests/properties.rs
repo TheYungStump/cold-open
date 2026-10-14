@@ -14,6 +14,9 @@ const FRAGMENTS: &[&str] = &[
     "int. car",
     "I/E BOOTH",
     "INT./EXT. VAN",
+    "E/I CAR",
+    "EXT/INT. BUS",
+    "EXT/INTERIOR",
     "EST",
     ".FORCED",
     "..ellipsis",
@@ -162,8 +165,41 @@ proptest! {
 // ---- Generated scripts ----
 
 const WORDS: &[&str] = &[
-    "Maya", "THEO", "door", "rain", "the", "a", "*", "_", "\\", "[", "]", "/", "#", "(", ")", "~",
-    ">", "<", "!", "@", ".", "...", ":", "TO:", "^", "=", "é", "日本", "x*y", "--", "'", "\"",
+    "Maya",
+    "THEO",
+    "door",
+    "rain",
+    "the",
+    "a",
+    "*",
+    "_",
+    "\\",
+    "[",
+    "]",
+    "/",
+    "#",
+    "(",
+    ")",
+    "~",
+    ">",
+    "<",
+    "!",
+    "@",
+    ".",
+    "...",
+    ":",
+    "TO:",
+    "^",
+    "=",
+    "é",
+    "日本",
+    "x*y",
+    "--",
+    "'",
+    "\"",
+    "E/I CAR",
+    "EXT/INT. BUS",
+    "EXT/INTERIOR",
 ];
 
 fn style() -> impl Strategy<Value = Style> {
@@ -227,10 +263,16 @@ fn spacing() -> impl Strategy<Value = Option<u8>> {
 /// A paragraph-level block of one or more elements, in grammatical order.
 fn block() -> impl Strategy<Value = Vec<Element>> {
     prop_oneof![
-        // Scene heading: by prefix, or forced (starts with a letter).
+        // Scene heading: by prefix, by a reversed prefix (always written
+        // forced), or forced (starts with a letter).
         (
             prop_oneof![
                 plain_words(1..3).prop_map(|w| format!("INT. {}", w.to_uppercase())),
+                (
+                    prop::sample::select(&["E/I", "EXT/INT."][..]),
+                    plain_words(1..3)
+                )
+                    .prop_map(|(p, w)| format!("{p} {}", w.to_uppercase())),
                 plain_words(1..3),
             ],
             prop::option::of(prop::sample::select(&["1", "12A", "I-1-A", "3."][..])),

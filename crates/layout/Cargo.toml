@@ -1,0 +1,29 @@
+[package]
+name = "coldopen-layout"
+description = "Deterministic screenplay layout on a character grid: wrapping, pagination with (MORE)/(CONT'D), a plain-text page view and PDF export."
+license = "MIT OR Apache-2.0"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+coldopen-screenplay.workspace = true
+coldopen-fonts.workspace = true
+unicode-width.workspace = true
+ttf-parser.workspace = true
+pdf-writer.workspace = true
+subsetter.workspace = true
+miniz_oxide.workspace = true
+
+[dev-dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+proptest.workspace = true
+coldopen-fountain.workspace = true
+coldopen-fdx.workspace = true
+
+[lints]
+workspace = true

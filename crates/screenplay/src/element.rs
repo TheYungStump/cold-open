@@ -96,6 +96,20 @@ impl ElementKind {
     pub fn is_raw_text(self) -> bool {
         matches!(self, ElementKind::Note | ElementKind::Boneyard)
     }
+
+    /// The usual number of blank lines above an element of this kind, given
+    /// the previous printing element: none inside a dialogue group, one
+    /// everywhere else (docs/specs/fountain.md §7). Fountain stores a gap
+    /// only when it differs from this, and layout treats a stored gap equal
+    /// to it as unset (docs/specs/layout.md §6).
+    pub fn default_gap(self, prev: Option<ElementKind>) -> u8 {
+        let in_group = prev.is_some_and(|p| p == ElementKind::Character || p.is_dialogue_member());
+        if self.is_dialogue_member() && in_group {
+            0
+        } else {
+            1
+        }
+    }
 }
 
 impl std::fmt::Display for ElementKind {
@@ -391,6 +405,18 @@ mod tests {
         e.kind = ElementKind::Section;
         e.clear_inapplicable();
         assert_eq!(e.depth, 1);
+    }
+
+    #[test]
+    fn default_gaps() {
+        use ElementKind::*;
+        assert_eq!(Dialogue.default_gap(Some(Character)), 0);
+        assert_eq!(Parenthetical.default_gap(Some(Dialogue)), 0);
+        assert_eq!(Lyric.default_gap(Some(Lyric)), 0);
+        assert_eq!(Dialogue.default_gap(Some(Action)), 1);
+        assert_eq!(Dialogue.default_gap(None), 1);
+        assert_eq!(Character.default_gap(Some(Dialogue)), 1);
+        assert_eq!(SceneHeading.default_gap(Some(Action)), 1);
     }
 
     #[test]

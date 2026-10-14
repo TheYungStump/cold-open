@@ -1,0 +1,31 @@
+{
+  "script": {
+    "elements": [
+      {
+        "text": "OSKAR",
+        "type": "character"
+      },
+      {
+        "text": "The markers in this file are far too long.",
+        "type": "dialogue"
+      }
+    ]
+  },
+  "overrides": {},
+  "title_lines": [],
+  "scenes": [],
+  "report": [
+    "section_missing",
+    "settings_missing",
+    "invalid_value",
+    "invalid_value",
+    "invalid_value"
+  ],
+  "format": {
+    "contd": "(cont'd)",
+    "more": "(there is more of this speech on",
+    "page_numbers": {
+      "suffix": ". is the page we"
+    }
+  }
+}

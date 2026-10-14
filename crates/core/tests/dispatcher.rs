@@ -599,3 +599,159 @@ fn a_change_that_writes_as_the_old_text_is_still_recovered() {
     assert_eq!(r["recovered"]["commands"], 1);
     assert_eq!(h2.blocks()[5]["type"], "parenthetical");
 }
+
+#[test]
+fn export_pdf_writes_without_touching_the_document() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = write_script(dir.path());
+    let mut h = Harness::new();
+    h.ok("doc.open", json!({"path": p}));
+    // The journal is append-only, so an unchanged length means nothing was
+    // journaled. Its contents can't be read here: the open document holds a
+    // lock on it, which Windows enforces against readers.
+    let jpath = journal::path_for(&p);
+    let journal_len = fs::metadata(&jpath).unwrap().len();
+    let out = dir.path().join("out.pdf");
+    let r = h.ok("export.pdf", json!({"path": out}));
+    assert_eq!(r["pages"], 2, "title page and one body page: {r}");
+    let bytes = fs::read(&out).unwrap();
+    assert!(bytes.starts_with(b"%PDF-1.7"));
+    assert_eq!(r["bytes"], bytes.len());
+    assert_eq!(r["warnings"], json!([]));
+    // Not an edit: nothing dirty, nothing journaled, nothing to undo.
+    assert_eq!(h.ok("doc.get", json!({}))["dirty"], false);
+    assert_eq!(fs::metadata(&jpath).unwrap().len(), journal_len);
+    assert_eq!(h.err("undo", json!({})), "nothing_to_undo");
+    // The same document gives the same bytes; options change them.
+    let again = dir.path().join("again.pdf");
+    h.ok("export.pdf", json!({"path": again}));
+    assert_eq!(fs::read(&again).unwrap(), bytes);
+    let r = h.ok(
+        "export.pdf",
+        json!({"path": again, "watermark": "DRAFT", "scene_numbers": true, "title_page": false}),
+    );
+    assert_eq!(r["pages"], 1);
+    assert_ne!(fs::read(&again).unwrap(), bytes);
+    // No temp files are left beside the output.
+    let names: Vec<String> = fs::read_dir(dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        names.iter().all(|n| !n.contains("coldopen-save")),
+        "{names:?}"
+    );
+}
+
+#[test]
+fn export_pdf_refuses_risky_targets() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = write_script(dir.path());
+    let mut h = Harness::new();
+    assert_eq!(h.err("export.pdf", json!({"path": "x.pdf"})), "no_document");
+    h.ok("doc.open", json!({"path": p}));
+    let original = fs::read(&p).unwrap();
+    assert_eq!(
+        h.err("export.pdf", json!({"path": dir.path().join("x.txt")})),
+        "unsupported_format"
+    );
+    // The open script and its journal are never .pdf paths, so asking for
+    // either is refused before anything is written.
+    assert_eq!(
+        h.err("export.pdf", json!({"path": p})),
+        "unsupported_format"
+    );
+    let jpath = journal::path_for(&p);
+    assert_eq!(
+        h.err("export.pdf", json!({"path": jpath})),
+        "unsupported_format"
+    );
+    assert_eq!(fs::read(&p).unwrap(), original);
+    assert!(jpath.exists());
+    assert_eq!(
+        h.err(
+            "export.pdf",
+            json!({"path": dir.path().join("out.pdf"), "colour": true})
+        ),
+        "invalid_params"
+    );
+}
+
+#[test]
+fn page_view_and_scene_pages() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = write_script(dir.path());
+    let mut h = Harness::new();
+    h.ok("doc.open", json!({"path": p}));
+    let pages = h.ok("doc.export", json!({"format": "pages"}));
+    let text = pages["text"].as_str().unwrap();
+    assert!(text.starts_with("=== page 1 · title ===\n"), "{text}");
+    assert!(text.contains("=== page 2 · body 1 · end ==="), "{text}");
+    assert!(
+        text.contains("               INT. KITCHEN - DAY\n"),
+        "{text}"
+    );
+    let scenes = h.ok("scene.list", json!({}))["scenes"].clone();
+    assert_eq!(scenes[0]["page"], 1);
+    assert_eq!(scenes[1]["page"], 1);
+    assert!(scenes[0]["eighths"].as_u64().unwrap() >= 1);
+
+    // Push the second scene onto page 2 and check the pages follow.
+    let first = scenes[0]["id"].as_str().unwrap().to_string();
+    for i in 0..60 {
+        h.ok(
+            "block.insert",
+            json!({"after": first, "type": "action", "text": format!("Line {i}.")}),
+        );
+    }
+    let scenes = h.ok("scene.list", json!({}))["scenes"].clone();
+    // 60 one-line actions, each with a blank line before it, fill pages 1
+    // and 2 (27 rows of content per 54-line page), so the next scene starts
+    // on page 3.
+    assert_eq!(scenes[0]["page"], 1);
+    assert_eq!(scenes[1]["page"], 3);
+    let long = scenes[0]["eighths"].as_u64().unwrap();
+    assert!(
+        long > 8,
+        "a scene over a page long is more than 8/8: {long}"
+    );
+    // The pages are the same after a save and reload.
+    let before = h.ok("doc.export", json!({"format": "pages"}))["text"].clone();
+    h.ok("doc.save", json!({}));
+    h.ok("doc.close", json!({}));
+    h.ok("doc.open", json!({"path": p}));
+    assert_eq!(
+        h.ok("doc.export", json!({"format": "pages"}))["text"],
+        before
+    );
+}
+
+#[test]
+fn replay_stops_at_entries_that_are_not_edits() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = write_script(dir.path());
+    let mut h = Harness::new();
+    h.ok("doc.open", json!({"path": p}));
+    h.ok("block.insert", json!({"type": "action", "text": "Kept."}));
+    crash(h);
+    // Append a hand-made export entry, then another edit.
+    let jpath = journal::path_for(&p);
+    let mut j = fs::read_to_string(&jpath).unwrap();
+    let pdf = dir.path().join("sneaky.pdf");
+    j.push_str(&format!(
+        "{}\n",
+        json!({"seq": 2, "t": 0, "command": "export.pdf", "params": {"path": pdf}, "result": {}})
+    ));
+    j.push_str(&format!(
+        "{}\n",
+        json!({"seq": 3, "t": 0, "command": "block.insert", "params": {"type": "action", "text": "Lost."}, "result": {"id": "b_99"}})
+    ));
+    fs::write(&jpath, j).unwrap();
+    let mut h2 = Harness::new();
+    let r = h2.ok("doc.open", json!({"path": p}));
+    assert_eq!(r["recovered"]["commands"], 1);
+    assert!(!pdf.exists(), "replay must never write files");
+    let texts = h2.texts();
+    assert!(texts.iter().any(|t| t == "action:Kept."));
+    assert!(!texts.iter().any(|t| t == "action:Lost."));
+}

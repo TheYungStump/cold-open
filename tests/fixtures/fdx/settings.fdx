@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FinalDraft DocumentType="Script" Version="4">
+  <Content>
+    <Paragraph Type="Scene Heading">
+      <Text>INT. SIGNAL BOX - NIGHT</Text>
+    </Paragraph>
+    <Paragraph Type="Action">
+      <Text>Levers in a row, one of them taped over.</Text>
+    </Paragraph>
+  </Content>
+  <PageLayout BottomMargin="54" BreakDialogueAndActionAtSentences="No" DocumentLeading="Normal" FooterMargin="30" HeaderMargin="40.5" TopMargin="81" UsesSmartQuotes="Yes">
+    <PageSize Height="11.00" Width="8.50"/>
+  </PageLayout>
+  <ElementSettings Type="Scene Heading">
+    <FontSpec Font="Courier Prime" Size="12" Style="Bold+AllCaps"/>
+    <ParagraphSpec Alignment="Left" FirstIndent="0.00" LeftIndent="1.40" RightIndent="7.40" SpaceBefore="24" Spacing="1" StartsNewPage="No"/>
+    <Behavior PaginateAs="Scene Heading"/>
+  </ElementSettings>
+  <ElementSettings Type="Action">
+    <FontSpec Font="Courier Prime" Size="12" Style=""/>
+    <ParagraphSpec Alignment="Full" FirstIndent="0.00" LeftIndent="1.40" RightIndent="7.499" SpaceBefore="12" Spacing="1" StartsNewPage="No"/>
+    <Behavior PaginateAs="Action"/>
+  </ElementSettings>
+  <ElementSettings Type="Character">
+    <FontSpec Font="Courier Prime" Size="12" Style="AllCaps"/>
+    <ParagraphSpec Alignment="Left" FirstIndent="0.00" LeftIndent="3.60" RightIndent="7.25" SpaceBefore="12" Spacing="1" StartsNewPage="No"/>
+    <Behavior PaginateAs="Character"/>
+  </ElementSettings>
+  <ElementSettings Type="Parenthetical">
+    <FontSpec Font="Courier Prime" Size="12" Style=""/>
+    <ParagraphSpec Alignment="Left" FirstIndent="-0.12" LeftIndent="3.10" RightIndent="5.40" SpaceBefore="0" Spacing="1" StartsNewPage="No"/>
+    <Behavior PaginateAs="Parenthetical"/>
+  </ElementSettings>
+  <ElementSettings Type="Dialogue">
+    <FontSpec Font="Courier Prime" Size="12" Style=""/>
+    <ParagraphSpec Alignment="Left" FirstIndent="0.00" LeftIndent="2.40" RightIndent="6.10" SpaceBefore="9" Spacing="2" StartsNewPage="No"/>
+    <Behavior PaginateAs="Dialogue"/>
+  </ElementSettings>
+  <ElementSettings Type="Transition">
+    <FontSpec Font="Courier Prime" Size="12" Style="AllCaps"/>
+    <ParagraphSpec Alignment="Right" FirstIndent="0.00" LeftIndent="5.40" RightIndent="7.40" SpaceBefore="12" Spacing="1" StartsNewPage="No"/>
+    <Behavior PaginateAs="Transition"/>
+  </ElementSettings>
+  <ElementSettings Type="Shot">
+    <FontSpec Font="Courier Prime" Size="12" Style="AllCaps+Underline"/>
+    <ParagraphSpec Alignment="Left" FirstIndent="0.00" LeftIndent="1.40" RightIndent="7.40" SpaceBefore="12" Spacing="1" StartsNewPage="No"/>
+    <Behavior PaginateAs="Scene Heading"/>
+  </ElementSettings>
+  <ElementSettings Type="General">
+    <FontSpec Font="Arial" Size="11" Style=""/>
+    <ParagraphSpec Alignment="Left" FirstIndent="0.00" LeftIndent="1.40" RightIndent="7.40" SpaceBefore="0" Spacing="1" StartsNewPage="No"/>
+    <Behavior PaginateAs="Footnote"/>
+  </ElementSettings>
+  <ElementSettings Type="Lyric">
+    <FontSpec Font="Courier Prime" Size="12" Style="Italic"/>
+    <ParagraphSpec Alignment="Center" FirstIndent="0.00" LeftIndent="2.40" RightIndent="6.90" SpaceBefore="0" Spacing="1" StartsNewPage="No"/>
+    <Behavior PaginateAs="Dialogue"/>
+  </ElementSettings>
+  <ElementSettings Type="Action">
+    <ParagraphSpec LeftIndent="9.00"/>
+  </ElementSettings>
+  <ElementSettings Type="Cast List">
+    <ParagraphSpec Alignment="Left" LeftIndent="1.40" RightIndent="7.40"/>
+  </ElementSettings>
+  <SceneNumberOptions LeftLocation="0.80" RightLocation="7.55" ShowNumbersOnLeft="Yes" ShowNumbersOnRight="No"/>
+  <HeaderAndFooter FooterFirstPage="Yes" FooterVisible="No" HeaderFirstPage="Yes" HeaderVisible="Yes" StartingPage="1">
+    <Header>
+      <Paragraph Alignment="Left" LeftIndent="1.25" RightIndent="-1.00">
+        <Text>	</Text>
+        <DynamicLabel Type="Page #"/>
+        <Text>-	</Text>
+        <Tabstops>
+          <Tabstop Position="7.25" Type="Right"/>
+        </Tabstops>
+      </Paragraph>
+    </Header>
+    <Footer>
+      <Paragraph>
+        <Text>Footer text that is not visible.</Text>
+      </Paragraph>
+    </Footer>
+  </HeaderAndFooter>
+  <MoresAndContinueds>
+    <DialogueBreaks AutomaticCharacterContinueds="Yes" BottomOfPage="Yes" DialogueBottom="(MORE)" DialogueTop="(CONT'D)" TopOfNext="Yes"/>
+    <SceneBreaks ContinuedNumber="No" SceneBottom="(CONTINUED)" SceneBottomOfPage="No" SceneTop="CONTINUED:" SceneTopOfNext="No"/>
+  </MoresAndContinueds>
+  <SmartType/>
+  <WindowState/>
+</FinalDraft>

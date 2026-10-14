@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FinalDraft DocumentType="Script" Version="4">
+  <Content>
+    <Paragraph Type="Action">
+      <Text>Before the gap.</Text>
+    </Paragraph>
+    <Paragraph Type="Action">
+      <Text></Text>
+    </Paragraph>
+    <Paragraph Type="General"/>
+    <Paragraph Type="Action">
+      <Text>After the gap.</Text>
+    </Paragraph>
+    <Paragraph Type="General">
+      <Text></Text>
+    </Paragraph>
+    <Paragraph StartsNewPage="Yes" Type="General">
+      <Text></Text>
+    </Paragraph>
+  </Content>
+</FinalDraft>

@@ -1,7 +1,7 @@
 # Command schema, version 1
 
 - **Date:** 2026-10-13
-- **Status:** implemented in `crates/core` (phase 1)
+- **Status:** implemented in `crates/core` (phase 1; `export.pdf`, the `pages` export and scene pages added in phase 2, 2026-10-13)
 - **Sources:** `docs/spec.md` (Command interface), `CLAUDE.md` (Commands). No external material.
 
 Every action in Cold Open is a command. The desktop app, the CLI, JSON over stdio and the MCP server all send the same commands to one dispatcher.
@@ -71,6 +71,7 @@ Commands fall into these classes:
 | **edit** | Undoable | Journaled before the result is returned |
 | **history** (`undo`, `redo`) | — | Journaled |
 | **query** | — | Not journaled |
+| **output** | — | Not journaled; writes one file from the document without changing it |
 | **session** | — | See `docs/specs/journal.md` |
 
 An edit that changes nothing, such as `text.replace` with no matches, succeeds without being journaled or added to the undo history.
@@ -110,9 +111,11 @@ Opening or creating a document while another is open first closes the open one. 
 | --- | --- | --- |
 | `doc.get` | — | `{path, dirty, title_page, blocks}` |
 | `doc.export` | `format?` | `{format, text, losses}` |
-| `scene.list` | — | `{scenes: [{id, index, number, heading, synopsis, blocks, words}]}` |
+| `scene.list` | — | `{scenes: [{id, index, number, heading, synopsis, blocks, words, page, eighths}]}` |
 
-`doc.export` returns the document as text without saving it. `format` is `"fountain"` (the default) or `"json"` (the title page and blocks, pretty-printed). Losses are listed as for `doc.save`; nothing is refused, since nothing is written.
+`doc.export` returns the document as text without saving it. `format` is `"fountain"` (the default), `"json"` (the title page and blocks, pretty-printed) or `"pages"` (the plain-text page view of `docs/specs/layout.md` §11). Losses are listed as for `doc.save`; nothing is refused, since nothing is written.
+
+Pages come from laying out the document's Fountain normal form with the default page format (US Letter, feature film; `docs/specs/layout.md` §3.2), so they are the same after a save and reload.
 
 For `scene.list`:
 
@@ -121,7 +124,8 @@ For `scene.list`:
 - `synopsis` is the first synopsis inside the scene.
 - `blocks` counts the scene's blocks, including its heading.
 - `words` counts words in its printing blocks.
-- Page numbers and lengths are added in phase 2.
+- `page` is the body page the scene's heading prints on, counting from 1 after the title page; null if nothing prints.
+- `eighths` is the scene's length in eighths of a page (`docs/specs/layout.md` §10); 9 means one and one-eighth pages.
 
 ### Edits
 
@@ -156,6 +160,20 @@ Notes on each command:
 - **`scene.move`**
   - Moves a scene (its heading and body) before the scene or section given in `before`, or to the end when `before` is omitted.
 
+### Output
+
+| Command | Params | Result |
+| --- | --- | --- |
+| `export.pdf` | `path`, `watermark?`, `scene_numbers?`, `title_page?` | `{path, pages, bytes, warnings}` |
+
+- **`export.pdf`**
+  - Lays out the open document (as `scene.list` does) and writes it as a PDF, atomically, as `docs/specs/layout.md` §12 describes. The same document and options always give the same bytes.
+  - `path` must end in `.pdf`, otherwise `unsupported_format`. It may never be the open document or its crash journal (`would_overwrite_document`).
+  - `watermark` is text printed diagonally under every page. `scene_numbers` (default false) prints scene numbers beside headings. `title_page` (default true) includes the title page when the script has one.
+  - `pages` counts the PDF's pages, title page included. It is never 0: a document with nothing to print gives one blank page, with the watermark if one is given (2026-10-14).
+  - `warnings` lists `{code, message, chars?, id?}`: characters the bundled font cannot print, in the script or the watermark (`missing_glyph`, `missing_mark`), and layout diagnostics such as `dual_too_tall`, with the block `id` when there is one.
+  - It is not undoable, not journaled, and leaves `dirty` as it was. Journal replay never runs it.
+
 ### History
 
 | Command | Params | Result |
@@ -186,3 +204,5 @@ Undo is unlimited. A new edit clears the redo history.
 | `doc_locked` | Another process has the document open. |
 | `io_error` | Reading or writing a file failed. |
 | `journal_error` | The crash journal could not be written; the edit was rolled back. |
+| `would_overwrite_document` | An output command was asked to write over the open document or its journal. |
+| `internal_error` | Something that should never happen, such as damaged bundled fonts. |

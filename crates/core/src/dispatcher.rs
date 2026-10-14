@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::command::{Command, DocClose, DocNew, DocOpen, DocSave, Recover};
+use crate::command::{Class, Command, DocClose, DocNew, DocOpen, DocSave, ExportPdf, Recover};
 use crate::document::Document;
 use crate::error::CommandError;
 use crate::io::{self, Fingerprint, SourceStyle};
@@ -83,6 +83,7 @@ impl Dispatcher {
             Command::DocOpen(p) => self.doc_open(p),
             Command::DocSave(p) => self.doc_save(p),
             Command::DocClose(p) => self.doc_close(p),
+            Command::ExportPdf(p) => self.export_pdf(p),
             other => self
                 .session
                 .as_mut()
@@ -267,6 +268,16 @@ impl Dispatcher {
             let outcome = Command::from_parts(&entry.command, entry.params.clone())
                 .map_err(|e| format!("entry {} cannot be read as a command: {e}", entry.seq))
                 .and_then(|cmd| {
+                    // Only edits, undo and redo are ever journaled; anything
+                    // else is a damaged or hand-made journal, and replaying
+                    // it must never write files.
+                    if matches!(cmd.class(), Class::Edit | Class::History) {
+                        Ok(cmd)
+                    } else {
+                        Err(format!("entry {} is not an edit", entry.seq))
+                    }
+                })
+                .and_then(|cmd| {
                     replay
                         .execute(&cmd)
                         .map_err(|e| format!("entry {} failed on replay: {e}", entry.seq))
@@ -392,6 +403,88 @@ impl Dispatcher {
             "format": format,
             "bytes": bytes.len(),
             "losses": losses,
+        }))
+    }
+
+    /// Lays out the open document and writes it as a PDF. The document and
+    /// its journal are untouched (docs/specs/commands.md, "Output").
+    fn export_pdf(&mut self, p: ExportPdf) -> Result<Value, CommandError> {
+        let session = self
+            .session
+            .as_ref()
+            .ok_or_else(CommandError::no_document)?;
+        let target = PathBuf::from(&p.path);
+        let is_pdf = target
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("pdf"));
+        if !is_pdf {
+            return Err(CommandError::new(
+                "unsupported_format",
+                format!("{} is not a .pdf path", target.display()),
+            ));
+        }
+        if let Some(doc) = &session.path
+            && (same_path(doc, &target) || same_path(&journal::path_for(doc), &target))
+        {
+            return Err(CommandError::new(
+                "would_overwrite_document",
+                format!(
+                    "{} is the open document or its crash journal; choose another path",
+                    target.display()
+                ),
+            )
+            .with_details(json!({ "path": target.display().to_string() })));
+        }
+        let options = coldopen_layout::Options {
+            scene_numbers: p.scene_numbers,
+            no_title_page: !p.title_page,
+            ..Default::default()
+        };
+        let (layout, map) = session.layout(&options);
+        let fonts = coldopen_layout::Fonts::new()
+            .map_err(|e| CommandError::new("internal_error", format!("bundled fonts: {e}")))?;
+        let title = session.doc.title_page.get("title").map(|f| {
+            f.values
+                .iter()
+                .map(|v| v.plain_text())
+                .collect::<Vec<_>>()
+                .join(" ")
+        });
+        let out = coldopen_layout::pdf::write(
+            &layout,
+            &fonts,
+            &coldopen_layout::pdf::PdfOptions {
+                watermark: p.watermark.clone(),
+                title,
+            },
+        )
+        .map_err(|e| CommandError::new("internal_error", e.to_string()))?;
+        io::atomic_write(&target, &out.bytes).map_err(|e| CommandError::io(&target, &e))?;
+
+        let mut warnings: Vec<Value> = Vec::new();
+        for w in &out.warnings {
+            let message = match w.code {
+                "missing_glyph" => {
+                    "the bundled font has no glyph for these characters; they print as a box"
+                }
+                _ => "the bundled font has no glyph for these accents; they are left out",
+            };
+            warnings.push(json!({ "code": w.code, "message": message, "chars": w.chars }));
+        }
+        for d in &layout.diagnostics {
+            let id = d
+                .element
+                .and_then(|e| map.get(e))
+                .and_then(|&b| session.doc.blocks.get(b))
+                .map(|b| b.id);
+            warnings.push(json!({ "code": d.code, "message": d.message, "id": id }));
+        }
+        Ok(json!({
+            "path": target.display().to_string(),
+            "pages": out.pages,
+            "bytes": out.bytes.len(),
+            "warnings": warnings,
         }))
     }
 

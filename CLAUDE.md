@@ -20,8 +20,9 @@ Front ends never mutate the document directly. If something can be done in the G
 | `crates/fountain` | MIT OR Apache-2.0 | 1 | Fountain parser and writer over `screenplay` types. |
 | `crates/core` | GPL-3.0-or-later | 1 | Document with stable element ids, `Command` enum, dispatcher, undo/redo, command journal, atomic save, version snapshots. |
 | `crates/cli` | GPL-3.0-or-later | 1 | The `coldopen` binary: subcommands plus `serve --stdio`. |
-| `crates/layout` | MIT OR Apache-2.0 | 2 | Text layout with bundled fonts, pagination rules, PDF export. |
-| `crates/fdx` | MIT OR Apache-2.0 | 4 | .fdx reader and writer, unknown-element passthrough, repair report. |
+| `crates/fonts` | OFL-1.1 AND (MIT OR Apache-2.0) | 2 | The bundled Courier Prime faces and their license, nothing else. |
+| `crates/layout` | MIT OR Apache-2.0 | 2 | Character-grid layout, pagination rules, page view, PDF export. |
+| `crates/fdx` | MIT OR Apache-2.0 | 2, 4 | .fdx reader (phase 2: read-only, for the layout gate), then writer, unknown-element passthrough, repair report (phase 4). |
 | `crates/app` | GPL-3.0-or-later | 3 | iced desktop app with a custom page-view editor widget. |
 | `crates/mcp` | GPL-3.0-or-later | 3 | MCP server built on `rmcp`. |
 
@@ -32,7 +33,7 @@ The MIT/Apache crates must never depend on GPL crates.
 Each phase starts only after the previous gate passes.
 
 1. **Core and CLI** — dispatcher, document model, Fountain read/write, CLI, JSON over stdio. Gate: passes our own Fountain test cases, written from the public syntax page at fountain.io.
-2. **Layout and PDF** — layout engine with bundled fonts, page-break rules, PDF export, cross-platform determinism tests. Gate: page breaks match reference PDFs on Windows, macOS and Linux.
+2. **Layout and PDF** — layout engine with bundled fonts, page-break rules, PDF export, cross-platform determinism tests, a minimal read-only .fdx loader for the reference tests, and the `EXT/INT` and `E/I` scene-heading fix. Gate: layout and PDF goldens identical on Windows, macOS and Linux, and the reference comparison against the Final Draft PDFs meets the thresholds in `docs/specs/layout.md` (wraps ≥ 99%, resynced breaks ≥ 95% exact and all within 2 lines, page counts exact or ±1 on Big Fish, scene starts ≥ 90% exact and all within 1 page).
 3. **Desktop editor and MCP** — editor window, smart element flow, autocomplete, scene navigator, atomic saves, crash journal, MCP server. Gate: a full short script written with no crash and no lost text.
 4. **.fdx exchange** — import/export, unknown-element passthrough, repair report and `repair` command. Gate: lossless round trip on the .fdx test corpus.
 5. **Revisions and output** — track changes, revision colors, script diff, title page, reports. Gate: track changes survive save, reload and .fdx export.

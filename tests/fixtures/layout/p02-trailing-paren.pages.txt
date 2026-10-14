@@ -1,0 +1,30 @@
+=== page 1 · body 1 · natural ===
+
+
+
+
+
+
+               A line 1 of action.
+               A line 2 of action.
+               A line 3 of action.
+               A line 4 of action.
+               A line 5 of action.
+
+                                MAYA
+                         Spoken line 1.
+                         Spoken line 2.
+                                (MORE)
+=== page 2 · body 2 · end ===
+
+
+
+                                           2.
+
+
+                                MAYA (CONT'D)
+                         Spoken line 3.
+                         Spoken line 4.
+                             (beat)
+
+               B line 1 of action.

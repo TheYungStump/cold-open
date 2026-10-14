@@ -1,0 +1,4 @@
+// Action that starts with a reversed prefix would read as a scene heading, so
+// it is forced with ! and the writer keeps the ! for the same reason.
+{"type":"action","text":"E/I is a label."}
+{"type":"action","text":"Theo peels it off the van door."}

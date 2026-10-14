@@ -1,0 +1,49 @@
+=== page 1 · body 1 · natural ===
+
+
+
+
+
+
+               A line 1 of action.
+               A line 2 of action.
+               A line 3 of action.
+               A line 4 of action.
+               A line 5 of action.
+               A line 6 of action.
+               A line 7 of action.
+
+                                MAYA (V.O.)
+                         Spoken line 1.
+                         Spoken line 2.
+                                (MORE)
+=== page 2 · body 2 · natural ===
+
+
+
+                                           2.
+
+
+                                MAYA (V.O.) (CONT'D)
+                         Spoken line 3.
+                         Spoken line 4.
+
+               B line 1 of action.
+               B line 2 of action.
+
+                                BOB (CONT'D)
+                         Again line 1.
+                         Again line 2.
+                         Again line 3.
+                                (MORE)
+=== page 3 · body 3 · end ===
+
+
+
+                                           3.
+
+
+                                BOB (CONT'D)
+                         Again line 4.
+                         Again line 5.
+                         Again line 6.

@@ -155,8 +155,8 @@ Because every change passes through the dispatcher, undo, the crash journal, tra
 | --- | --- |
 | Language | Rust (stable) |
 | GUI | iced (chosen), with our own page-view editor widget; Slint as the fallback |
-| Text layout | cosmic-text or parley, with bundled fonts |
-| PDF output | krilla or printpdf |
+| Text layout | Our own character grid (10 characters per inch, 6 lines per inch, from the page format) with bundled fonts. Chosen Oct 13 over cosmic-text and parley: pagination stays integer-exact and fast, and the bundled Courier Prime has no glyphs that shaping would help with. See `docs/specs/layout.md`. |
+| PDF output | pdf-writer with subsetter, ttf-parser and miniz_oxide (chosen Oct 13). krilla 0.8 needs a newer Rust than our minimum (1.89); printpdf 0.12 pulls in random ids and clocks, which threaten byte-identical output. |
 | XML for .fdx | quick-xml |
 | CLI | clap |
 | JSON and command schema | serde and serde\_json |
@@ -187,7 +187,7 @@ One versioned command schema serves all four surfaces, so anything a person can 
 **Surfaces**
 
 - **GUI:** menus, shortcuts and the command palette all emit these commands; the app has no hidden actions.
-- **CLI:** batch work without opening the app, for example `coldopen export script.fdx --pdf out.pdf`, `coldopen diff a.fdx b.fdx`, `coldopen repair broken.fdx`, or `coldopen run edits.json`.
+- **CLI:** batch work without opening the app, for example `coldopen export script.fountain out.pdf`, `coldopen diff a.fdx b.fdx`, `coldopen repair broken.fdx`, or `coldopen run edits.json`.
 - **JSON:** `coldopen serve --stdio` reads newline-delimited JSON requests and writes responses, for any language to drive.
 - **MCP:** `coldopen mcp` exposes commands as tools and the script, scenes and reports as resources.
 
@@ -294,7 +294,7 @@ The command core comes first because everything else, including the editor and a
 
 - [ ] **Name.** Chosen: Cold Open (repo cold-open), with no conflicting software found so far. Draftsmith is already an AI writing assistant for Word, and Smashcut is a film-school platform with screenwriting tools, so both are out. Still to check: USPTO, domains and a GitHub organization.
 - [x] **Final Draft's terms (reviewed Oct 13).** The Terms of Service bar using Final Draft, or non-public information gained from it, to create similar services, and bar reverse engineering or recreating its software ([section 4](https://www.finaldraft.com/company/legal/terms-of-service)). Decision: nobody on the project installs or uses Final Draft, including the free trial and Reader Mode.
-- [ ] **.fdx test corpus.** Start with the six small samples in rsdoiel/fdx on GitHub (one scene each, with title page and layout settings; the repo is AGPL, so they are used locally, never copied in). Then collect publicly shared .fdx files covering title pages, dual dialogue, revisions, notes and production features, plus files saved by Fade In, WriterDuet and Highland to test tolerance. Scripts are copyrighted, so this corpus stays private; the public repo uses scripts we write ourselves.
+- [ ] **.fdx test corpus.** Start with the six small samples in rsdoiel/fdx on GitHub (one to three scenes each, all sharing one settings template; four have title-page content; none has dual dialogue, scene numbers or inline styles; the repo is AGPL, so they are used locally, never copied in). Then collect publicly shared .fdx files covering title pages, dual dialogue, revisions, notes and production features, plus files saved by Fade In, WriterDuet and Highland to test tolerance. Scripts are copyrighted, so this corpus stays private; the public repo uses scripts we write ourselves.
 - [ ] **Page-count reference pairs.** Three confirmed (Oct 13): Big Fish (122 pages), Brick & Steel (5) and The Last Birthday Card (21) from fountain.io. All three PDFs were made by Final Draft on US Letter, though in 2012, so newer versions may paginate slightly differently. Each .fdx also records the page every scene starts on, a second check beyond total length. Find more scripts with both the .fdx and a PDF of the same draft. Check that the PDF's Creator or Producer metadata names Final Draft and that page size matches, then use each pair as an expected-output test.
 - [x] **GUI toolkit: iced.** MIT-licensed, its message-and-update model maps directly onto our commands, and System76's COSMIC desktop apps, including a text editor, are built on it. Slint is the fallback.
 - [x] **Text input and accessibility.** v1 ships accented characters, full keyboard operation, zoom and a high-contrast theme. Input methods for Chinese, Japanese and Korean, and screen-reader support, move to v1.x; iced's screen-reader work currently lives in a fork, so we track it.

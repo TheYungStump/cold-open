@@ -1,0 +1,62 @@
+{
+  "page_height": 288,
+  "margin_top": 72,
+  "margin_bottom": 72,
+  "header_top": 36,
+  "elements": {
+    "scene_heading": {
+      "left": 108,
+      "right": 324
+    },
+    "action": {
+      "left": 108,
+      "right": 324
+    },
+    "general": {
+      "left": 108,
+      "right": 324
+    },
+    "shot": {
+      "left": 108,
+      "right": 324
+    },
+    "character": {
+      "left": 230.4,
+      "right": 432
+    },
+    "parenthetical": {
+      "left": 216,
+      "right": 331.2,
+      "first_indent": -7.2
+    },
+    "dialogue": {
+      "left": 180,
+      "right": 324
+    },
+    "lyric": {
+      "left": 180,
+      "right": 324
+    },
+    "transition": {
+      "left": 252,
+      "right": 324
+    }
+  },
+  "dual": {
+    "left": {
+      "left": 108,
+      "right": 208.8
+    },
+    "right": {
+      "left": 216,
+      "right": 324
+    },
+    "character_indent": 36,
+    "parenthetical_inset": 14.4
+  },
+  "page_numbers": {
+    "right": 324
+  },
+  "scene_number_left": 54,
+  "scene_number_right": 331.2
+}

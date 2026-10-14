@@ -11,6 +11,15 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
+# Every `run` step uses bash, which GitHub starts as `bash -eo pipefail` on
+# all three OSes (Git Bash on Windows), so any failing command fails the step,
+# including one on the left of a pipe. Left to the defaults, Linux and macOS
+# would run `bash -e`, which ignores that failure, and Windows would run pwsh,
+# which only checks the exit code of a step's last command.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   test:
     name: test (${{ matrix.os }})
@@ -28,21 +37,159 @@ jobs:
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # The layout and PDF goldens are compared byte for byte here, so the
+      # same files passing on all three OSes is the cross-platform check.
       - name: Test
-        run: cargo test --workspace
+        run: cargo test --workspace --locked
+      - name: Layout goldens and timing in a release build
+        run: cargo test --release --locked -p coldopen-layout -- --nocapture
+      - name: Tests left the tree clean
+        run: |
+          status=$(git status --porcelain --untracked-files=all)
+          if [ -n "$status" ]; then
+            echo "$status"
+            echo "::error::tests created or changed files in the repository"
+            exit 1
+          fi
+      - name: Keep golden mismatches
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-${{ matrix.os }}
+          path: target/tmp/golden
+          if-no-files-found: ignore
 
-  license-boundary:
-    name: license boundary
+  msrv:
+    name: minimum Rust (1.89)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.89.0
+      - uses: Swatinem/rust-cache@v2
+      # The same goldens must pass on the oldest supported compiler, which
+      # shows they do not depend on the Rust version.
+      - name: Test
+        run: cargo test --workspace --locked
+
+  perf:
+    name: repagination budget
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
-      - name: MIT/Apache crates must not depend on GPL crates
+      - uses: Swatinem/rust-cache@v2
+      - name: Full repagination of a 120-page script under 50 ms
+        env:
+          COLDOPEN_PERF: "1"
+        run: cargo test --release --locked -p coldopen-layout --test perf -- --nocapture
+
+  refpdf:
+    name: PDF goldens read back
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tools/refpdf
+      - name: Lint and test the extractor
+        working-directory: tools/refpdf
         run: |
-          deps=$(cargo tree -p coldopen-screenplay -p coldopen-fountain -e normal,build --prefix none --format '{p}')
+          cargo fmt --check
+          cargo clippy --all-targets --locked -- -D warnings
+          cargo test --locked
+      - name: Every PDF golden matches its page view
+        run: |
+          cargo build --release --locked --manifest-path tools/refpdf/Cargo.toml
+          for pdf in tests/fixtures/layout/*.pdf; do
+            tools/refpdf/target/release/refpdf self-check "$pdf" "${pdf%.pdf}.pages.txt"
+          done
+      - name: Every PDF golden is structurally valid
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qpdf
+          for pdf in tests/fixtures/layout/*.pdf; do qpdf --check "$pdf"; done
+
+  license-boundary:
+    name: license boundary
+    runs-on: ubuntu-latest
+    env:
+      # The permissively licensed crates (CLAUDE.md, "Workspace layout").
+      PERMISSIVE_CRATES: coldopen-screenplay coldopen-fountain coldopen-fonts coldopen-layout coldopen-fdx
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - name: MIT/Apache crates must not depend on GPL code
+        run: |
+          read -ra permissive <<<"$PERMISSIVE_CRATES"
+          # Crates that declare only `license-file`, so cargo tree prints no
+          # license for them, as `name@version`. Add one only after reading
+          # its license file and finding it permissive. None so far.
+          license_file_ok=()
+
+          args=()
+          for crate in "${permissive[@]}"; do args+=(-p "$crate"); done
+          # `--target all` also follows dependencies gated on another OS.
+          # cargo tree runs outside any pipe and its status is checked here,
+          # so its failure fails the step even where `-e` does not apply.
+          if ! tree=$(cargo tree --locked --target all "${args[@]}" -e normal,build --prefix none --format '{p}|{l}'); then
+            echo "::error::cargo tree failed, so the dependency licenses were not checked."
+            exit 1
+          fi
+          # Drop the blank lines between trees and the " (*)" cargo appends
+          # to a crate it has already shown. Lines read "name vX.Y.Z ...|license".
+          deps=$(sed -e '/^$/d' -e 's/ (\*)$//' <<<"$tree" | sort -u)
           echo "$deps"
-          if echo "$deps" | grep -E '^coldopen-(core|cli|app|mcp) '; then
+          for crate in "${permissive[@]}"; do
+            if ! grep -q "^$crate v" <<<"$deps"; then
+              echo "::error::cargo tree did not list $crate."
+              exit 1
+            fi
+          done
+
+          if grep -E '^coldopen-(core|cli|app|mcp) ' <<<"$deps"; then
             echo "::error::A permissively licensed crate depends on a GPL crate."
             exit 1
           fi
+          # Our own crates are checked too, so a new GPL crate of ours is
+          # caught by its license even before it is named above.
+          gpl=$(awk -F'|' 'NF && $2 ~ /GPL/' <<<"$deps")
+          if [ -n "$gpl" ]; then
+            echo "$gpl"
+            echo "::error::A permissively licensed crate pulls in a GPL-family dependency."
+            exit 1
+          fi
+
+          unlicensed=$(awk -F'|' 'NF && $2 == "" { split($1, p, " "); print p[1] "@" substr(p[2], 2) }' <<<"$deps")
+          unvetted=()
+          for crate in $unlicensed; do
+            if [[ " ${license_file_ok[*]} " != *" $crate "* ]]; then unvetted+=("$crate"); fi
+          done
+          if [ ${#unvetted[@]} -gt 0 ]; then
+            echo "::error::No SPDX license for ${unvetted[*]}. Read each license file; if it is permissive, add the crate to license_file_ok in this step."
+            exit 1
+          fi
+      - name: MIT/Apache crates ship both license texts
+        run: |
+          read -ra permissive <<<"$PERMISSIVE_CRATES"
+          for crate in "${permissive[@]}"; do
+            # The files `cargo publish` would upload. The MIT license asks for
+            # its notice in every copy.
+            if ! files=$(cargo package --list --allow-dirty --locked -p "$crate"); then
+              echo "::error::cargo package --list failed for $crate."
+              exit 1
+            fi
+            for license in LICENSE-MIT LICENSE-APACHE; do
+              if ! grep -qx "$license" <<<"$files"; then
+                echo "::error::$crate would be published without $license."
+                exit 1
+              fi
+              if ! cmp "crates/${crate#coldopen-}/$license" "$license"; then
+                echo "::error::crates/${crate#coldopen-}/$license differs from the root $license."
+                exit 1
+              fi
+            done
+          done

@@ -321,8 +321,8 @@ fn mergeable(a: &Element, b: &Element) -> bool {
 }
 
 /// The Fountain normal form of a script, with the index of the source
-/// element for each element of the result.
-pub(crate) fn normalize_with_map(script: &Script) -> (Script, Vec<usize>) {
+/// element for each element of the result. Indices never decrease.
+pub fn normalize_with_map(script: &Script) -> (Script, Vec<usize>) {
     // 1. Text of each element; action split at empty lines.
     let mut split_out: Vec<(Element, usize)> = Vec::new();
     let mut carry = 0u32;

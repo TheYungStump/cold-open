@@ -44,6 +44,7 @@ pub(crate) fn detect(lines: &[&str]) -> Option<(TitlePage, usize)> {
 
     let first = para.first()?;
     key_line(first)?;
+    // The reader's rule, reversed prefixes included (spec §4).
     if is_scene_heading_prefix(first) {
         return None;
     }
@@ -103,5 +104,8 @@ mod tests {
     fn rejects_mixed_paragraphs() {
         assert!(detect(&["Title: X", "some action"]).is_none());
         assert!(detect(&["INT. HOUSE: DAY"]).is_none());
+        // The reader's reversed prefixes count too (spec §4).
+        assert!(detect(&["EXT/INT. CAR: DAY"]).is_none());
+        assert!(detect(&["E/I CAR: DAY"]).is_none());
     }
 }

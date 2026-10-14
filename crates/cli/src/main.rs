@@ -43,6 +43,27 @@ enum Cmd {
         #[arg(long)]
         allow_lossy: bool,
     },
+    /// Export a script as a PDF.
+    Export {
+        /// The script to read (.fountain, .spmd or .txt).
+        input: PathBuf,
+        /// The PDF to write.
+        output: PathBuf,
+        /// Print this text diagonally across every page.
+        #[arg(long)]
+        watermark: Option<String>,
+        /// Print scene numbers beside the scene headings.
+        #[arg(long)]
+        scene_numbers: bool,
+        /// Leave out the title page.
+        #[arg(long)]
+        no_title_page: bool,
+    },
+    /// Print the pages of a script as plain text, the way they print.
+    Pages {
+        /// The script to read.
+        file: PathBuf,
+    },
     /// List the scenes in a script.
     Scenes {
         /// The script to read.
@@ -66,6 +87,8 @@ enum Cmd {
         #[arg(long)]
         keep_going: bool,
     },
+    /// Print the licenses of Cold Open and of the fonts it bundles.
+    Licenses,
     /// Read JSON requests on standard input, one per line, and answer each
     /// on standard output.
     Serve {
@@ -84,7 +107,16 @@ fn main() -> ExitCode {
             to,
             allow_lossy,
         } => convert(&input, &output, to, allow_lossy),
+        Cmd::Export {
+            input,
+            output,
+            watermark,
+            scene_numbers,
+            no_title_page,
+        } => export(&input, &output, watermark, scene_numbers, no_title_page),
+        Cmd::Pages { file } => pages(&file),
         Cmd::Scenes { file, json } => scenes(&file, json),
+        Cmd::Licenses => licenses(),
         Cmd::Run {
             edits,
             doc,
@@ -165,6 +197,12 @@ fn convert(
     to: Option<Format>,
     allow_lossy: bool,
 ) -> Result<ExitCode, String> {
+    if Path::new(output)
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
+    {
+        return Err("convert writes Fountain or JSON; use `coldopen export` to make a PDF".into());
+    }
     let format = to.unwrap_or_else(|| {
         let ext = Path::new(output)
             .extension()
@@ -209,6 +247,79 @@ fn convert(
     Ok(ExitCode::SUCCESS)
 }
 
+fn export(
+    input: &Path,
+    output: &Path,
+    watermark: Option<String>,
+    scene_numbers: bool,
+    no_title_page: bool,
+) -> Result<ExitCode, String> {
+    let mut d = reader();
+    let opened = call(&mut d, "doc.open", json!({ "path": path_str(input) }))?;
+    print_warnings(&opened);
+    let mut params = json!({
+        "path": path_str(output),
+        "scene_numbers": scene_numbers,
+        "title_page": !no_title_page,
+    });
+    if let Some(w) = watermark {
+        params["watermark"] = json!(w);
+    }
+    let result = call(&mut d, "export.pdf", params)?;
+    if let Some(ws) = result["warnings"].as_array() {
+        for w in ws {
+            let chars = w["chars"]
+                .as_str()
+                .map(|c| format!(": {c}"))
+                .unwrap_or_default();
+            eprintln!(
+                "coldopen: warning: {}{chars}",
+                w["message"].as_str().unwrap_or("")
+            );
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn pages(file: &Path) -> Result<ExitCode, String> {
+    let mut d = reader();
+    let opened = call(&mut d, "doc.open", json!({ "path": path_str(file) }))?;
+    print_warnings(&opened);
+    let result = call(&mut d, "doc.export", json!({ "format": "pages" }))?;
+    let mut out = io::stdout().lock();
+    out.write_all(result["text"].as_str().unwrap_or_default().as_bytes())
+        .map_err(|e| e.to_string())?;
+    out.flush().map_err(|e| e.to_string())?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// A length in eighths of a page, the way scripts write it: `3/8`, `1`,
+/// `1 2/8`.
+fn eighths(n: u64) -> String {
+    match (n / 8, n % 8) {
+        (0, r) => format!("{r}/8"),
+        (w, 0) => format!("{w}"),
+        (w, r) => format!("{w} {r}/8"),
+    }
+}
+
+fn licenses() -> Result<ExitCode, String> {
+    let mut out = io::stdout().lock();
+    let text = format!(
+        "Cold Open is free software, licensed under the GNU General Public License,\n\
+         version 3 or later. Its format and layout libraries are also available\n\
+         under the MIT or Apache-2.0 licenses. See the repository for the full texts.\n\
+         \n\
+         Cold Open bundles the Courier Prime fonts, licensed as follows.\n\
+         \n\
+         {}",
+        coldopen_fonts::LICENSE
+    );
+    out.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+    out.flush().map_err(|e| e.to_string())?;
+    Ok(ExitCode::SUCCESS)
+}
+
 fn scenes(file: &Path, as_json: bool) -> Result<ExitCode, String> {
     let mut d = reader();
     let opened = call(&mut d, "doc.open", json!({ "path": path_str(file) }))?;
@@ -227,10 +338,15 @@ fn scenes(file: &Path, as_json: bool) -> Result<ExitCode, String> {
         .unwrap_or(1)
         .max(1);
     for s in &scenes {
+        let page = s["page"]
+            .as_u64()
+            .map_or_else(|| "-".to_string(), |p| format!("p. {p}"));
         let line = format!(
-            "{:>4}  {:<nw$}  {}  ({} blocks, {} words)",
+            "{:>4}  {:<nw$}  {:>6}  {:>6}  {}  ({} blocks, {} words)",
             s["index"].as_u64().unwrap_or(0),
             s["number"].as_str().unwrap_or("-"),
+            page,
+            eighths(s["eighths"].as_u64().unwrap_or(0)),
             s["heading"].as_str().unwrap_or(""),
             s["blocks"].as_u64().unwrap_or(0),
             s["words"].as_u64().unwrap_or(0),

@@ -1,0 +1,42 @@
+{
+  "script": {
+    "elements": [
+      {
+        "text": "ACT ONE",
+        "type": "general"
+      },
+      {
+        "text": "Type names ignore case.",
+        "type": "action"
+      },
+      {
+        "text": "No type at all.",
+        "type": "general"
+      },
+      {
+        "text": "END OF ACT ONE",
+        "type": "general"
+      },
+      {
+        "text": "ACT TWO",
+        "type": "general"
+      },
+      {
+        "text": "An element we don't read sits in this paragraph.",
+        "type": "action"
+      }
+    ]
+  },
+  "overrides": {},
+  "title_lines": [],
+  "scenes": [],
+  "report": [
+    "section_missing",
+    "settings_missing",
+    "unknown_paragraph_type",
+    "unknown_paragraph_type",
+    "unknown_paragraph_type",
+    "element_ignored"
+  ],
+  "format": {}
+}

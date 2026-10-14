@@ -1,0 +1,18 @@
+=== page 1 · body 1 · end ===
+
+
+
+
+
+
+        12A    INT. ONE - DAY                                               12A
+
+               First.
+
+        2      INT. TWO - DAY                                               2
+
+               Second.
+
+        14     INT. THREE - DAY                                             14
+
+               Third.

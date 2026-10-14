@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FinalDraft DocumentType="Script" Version="4">
+  <Content>
+    <Paragraph Type="Action">
+      <Text>The run is never closed, the paragraph is.</Paragraph>
+    <Paragraph Type="Action">
+      <Text>A stray end tag follows this text.</Text></Bogus>
+    </Paragraph>
+    <Paragraph Type="Action">
+      <Text>The last paragraph reads normally.</Text>
+    </Paragraph>
+  </Content>
+</FinalDraft>

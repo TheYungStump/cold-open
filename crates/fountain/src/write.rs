@@ -10,7 +10,8 @@ use coldopen_screenplay::{Element, ElementKind, Run, Script, Style, TitlePage};
 
 use crate::classify::{
     default_gap, is_centered, is_character_shape, is_forced_heading, is_page_break,
-    is_scene_heading_prefix, is_transition_shape, split_scene_number, strip_dual,
+    is_scene_heading_prefix, is_strict_scene_heading_prefix, is_transition_shape,
+    split_scene_number, strip_dual,
 };
 use crate::norm::{RLine, normalize_with_map, split, visible};
 use crate::{inline, line, scan, title};
@@ -181,13 +182,50 @@ enum Nesting {
     FlatReversed,
 }
 
-fn render(
-    line: &[Run],
+/// One way to place markers: the nesting, whether literal `*` and `_` are
+/// escaped, and whether styles the next text drops are closed before a note
+/// or boneyard instead of after it.
+#[derive(Clone, Copy)]
+struct Plan {
     nesting: Nesting,
     escape_delims: bool,
-    after: Option<char>,
-    escape_at: &[usize],
-) -> String {
+    close_before_hidden: bool,
+}
+
+/// The plans the writer tries, in order. Closing before a hidden span comes
+/// last so lines that already read back keep their written form; it is
+/// needed when the style change after a note would otherwise put two
+/// delimiter runs together (`**bold[[n]]***it*`).
+const PLANS: [Plan; 12] = {
+    const fn p(nesting: Nesting, escape_delims: bool, close_before_hidden: bool) -> Plan {
+        Plan {
+            nesting,
+            escape_delims,
+            close_before_hidden,
+        }
+    }
+    [
+        p(Nesting::Nested, false, false),
+        p(Nesting::Nested, true, false),
+        p(Nesting::Flat, false, false),
+        p(Nesting::Flat, true, false),
+        p(Nesting::FlatReversed, false, false),
+        p(Nesting::FlatReversed, true, false),
+        p(Nesting::Nested, false, true),
+        p(Nesting::Nested, true, true),
+        p(Nesting::Flat, false, true),
+        p(Nesting::Flat, true, true),
+        p(Nesting::FlatReversed, false, true),
+        p(Nesting::FlatReversed, true, true),
+    ]
+};
+
+fn render(line: &[Run], plan: Plan, after: Option<char>, escape_at: &[usize]) -> String {
+    let Plan {
+        nesting,
+        escape_delims,
+        close_before_hidden,
+    } = plan;
     let mut pieces: Vec<Piece> = Vec::new();
     let mut stack: Vec<Flag> = Vec::new();
     let mut idx = 0usize;
@@ -203,21 +241,35 @@ fn render(
             .take_while(|&has| has)
             .count()
     };
+    // Which open styles must close before `want` applies.
+    let closing_from = |stack: &[Flag], want: &[Flag]| match nesting {
+        Nesting::Nested => stack.iter().position(|f| !want.contains(f)),
+        Nesting::Flat | Nesting::FlatReversed => {
+            let same = stack.len() == want.len() && stack.iter().all(|f| want.contains(f));
+            if same { None } else { Some(0) }
+        }
+    };
     for (r, run) in line.iter().enumerate() {
+        if close_before_hidden && matches!(run, Run::Note(_) | Run::Boneyard(_)) {
+            let next: Vec<Flag> = line[r + 1..]
+                .iter()
+                .find_map(|x| match x {
+                    Run::Text { style, .. } => Some(Flag::of(*style)),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            if let Some(pos) = closing_from(&stack, &next) {
+                for f in stack.drain(pos..).rev() {
+                    pieces.push(Piece::Mark(f.marker()));
+                }
+            }
+        }
         match run {
             Run::Note(n) => pieces.push(Piece::Raw(format!("[[{}]]", note_body(n)))),
             Run::Boneyard(b) => pieces.push(Piece::Raw(format!("/*{b}*/"))),
             Run::Text { text, style } => {
                 let want = Flag::of(*style);
-                let keep_from = match nesting {
-                    Nesting::Nested => stack.iter().position(|f| !want.contains(f)),
-                    Nesting::Flat | Nesting::FlatReversed => {
-                        let same =
-                            stack.len() == want.len() && stack.iter().all(|f| want.contains(f));
-                        if same { None } else { Some(0) }
-                    }
-                };
-                if let Some(pos) = keep_from {
+                if let Some(pos) = closing_from(&stack, &want) {
                     for f in stack.drain(pos..).rev() {
                         pieces.push(Piece::Mark(f.marker()));
                     }
@@ -299,23 +351,15 @@ fn write_inline(line: &[Run], after: Option<char>, escape_at: &[usize]) -> (Stri
     if target.is_empty() {
         return (String::new(), true);
     }
-    const ATTEMPTS: [(Nesting, bool); 6] = [
-        (Nesting::Nested, false),
-        (Nesting::Nested, true),
-        (Nesting::Flat, false),
-        (Nesting::Flat, true),
-        (Nesting::FlatReversed, false),
-        (Nesting::FlatReversed, true),
-    ];
-    for (nesting, escape_delims) in ATTEMPTS {
-        let s = render(&target, nesting, escape_delims, after, escape_at);
+    for plan in PLANS {
+        let s = render(&target, plan, after, escape_at);
         if reparse_line(&s).as_deref() == Some(&target[..]) {
             return (s, true);
         }
     }
     let hoisted = hoist_underline(&target);
-    for (nesting, _) in ATTEMPTS {
-        let s = render(&hoisted, nesting, true, after, escape_at);
+    for plan in PLANS.iter().filter(|p| p.escape_delims) {
+        let s = render(&hoisted, *plan, after, escape_at);
         if reparse_line(&s).as_deref() == Some(&hoisted[..]) {
             return (s, false);
         }
@@ -327,7 +371,12 @@ fn write_inline(line: &[Run], after: Option<char>, escape_at: &[usize]) -> (Stri
             other => other.clone(),
         })
         .collect();
-    (render(&plain, Nesting::Flat, true, after, escape_at), false)
+    let flat = Plan {
+        nesting: Nesting::Flat,
+        escape_delims: true,
+        close_before_hidden: false,
+    };
+    (render(&plain, flat, after, escape_at), false)
 }
 
 /// The text the reader sees in a written line: hidden spans removed,
@@ -841,9 +890,11 @@ impl Writer<'_> {
         let mut s = self.inline(Some(i), &l, after, &esc);
         let v = seen(&s);
         let t = v.trim_start();
+        // Only the syntax page's prefixes go unforced; a reversed one such
+        // as `E/I` is written `.E/I` so every Fountain reader sees a heading.
         let auto = ctx.para_start
             && ctx.blank_after
-            && is_scene_heading_prefix(t)
+            && is_strict_scene_heading_prefix(t)
             && !is_forced(t)
             && !is_marker(t);
         if !auto {
@@ -1049,6 +1100,32 @@ mod tests {
     }
 
     #[test]
+    fn a_style_change_after_a_note_keeps_both_styles() {
+        // Closing the bold after the note would put `***` in front of the
+        // italic, which reads back differently; it closes before instead.
+        let note = |t: &str| Run::Note(t.into());
+        assert_eq!(
+            w(vec![
+                Run::styled("bold", B),
+                note("open\nclose"),
+                Run::styled("//", I),
+                Run::plain(" bone"),
+            ]),
+            ("**bold**[[open\nclose]]*/\\/* bone".into(), true)
+        );
+        // Lines that already read back keep their written form.
+        assert_eq!(
+            w(vec![Run::styled("a", B), note("n"), Run::styled("b", I)]),
+            ("**a[[n]]***b*".into(), true)
+        );
+        // A style that carries on across a note still spans it.
+        assert_eq!(
+            w(vec![Run::styled("a ", B), note("n"), Run::styled(" b", B)]),
+            ("**a [[n]] b**".into(), true)
+        );
+    }
+
+    #[test]
     fn underline_mid_word_is_a_loss() {
         let (_, exact) = w(vec![
             Run::plain("un"),
@@ -1071,5 +1148,52 @@ mod tests {
         let codes: Vec<&str> = out.losses.iter().map(|l| l.code).collect();
         assert!(codes.contains(&"shot_element"));
         assert!(codes.contains(&"general_element"));
+    }
+
+    /// Headings use the syntax page's prefixes to decide on forcing; every
+    /// other check asks what our reader would do, reversed prefixes included.
+    #[test]
+    fn reversed_prefixes() {
+        let el = Element::new;
+        let cases = [
+            (vec![el(ElementKind::SceneHeading, "E/I CAR")], ".E/I CAR"),
+            (
+                vec![el(ElementKind::Action, "E/I is a label.")],
+                "!E/I is a label.",
+            ),
+            (
+                vec![el(ElementKind::Transition, "EXT/INT TO:")],
+                ">EXT/INT TO:",
+            ),
+            (
+                vec![
+                    el(ElementKind::Character, "E/I CAR"),
+                    el(ElementKind::Dialogue, "\nHonk."),
+                ],
+                "@E/I CAR\n  \nHonk.",
+            ),
+        ];
+        for (elements, text) in cases {
+            let s = Script {
+                elements,
+                ..Default::default()
+            };
+            let out = write(&s);
+            assert_eq!(out.text, format!("{text}\n"));
+            assert!(out.losses.is_empty(), "{:?}", out.losses);
+            assert_eq!(crate::parse(&out.text).script, s);
+        }
+
+        let s = Script {
+            title_page: TitlePage {
+                fields: vec![coldopen_screenplay::TitleField::new(
+                    "EXT/INT. CAR",
+                    vec![RichText::plain("DAY")],
+                )],
+            },
+            ..Default::default()
+        };
+        let codes: Vec<&str> = write(&s).losses.iter().map(|l| l.code).collect();
+        assert_eq!(codes, ["title_key"]);
     }
 }

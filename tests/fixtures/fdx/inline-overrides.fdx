@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FinalDraft DocumentType="Script" Version="4">
+  <Content>
+    <Paragraph Type="Action">
+      <Text>Settings alone.</Text>
+    </Paragraph>
+    <Paragraph Alignment="Center" FirstIndent="0.00" Leading="Regular" LeftIndent="1.50" RightIndent="7.50" SpaceBefore="12" Spacing="1" StartsNewPage="No" Type="Action">
+      <Text>A CENTERED SIGN</Text>
+    </Paragraph>
+    <Paragraph Alignment="Left" FirstIndent="0.0" LeftIndent="1.5" RightIndent="7.50" SpaceBefore="12.00" Type="Action">
+      <Text>Equal values, written differently, change nothing.</Text>
+    </Paragraph>
+    <Paragraph SpaceBefore="24" Type="Action">
+      <Text>Two lines of space above this one.</Text>
+    </Paragraph>
+    <Paragraph SpaceBefore="12" Type="General">
+      <Text>General text with a line above it.</Text>
+    </Paragraph>
+    <Paragraph LeftIndent="2.00" Type="Action">
+      <Text>An indent we cannot express.</Text>
+    </Paragraph>
+    <Paragraph Type="Character">
+      <Text>MARGO</Text>
+    </Paragraph>
+    <Paragraph Alignment="Center" Leading="Double" Spacing="2" Type="Dialogue">
+      <Text>Centered dialogue is not a thing we keep.</Text>
+    </Paragraph>
+  </Content>
+  <ElementSettings Type="Action">
+    <ParagraphSpec Alignment="Left" FirstIndent="0.00" Leading="Regular" LeftIndent="1.50" RightIndent="7.50" SpaceBefore="12" Spacing="1" StartsNewPage="No"/>
+  </ElementSettings>
+  <ElementSettings Type="General">
+    <ParagraphSpec Alignment="Left" FirstIndent="0.00" Leading="Regular" LeftIndent="1.50" RightIndent="7.50" SpaceBefore="0" Spacing="1" StartsNewPage="No"/>
+  </ElementSettings>
+</FinalDraft>

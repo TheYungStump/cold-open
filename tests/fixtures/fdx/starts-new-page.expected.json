@@ -1,0 +1,58 @@
+{
+  "script": {
+    "elements": [
+      {
+        "text": "The first paragraph needs no break before it.",
+        "type": "action"
+      },
+      {
+        "text": "An ordinary paragraph.",
+        "type": "action"
+      },
+      {
+        "type": "page_break"
+      },
+      {
+        "text": "This one starts a page.",
+        "type": "action"
+      },
+      {
+        "type": "page_break"
+      },
+      {
+        "text": "ACT TWO",
+        "type": "general"
+      },
+      {
+        "text": "NOT A NEW PAGE",
+        "type": "general"
+      },
+      {
+        "text": "INT. ATTIC - DAY",
+        "type": "scene_heading"
+      },
+      {
+        "text": "A bad value keeps the default.",
+        "type": "action"
+      }
+    ]
+  },
+  "overrides": {},
+  "title_lines": [],
+  "scenes": [],
+  "report": [
+    "section_missing",
+    "settings_for_unmodelled_type",
+    "settings_missing",
+    "paragraph_format_ignored",
+    "invalid_value",
+    "unknown_paragraph_type"
+  ],
+  "format": {
+    "elements": {
+      "scene_heading": {
+        "starts_new_page": true
+      }
+    }
+  }
+}
