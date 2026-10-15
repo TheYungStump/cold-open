@@ -11,6 +11,7 @@ use crate::author::{Author, Clock};
 use crate::command::{Class, Command, DocClose, DocNew, DocOpen, DocSave, ExportPdf, Recover};
 use crate::document::Document;
 use crate::error::CommandError;
+use crate::flush::{Durability, FlushStatus};
 use crate::io::{self, Fingerprint, SourceStyle};
 use crate::journal::{self, Journal, OpenError};
 use crate::session::{Exec, Merge, Session};
@@ -38,6 +39,28 @@ pub struct Dispatcher {
     session: Option<Session>,
     opts: Options,
     clock: Clock,
+    /// Overrides the durability `opts.fsync` implies.
+    durability: Option<Durability>,
+}
+
+/// A save in place, prepared on the UI thread so the file can be written
+/// on another (docs/specs/journal.md, "Saving off the UI thread").
+#[derive(Clone, Debug)]
+pub struct PreparedSave {
+    pub target: PathBuf,
+    pub bytes: Vec<u8>,
+    format: String,
+    losses: Vec<Value>,
+    rev: u64,
+    fingerprint: Fingerprint,
+}
+
+/// A document written out for saving, before anything touches the disk.
+struct Rendered {
+    target: PathBuf,
+    format: String,
+    bytes: Vec<u8>,
+    losses: Vec<Value>,
 }
 
 fn warning(code: &str, message: impl Into<String>) -> Value {
@@ -58,9 +81,9 @@ fn locked(path: &Path) -> CommandError {
     .with_details(json!({ "path": path.display().to_string() }))
 }
 
-fn open_journal(path: &Path, fsync: bool) -> Result<(Journal, Vec<u8>), CommandError> {
+fn open_journal(path: &Path, durability: Durability) -> Result<(Journal, Vec<u8>), CommandError> {
     let jpath = journal::path_for(path);
-    Journal::open_locked(&jpath, fsync).map_err(|e| match e {
+    Journal::open_locked(&jpath, durability).map_err(|e| match e {
         OpenError::Locked => locked(path),
         OpenError::Io(e) => CommandError::io(&jpath, &e),
     })
@@ -72,7 +95,27 @@ impl Dispatcher {
             session: None,
             opts,
             clock: Clock::default(),
+            durability: None,
         }
+    }
+
+    /// Chooses how journals reach the disk; the desktop app uses
+    /// [`Durability::APP`]. Applies to journals opened from now on.
+    pub fn set_durability(&mut self, d: Durability) {
+        self.durability = Some(d);
+    }
+
+    fn durability(&self) -> Durability {
+        self.durability.unwrap_or(if self.opts.fsync {
+            Durability::EveryEntry
+        } else {
+            Durability::OsOnly
+        })
+    }
+
+    /// The open journal's flushing state, in deferred mode.
+    pub fn journal_status(&self) -> Option<FlushStatus> {
+        self.session.as_ref()?.journal.as_ref()?.status()
     }
 
     pub fn session(&self) -> Option<&Session> {
@@ -179,7 +222,7 @@ impl Dispatcher {
         if self.opts.journal
             && let Some(path) = session.path.clone()
         {
-            let (mut j, _) = open_journal(&path, self.opts.fsync)?;
+            let (mut j, _) = open_journal(&path, self.durability())?;
             j.start(&session.doc, None)
                 .map_err(|e| CommandError::io(j.path(), &e))?;
             session.journal = Some(j);
@@ -226,7 +269,7 @@ impl Dispatcher {
         let mut recovered = Value::Null;
 
         if self.opts.journal {
-            let (mut j, contents) = open_journal(&path, self.opts.fsync)?;
+            let (mut j, contents) = open_journal(&path, self.durability())?;
             let mut resumed = false;
             if !contents.is_empty() {
                 match p.recover {
@@ -393,12 +436,9 @@ impl Dispatcher {
         Ok(true)
     }
 
-    fn doc_save(&mut self, p: DocSave) -> Result<Value, CommandError> {
-        let opts = self.opts;
-        let session = self
-            .session
-            .as_mut()
-            .ok_or_else(CommandError::no_document)?;
+    /// Writes the document out for saving and checks it can be saved, without
+    /// touching the disk.
+    fn render(session: &Session, p: &DocSave) -> Result<Rendered, CommandError> {
         let target = match (&p.path, &session.path) {
             (Some(p), _) => PathBuf::from(p),
             (None, Some(p)) => p.clone(),
@@ -430,8 +470,27 @@ impl Dispatcher {
             )
             .with_details(json!({ "losses": losses })));
         }
+        Ok(Rendered {
+            target,
+            format,
+            bytes: io::encode(&written.text, session.style),
+            losses,
+        })
+    }
 
-        let bytes = io::encode(&written.text, session.style);
+    fn doc_save(&mut self, p: DocSave) -> Result<Value, CommandError> {
+        let opts = self.opts;
+        let durability = self.durability();
+        let session = self
+            .session
+            .as_mut()
+            .ok_or_else(CommandError::no_document)?;
+        let Rendered {
+            target,
+            format,
+            bytes,
+            losses,
+        } = Self::render(session, &p)?;
         io::atomic_write(&target, &bytes).map_err(|e| CommandError::io(&target, &e))?;
         let fingerprint = Fingerprint::of(&bytes);
 
@@ -446,7 +505,7 @@ impl Dispatcher {
                         .map_err(|e| CommandError::io(j.path(), &e))?;
                 }
             } else {
-                let (mut j, _) = open_journal(&target, opts.fsync)?;
+                let (mut j, _) = open_journal(&target, durability)?;
                 j.start(&session.doc, Some(fingerprint))
                     .map_err(|e| CommandError::io(j.path(), &e))?;
                 if let Some(old) = session.journal.replace(j) {
@@ -461,6 +520,93 @@ impl Dispatcher {
             "format": format,
             "bytes": bytes.len(),
             "losses": losses,
+        }))
+    }
+
+    /// Step 1 of a save in place off the UI thread: writes the document out
+    /// and appends a `doc.saved` marker for those bytes. The caller then
+    /// runs `io::atomic_write(&prepared.target, &prepared.bytes)` on any
+    /// thread, and hands the outcome to [`Dispatcher::save_commit`].
+    /// "Save as" (a `path` other than the document's) uses `doc.save`.
+    pub fn save_prepare(&mut self, p: &DocSave) -> Result<PreparedSave, CommandError> {
+        let session = self
+            .session
+            .as_mut()
+            .ok_or_else(CommandError::no_document)?;
+        if let (Some(given), Some(own)) = (&p.path, &session.path)
+            && !same_path(Path::new(given), own)
+        {
+            return Err(CommandError::invalid_params(
+                "a save off the UI thread keeps the document's path; use doc.save to save as",
+            ));
+        }
+        if session.path.is_none() {
+            return Err(CommandError::new(
+                "no_path",
+                "this document has no file yet; give a path",
+            ));
+        }
+        let r = Self::render(session, p)?;
+        let fingerprint = Fingerprint::of(&r.bytes);
+        if let Some(j) = &mut session.journal {
+            j.append_saved(fingerprint).map_err(|e| {
+                CommandError::new(
+                    "journal_error",
+                    format!("the crash journal could not be written, so nothing was saved: {e}"),
+                )
+            })?;
+            j.flush_now();
+        }
+        Ok(PreparedSave {
+            target: r.target,
+            bytes: r.bytes,
+            format: r.format,
+            losses: r.losses,
+            rev: session.rev,
+            fingerprint,
+        })
+    }
+
+    /// Step 3 of a save in place: records how the write went. If nothing
+    /// was edited since [`Dispatcher::save_prepare`], the journal starts
+    /// again from the saved document; otherwise it keeps every edit and the
+    /// document stays unsaved.
+    pub fn save_commit(
+        &mut self,
+        prepared: PreparedSave,
+        written: std::io::Result<()>,
+    ) -> Result<Value, CommandError> {
+        written.map_err(|e| CommandError::io(&prepared.target, &e))?;
+        let session = self
+            .session
+            .as_mut()
+            .ok_or_else(CommandError::no_document)?;
+        let same = session
+            .path
+            .as_ref()
+            .is_some_and(|own| same_path(own, &prepared.target));
+        if !same {
+            return Err(CommandError::new(
+                "no_document",
+                "the document was closed or renamed while it was being saved; the file was written",
+            ));
+        }
+        let current = session.rev == prepared.rev;
+        if current {
+            if let Some(j) = &mut session.journal {
+                j.start(&session.doc, Some(prepared.fingerprint))
+                    .map_err(|e| CommandError::io(j.path(), &e))?;
+            }
+            session.dirty = false;
+        } else if let Some(j) = &session.journal {
+            j.flush_now();
+        }
+        Ok(json!({
+            "path": prepared.target.display().to_string(),
+            "format": prepared.format,
+            "bytes": prepared.bytes.len(),
+            "losses": prepared.losses,
+            "dirty": session.dirty,
         }))
     }
 

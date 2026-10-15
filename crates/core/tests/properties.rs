@@ -260,16 +260,15 @@ fn run(d: &mut Dispatcher, s: &Step) -> bool {
         Step::Redo => call(d, "redo", json!({})),
         Step::Type { at, off, text } => {
             let Some(id) = pick(*at) else { return false };
-            let mut pos = off % (len_of(*at) + 1);
+            let start = off % (len_of(*at) + 1);
             let mut ok = false;
-            for c in text.chars() {
+            for (pos, c) in (start..).zip(text.chars()) {
                 let r = call(
                     d,
                     "text.insert",
                     json!({ "id": id, "at": pos, "text": c.to_string() }),
                 );
                 ok |= r["ok"] == true;
-                pos += 1;
             }
             return ok;
         }
