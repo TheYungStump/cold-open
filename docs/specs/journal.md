@@ -1,10 +1,10 @@
 # Crash journal and atomic saves
 
-- **Date:** 2026-10-13
-- **Status:** implemented in `crates/core` (phase 1)
-- **Sources:** `docs/spec.md` (Reliability features), `CLAUDE.md` (Reliability). No external material.
+- **Date:** 2026-10-13, updated 2026-10-15
+- **Status:** implemented in `crates/core` (phase 1). The phase 3 changes (2026-10-15: authors and grouping in entries, the `doc.saved` marker, deferred flushing for the desktop app, saving off the UI thread, recovering never-saved documents) are being implemented.
+- **Sources:** `docs/spec.md` (Reliability features), `CLAUDE.md` (Reliability), the phase 3 brief and its approved decisions (2026-10-15). No external material.
 
-**Promise:** a crash never costs more than the edits that had not yet been acknowledged.
+**Promise:** a crash never costs more than the edits that had not yet been acknowledged. In the desktop app, an edit is acknowledged when it appears on screen. "Durability" below says exactly what each kind of crash can lose.
 
 ## Journal file
 
@@ -33,16 +33,48 @@
 | `t` | Milliseconds since the Unix epoch. Informational only. |
 | `command`, `params` | The command exactly as applied. |
 | `result` | The command's result, including assigned ids, so replay can confirm it reached the same state. |
+| `by` | Optional (2026-10-15). The command's author, as in `docs/specs/commands.md` ("Authors and undo steps"). Absent means a writer. |
+| `merge` | Optional (2026-10-15). `true` when the command joined the undo step before it. Absent means false. |
 
-Only edits, `undo` and `redo` are written. Queries, output commands and session commands are not. Replay stops at any entry that is not an edit, `undo` or `redo`, so a damaged or hand-made journal can never make recovery write files.
+Only edits, `undo`, `redo` and `doc.saved` markers are written. Queries, output commands and session commands are not. Replay stops at any other entry, so a damaged or hand-made journal can never make recovery write files.
+
+**`doc.saved` markers** (2026-10-15). A marker records that a save of the document, as it stood at that point in the journal, was started:
+
+```json
+{"seq":9,"t":1760356802001,"command":"doc.saved","params":{"disk":{"len":1290,"fnv64":"03c1f2aa90b1e4d7"}},"result":{}}
+```
+
+Replay runs nothing for a marker. It only remembers the fingerprint, for `external_change` (recovery step 5). The marker is written before the file is replaced, so whether or not that save completed, the file on disk matches either the header's `disk` or a marker's.
+
+**Old readers.** The new fields and markers are additive, so the journal stays version 1. A Cold Open from before phase 3 that meets a phase 3 journal stops replay at the first command or marker it does not know, keeps a copy of the journal (step 2 below), and recovers everything before that point.
 
 ## Writing
 
 1. An edit is validated and applied in memory.
-2. Its entry is written to the journal in one write call. The CLI and stdio server also fsync it. The desktop app will fsync in the background at least once a second.
-3. Only then is the result returned. If the write fails, the edit is rolled back and the request fails with `journal_error`.
+2. Its entry is written to the journal in one write call, on the thread that applied the edit.
+3. Only then is the result returned and, in the desktop app, shown on screen. If the write fails, the edit is rolled back and the request fails with `journal_error`.
 
 While a session is open, it holds an exclusive lock on the journal (`File::lock`). A second process gets `doc_locked`. The operating system releases the lock if the process dies.
+
+## Durability
+
+A write call puts the entry in the operating system's cache, which survives the app crashing or being killed. To survive the operating system crashing or a power cut, the entry must also be flushed to the disk (`fsync`). Front ends flush in one of two ways:
+
+| Mode | Used by | Rule |
+| --- | --- | --- |
+| **Every entry** | The CLI, `serve --stdio`, `coldopen mcp` when it opens the file itself | Each entry is flushed before its result is returned. |
+| **Deferred** | The desktop app | A background thread flushes. No entry stays unflushed for more than **250 ms** after it is written. The thread also flushes at once when a save starts or finishes, when the document closes, and when typing goes idle, meaning 100 ms with no new entry. |
+
+The 250 ms limit is hard in the sense that the app never waits longer before asking the disk to flush. A flush that the disk itself takes longer to finish is reported, never hidden: the status bar shows the journal as protected only when every written entry has been flushed.
+
+**What a crash can lose in the desktop app (Deferred mode):**
+
+- **The app crashes, panics or is killed:** nothing that was on screen. Every change shown had already been written to the operating system. Only keystrokes still waiting in the operating system's input queue, never processed and never shown, are lost.
+- **The operating system crashes or the power fails:** at most the entries written in the last 250 ms, plus those written during the flush that was in progress.
+- **The journal cannot be written** (a full disk, a removed drive): the edit is refused and is not shown, and the app says why. Nothing is lost silently.
+- **Storage that ignores flush requests**, such as some USB sticks and network shares: nothing beyond what the operating system's cache keeps.
+
+In Every-entry mode, an operating-system crash loses nothing that was acknowledged.
 
 ## Saving
 
@@ -53,6 +85,14 @@ The two possible crash points are both safe:
 
 - **Between steps 1 and 2:** the old journal remains. It replays to exactly the saved state, which step 4 of recovery recognizes.
 - **During step 2:** the header may be torn. That means "nothing to recover", which is correct, because the saved file is current.
+
+**Saving off the UI thread** (desktop app, 2026-10-15). Writing and flushing a 120-page script can take tens of milliseconds, so the app saves in three steps, and the writer can keep typing throughout:
+
+1. **Prepare**, on the UI thread: write the document as Fountain, check for losses, and append a `doc.saved` marker with the fingerprint of the bytes about to be written.
+2. **Write**, on a worker thread: the atomic save below.
+3. **Commit**, back on the UI thread. If the write succeeded and nothing was edited since step 1, the journal is restarted exactly as in step 2 above. If edits arrived in the meantime, the journal is kept as it is: it already holds those edits after the marker, and the document stays unsaved. If the write failed, the error is shown, and the marker is harmless.
+
+Every crash point is safe. The journal always holds the last saved base plus every later edit, so replay reaches the latest acknowledged state. The file is either the old version or the new one, each named by the header or a marker. "Save as" to a new path is done in one step, as before, because a file dialog has just paused the writer anyway.
 
 ## Closing
 
@@ -72,7 +112,15 @@ When `doc.open` finds a journal for the file:
 3. **Discard if asked.** With `recover: "discard"`, the journal is copied to `<journal>.discarded-<ms>`, and a fresh journal is started from the file.
 4. **Nothing to recover?** If there were no entries, or the replayed document writes as Fountain **without loss** and equals the file's bytes, open the file normally. A lossy write can produce the file's exact text while the document differs (for example, a scene heading retyped as a stray parenthetical), so a lossy write always recovers.
 5. **Otherwise, recover.** Open the replayed document as unsaved, with its undo history rebuilt, and report `recovered: {commands, external_change}`.
-   - `external_change` is true when the file no longer matches `disk`. In that case the file is never overwritten automatically; the writer decides.
+   - **Undo history.** It is rebuilt with each step's author and label. Entries marked `merge` join the step before them, exactly as they did when they were made.
+   - `external_change` is true when the file matches neither `disk` nor the fingerprint of any `doc.saved` marker in the journal. In that case the file is never overwritten automatically; the writer decides.
+   - `commands` counts the commands replayed; markers are not counted.
+
+**A file that does not exist** (2026-10-15). If the script file is missing but a journal for it exists, as for a document created with `doc.new` that was never saved, the journal alone is recovered:
+- the file's bytes count as empty in step 4;
+- `external_change` is false when the header's `disk` is null, and true otherwise, because a file that was once saved is now gone.
+
+Without a journal, a missing file fails with `io_error` as before.
 
 ## Atomic save
 

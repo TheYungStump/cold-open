@@ -1,7 +1,7 @@
 # Fountain: how Cold Open reads and writes it
 
 - **Date:** 2026-10-13
-- **Updated:** 2026-10-13 (phase 2): reversed scene heading prefixes (§4, §6.2, §9).
+- **Updated:** 2026-10-13 (phase 2): reversed scene heading prefixes (§4, §6.2, §9). 2026-10-15 (phase 3): the normal form's source map (§10).
 - **Status:** implemented in `crates/fountain` (phase 1)
 - **Sources:**
   - The public Fountain syntax page, <https://fountain.io/syntax>, read 2026-10-13.
@@ -246,3 +246,9 @@ The writer's output for a script `s` reads back as `s` exactly when `s` is in **
 - No two adjacent elements that the reader would merge, such as two dialogue elements with no gap, or two non-centered action elements with gap 0.
 
 Every script the parser produces is in normal form. The property tests generate only normal-form scripts.
+
+**Source map** (2026-10-15, for the desktop editor). Layout runs on the normal form (`docs/specs/layout.md` §4.8), but the editor places its caret in the document's own elements, so it needs to know where each piece of normal-form text came from. `normalize_with_source_map` returns the normal form and, for each of its elements:
+- the index of the source element it starts in;
+- a list of **segments**. Each segment is a byte range of the element's printed text, together with the source element and byte offset in that element's printed text that the range was copied from.
+
+Text the normal form adds has no segment: the `\n` that joins two merged elements. Text it removes appears in no segment: trimmed edge whitespace, and the empty lines that splitting an action turns into spacing. Segments are in order and never overlap. The plain `normalize_with_map` gives the same element indices.

@@ -453,10 +453,35 @@ Known differences that the gate does not measure:
 - A Big Fish title paragraph that starts with about 35 tab characters prints its text one row lower, at the left margin; we keep it on its row.
 - One Big Fish speech breaks between the two hyphens of a double hyphen; we break before the pair (M1 counts it).
 
-## 15. Not yet supported
+## 15. Incremental layout and draft lines
+
+Added 2026-10-15 for the desktop editor (phase 3). Sources: `docs/spec.md` ("Full repagination, 120 pages: under 50 ms; typical edits repaginate incrementally") and the phase 3 brief. No external material.
+
+### 15.1 The rule
+
+An incremental layout keeps a laid-out script and accepts edits to it. After every edit its pages, lines, diagnostics, spans and break causes are **exactly** those of laying out the edited script from scratch. Incremental layout is only a faster way to get the same answer. A property test checks the rule against random edit sequences, and the editor's test driver checks it after every keystroke in debug builds.
+
+### 15.2 How an edit is applied
+
+The caller describes an edit as a splice: the elements in a range of the old script are replaced by a list of new elements.
+
+1. **Measurement is memoized.** Each element's text measure (cells, wrapped lines and sentence starts, §2, §5, §8) depends only on its kind, text and the page format. It is cached by those, so an edit re-measures only the elements it touched.
+2. **The flow is rebuilt locally.** The flow is rebuilt from the scene heading at or before the first changed element (or the script's start) through the element after the scene that holds the last changed one. That range covers everything one element can affect in §4: its dialogue group, a dual partner, the `contd_after_action` scope (which a scene heading resets) and the space above the next printing element. The rest of the flow is reused, shifted by the change in the number of blocks.
+3. **Pagination restarts one page early.** Pages are laid out with `page_from` (§7.1), starting at the page before the one that holds the first changed flow block, because keep rules can pull lines back across a page end.
+4. **Pagination stops where it agrees.** After each new page, if its next cursor lies past the rebuilt range and equals the start cursor of an old page (shifted by the change in block count), every later page is the same as before. Those pages are reused, with their element indices shifted and their page numbers and number lines rewritten.
+
+### 15.3 Draft lines
+
+The editor's continuous "draft" view uses the same wrapping as the pages, without pagination:
+- each printing element's lines, wrapped whole, at the x positions of §5.2;
+- the space above each element as §6 places it when the element is not at the top of a page;
+- no (MORE), no continued names, no page numbers.
+
+The editor also marks where each body page starts, using the spans of §10.
+
+## 16. Not yet supported
 
 - Scene "CONTINUED" headers and footers. The format can hold them, the .fdx reader reports them, and they don't print.
 - Revision marks and colors, and locked or A-pages.
 - Fallback fonts, right-to-left text and complex scripts.
 - Selectable templates (A4, television).
-- Incremental repagination, which arrives with the editor in phase 3.

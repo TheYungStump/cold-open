@@ -359,7 +359,7 @@ pub struct DualFormat {
 }
 
 /// Scene "CONTINUED" lines. Modelled so a format can say they are on; they
-/// are not printed yet (layout.md §15).
+/// are not printed yet (layout.md §16).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SceneContinueds {
