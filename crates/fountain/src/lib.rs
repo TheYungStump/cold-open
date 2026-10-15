@@ -19,12 +19,14 @@ mod inline;
 mod line;
 mod norm;
 mod scan;
+mod srcmap;
 mod title;
 mod write;
 
 use coldopen_screenplay::Script;
 
 pub use norm::{normalize, normalize_with_map};
+pub use srcmap::{ElementSource, Segment, SourceMap, normalize_with_source_map};
 pub use write::{Loss, Written, write};
 
 /// Something the parser noticed and recovered from.

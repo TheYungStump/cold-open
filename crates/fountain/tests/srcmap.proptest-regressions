@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc b3d4d925d81f363003da1c5d3d22179babf0c2128186fab49d84581dcc5747d9 # shrinks to elements = [Element { kind: Action, text: RichText { runs: [] }, scene_number: None, dual: false, centered: false, depth: 0, space_before: None }, Element { kind: Action, text: RichText { runs: [Text { text: "Rain\n\nRain", style: Style { bold: false, italic: false, underline: false } }] }, scene_number: None, dual: false, centered: false, depth: 0, space_before: Some(0) }]

@@ -352,8 +352,17 @@ fn undo_all(d: &mut Dispatcher) -> usize {
     n
 }
 
+/// The usual number of cases, or `PROPTEST_CASES` for a deeper run. An
+/// explicit `cases` in the config would otherwise ignore the variable.
+fn cases(usual: u32) -> u32 {
+    std::env::var("PROPTEST_CASES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(usual)
+}
+
 proptest! {
-    #![proptest_config(ProptestConfig { cases: 128, ..ProptestConfig::default() })]
+    #![proptest_config(ProptestConfig { cases: cases(128), ..ProptestConfig::default() })]
 
     /// Undoing everything returns the starting document; redoing returns
     /// the final one. Ids come back unchanged.
@@ -433,7 +442,7 @@ fn request_line() -> impl Strategy<Value = String> {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig { cases: 256, ..ProptestConfig::default() })]
+    #![proptest_config(ProptestConfig { cases: cases(256), ..ProptestConfig::default() })]
 
     /// The envelope fuzz target's check, on stable.
     #[test]
