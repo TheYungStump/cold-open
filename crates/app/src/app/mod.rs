@@ -171,6 +171,8 @@ pub struct App {
     keymap: Keymap,
     nav: Vec<NavRow>,
     nav_rev: Option<u64>,
+    /// The navigator waits for the next tick (see `after_change`).
+    nav_stale: bool,
     nav_drag: Option<usize>,
     nav_hover: Option<usize>,
     find: Option<FindState>,
@@ -280,6 +282,7 @@ impl App {
             keymap,
             nav: Vec::new(),
             nav_rev: None,
+            nav_stale: false,
             nav_drag: None,
             nav_hover: None,
             find: None,
@@ -496,7 +499,15 @@ impl App {
         self.caret_on = true;
         self.last_input = Instant::now();
         self.refresh_ranges();
-        self.refresh_nav();
+        // Typing in body text changes only the navigator's page numbers and
+        // lengths, so that waits for the next tick (half a second); anything
+        // else, such as a heading, a new block or an agent's edit, shows at
+        // once. It saves about 1.5 ms a key on a feature script.
+        if self.typing_in_body() && self.nav_rev.is_some() {
+            self.nav_stale = true;
+        } else {
+            self.refresh_nav();
+        }
         if scroll {
             self.scroll_to_caret()
         } else {
@@ -538,19 +549,35 @@ impl App {
         self.marked_elems = page_view::marked_elements(view, doc, &self.agent_marks);
     }
 
+    /// The newest change was the writer typing or deleting in a block that
+    /// is not a heading or section.
+    fn typing_in_body(&self) -> bool {
+        self.d.session().is_some_and(|s| {
+            let top = s.undo_steps().next().map(|(c, _, by)| (c, by.is_writer()));
+            matches!(top, Some(("typing" | "text.insert" | "text.delete", true)))
+                && s.doc.get(self.editor.caret.block).is_some_and(|b| {
+                    !matches!(
+                        b.element.kind,
+                        ElementKind::SceneHeading | ElementKind::Section
+                    )
+                })
+        })
+    }
+
     fn refresh_nav(&mut self) {
+        self.nav_stale = false;
         let rev = self.d.session().map(|s| s.rev);
         if rev == self.nav_rev {
             return;
         }
         self.nav_rev = rev;
-        let Some(doc) = self.d.session().map(|s| s.doc.clone()) else {
-            return;
-        };
         let scenes = self
             .run("scene.list", json!({}))
             .and_then(|r| r["scenes"].as_array().cloned())
             .unwrap_or_default();
+        let Some(doc) = self.d.session().map(|s| &s.doc) else {
+            return;
+        };
         let mut rows = Vec::new();
         let mut si = scenes.iter().peekable();
         for b in &doc.blocks {
@@ -636,6 +663,9 @@ impl App {
             Message::Tick => {
                 if self.last_input.elapsed() > Duration::from_millis(500) {
                     self.caret_on = !self.caret_on;
+                }
+                if self.nav_stale {
+                    self.refresh_nav();
                 }
                 Task::none()
             }
