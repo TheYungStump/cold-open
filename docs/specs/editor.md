@@ -27,6 +27,10 @@
 | **Status bar** (bottom) | The caret's page and the page count, the current scene and its length, journal state (§13), agent state (§12), and zoom. |
 | **Overlays** | The command palette (§9), the find bar (§8), the autocomplete list (§6), dialogs and banners. |
 
+**Popups and the mouse** (2026-10-15). A click outside the palette, the find bar, the autocomplete list, the export dialog or a sheet closes it, as Esc does, and does nothing else: it never reaches the script, the navigator or a button behind it. The save and recovery dialogs decide what happens to the writer's work, so a click outside them is ignored. While the palette or a dialog is open, the wheel does not scroll the pages behind it.
+
+**Lists.** In every list chosen with Up and Down (the palette, the autocomplete list, the navigator), the selection stops at the first and last item, and the first press the other way moves it back.
+
 **Focus mode** hides the hint bar, navigator and status bar. Each panel can also be shown or hidden on its own. F6 moves keyboard focus between the navigator, the page area and an open find bar.
 
 ## 3. Views
@@ -118,12 +122,10 @@ Shift with any of these extends the selection. Mod+A selects the whole script. A
 | General | general | action | action | action |
 | Section, synopsis, note, boneyard | action | action | — | — |
 
-- **Parentheses.** When a block becomes a parenthetical while empty, `()` is inserted with the caret between them, in the same `batch` as the type change. Brackets inserted this way, with nothing typed between them, are removed when the writer leaves them, so cycling through types never leaves `()` behind (2026-10-15):
-  - changing the type (Tab, Shift+Tab, an element shortcut) removes them in the same `batch` as the type change;
-  - Enter on them acts as on an empty block;
-  - moving the caret to another block removes them, as their own undo step.
-
-  Undo and redo step through these exactly, with the caret back between the brackets. Brackets the writer typed, and brackets with text inside, are never removed.
+- **Parentheses** (2026-10-15). When a block becomes a parenthetical by any route (Tab, Shift+Tab, an element shortcut, the palette, the flow table), its text is wrapped in `(` and `)` in the same `batch` as the type change, unless the text, spaces aside, already starts with `(` and ends with `)`. An empty block gets `()` with the caret between them. The brackets are inserted unstyled.
+  - **Leaving.** When the block becomes another kind, the brackets the editor added are taken off in the same `batch`, but only while the text between them is still exactly the text that was wrapped. Brackets the writer typed, brackets around text that has changed, and brackets that were already there stay.
+  - **Empty brackets** the editor added also go when the writer leaves them: Enter on them acts as on an empty block, and moving the caret to another block removes them as their own undo step. So cycling through types never leaves `()` behind.
+  - **The caret** stays on the same character through each conversion, and through undo and redo of it.
 - **Auto-convert.** These run as their own commands, so one undo reverses the conversion and keeps the text:
   - In an action block that was empty when typing began, a text equal to a scene prefix (`INT`, `EXT`, `EST`, `INT./EXT`, `INT/EXT`, `I/E`, `EXT/INT`, `E/I`, any case) followed by `.` or a space changes the block to a scene heading.
   - In an empty dialogue block, typing `(` changes the block to a parenthetical.
@@ -149,7 +151,7 @@ It shows the caret block's kind, and what Enter and Tab would make it, from the 
 
 ## 6. Autocomplete
 
-`text.complete` (`docs/specs/commands.md`) finds the suggestions. The editor shows them in a list under the caret while the caret's block is one of the contexts below. Up and Down choose, Tab or Enter accepts, and Esc closes the list until the caret leaves the block or the text changes. Accepting replaces the range `from`..`to` with the item, as one `batch`.
+`text.complete` (`docs/specs/commands.md`) finds the suggestions. The editor shows them in a list under the caret while the caret's block is one of the contexts below. Up and Down choose, stopping at the first and last item; Tab, Enter or a click on an item accepts; and Esc, or a click anywhere else, closes the list until the caret leaves the block or the text changes. Accepting replaces the range `from`..`to` with the item, as one `batch`.
 
 | Context | When | Suggestions, in order |
 | --- | --- | --- |

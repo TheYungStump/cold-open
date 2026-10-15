@@ -89,6 +89,8 @@ pub enum Message {
     CloseRequested,
     /// Esc pressed in a text field.
     Escaped,
+    /// A click outside the open popup (editor.md §2).
+    ClickAway,
     /// The window is about to draw a frame.
     Frame,
     /// The agent link (docs/specs/mcp.md §5).
@@ -706,6 +708,30 @@ impl App {
         Some((p, y_pt, h / 2.0))
     }
 
+    /// The palette's selected row, while it is open.
+    pub fn palette_selection(&self) -> Option<usize> {
+        self.palette.as_ref().map(|p| p.selected)
+    }
+
+    pub fn find_open(&self) -> bool {
+        self.find.is_some()
+    }
+
+    /// The caret's top-left corner in the window, when it is in view.
+    pub fn caret_window_point(&self) -> Option<iced::Point> {
+        let y = self.caret_screen_y()?;
+        let vp = self.viewport.as_ref()?;
+        let spot = self.caret_spot?;
+        let (k, _, _) = self.page_geometry(self.settings.zoom)?;
+        let page_w = self.d.cached_view()?.layout().format().page_width.0 as f32 * k;
+        let left = ((vp.content_bounds().width - page_w) / 2.0).max(page_view::MARGIN);
+        let b = vp.bounds();
+        Some(iced::Point::new(
+            b.x + left - vp.absolute_offset().x + spot.x.0 as f32 * k,
+            b.y + y,
+        ))
+    }
+
     /// How far the caret's line is below the top of the page area, when it
     /// is in view.
     pub fn caret_screen_y(&self) -> Option<f32> {
@@ -902,8 +928,34 @@ impl App {
                 }
                 Task::none()
             }
+            Message::ClickAway => self.click_away(),
             Message::Noop => Task::none(),
         }
+    }
+
+    /// A click outside the open popup closes it, as Esc does, and does
+    /// nothing else (editor.md §2). The save and recovery dialogs decide
+    /// what happens to the writer's work, so a stray click leaves them open.
+    fn click_away(&mut self) -> Task<Message> {
+        if self.palette.is_some() {
+            self.palette = None;
+            self.focus = Focus::Page;
+            return Task::none();
+        }
+        if self.modal() {
+            if self.prompt.is_none() && self.recovery.is_none() {
+                self.export = None;
+                self.sheet = None;
+            }
+            return Task::none();
+        }
+        self.editor.dismiss_completion(&self.d);
+        if self.find.is_some() {
+            self.find = None;
+            self.focus = Focus::Page;
+            return self.after_change(false);
+        }
+        Task::none()
     }
 
     fn page_event(&mut self, ev: PageEvent) -> Task<Message> {
@@ -950,6 +1002,15 @@ impl App {
                 self.editor.click(&mut self.d, page, x, y, true);
                 self.after_change(false)
             }
+            PageEvent::Pick(i) => {
+                if let Some(c) = &mut self.editor.completion {
+                    c.selected = i;
+                }
+                self.editor.accept_completion(&mut self.d);
+                self.clear_marks_at_caret();
+                self.after_change(true)
+            }
+            PageEvent::Dismiss => self.click_away(),
         }
     }
 
@@ -1131,10 +1192,12 @@ impl App {
         if self.modal() {
             return self.modal_key(&kp);
         }
+        let last = self.palette_items().len().saturating_sub(1);
         if let Some(p) = &mut self.palette {
             match kp.key.as_ref() {
+                // The selection stops at either end of the list.
                 Key::Named(Named::ArrowDown) => {
-                    p.selected += 1;
+                    p.selected = (p.selected + 1).min(last);
                     return Task::none();
                 }
                 Key::Named(Named::ArrowUp) => {

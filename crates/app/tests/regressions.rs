@@ -1,4 +1,4 @@
-//! Regression tests for bugs found by hand in the Windows test build
+//! Regression tests for bugs found by hand in the Windows test builds
 //! (2026-10-15), each driven through the running app, headless.
 
 use std::path::Path;
@@ -302,5 +302,290 @@ fn empty_auto_brackets_never_stay_behind() {
     assert_eq!(last(&h), (Parenthetical, "()".into()));
     h.named(Named::Tab, none());
     assert_eq!(last(&h), (Dialogue, "()".into()));
+    h.app.d.discard();
+}
+
+/// Three scenes with three speakers whose names start with M.
+fn three_scenes(dir: &Path) -> std::path::PathBuf {
+    let s = "INT. LAB - NIGHT\n\nMAYA\nHello.\n\nMARCO\nHi.\n\n\
+             EXT. ROOF - DAY\n\nMATT\nUp here.\n\n\
+             INT. CAR - LATER\n\nMAYA\nDrive.\n";
+    let p = dir.join("scenes.fountain");
+    std::fs::write(&p, s).unwrap();
+    p
+}
+
+fn caret_text(h: &Headless) -> String {
+    let doc = &h.app.d.session().unwrap().doc;
+    doc.get(h.app.editor.caret.block)
+        .unwrap()
+        .element
+        .text
+        .plain_text()
+}
+
+fn ctrl() -> Modifiers {
+    coldopen_app::headless::command_modifier()
+}
+
+// 5. Down past the end of the palette (or Up past the top) built up a
+// hidden count, so the selection only moved back after as many presses the
+// other way. Every list stops at its ends, and the first press back moves
+// it; the wheel never moves a selection or the page behind the palette.
+#[test]
+fn list_selection_stops_at_the_ends() {
+    let home = tempfile::tempdir().unwrap();
+    let file = three_scenes(home.path());
+    let mut h = open(home.path(), Some(file));
+    h.frame(1.0);
+
+    // The palette.
+    h.shortcut('k', false);
+    assert_eq!(h.app.palette_selection(), Some(0));
+    for _ in 0..30 {
+        h.named(Named::ArrowDown, none());
+    }
+    let last = h.app.palette_selection().unwrap();
+    assert!(last > 0);
+    h.named(Named::ArrowDown, none());
+    assert_eq!(h.app.palette_selection(), Some(last), "stops at the end");
+    h.named(Named::ArrowUp, none());
+    assert_eq!(h.app.palette_selection(), Some(last - 1), "one press back");
+    for _ in 0..30 {
+        h.named(Named::ArrowUp, none());
+    }
+    assert_eq!(h.app.palette_selection(), Some(0));
+    h.named(Named::ArrowDown, none());
+    assert_eq!(h.app.palette_selection(), Some(1));
+    // The wheel, over the palette and over the dimmed page around it.
+    let y0 = h.app.caret_screen_y();
+    assert!(y0.is_some());
+    for at in [Point::new(W / 2.0, 200.0), Point::new(W * 0.9, H * 0.8)] {
+        h.cursor = mouse::Cursor::Available(at);
+        h.events(vec![
+            Event::Mouse(mouse::Event::CursorMoved { position: at }),
+            Event::Mouse(mouse::Event::WheelScrolled {
+                delta: mouse::ScrollDelta::Lines { x: 0.0, y: -5.0 },
+            }),
+        ]);
+        h.frame(1.0);
+    }
+    assert_eq!(h.app.caret_screen_y(), y0, "the page behind did not scroll");
+    assert_eq!(h.app.palette_selection(), Some(1));
+    h.named(Named::ArrowDown, none());
+    assert_eq!(h.app.palette_selection(), Some(2));
+    h.named(Named::Escape, none());
+    assert_eq!(h.app.palette_selection(), None);
+
+    // The autocomplete list.
+    h.named(Named::End, ctrl());
+    h.type_text("\nM");
+    let n = h
+        .app
+        .editor
+        .completion
+        .as_ref()
+        .expect("a list")
+        .items
+        .len();
+    assert_eq!(n, 3, "MAYA, MARCO and MATT");
+    let selected = |h: &Headless| h.app.editor.completion.as_ref().unwrap().selected;
+    for _ in 0..10 {
+        h.named(Named::ArrowDown, none());
+    }
+    assert_eq!(selected(&h), n - 1);
+    h.named(Named::ArrowUp, none());
+    assert_eq!(selected(&h), n - 2);
+    for _ in 0..10 {
+        h.named(Named::ArrowUp, none());
+    }
+    assert_eq!(selected(&h), 0);
+    h.named(Named::ArrowDown, none());
+    assert_eq!(selected(&h), 1);
+    wheel(&mut h, mouse::ScrollDelta::Lines { x: 0.0, y: -1.0 });
+    assert_eq!(selected(&h), 1, "the wheel scrolls; it does not choose");
+    h.named(Named::Escape, none());
+    h.named(Named::Backspace, none());
+    h.named(Named::Backspace, none());
+
+    // The navigator: Up and Down move between scenes and stop at the ends.
+    h.named(Named::Home, ctrl());
+    h.named(Named::F6, none());
+    for _ in 0..3 {
+        h.named(Named::ArrowUp, none());
+    }
+    assert_eq!(caret_text(&h), "INT. LAB - NIGHT");
+    h.named(Named::ArrowDown, none());
+    assert_eq!(caret_text(&h), "EXT. ROOF - DAY", "one press down");
+    for _ in 0..5 {
+        h.named(Named::ArrowDown, none());
+    }
+    assert_eq!(caret_text(&h), "INT. CAR - LATER");
+    h.named(Named::ArrowUp, none());
+    assert_eq!(caret_text(&h), "EXT. ROOF - DAY", "one press up");
+    h.app.d.discard();
+}
+
+fn undo_steps(h: &Headless) -> usize {
+    h.app.d.session().unwrap().undo_steps().count()
+}
+
+// 6. Tab from dialogue to parenthetical moved typed text to the
+// parenthetical column without brackets. Becoming a parenthetical, by any
+// route, wraps the text in brackets unless it already has them; leaving
+// takes off only the editor's brackets, and only while the text between
+// them is unchanged. The caret stays on the same character, and each
+// conversion is one undo step.
+#[test]
+fn parenthetical_conversion_wraps_and_unwraps() {
+    use ElementKind::*;
+    let home = tempfile::tempdir().unwrap();
+    let at = |h: &Headless| h.app.editor.caret.offset;
+
+    let mut h = speech(home.path());
+    h.type_text("Hello there");
+    for _ in 0..6 {
+        h.named(Named::ArrowLeft, none());
+    }
+    assert_eq!(at(&h), 5, "after Hello");
+    let steps = undo_steps(&h);
+    h.named(Named::Tab, none());
+    assert_eq!(last(&h), (Parenthetical, "(Hello there)".into()));
+    assert_eq!(at(&h), 6, "still after Hello");
+    assert_eq!(undo_steps(&h), steps + 1, "one undo step");
+    h.named(Named::Tab, none());
+    assert_eq!(last(&h), (Dialogue, "Hello there".into()));
+    assert_eq!(at(&h), 5);
+    assert_eq!(undo_steps(&h), steps + 2);
+    h.shortcut('z', false);
+    assert_eq!(last(&h), (Parenthetical, "(Hello there)".into()));
+    assert_eq!(at(&h), 6);
+    h.shortcut('z', false);
+    assert_eq!(last(&h), (Dialogue, "Hello there".into()));
+    assert_eq!(at(&h), 5);
+    h.shortcut('z', true);
+    assert_eq!(last(&h), (Parenthetical, "(Hello there)".into()));
+    assert_eq!(at(&h), 6);
+    // Changed inside: the brackets stay.
+    h.type_text(",");
+    h.named(Named::Tab, none());
+    assert_eq!(last(&h), (Dialogue, "(Hello, there)".into()));
+    // Undo back to the unchanged text, and they come off again.
+    h.shortcut('z', false);
+    h.shortcut('z', false);
+    assert_eq!(last(&h), (Parenthetical, "(Hello there)".into()));
+    h.named(Named::Tab, none());
+    assert_eq!(last(&h), (Dialogue, "Hello there".into()));
+    h.app.d.discard();
+
+    // Brackets the writer typed stay, even where the editor had added some
+    // before.
+    let mut h = speech(home.path());
+    h.named(Named::Tab, none());
+    h.named(Named::Tab, none());
+    h.type_text("(");
+    assert_eq!(last(&h), (Parenthetical, "()".into()));
+    h.named(Named::Tab, none());
+    assert_eq!(last(&h), (Dialogue, "()".into()));
+    h.app.d.discard();
+
+    // Other routes: the element shortcuts and the palette.
+    let mut h = open(home.path(), None);
+    h.type_text("int. lab - night\nBeat.");
+    h.shortcut('4', false);
+    assert_eq!(last(&h), (Parenthetical, "(Beat.)".into()));
+    assert_eq!(at(&h), 6, "still after the full stop");
+    h.shortcut('2', false);
+    assert_eq!(last(&h), (Action, "Beat.".into()));
+    assert_eq!(at(&h), 5);
+    h.shortcut('k', false);
+    h.type_text("element.parenthetical\n");
+    assert_eq!(last(&h), (Parenthetical, "(Beat.)".into()));
+    h.shortcut('2', false);
+    // Text already in brackets keeps them, both ways.
+    h.named(Named::End, none());
+    h.type_text("\n(softly)");
+    h.shortcut('4', false);
+    assert_eq!(last(&h), (Parenthetical, "(softly)".into()));
+    h.shortcut('2', false);
+    assert_eq!(last(&h), (Action, "(softly)".into()));
+    h.app.d.discard();
+}
+
+/// Where a click lands on the script, clear of the palette's card: the
+/// first lines of page 1, right of the card.
+const ON_PAGE: Point = Point::new(W * 0.86, 200.0);
+
+fn caret(h: &Headless) -> (coldopen_core::BlockId, usize) {
+    (h.app.editor.caret.block, h.app.editor.caret.offset)
+}
+
+// 7. A click outside the palette, the find bar, the autocomplete list or a
+// dialog closes it as Esc does, and never reaches the script behind it.
+#[test]
+fn clicks_outside_a_popup_only_close_it() {
+    let home = tempfile::tempdir().unwrap();
+    let file = three_scenes(home.path());
+    let mut h = open(home.path(), Some(file));
+    h.frame(1.0);
+    h.named(Named::End, ctrl());
+    let end = caret(&h);
+    let script = blocks(&h);
+    // With nothing open, that click moves the caret.
+    h.click(ON_PAGE);
+    assert_ne!(caret(&h), end, "the click lands on the script");
+    h.named(Named::End, ctrl());
+
+    // The palette: a click inside its card keeps it, one outside closes it.
+    h.shortcut('k', false);
+    h.click(Point::new(W / 2.0 - 270.0, 88.0));
+    assert_eq!(h.app.palette_selection(), Some(0), "a click on the card");
+    h.click(ON_PAGE);
+    assert_eq!(h.app.palette_selection(), None, "closed");
+    assert_eq!(caret(&h), end, "and the caret stayed");
+
+    // The find bar.
+    h.shortcut('f', false);
+    assert!(h.app.find_open());
+    h.click(ON_PAGE);
+    assert!(!h.app.find_open());
+    assert_eq!(caret(&h), end);
+
+    // Dialogs: PDF export closes; the save prompt stays, as it decides
+    // about the writer's work.
+    h.shortcut('e', true);
+    assert!(h.app.export.is_some());
+    h.click(ON_PAGE);
+    assert!(h.app.export.is_none());
+    assert_eq!(caret(&h), end);
+    assert_eq!(blocks(&h), script, "nothing changed in the script");
+
+    // The autocomplete list: a click elsewhere on the page closes it, and
+    // a click on an item picks it.
+    h.type_text("\nM");
+    let typing = caret(&h);
+    assert!(h.app.editor.completion.is_some());
+    h.click(ON_PAGE);
+    assert!(h.app.editor.completion.is_none());
+    assert_eq!(caret(&h), typing);
+    h.type_text("A");
+    let items = h.app.editor.completion.as_ref().unwrap().items.clone();
+    assert_eq!(items, ["MAYA", "MARCO", "MATT"]);
+    h.frame(1.0);
+    let format = h.app.d.cached_view().unwrap().layout().format().clone();
+    let lh = format.line_height.0 as f32 * 96.0 / 72.0 / 100.0;
+    let c = h.app.caret_window_point().expect("the caret is in view");
+    let row = coldopen_app::page_view::COMPLETION_ROW;
+    h.click(Point::new(c.x + 20.0, c.y + lh + 5.0 + 1.5 * row));
+    assert_eq!(last(&h), (ElementKind::Character, "MARCO".into()));
+
+    h.shortcut('w', false);
+    assert!(h.app.prompt.is_some());
+    let before = caret(&h);
+    h.click(ON_PAGE);
+    assert!(h.app.prompt.is_some(), "the save prompt stays open");
+    assert_eq!(caret(&h), before);
+    h.named(Named::Escape, none());
+    assert!(h.app.prompt.is_none());
     h.app.d.discard();
 }

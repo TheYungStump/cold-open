@@ -121,9 +121,11 @@ pub struct Editor {
     fresh: Option<BlockId>,
     /// Autocomplete closed by Esc for this block and text.
     dismissed: Option<(BlockId, String)>,
-    /// Parentheticals whose `()` the editor added, not the writer. Empty
-    /// ones are removed when the writer leaves them (editor.md §5.2).
-    auto_parens: std::collections::BTreeSet<BlockId>,
+    /// Parentheticals whose brackets the editor added, not the writer, with
+    /// the text it wrapped in them. Converting the block to another kind
+    /// takes them off again while that text is unchanged, and empty ones go
+    /// when the writer leaves them (editor.md §5.2).
+    auto_parens: std::collections::BTreeMap<BlockId, String>,
     /// The last command failures, for the banner.
     pub problems: Vec<Problem>,
 }
@@ -208,7 +210,7 @@ impl Editor {
             draft_rev: None,
             fresh: None,
             dismissed: None,
-            auto_parens: std::collections::BTreeSet::new(),
+            auto_parens: std::collections::BTreeMap::new(),
             problems: Vec::new(),
         }
     }
@@ -360,13 +362,21 @@ impl Editor {
         self.left(d, from);
     }
 
+    /// Whether a parenthetical's text is still exactly the text the editor
+    /// wrapped in brackets, brackets included.
+    fn own_parens(&self, d: &Dispatcher, id: BlockId) -> bool {
+        self.auto_parens.get(&id).is_some_and(|inner| {
+            d.session().and_then(|s| s.doc.get(id)).is_some_and(|b| {
+                b.element.kind == ElementKind::Parenthetical
+                    && b.element.text.plain_text() == format!("({inner})")
+            })
+        })
+    }
+
     /// Whether a block is a parenthetical holding only the `()` the
     /// editor added.
     fn bare_parens(&self, d: &Dispatcher, id: BlockId) -> bool {
-        self.auto_parens.contains(&id)
-            && d.session().and_then(|s| s.doc.get(id)).is_some_and(|b| {
-                b.element.kind == ElementKind::Parenthetical && b.element.text.plain_text() == "()"
-            })
+        self.auto_parens.get(&id).is_some_and(String::is_empty) && self.own_parens(d, id)
     }
 
     /// After the caret left block `from`: brackets the editor added there,
@@ -658,6 +668,8 @@ impl Editor {
                 style: None,
             }));
             if self.run(d, cmds).is_some() {
+                // The writer typed these brackets: they are never removed.
+                self.auto_parens.remove(&start.block);
                 self.set_caret(
                     Caret {
                         block: start.block,
@@ -954,7 +966,7 @@ impl Editor {
             style: None,
         });
         if self.run(d, vec![cmd]).is_some() {
-            self.auto_parens.insert(id);
+            self.auto_parens.insert(id, String::new());
             self.set_caret(
                 Caret {
                     block: id,
@@ -965,48 +977,67 @@ impl Editor {
         }
     }
 
-    /// Changes a block's kind, as one undo step. An empty block that
-    /// becomes a parenthetical gets its brackets; a parenthetical holding
-    /// only the brackets the editor added loses them when it becomes
-    /// anything else, so cycling with Tab leaves nothing behind
-    /// (editor.md §5.2).
+    /// Changes a block's kind, as one undo step (editor.md §5.2). A block
+    /// that becomes a parenthetical has its text wrapped in brackets unless
+    /// it already is; a parenthetical that becomes anything else loses the
+    /// brackets the editor added, while the text between them is unchanged.
+    /// So cycling with Tab leaves nothing behind, and the caret stays on
+    /// the same character.
     fn set_kind(&mut self, d: &mut Dispatcher, id: BlockId, kind: ElementKind) {
-        let bare = kind != ElementKind::Parenthetical && self.bare_parens(d, id);
-        let empty = bare
-            || d.session()
-                .is_some_and(|s| s.doc.get(id).is_some_and(|b| b.element.text.is_empty()));
-        let mut cmds = Vec::new();
-        if bare {
-            cmds.push(Command::TextDelete(TextDelete { id, from: 0, to: 2 }));
-        }
-        cmds.push(Command::BlockSetType(BlockSetType { id, kind }));
-        let parens = kind == ElementKind::Parenthetical && empty;
-        if parens {
-            cmds.push(Command::TextInsert(TextInsert {
+        let paren = ElementKind::Parenthetical;
+        let Some((from, text)) = d
+            .session()
+            .and_then(|s| s.doc.get(id))
+            .map(|b| (b.element.kind, b.element.text.plain_text()))
+        else {
+            return;
+        };
+        let n = text.chars().count();
+        let plain = Some(StyleSpec::default());
+        let mut cmds = vec![Command::BlockSetType(BlockSetType { id, kind })];
+        let mut wrap = false;
+        let mut unwrap = false;
+        if kind == paren && from != paren {
+            let t = text.trim();
+            if t.starts_with('(') && t.ends_with(')') && t.len() >= 2 {
+                // The writer's own brackets.
+                self.auto_parens.remove(&id);
+            } else {
+                wrap = true;
+                cmds.push(Command::TextInsert(TextInsert {
+                    id,
+                    at: n,
+                    text: ")".into(),
+                    style: plain,
+                }));
+                cmds.push(Command::TextInsert(TextInsert {
+                    id,
+                    at: 0,
+                    text: "(".into(),
+                    style: plain,
+                }));
+            }
+        } else if from == paren && kind != paren && self.own_parens(d, id) {
+            // Changed inside, or the writer's, they stay. The record stays
+            // too, for an undo back to the unchanged text.
+            unwrap = true;
+            cmds.push(Command::TextDelete(TextDelete {
                 id,
-                at: 0,
-                text: "()".into(),
-                style: None,
+                from: n - 1,
+                to: n,
             }));
+            cmds.push(Command::TextDelete(TextDelete { id, from: 0, to: 1 }));
         }
         if self.run(d, cmds).is_some() {
-            if parens {
-                self.auto_parens.insert(id);
-                self.set_caret(
-                    Caret {
-                        block: id,
-                        offset: 1,
-                    },
-                    false,
-                );
-            } else if bare {
-                self.set_caret(
-                    Caret {
-                        block: id,
-                        offset: 0,
-                    },
-                    false,
-                );
+            if wrap {
+                self.auto_parens.insert(id, text);
+            }
+            for c in [&mut self.caret, &mut self.anchor] {
+                if c.block == id && wrap {
+                    c.offset = c.offset.min(n) + 1;
+                } else if c.block == id && unwrap {
+                    c.offset = c.offset.saturating_sub(1).min(n - 2);
+                }
             }
         }
         self.refresh_completion(d);
@@ -1107,16 +1138,24 @@ impl Editor {
         } else {
             Command::Undo(Empty {})
         };
+        let id = self.caret.block;
+        let before = d.session().map(|s| text_of(&s.doc, id));
         self.run(d, vec![cmd]);
+        // Undoing or redoing a conversion that wrapped the caret's block in
+        // brackets, or took them off, keeps the caret on the same character.
+        let after = d.session().map(|s| text_of(&s.doc, id));
+        if let (Some(b), Some(a)) = (before, after) {
+            let carets = [&mut self.caret, &mut self.anchor];
+            for c in carets.into_iter().filter(|c| c.block == id) {
+                if a == format!("({b})") {
+                    c.offset += 1;
+                } else if b == format!("({a})") {
+                    c.offset = c.offset.saturating_sub(1);
+                }
+            }
+        }
         if let Some(s) = d.session() {
             self.fix_caret(&s.doc);
-        }
-        if self.bare_parens(d, self.caret.block) {
-            let c = Caret {
-                block: self.caret.block,
-                offset: 1,
-            };
-            self.set_caret(c, false);
         }
         self.completion = None;
     }
@@ -1291,13 +1330,14 @@ impl Editor {
         };
     }
 
+    /// Up or Down in the list: the selection stops at either end, like
+    /// every list in the app (editor.md §6).
     pub fn completion_move(&mut self, down: bool) {
         if let Some(c) = &mut self.completion {
-            let n = c.items.len();
             c.selected = if down {
-                (c.selected + 1) % n
+                (c.selected + 1).min(c.items.len().saturating_sub(1))
             } else {
-                (c.selected + n - 1) % n
+                c.selected.saturating_sub(1)
             };
         }
     }

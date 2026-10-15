@@ -32,6 +32,9 @@ const PX_PER_PT: f32 = 96.0 / 72.0;
 /// Space around and between pages, in logical pixels.
 pub const MARGIN: f32 = 28.0;
 pub const GAP: f32 = 24.0;
+/// The autocomplete list: the height of a row and the list's width.
+pub const COMPLETION_ROW: f32 = 22.0;
+const COMPLETION_WIDTH: f32 = 220.0;
 
 /// A key pressed while the page area has focus.
 #[derive(Clone, Debug, PartialEq)]
@@ -65,6 +68,11 @@ pub enum PageEvent {
         x: Pt,
         y: Pt,
     },
+    /// A click on an item of the autocomplete list.
+    Pick(usize),
+    /// A click on the page outside the autocomplete list, which only closes
+    /// it.
+    Dismiss,
 }
 
 /// Character ranges to paint behind the text, in normal-form coordinates:
@@ -181,6 +189,20 @@ impl<Message> PageView<'_, Message> {
         ))
     }
 
+    /// The autocomplete list's box, in window coordinates: under the
+    /// caret's line.
+    fn completion_box(&self, bounds: Rectangle) -> Option<Rectangle> {
+        let c = self.completion?;
+        let r = self.caret_rect(bounds.width)?;
+        Some(Rectangle::new(
+            Point::new(bounds.x + r.x, bounds.y + r.y + r.height + 2.0),
+            Size::new(
+                COMPLETION_WIDTH,
+                COMPLETION_ROW * c.items.len() as f32 + 6.0,
+            ),
+        ))
+    }
+
     fn in_range(range: &NormRange, elem: usize, byte: u32) -> bool {
         (elem, byte) >= range.0 && (elem, byte) < range.1
     }
@@ -237,6 +259,24 @@ impl<Message> widget::Widget<Message, iced::Theme, iced::Renderer> for PageView<
         let state = tree.state.downcast_mut::<State>();
         let bounds = layout.bounds();
         match event {
+            Event::Mouse(mouse::Event::ButtonPressed(button)) if self.completion.is_some() => {
+                let Some(at) = cursor.position_over(bounds) else {
+                    return;
+                };
+                match self.completion_box(bounds) {
+                    Some(b) if b.contains(at) => {
+                        let i = ((at.y - b.y - 3.0) / COMPLETION_ROW).floor();
+                        if *button == mouse::Button::Left
+                            && i >= 0.0
+                            && (i as usize) < self.completion.map_or(0, |c| c.items.len())
+                        {
+                            shell.publish((self.on_event)(PageEvent::Pick(i as usize)));
+                        }
+                    }
+                    _ => shell.publish((self.on_event)(PageEvent::Dismiss)),
+                }
+                shell.capture_event();
+            }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 let Some(at) = cursor.position_over(bounds) else {
                     return;
@@ -334,7 +374,13 @@ impl<Message> widget::Widget<Message, iced::Theme, iced::Renderer> for PageView<
         _viewport: &Rectangle,
         _renderer: &iced::Renderer,
     ) -> mouse::Interaction {
-        if cursor.is_over(layout.bounds()) {
+        let over_list = cursor
+            .position()
+            .zip(self.completion_box(layout.bounds()))
+            .is_some_and(|(at, b)| b.contains(at));
+        if over_list {
+            mouse::Interaction::Pointer
+        } else if cursor.is_over(layout.bounds()) {
             mouse::Interaction::Text
         } else {
             mouse::Interaction::default()
@@ -488,11 +534,11 @@ impl<Message> widget::Widget<Message, iced::Theme, iced::Renderer> for PageView<
                     pal.caret,
                 );
             }
-            if let Some(c) = self.completion {
+            if let (Some(c), Some(b)) = (self.completion, self.completion_box(bounds)) {
                 // Its own layer, so the page text under it does not show
                 // through: a layer draws its quads before its text.
                 renderer.with_layer(clip, |r| {
-                    self.draw_completion(r, c, Point::new(x, y + lh + 2.0));
+                    self.draw_completion(r, c, b.position());
                 });
             }
         }
@@ -640,8 +686,8 @@ impl<Message> PageView<'_, Message> {
 
     fn draw_completion(&self, renderer: &mut iced::Renderer, c: &Completion, at: Point) {
         let pal = self.palette;
-        let row = 22.0;
-        let w = 220.0;
+        let row = COMPLETION_ROW;
+        let w = COMPLETION_WIDTH;
         let h = row * c.items.len() as f32 + 6.0;
         renderer.fill_quad(
             Quad {

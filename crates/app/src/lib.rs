@@ -15,6 +15,7 @@ pub mod headless;
 pub mod keymap;
 pub mod link;
 pub mod page_view;
+pub mod shield;
 pub mod theme;
 
 pub use app::{App, Boot, Message};

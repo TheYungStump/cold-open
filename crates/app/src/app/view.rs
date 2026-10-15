@@ -2,7 +2,7 @@
 //! §2). It reads the app's state and never changes it.
 
 use iced::widget::{
-    button, column, container, mouse_area, row, scrollable, space, stack, text, text_input,
+    button, column, container, mouse_area, opaque, row, scrollable, space, stack, text, text_input,
 };
 use iced::{Background, Border, Center, Color, Element, Fill, Length, Theme};
 
@@ -14,6 +14,7 @@ use super::{
 use crate::editor::flow::kind_label;
 use crate::fonts;
 use crate::page_view::PageView;
+use crate::shield::shield;
 use crate::theme::Palette;
 use std::time::Duration;
 
@@ -24,6 +25,10 @@ impl App {
             (Some(view), Some(session)) => self.editor_view(pal, view, &session.doc),
             _ => self.start_screen(pal),
         };
+        // Behind the palette or a dialog, a click only closes it, and the
+        // wheel scrolls nothing (editor.md §2).
+        let covered = self.palette.is_some() || self.modal();
+        let main = shield(main, covered.then_some(Message::ClickAway), true);
         let mut layers = stack![main];
         if let Some(m) = self.dialog(pal) {
             layers = layers.push(m);
@@ -66,27 +71,33 @@ impl App {
             .on_scroll(Message::Scrolled)
             .width(Fill)
             .height(Fill);
+        // While the find bar or the autocomplete list is open, a click
+        // anywhere else only closes it (editor.md §2). The page itself
+        // handles clicks around the autocomplete list.
+        let away =
+            (self.find.is_some() || self.editor.completion.is_some()).then_some(Message::ClickAway);
+        let away_pages = self.find.is_some().then_some(Message::ClickAway);
         let mut body = row![];
         if self.settings.navigator && !self.focus_mode {
-            body = body.push(self.navigator(pal));
+            body = body.push(shield(self.navigator(pal), away.clone(), false));
         }
-        body = body.push(pages);
+        body = body.push(shield(pages, away_pages, false));
         let mut main = column![];
         if !self.focus_mode {
-            main = main.push(self.hint_bar(pal));
+            main = main.push(shield(self.hint_bar(pal), away.clone(), false));
         }
         if !self.banners.is_empty() {
-            main = main.push(self.banner(pal));
+            main = main.push(shield(self.banner(pal), away.clone(), false));
         }
         if !self.leftover.is_empty() {
-            main = main.push(self.leftover_bar(pal));
+            main = main.push(shield(self.leftover_bar(pal), away.clone(), false));
         }
         if self.find.is_some() {
             main = main.push(self.find_bar(pal));
         }
         main = main.push(body.height(Fill));
         if !self.focus_mode {
-            main = main.push(self.status_bar(pal));
+            main = main.push(shield(self.status_bar(pal), away, false));
         }
         main.into()
     }
@@ -229,7 +240,7 @@ impl App {
                 ..container::Style::default()
             });
         Some(
-            container(card)
+            container(opaque(card))
                 .center(Fill)
                 .style(|_| container::Style {
                     background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.3))),
@@ -333,7 +344,10 @@ impl App {
                 }
                 column![
                     title(pal, "Undo history"),
-                    hint(pal, "Newest first. Steps that redo would bring back are greyed."),
+                    hint(
+                        pal,
+                        "Newest first. Steps that redo would bring back are greyed."
+                    ),
                     scrollable(list).height(Length::Fixed(320.0)),
                     hint(
                         pal,
@@ -347,21 +361,19 @@ impl App {
                 title(pal, format!("Cold Open {}", env!("CARGO_PKG_VERSION"))),
                 body(
                     pal,
-                    "Free software under the GNU General Public License, version 3 or                      later. The format and layout libraries are also available under the                      MIT or Apache-2.0 licenses."
+                    "Free software under the GNU General Public License, version 3 or \
+                     later. The format and layout libraries are also available under the \
+                     MIT or Apache-2.0 licenses."
                 ),
                 hint(
                     pal,
-                    "Bundled fonts: Courier Prime for the page, and Atkinson Hyperlegible                      Next (subset to Latin) for the interface, both under the SIL Open Font                      License 1.1:"
+                    "Bundled fonts: Courier Prime for the page, and Atkinson Hyperlegible \
+                     Next (subset to Latin) for the interface, both under the SIL Open Font \
+                     License 1.1:"
                 ),
                 scrollable(
                     text(format!(
-                        "Courier Prime
-
-{}
-
-Atkinson Hyperlegible Next
-
-{}",
+                        "Courier Prime\n\n{}\n\nAtkinson Hyperlegible Next\n\n{}",
                         coldopen_fonts::LICENSE,
                         coldopen_fonts::UI_LICENSE
                     ))
@@ -854,7 +866,7 @@ Atkinson Hyperlegible Next
                 },
                 ..container::Style::default()
             });
-        container(column![space().height(Length::Fixed(80.0)), card].align_x(Center))
+        container(column![space().height(Length::Fixed(80.0)), opaque(card)].align_x(Center))
             .width(Fill)
             .height(Fill)
             .align_x(Center)
