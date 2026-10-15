@@ -24,10 +24,13 @@
 
 mod flow;
 mod fonts;
+mod incremental;
 mod page;
 mod paginate;
 pub mod pdf;
 mod sentence;
+#[doc(hidden)]
+pub mod synthetic;
 mod text;
 mod title;
 mod wrap;
@@ -38,6 +41,7 @@ use std::ops::Range;
 use coldopen_screenplay::{PageFormat, Pt, Script, TitleLine};
 
 pub use fonts::Fonts;
+pub use incremental::{Incremental, UpdateStats};
 pub use page::{
     AllGlyphs, BreakCause, Cluster, Coverage, Diagnostic, LineKind, Page, PlacedLine, Rule, Span,
 };
@@ -107,6 +111,7 @@ impl Engine {
                 scene_numbers: options.scene_numbers,
                 line_breaks: &options.line_breaks,
             },
+            None,
         );
         let title = if options.no_title_page {
             Vec::new()
@@ -219,89 +224,121 @@ impl Engine {
         Vec::new()
     }
 
+    /// The draft view, with page starts from `layout`.
+    pub fn draft(&self, layout: &Layout) -> Draft {
+        let starts: Vec<Cursor> = layout.pages.iter().map(|p| p.start).collect();
+        self.paginator().draft(&starts)
+    }
+
     /// Paginates the whole script.
     pub fn run(&self) -> Layout {
         let p = self.paginator();
         let mut pages = Vec::new();
-        let mut spans: BTreeMap<usize, Vec<Span>> = BTreeMap::new();
+        let mut metas = Vec::new();
         let mut diagnostics = self.flow.diagnostics.clone();
         let mut c = p.canonical(Cursor::START);
         let end = p.end();
         while c < end {
             let body = p.page_from(c);
-            let n = pages.len() as u32 + 1;
             if body.next <= c {
                 // Cannot happen (§7.6); stop rather than loop forever.
-                diagnostics.push(Diagnostic::new(
-                    "no_progress",
-                    None,
-                    "pagination stopped making progress",
-                ));
+                diagnostics.push(no_progress());
                 break;
             }
-            for (e, top, bottom) in &body.spans {
-                let v = spans.entry(*e).or_default();
-                match v.last_mut() {
-                    Some(s) if s.page == n => {
-                        s.top = s.top.min(*top);
-                        s.bottom = s.bottom.max(*bottom);
-                    }
-                    _ => v.push(Span {
-                        page: n,
-                        top: *top,
-                        bottom: *bottom,
-                    }),
-                }
-            }
-            let mut lines = body.lines;
-            let pn = &self.format.page_numbers;
-            if pn.visible && n >= pn.first {
-                let label = format!("{n}{}", pn.suffix);
-                let cells = text::build_plain(&label, false, Look::default())
-                    .cells
-                    .iter()
-                    .map(|c| i32::from(c.width))
-                    .sum::<i32>();
-                let x = Pt(pn.right.0 - cells * self.format.pitch.0);
-                let y = Pt(self.format.header_top.0 + self.format.baseline.0);
-                lines.push(p.plain_line(&label, x, y, LineKind::PageNumber));
-            }
-            pages.push(Page {
-                number: Some(n),
-                lines,
-                cause: body.cause,
-                diagnostics: body.diagnostics,
-                start: body.start,
-                next: body.next,
-            });
             c = body.next;
+            let n = pages.len() as u32 + 1;
+            let (page, meta) = number_page(&p, body, n);
+            pages.push(page);
+            metas.push(meta);
         }
-        // Show each script diagnostic on the page where its element landed.
-        for d in &diagnostics {
-            let page = d
-                .element
-                .and_then(|e| spans.get(&e))
-                .and_then(|v| v.first())
-                .map_or(1, |s| s.page);
-            if let Some(p) = pages.get_mut(page as usize - 1) {
-                p.diagnostics.push(d.clone());
-            }
-        }
-        for p in &mut pages {
-            p.diagnostics.sort();
-        }
-        Layout {
+        let mut layout = Layout {
             title: self.title.clone(),
             pages,
             diagnostics,
-            spans,
+            spans: BTreeMap::new(),
             format: self.format.clone(),
-        }
+        };
+        layout.finish(&metas);
+        layout
     }
 }
 
+fn no_progress() -> Diagnostic {
+    Diagnostic::new("no_progress", None, "pagination stopped making progress")
+}
+
+/// What a page keeps besides what [`Page`] shows: where each element
+/// landed on it, and the diagnostics pagination raised there.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct PageMeta {
+    pub spans: Vec<(usize, Pt, Pt)>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+/// A laid-out page body as page `n`, with its page number line.
+pub(crate) fn number_page(
+    p: &paginate::Paginator<'_>,
+    body: paginate::PageBody,
+    n: u32,
+) -> (Page, PageMeta) {
+    let mut page = Page {
+        number: Some(n),
+        lines: body.lines,
+        cause: body.cause,
+        diagnostics: Vec::new(),
+        start: body.start,
+        next: body.next,
+    };
+    set_number_line(p.format, &mut page, n);
+    (
+        page,
+        PageMeta {
+            spans: body.spans,
+            diagnostics: body.diagnostics,
+        },
+    )
+}
+
+/// Gives a page its number, replacing any page number line it had.
+pub(crate) fn set_number_line(format: &PageFormat, page: &mut Page, n: u32) {
+    page.number = Some(n);
+    if page
+        .lines
+        .last()
+        .is_some_and(|l| l.kind == LineKind::PageNumber)
+    {
+        page.lines.pop();
+    }
+    let pn = &format.page_numbers;
+    if pn.visible && n >= pn.first {
+        let label = format!("{n}{}", pn.suffix);
+        let cells = text::build_plain(&label, false, Look::default())
+            .cells
+            .iter()
+            .map(|c| i32::from(c.width))
+            .sum::<i32>();
+        let x = Pt(pn.right.0 - cells * format.pitch.0);
+        let y = Pt(format.header_top.0 + format.baseline.0);
+        page.lines
+            .push(paginate::plain_line(&label, x, y, LineKind::PageNumber));
+    }
+}
+
+/// The continuous draft view of a script (layout.md §15.3).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Draft {
+    /// Every line, with `y` its baseline measured as if the whole script
+    /// were one page with the format's top margin.
+    pub lines: Vec<PlacedLine>,
+    /// Where each body page starts: the top of its first line, from the
+    /// top of the body.
+    pub page_tops: Vec<Pt>,
+    /// The height of everything, from the top of the body.
+    pub height: Pt,
+}
+
 /// A paginated script.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Layout {
     /// Title pages, unnumbered and not counted; empty when there is none.
     /// A title that does not fit continues on further pages (§9.3).
@@ -318,6 +355,46 @@ pub struct Layout {
 impl Layout {
     pub fn format(&self) -> &PageFormat {
         &self.format
+    }
+
+    /// Collects where elements landed and shows each script diagnostic on
+    /// the page where its element starts.
+    pub(crate) fn finish(&mut self, metas: &[PageMeta]) {
+        let mut spans: BTreeMap<usize, Vec<Span>> = BTreeMap::new();
+        for (k, m) in metas.iter().enumerate() {
+            let n = k as u32 + 1;
+            for (e, top, bottom) in &m.spans {
+                let v = spans.entry(*e).or_default();
+                match v.last_mut() {
+                    Some(s) if s.page == n => {
+                        s.top = s.top.min(*top);
+                        s.bottom = s.bottom.max(*bottom);
+                    }
+                    _ => v.push(Span {
+                        page: n,
+                        top: *top,
+                        bottom: *bottom,
+                    }),
+                }
+            }
+        }
+        for (page, m) in self.pages.iter_mut().zip(metas) {
+            page.diagnostics.clone_from(&m.diagnostics);
+        }
+        for d in &self.diagnostics {
+            let page = d
+                .element
+                .and_then(|e| spans.get(&e))
+                .and_then(|v| v.first())
+                .map_or(1, |s| s.page);
+            if let Some(p) = self.pages.get_mut(page as usize - 1) {
+                p.diagnostics.push(d.clone());
+            }
+        }
+        for p in &mut self.pages {
+            p.diagnostics.sort();
+        }
+        self.spans = spans;
     }
 
     /// The plain-text page view (§11).

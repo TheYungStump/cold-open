@@ -122,7 +122,7 @@ impl std::fmt::Display for ElementKind {
 ///
 /// Attributes only mean something for some kinds; [`Element::problems`]
 /// lists violations and [`Element::clear_inapplicable`] drops them.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Element {
     pub kind: ElementKind,
     pub text: RichText,

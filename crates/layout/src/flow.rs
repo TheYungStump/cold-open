@@ -3,6 +3,8 @@
 #![deny(clippy::float_arithmetic)]
 
 use std::collections::BTreeMap;
+use std::ops::Deref;
+use std::sync::Arc;
 
 use coldopen_screenplay::{Align, Element, ElementFormat, ElementKind, PageFormat, Pt, Script};
 
@@ -63,30 +65,63 @@ impl Geom {
     }
 }
 
-/// One paragraph of a block.
-#[derive(Clone, Debug)]
-pub(crate) struct Member {
+/// What a paragraph prints and how it wraps: everything that depends only
+/// on its element and the format, so it can be measured once and shared
+/// (layout.md §15.2).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Core {
     pub kind: ElementKind,
-    /// Index of the source element in the script.
-    pub source: Option<usize>,
     pub paginate_as: ElementKind,
     pub geom: Geom,
     pub text: Text,
-    /// Space above this member when it is not the first content on a page.
-    pub space: Pt,
     /// Lines wrapped from the start.
     pub lines: Vec<Line>,
     /// Cell indices where a new sentence starts (split points).
     pub sentences: Vec<u32>,
-    /// A page break comes before this member.
-    pub explicit_break: bool,
-    /// The scene number to print, for a heading when numbers are on.
-    pub scene_number: Option<String>,
     /// For a character: the dual flag from the script.
     pub dual: bool,
 }
 
+/// One paragraph of a block: its shared core and where it sits.
+#[derive(Clone, Debug)]
+pub(crate) struct Member {
+    pub core: Arc<Core>,
+    /// Index of the source element in the script.
+    pub source: Option<usize>,
+    /// Space above this member when it is not the first content on a page.
+    pub space: Pt,
+    /// A page break comes before this member.
+    pub explicit_break: bool,
+    /// The scene number to print, for a heading when numbers are on.
+    pub scene_number: Option<String>,
+}
+
+impl Deref for Member {
+    type Target = Core;
+
+    fn deref(&self) -> &Core {
+        &self.core
+    }
+}
+
 impl Member {
+    /// The core, to change it; shared cores are copied first.
+    pub(crate) fn core_mut(&mut self) -> &mut Core {
+        Arc::make_mut(&mut self.core)
+    }
+
+    /// The same paragraph in the same place, allowing for the source
+    /// indices of the whole script having moved by `shift`.
+    pub(crate) fn same_as(&self, other: &Member, shift: isize) -> bool {
+        (Arc::ptr_eq(&self.core, &other.core) || *self.core == *other.core)
+            && self.space == other.space
+            && self.explicit_break == other.explicit_break
+            && self.scene_number == other.scene_number
+            && self.source.map(|s| s as isize + shift) == other.source.map(|s| s as isize)
+    }
+}
+
+impl Core {
     pub(crate) fn is_dialogue_like(&self) -> bool {
         matches!(self.kind, ElementKind::Dialogue | ElementKind::Lyric)
     }
@@ -253,51 +288,75 @@ pub(crate) fn has_contd_marker(name: &str, contd: &str) -> bool {
     n.contains(&marker) || n.contains("CONT'D") || n.contains("CONTD")
 }
 
-fn make_member(
-    e: &Element,
-    source: usize,
-    fmt: &ElementFormat,
-    geom: Geom,
-    format: &PageFormat,
-    diags: &mut Vec<Diagnostic>,
-) -> Member {
+/// Measures an element: its printed cells, sentence starts and lines.
+/// Returns the core and whether control characters were removed.
+fn make_core(e: &Element, fmt: &ElementFormat, geom: Geom, format: &PageFormat) -> (Core, bool) {
     let extra = Look {
         bold: fmt.bold,
         italic: fmt.italic,
         underline: fmt.underline,
     };
     let (text, notes) = text::build(&e.text, fmt.caps, extra);
-    if notes.control_chars {
-        diags.push(Diagnostic::new(
-            "control_char",
-            Some(source),
-            "control characters were removed",
-        ));
-    }
     let sentences = sentence_starts(&text.source, format.ellipsis_ends_sentence)
         .into_iter()
         .map(|o| text.cell_at_source(o))
         .filter(|&i| i > 0 && i < text.len())
         .collect::<Vec<_>>();
     let lines = wrap::wrap(&text, 0, true, geom.measure);
-    Member {
-        kind: e.kind,
-        source: Some(source),
-        paginate_as: fmt.paginate_as,
-        geom,
-        text,
-        space: Pt::ZERO,
-        lines,
-        sentences,
-        explicit_break: false,
-        scene_number: None,
-        dual: e.dual,
+    (
+        Core {
+            kind: e.kind,
+            paginate_as: fmt.paginate_as,
+            geom,
+            text,
+            lines,
+            sentences,
+            dual: e.dual,
+        },
+        notes.control_chars,
+    )
+}
+
+/// Measured elements kept between layouts, so an edit re-measures only
+/// what changed. Keyed by the whole element; the format is fixed for the
+/// life of the memo.
+#[derive(Debug, Default)]
+pub(crate) struct Memo {
+    map: BTreeMap<Element, (Arc<Core>, bool, u64)>,
+    generation: u64,
+}
+
+impl Memo {
+    fn get(
+        &mut self,
+        e: &Element,
+        fmt: &ElementFormat,
+        geom: Geom,
+        format: &PageFormat,
+    ) -> (Arc<Core>, bool) {
+        let g = self.generation;
+        if let Some(entry) = self.map.get_mut(e) {
+            entry.2 = g;
+            return (entry.0.clone(), entry.1);
+        }
+        let (core, control) = make_core(e, fmt, geom, format);
+        let core = Arc::new(core);
+        self.map.insert(e.clone(), (core.clone(), control, g));
+        (core, control)
+    }
+
+    /// Starts a new layout; entries not used by the last one are dropped.
+    fn next_generation(&mut self) {
+        let g = self.generation;
+        self.map.retain(|_, v| v.2 == g);
+        self.generation += 1;
     }
 }
 
-/// Re-wraps a member after its text changed (a continued name).
+/// Re-wraps a member after its text or geometry changed.
 fn rewrap(m: &mut Member) {
-    m.lines = wrap::wrap(&m.text, 0, true, m.geom.measure);
+    let c = m.core_mut();
+    c.lines = wrap::wrap(&c.text, 0, true, c.geom.measure);
 }
 
 /// Geometry for a member of a dual-dialogue column.
@@ -335,9 +394,12 @@ fn dual_geom(kind: ElementKind, col: coldopen_screenplay::DualColumn, format: &P
     Geom::of(&f, format)
 }
 
-/// Builds the flow for a script.
-pub(crate) fn build(script: &Script, input: &FlowInput<'_>) -> Flow {
+/// Builds the flow for a script, measuring through `memo` when given.
+pub(crate) fn build(script: &Script, input: &FlowInput<'_>, mut memo: Option<&mut Memo>) -> Flow {
     let format = input.format;
+    if let Some(m) = memo.as_deref_mut() {
+        m.next_generation();
+    }
     let mut diags = Vec::new();
     let mut blocks: Vec<Block> = Vec::new();
     let mut prev_kind: Option<ElementKind> = None;
@@ -373,10 +435,32 @@ pub(crate) fn build(script: &Script, input: &FlowInput<'_>) -> Flow {
         if kind == ElementKind::Action && e.centered {
             geom.align = Align::Center;
         }
-        let mut m = make_member(e, idx, fmt, geom, format, &mut diags);
-        if let Some(starts) = input.line_breaks.get(&idx) {
-            let cells: Vec<u32> = starts.iter().map(|&b| m.text.cell_at_source(b)).collect();
-            m.lines = wrap::lines_at(&m.text, &cells);
+        let forced = input.line_breaks.get(&idx);
+        let (core, control) = match memo.as_deref_mut() {
+            Some(memo) if forced.is_none() => memo.get(e, fmt, geom, format),
+            _ => {
+                let (c, control) = make_core(e, fmt, geom, format);
+                (Arc::new(c), control)
+            }
+        };
+        if control {
+            diags.push(Diagnostic::new(
+                "control_char",
+                Some(idx),
+                "control characters were removed",
+            ));
+        }
+        let mut m = Member {
+            core,
+            source: Some(idx),
+            space: Pt::ZERO,
+            explicit_break: false,
+            scene_number: None,
+        };
+        if let Some(starts) = forced {
+            let c = m.core_mut();
+            let cells: Vec<u32> = starts.iter().map(|&b| c.text.cell_at_source(b)).collect();
+            c.lines = wrap::lines_at(&c.text, &cells);
         }
 
         // Spacing (layout.md §6).
@@ -424,8 +508,9 @@ pub(crate) fn build(script: &Script, input: &FlowInput<'_>) -> Flow {
                         italic: fmt.italic,
                         underline: fmt.underline,
                     };
-                    m.text = text::build(&name, fmt.caps, extra).0;
-                    m.sentences.clear();
+                    let c = m.core_mut();
+                    c.text = text::build(&name, fmt.caps, extra).0;
+                    c.sentences.clear();
                     rewrap(&mut m);
                 }
                 last_speaker = Some(key);
@@ -539,7 +624,7 @@ fn pair_duals(blocks: Vec<Block>, format: &PageFormat, diags: &mut Vec<Diagnosti
                 format.dual.right
             };
             for mut m in ms {
-                m.geom = dual_geom(m.kind, col, format);
+                m.core_mut().geom = dual_geom(m.kind, col, format);
                 m.explicit_break = false;
                 rewrap(&mut m);
                 members.push(m);
@@ -594,7 +679,7 @@ fn unpair(b: Block, format: &PageFormat) -> (Block, Block) {
         ms.into_iter()
             .map(|mut m| {
                 if let Some(f) = format.elements.get(m.kind) {
-                    m.geom = Geom::of(f, format);
+                    m.core_mut().geom = Geom::of(f, format);
                 }
                 rewrap(&mut m);
                 m

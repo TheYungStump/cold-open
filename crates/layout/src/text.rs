@@ -54,7 +54,7 @@ pub(crate) struct Cell {
 }
 
 /// A paragraph's text, ready to wrap.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Text {
     /// What prints, after capitals.
     pub printed: String,

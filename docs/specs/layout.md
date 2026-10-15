@@ -457,18 +457,22 @@ Known differences that the gate does not measure:
 
 Added 2026-10-15 for the desktop editor (phase 3). Sources: `docs/spec.md` ("Full repagination, 120 pages: under 50 ms; typical edits repaginate incrementally") and the phase 3 brief. No external material.
 
+**Status:** implemented in `crates/layout` (`Incremental`, `Engine::draft`).
+
 ### 15.1 The rule
 
 An incremental layout keeps a laid-out script and accepts edits to it. After every edit its pages, lines, diagnostics, spans and break causes are **exactly** those of laying out the edited script from scratch. Incremental layout is only a faster way to get the same answer. A property test checks the rule against random edit sequences, and the editor's test driver checks it after every keystroke in debug builds.
 
 ### 15.2 How an edit is applied
 
-The caller describes an edit as a splice: the elements in a range of the old script are replaced by a list of new elements.
+The caller gives the whole edited script. The engine keeps the flow and pages of the last layout, and reuses them:
 
-1. **Measurement is memoized.** Each element's text measure (cells, wrapped lines and sentence starts, §2, §5, §8) depends only on its kind, text and the page format. It is cached by those, so an edit re-measures only the elements it touched.
-2. **The flow is rebuilt locally.** The flow is rebuilt from the scene heading at or before the first changed element (or the script's start) through the element after the scene that holds the last changed one. That range covers everything one element can affect in §4: its dialogue group, a dual partner, the `contd_after_action` scope (which a scene heading resets) and the space above the next printing element. The rest of the flow is reused, shifted by the change in the number of blocks.
-3. **Pagination restarts one page early.** Pages are laid out with `page_from` (§7.1), starting at the page before the one that holds the first changed flow block, because keep rules can pull lines back across a page end.
-4. **Pagination stops where it agrees.** After each new page, if its next cursor lies past the rebuilt range and equals the start cursor of an old page (shifted by the change in block count), every later page is the same as before. Those pages are reused, with their element indices shifted and their page numbers and number lines rewritten.
+1. **Measurement is memoized.** An element's measure (cells, wrapped lines and sentence starts: §2, §5, §8) depends only on the element and the page format. It is kept between layouts, keyed by the whole element, so an edit measures only the elements it changed. Measures no longer used are dropped after each layout.
+2. **The flow is reassembled and compared.** The flow (§4) is assembled again from the measured elements: grouping, spacing, page breaks, continued names and dual pairs, all of which are cheap once measuring is done. The new flow is compared with the old one from the front and from the back, allowing for the shift in element numbers after the edit. This finds the blocks that really changed, including effects that reach past the edited element, such as a scene number or a dual pair.
+3. **Pagination restarts one page early.** Pages up to the one before the first page that could see a changed block are kept. A page can look at most three blocks past its last line: the line that does not fit, a heading's two following lines, and a transition after a candidate break. From there, pages are laid out again with `page_from` (§7.1).
+4. **Pagination stops where it agrees.** When a new page ends past the changed blocks at a cursor where an old page started (allowing for the change in block count), every later page is the same as before. They are kept, with their element indices and block cursors shifted, their page numbers rewritten, and the spans and diagnostics of §10 gathered again.
+
+**Measured (2026-10-15).** On the synthetic 119-page script of `layout::synthetic`, release build: a full layout takes 16 ms, and an edit on page 90 takes a median of 0.8 ms and lays out at most 3 pages.
 
 ### 15.3 Draft lines
 

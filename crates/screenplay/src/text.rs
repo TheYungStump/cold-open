@@ -26,7 +26,7 @@ impl Style {
 ///
 /// `Note` and `Boneyard` runs are hidden: they never print and take no width,
 /// but they keep their position in the text so they survive a round trip.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Run {
     Text { text: String, style: Style },
     Note(String),
@@ -55,7 +55,7 @@ impl Run {
 
 /// Rich text, always kept in normal form: no empty text runs, and no two
 /// neighbouring text runs with the same style.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct RichText {
     runs: Vec<Run>,
 }
