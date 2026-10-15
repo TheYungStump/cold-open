@@ -23,7 +23,8 @@ only in one person's (or one agent's) notes.
 | 13 | The headless driver and the crash gate | done |
 | 14 | CI: app builds and artifacts on three OSes, budgets job, fuzz targets | done |
 | 15 | Measurements: Windows locally (Big Fish, both renderers at 4K) and all three OSes in CI | done |
-| 16 | README, the PR, the final report | README done; PR next |
+| 16 | README, the PR, the final report | done: TheYungStump/cold-open#1 (moved from the private repo's #3) |
+| 17 | Your manual test of the CI Windows build, the gate's last part | first test: 4 bugs, fixed; retest: those held, 3 more, fixed; next retest to do |
 
 ## Measured so far (Windows 11, release build)
 
@@ -163,3 +164,8 @@ stopping to ask:
 55. CI test builds downloaded into the repo root (`cold-open-<os>-<arch>` folders, `.zip` and `.tar.gz`) are gitignored, and CLAUDE.md now says never to delete, move or overwrite a file you didn't create in the session without asking first.
 56. Before the repo goes public, `main` and this branch were rewritten locally so every commit's author and committer is the GitHub noreply address. That includes commits GitHub made (web edits and squash merges): the rewrite drops their GitHub signatures anyway. File contents and dates are unchanged, and the old history stays in the private repo, renamed `cold-open-archive`.
 57. The spec's byline is fixed in a new commit, not throughout history: it is the author's name, meant to be public.
+58. Retest of the Windows build (2026-10-15): the four fixes held. Three more bugs, each with a regression test in `crates/app/tests/regressions.rs` that fails on the old code: the palette counting past its ends, Tab not wrapping typed text in brackets, and clicks outside a popup reaching the script.
+59. Every list chosen with Up and Down stops at its ends. The autocomplete list used to wrap around; it now stops too, like the palette and the navigator.
+60. Becoming a parenthetical through the editor (Tab, Shift+Tab, element shortcuts, the palette, the flow table) wraps the text in brackets unless it already has them. Leaving takes off only the brackets the editor added, and only while the text between them is still the text it wrapped; the editor remembers that text, so undoing a change inside makes them removable again. `block.set_type` sent by scripts, agents or the palette's JSON form stays a plain type change, so they get exactly what they ask for.
+61. A click outside a popup closes it and does nothing else. iced passes a click on a layer's empty space to the layers below, so the panels behind an open popup are wrapped in a small `Shield` widget that turns the press into "close", and the palette and dialog cards take every click inside them. A click on an autocomplete item now picks it. The save and recovery dialogs ignore clicks outside them, since closing them decides what happens to the writer's work. While the palette or a dialog is open, the wheel doesn't scroll the pages behind it.
+62. Also fixed in passing: the About sheet's license text had long runs of spaces mid-sentence.
