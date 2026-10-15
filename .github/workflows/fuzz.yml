@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [fountain_roundtrip, envelope, journal_replay, fdx_read]
+        target: [fountain_roundtrip, envelope, journal_replay, fdx_read, link_line, app_config]
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@nightly

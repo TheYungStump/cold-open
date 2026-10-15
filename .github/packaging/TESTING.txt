@@ -1,0 +1,76 @@
+Cold Open: test build
+=====================
+
+This is an unsigned build made by CI from the phase-3-editor-mcp branch,
+for testing. It is not a release. Your scripts are plain Fountain files,
+so nothing you write here is locked in.
+
+In this folder:
+- the app: "Cold Open.exe" (Windows), "Cold Open.app" (macOS) or
+  coldopen-app (Linux);
+- coldopen: the command-line tool, which also runs the MCP server for
+  AI agents (coldopen mcp);
+- licenses: Cold Open (GPL-3.0-or-later) and its two fonts (SIL OFL 1.1).
+
+
+Starting it
+-----------
+
+Windows: double-click "Cold Open.exe". Windows SmartScreen may say
+"Windows protected your PC", because the build is not signed. Click
+"More info", then "Run anyway".
+
+macOS: right-click "Cold Open.app", choose Open, then Open again. If
+macOS says the app is damaged or can't be checked, run this in Terminal
+and try again:
+    xattr -dr com.apple.quarantine "/path/to/Cold Open.app"
+
+Linux: run ./coldopen-app. It needs X11 or Wayland, and libxkbcommon.
+
+
+What to try
+-----------
+
+1. Write a scene. A new script starts on a scene heading. Enter and Tab
+   move between elements; the bar at the top says what Enter and Tab will
+   give next. Ctrl+K (Cmd+K on macOS) opens the palette, which lists every
+   command and its shortcut.
+2. Save with Ctrl+S (Cmd+S). The first save asks where.
+3. Try to lose work. While typing, end the app hard: Task Manager >
+   End task on Windows, Force Quit on macOS, or kill -9 on Linux. Start it
+   again. If the script was saved, open it: a dialog says what was
+   recovered. If it was never saved, the app offers it at start-up.
+   Nothing that was on screen should be missing.
+4. Let an AI agent edit the open script. With Claude Code:
+       claude mcp add coldopen -- "/full/path/to/coldopen" mcp
+   Then ask it to open the script you have open in the app and make a
+   change. You see the edit appear, a violet bar marks the changed block,
+   and Ctrl+Z (Cmd+Z) undoes it. The status bar shows the agent while it
+   is connected, with Disconnect and a switch to turn agent access off.
+5. Export a PDF: Ctrl+Shift+E (Cmd+Shift+E).
+
+
+Settings and files
+------------------
+
+settings.json, keymap.json (your own shortcuts) and flow.json (your own
+element flow) live in:
+- Windows: %APPDATA%\Cold Open
+- macOS: ~/Library/Application Support/Cold Open
+- Linux: ~/.config/coldopen
+
+Scripts you haven't saved yet live in an "Unsaved" folder next to them
+(%LOCALAPPDATA%\Cold Open\Unsaved on Windows), with a crash journal.
+
+Drawing: Cold Open draws with the CPU on Windows and Linux and with the
+GPU on macOS. On a 4K screen the GPU is smoother; the CPU uses far less
+memory. Switch in the palette ("Draw with the GPU" or "Draw with the
+CPU"); it takes effect at the next start.
+
+
+Reporting a problem
+-------------------
+
+Say which system you used, what you did, and what you expected. If work
+went missing, keep the "Unsaved" folder and any ".coldopen-journal" files
+next to your script: they hold what was typed.

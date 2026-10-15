@@ -193,3 +193,92 @@ jobs:
               fi
             done
           done
+
+  # Unsigned test builds of the app and the CLI for every OS, kept for 30
+  # days on the run's page (Summary > Artifacts), with their sizes in the
+  # job summary. Each archive carries TESTING.txt.
+  app:
+    name: app build (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: windows-x86_64, os: windows-latest, target: x86_64-pc-windows-msvc }
+          - { name: macos-arm64, os: macos-latest, target: aarch64-apple-darwin }
+          - { name: macos-x86_64, os: macos-latest, target: x86_64-apple-darwin }
+          - { name: linux-x86_64, os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Build the app and the CLI
+        run: cargo build --release --locked --target ${{ matrix.target }} -p coldopen-app -p coldopen-cli
+      - name: Package
+        run: bash .github/packaging/package.sh ${{ matrix.name }} ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cold-open-${{ matrix.name }}
+          path: dist/*
+          retention-days: 30
+          if-no-files-found: error
+      - name: Size of an app with the CPU renderer only
+        if: matrix.name == 'linux-x86_64'
+        run: |
+          cargo build --release --locked --target ${{ matrix.target }} -p coldopen-app --no-default-features
+          bytes=$(wc -c <target/${{ matrix.target }}/release/coldopen-app | tr -d ' ')
+          awk -v b="$bytes" 'BEGIN { printf "| App, CPU renderer only | %.2f MiB |\n", b / 1048576 }' >>"$GITHUB_STEP_SUMMARY"
+
+  # The phase 3 budgets on every OS: headless (layout, memory, journal,
+  # keystroke and scrolling with each renderer's full frames) and in a real
+  # window (cold start, typing and scrolling frame to frame). Numbers go to
+  # the job summary and an artifact. Linux asserts the headless budgets that
+  # do not depend on the renderer; everything else is reported.
+  budgets:
+    name: budgets (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release --locked -p coldopen-app --bins --example budgets
+      - name: X server and libraries for the window (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libxkbcommon-x11-0 libxcursor1 libxi6 libxrandr2 libx11-xcb1
+      - name: Headless budgets, CPU renderer
+        env:
+          COLDOPEN_PERF: "1"
+        run: |
+          assert=()
+          if [ "$RUNNER_OS" = Linux ]; then assert=(--assert); fi
+          target/release/examples/budgets --json budgets-tiny-skia.json "${assert[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Headless budgets, GPU renderer
+        # Hosted runners may have no GPU; report when it works.
+        continue-on-error: true
+        run: target/release/examples/budgets --renderer wgpu --json budgets-wgpu.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Windowed app (cold start, typing, scrolling)
+        continue-on-error: ${{ runner.os != 'Linux' }}
+        run: |
+          ext=""
+          if [ "$RUNNER_OS" = Windows ]; then ext=.exe; fi
+          cmd=(python3 .github/packaging/measure.py "target/release/coldopen-app$ext" "target/release/examples/budgets$ext" window.json)
+          if [ "$RUNNER_OS" = Windows ]; then cmd[0]=python; fi
+          if [ "$RUNNER_OS" = Linux ]; then cmd=(xvfb-run -a -s "-screen 0 1920x1080x24" "${cmd[@]}"); fi
+          "${cmd[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: budgets-${{ matrix.os }}
+          path: "*.json"
+          if-no-files-found: ignore

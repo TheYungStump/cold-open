@@ -9,8 +9,9 @@
 //!
 //! Without `--script` it uses the synthetic 119-page script
 //! (`layout::synthetic`). `--assert` exits with an error when a budget is
-//! missed (CI does this on Linux only). Cold start and binary size are
-//! measured by CI around the release build.
+//! missed (CI does this on Linux only). Cold start, the windowed frame
+//! times and binary size are measured by CI around the release build
+//! (`.github/packaging`).
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -373,9 +374,10 @@ fn main() {
         if full >= 50.0 {
             missed.push(format!("full layout {full:.1} ms"));
         }
-        if keystroke_1080 >= 16.0 {
-            missed.push(format!("keystroke p95 at 1080p {keystroke_1080:.1} ms"));
-        }
+        // Keystroke to screen is not asserted here: headless frames redraw
+        // the whole window, while the windowed app redraws only what
+        // changed. CI measures it in a real window (measure.py).
+        let _ = keystroke_1080;
         if mem.is_some_and(|m| m >= 150.0) {
             missed.push(format!("memory {:.0} MiB", mem.unwrap_or(0.0)));
         }

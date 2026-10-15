@@ -17,12 +17,12 @@ only in one person's (or one agent's) notes.
 | 7 | Core: the session's cached, incrementally laid-out view | done |
 | 8 | App: first build (page widget, editor model, navigator, palette, find, themes, keymap); screenshots reviewed | done |
 | 9 | Editor typing through the real UI, and the typing gate | done |
-| 10 | Autocomplete, find and replace, palette, zoom, draft view, keymap: finish and test | next |
+| 10 | Autocomplete, find and replace, palette, zoom, draft view, keymap: finish and test | done |
 | 11 | Files (dialogs, recent files, PDF export), recovery dialog, save worker | done |
-| 12 | Agent link server in the app, `crates/mcp`, `coldopen mcp`, the agent gate | |
-| 13 | The headless driver and the crash gate | |
-| 14 | CI: app builds and artifacts on three OSes, budgets job, fuzz targets | |
-| 15 | Measurements: Windows locally (Big Fish, both renderers at 4K) and all three OSes in CI | |
+| 12 | Agent link server in the app, `crates/mcp`, `coldopen mcp`, the agent gate | done |
+| 13 | The headless driver and the crash gate | done |
+| 14 | CI: app builds and artifacts on three OSes, budgets job, fuzz targets | in CI now |
+| 15 | Measurements: Windows locally (Big Fish, both renderers at 4K) and all three OSes in CI | Windows synthetic done |
 | 16 | README, the PR, the final report | |
 
 ## Measured so far (Windows 11, release build)
@@ -36,8 +36,34 @@ only in one person's (or one agent's) notes.
 | Fountain normalization of Big Fish | 17.4 ms before, 1.7 ms after |
 | Interface font (two subset faces) | 73,740 bytes raw, about 34.5 KB compressed |
 
-Drawing time, cold start, memory and binary size are measured in steps 14
-and 15.
+### The app, synthetic 119-page script (Windows 11, i9 with an RTX 4090 and Intel UHD 770, two 1080p screens at 100%)
+
+Windowed numbers come from the app's self-driving benchmark
+(`COLDOPEN_BENCH`): frame-to-frame times while it types or scrolls, which
+include the renderer's own damage tracking and presenting. Headless numbers
+(`examples/budgets`) redraw the whole window every frame, so they are an
+upper bound for typing.
+
+| What | CPU renderer (tiny-skia) | GPU renderer (wgpu) | Budget |
+| --- | --- | --- | --- |
+| Typing, full-screen 1920×1080 | median 10.7 ms, p95 13.1–13.8 ms | 6.9 ms (the screen's 143 Hz) | under 16 ms |
+| Scrolling, full-screen 1920×1080 | median 13.7 ms, p95 14.8–15.8 ms (was 90 ms before the fix in decision 34) | 6.9 ms | (smooth) |
+| Typing, 3840×2160 window | median 31.6 ms, p95 36.0 ms | median 9.5 ms, p95 14.4 ms | under 16 ms |
+| Scrolling, 3840×2160 window | median 62.0 ms | median 10.7 ms, p95 20.0 ms | (smooth) |
+| Peak memory, scrolling through all 119 pages | 43 MiB working set, 28 MiB private | 161–250 MiB depending on GPU and API (the driver's; the app's own data is the same) | under 150 MB |
+| Cold start (launch to first frame to exit) | about 120 ms wall clock; first frame 37–44 ms after `main` starts | | under 1 s |
+| Full layout | 17.1 ms | | under 50 ms |
+| Journal write on the UI thread (app mode) | median 0.007 ms, p95 0.018 ms | | under 10 ms |
+| fsync on the flusher thread | median 0.30 ms, p95 0.50 ms | | within 250 ms |
+
+Sizes, Windows release build: app 7.3 MB with the CPU renderer only, 13.6 MB
+with both; the CLI with the MCP server 5.6 MB; both zipped 7.2 MB (budget:
+installer under 15 MB).
+
+This machine has no 4K or high-DPI screen: the 3840×2160 numbers come from
+a window larger than the screen, which Windows allows. CI adds every OS,
+headless for both renderers and windowed under its own display. Big Fish
+locally is still to come.
 
 ## Decisions made during the phase
 
@@ -80,3 +106,15 @@ stopping to ask:
 31. CI fails the incremental repagination test above 4 ms, not 2 ms: the shared runner measured 2.01 ms on noise. The aim stays 2 ms.
 32. Keys in the app's own dialogs: Enter or S saves, D or N doesn't, Esc or C cancels; recovery Enter, K or Esc keeps, D discards; export Mod+1 and Mod+2 toggle scene numbers and the title page.
 33. Mod+S while a save is running saves again when it finishes, rather than being refused.
+34. Both renderers ship, chosen by a `renderer` setting: `auto` (the default) uses the GPU on macOS, whose screens are nearly all Retina, and the CPU elsewhere; the palette switches it from the next start. Measured: the CPU renderer meets the keystroke and memory budgets at 1080p but not at 3840×2160; the GPU renderer is fast everywhere but its driver takes 161–250 MiB, over the memory budget. iced reads only `ICED_BACKEND`, so `main` sets it first thing, before any thread exists (one `unsafe` call, with a SAFETY note).
+35. While the pages scroll, the window background alternates between two colours one step apart. iced's CPU renderer then redraws in one pass; otherwise it splits a scroll's damage into dozens of regions and clears a full-window clip mask for each, which made scrolling 90 ms a frame at 1080p. With the fix: 13.7 ms.
+36. The link protocol and transport live in a new GPL crate, `crates/link`, so the app never links rmcp or tokio; `crates/mcp` and the app both use it.
+37. A client leaving the link sends `{"bye":true}`: a pipe can't be closed from one side while that side's reader thread still holds it, so the client asks and the app closes.
+38. Connects to the link wait at most 2 s for a busy endpoint; a Windows pipe whose every instance is in use would otherwise wait for ever.
+39. On macOS a socket can't take a file mode before it is bound, so there the 0700 folder and the peer-uid check protect it (mcp.md says so).
+40. `coldopen mcp --doc` opens the script at the first request rather than at start-up, so the attach handshake carries the client's real name.
+41. Tool input schemas come from the command param types through an optional `schema` feature in core and screenplay (schemars), with every subschema inline and `additionalProperties: false`.
+42. The agent gate runs the app headless inside the test process and `coldopen mcp` as a real child process; the crash gate runs the app as its own process (`coldopen-driver`), killed with TerminateProcess or SIGKILL.
+43. `coldopen-driver` is a plain binary of the app crate, not behind a feature, so the crash gate can find it; CI artifacts ship only the app and the CLI.
+44. In the windowed app, the window's close button asks about unsaved changes (`exit_on_close_request(false)`).
+45. CI's headless budgets do not assert keystroke-to-screen: headless frames redraw the whole window while the real app redraws only what changed. The windowed numbers are reported per OS; Linux asserts layout, memory and journal latency.
