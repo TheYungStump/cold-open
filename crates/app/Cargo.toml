@@ -27,6 +27,8 @@ coldopen-screenplay.workspace = true
 coldopen-fountain.workspace = true
 coldopen-fonts = { workspace = true, features = ["ui"] }
 iced.workspace = true
+iced_runtime.workspace = true
+rfd.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 unicode-width.workspace = true

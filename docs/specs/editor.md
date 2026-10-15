@@ -249,13 +249,15 @@ Esc closes the topmost overlay, or the autocomplete list. Movement and editing k
 
 `settings.json` holds the theme, zoom, view, panel visibility, agent access (§12) and up to 10 recent files. Like `keymap.json`, an unreadable file is ignored with a banner and never stops the app.
 
-- **New.** **Resolution:** a new script is created with `doc.new` at `Unsaved/Untitled-<n>.fountain` in the data folder, so it has a crash journal from its first keystroke. The file itself is written only by "Save as". Mod+S on such a script opens "Save as".
+- **New.** **Resolution:** a new script is created with `doc.new` at `Unsaved/Untitled-<n>.fountain` in the data folder, with `start: "scene_heading"`, so it has a crash journal from its first keystroke and begins clean, on an empty scene heading. A script nobody typed in is never offered as lost work and never asks to be saved. The file itself is written only by "Save as". Mod+S on such a script opens "Save as".
+- **No script open.** After Close, the window shows New, Open and the recent files. Mod+N, Mod+O and the palette work there too.
 - **Open.** A dialog for `.fountain`, `.spmd` and `.txt` files, then `doc.open`. If the result reports a recovery, the recovery dialog opens (§13).
 - **Recent files** are listed in the palette and the open dialog.
-- **Save.** `doc.save` runs off the UI thread (`docs/specs/journal.md`, "Saving off the UI thread"). The status bar shows "Saving…" until it is done. If Fountain can't hold something in the script, the losses are listed and the writer chooses whether to save anyway (`allow_lossy`).
-- **Save as.** A dialog, then `doc.save` with `path`. Moving an untitled script out of `Unsaved/` also removes its old journal.
-- **Close and quit.** With unsaved changes, the app asks: Save, Don't save, or Cancel. Don't save sends `doc.close` with `discard`.
-- **Export PDF.** A dialog for the path, with options for scene numbers, title page and a watermark, then `export.pdf`.
+- **Save.** `doc.save` runs off the UI thread (`docs/specs/journal.md`, "Saving off the UI thread"). The status bar shows "Saving…" until it is done. Mod+S during a save saves again when it finishes. If Fountain can't hold something in the script, the app says what and asks "Save anyway" (`allow_lossy`) or Cancel.
+- **Save as.** A dialog, then `doc.save` with `path`, on the UI thread. A name typed without an extension gets `.fountain`. Moving an untitled script out of `Unsaved/` also removes its old journal.
+- **Close and quit.** With unsaved changes, the app asks: Save, Don't save, or Cancel. Keys: Enter or S saves, D or N doesn't, Esc or C cancels; nothing else runs while it asks. Don't save sends `doc.close` with `discard`. Save finishes the save, including a "Save as" for an untitled script, before closing. The window's close button asks the same question.
+- **Export PDF.** First a small form: scene numbers (Mod+1, off by default), title page (Mod+2, on by default) and a watermark field, which has the keyboard. Enter opens the dialog for the path; then `export.pdf`. A banner gives the page count and the first warning, if any.
+- **Dialogs.** Open, Save as and Export use the operating system's own file dialogs (the XDG desktop portal on Linux, with no GTK). The app's own questions (unsaved changes, recovery, export options) are drawn in the window, and every button in them has a key.
 - **Leftover work at start-up.** The app checks `Unsaved/` and the recent files for journals that hold entries, which means a session ended without saving. It offers to reopen each one, so a crash is recovered even if the writer never reopens the file by hand.
 
 ## 12. Agents
@@ -281,10 +283,18 @@ When an agent attaches to the open script through `coldopen mcp` (`docs/specs/mc
   - the scenes they touched, found by comparing blocks by id with the file on disk;
   - when `external_change` is true, a warning that the file was changed by another program and that saving will replace that version.
 
-  **Keep** continues with the recovered script, unsaved. **Discard** sends `doc.revert`, which keeps a copy of the journal.
+  **Keep** (Enter, K or Esc) continues with the recovered script, unsaved. **Discard** (D) sends `doc.revert`, which keeps a copy of the journal. For a script that was never saved there is no file to go back to: Discard closes it with `discard` and starts a new script, and the dialog says that the recovered work will be deleted.
+  The number of changes is the number of recovered commands, so a burst of typing counts each key.
 - **Errors.** A command that fails shows a banner with the error's message, and the editor stays usable. Nothing fails silently.
 
-## 14. Not in phase 3
+## 14. Testing the app
+
+**Resolution:** the app's own tests run it headless (`crates/app/src/headless.rs`): real keyboard, mouse and input-method events go through the real view and widgets, the messages they publish go through `App::update`, and the tasks `update` returns are run, including widget operations such as focus and scrolling, the clipboard, and the save worker. Only the window is missing; frames can still be drawn with tiny-skia. File dialogs are answered by a script (`Dialogs::scripted`).
+
+- **Typing gate** (`crates/app/tests/typing_gate.rs`). A short scene is typed key by key: smart flow, two autocomplete picks, accented letters from the keyboard and from an input method, a pause and an undo, then Mod+S and its "Save as" dialog. The saved file must equal `tests/fixtures/app/gate-scene.fountain` byte for byte.
+- **File flows** (`crates/app/tests/file_flows.rs`): saving in place, close and quit prompts, save as from `Unsaved/`, the recovery dialog after a crash (Keep and Discard), leftover work at start-up, and PDF export options.
+
+## 15. Not in phase 3
 
 - Editing notes and boneyard inside a line: they are kept, and marked in the margin.
 - A dual-dialogue editing UI: the `dual` flag is set through the palette.

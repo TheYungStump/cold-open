@@ -1,7 +1,10 @@
 //! Folders and settings (docs/specs/editor.md §11). Folders are found from
 //! the usual environment variables, with no extra dependency.
 
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -146,6 +149,87 @@ impl Settings {
             .unwrap_or(ZOOMS.len() - 1) as i32;
         let j = (i + delta).clamp(0, ZOOMS.len() as i32 - 1) as usize;
         self.zoom = ZOOMS[j] as f32 / 100.0;
+    }
+}
+
+/// A question for a file dialog (editor.md §11).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Ask {
+    /// A script to open.
+    Open,
+    /// Where to save the script; the suggested file name.
+    SaveAs(String),
+    /// Where to write a PDF; the suggested file name.
+    ExportPdf(String),
+}
+
+/// A dialog's answer, when it comes: a path, or `None` for Cancel.
+pub type Answer = Pin<Box<dyn Future<Output = Option<PathBuf>> + Send>>;
+
+/// Answers file dialogs: the system's own dialogs in the app, a script in
+/// tests and the gate driver. Given the question and the folder to start
+/// in.
+#[derive(Clone)]
+pub struct Dialogs(pub Arc<dyn Fn(Ask, Option<PathBuf>) -> Answer + Send + Sync>);
+
+impl std::fmt::Debug for Dialogs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Dialogs")
+    }
+}
+
+impl Dialogs {
+    /// The operating system's dialogs.
+    pub fn native() -> Dialogs {
+        Dialogs(Arc::new(|ask, dir| {
+            Box::pin(async move {
+                let mut d = rfd::AsyncFileDialog::new();
+                if let Some(dir) = dir {
+                    d = d.set_directory(dir);
+                }
+                let picked = match ask {
+                    Ask::Open => {
+                        d.set_title("Open a script")
+                            .add_filter("Screenplays", &["fountain", "spmd", "txt"])
+                            .pick_file()
+                            .await
+                    }
+                    Ask::SaveAs(name) => {
+                        d.set_title("Save the script")
+                            .set_file_name(name)
+                            .add_filter("Fountain", &["fountain"])
+                            .save_file()
+                            .await
+                    }
+                    Ask::ExportPdf(name) => {
+                        d.set_title("Export a PDF")
+                            .set_file_name(name)
+                            .add_filter("PDF", &["pdf"])
+                            .save_file()
+                            .await
+                    }
+                };
+                picked.map(|f| f.path().to_path_buf())
+            })
+        }))
+    }
+
+    /// Answers every dialog at once with `f`, for tests and the driver.
+    pub fn scripted(f: impl Fn(&Ask) -> Option<PathBuf> + Send + Sync + 'static) -> Dialogs {
+        Dialogs(Arc::new(move |ask, _| {
+            let answer = f(&ask);
+            Box::pin(async move { answer })
+        }))
+    }
+}
+
+/// A chosen path, with `ext` added when the writer typed a name without
+/// one.
+pub fn with_extension(path: PathBuf, ext: &str) -> PathBuf {
+    if path.extension().is_some() {
+        path
+    } else {
+        path.with_extension(ext)
     }
 }
 

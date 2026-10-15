@@ -15,5 +15,7 @@ fn main() -> iced::Result {
         .subscription(App::subscription)
         .settings(coldopen_app::app::iced_settings())
         .window_size(iced::Size::new(1280.0, 860.0))
+        // The close button asks about unsaved changes first.
+        .exit_on_close_request(false)
         .run()
 }

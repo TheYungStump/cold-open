@@ -7,27 +7,31 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use coldopen_core::{BlockId, Command, Dispatcher, Durability, Options};
+use coldopen_core::{BlockId, Command, Dispatcher, Durability, Options, PreparedSave};
 use coldopen_screenplay::{ElementKind, Pt};
 use iced::keyboard::{self, Key, key::Named};
-use iced::widget::{
-    button, column, container, mouse_area, row, scrollable, space, stack, text, text_input,
-};
-use iced::{Background, Border, Center, Color, Element, Fill, Length, Subscription, Task, Theme};
+use iced::widget::scrollable;
+use iced::{Subscription, Task, Theme};
 use serde_json::{Value, json};
 
+mod file_ops;
+mod view;
+
+pub use file_ops::{After, ExportForm, Prompt, Recovery, Reply};
+pub use view::eighths;
+
 use crate::actions;
-use crate::editor::flow::kind_label;
 use crate::editor::{Editor, Motion, Spot};
-use crate::files::{Dirs, Settings};
+use crate::files::{Ask, Dialogs, Dirs, Settings};
 use crate::fonts;
 use crate::keymap::{Chord, Keymap, MAC};
-use crate::page_view::{self, KeyPress, NormRange, PageEvent, PageView};
+use crate::page_view::{self, KeyPress, NormRange, PageEvent};
 use crate::theme::{Choice, Palette};
 
 const PAGES: &str = "pages";
 const FIND: &str = "find";
 const PALETTE: &str = "palette";
+const EXPORT: &str = "export";
 
 /// Who has keyboard focus.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,6 +66,23 @@ pub enum Message {
     ParamsInput(String),
     ParamsRun,
     DismissBanner,
+    /// A file dialog's answer: a path, or `None` for Cancel.
+    Chosen(Ask, Option<PathBuf>),
+    /// The save worker finished.
+    Saved(Result<(), String>),
+    Reply(Reply),
+    RecoveryKeep,
+    RecoveryDiscard,
+    ExportNumbers,
+    ExportTitle,
+    ExportWatermark(String),
+    ExportGo,
+    ExportCancel,
+    /// A recent file or leftover work to reopen.
+    OpenPath(PathBuf),
+    DismissLeftover,
+    /// The window's close button.
+    CloseRequested,
     Noop,
 }
 
@@ -87,6 +108,17 @@ struct FindState {
     /// Matches as (block, from, to) in characters.
     matches: Vec<(BlockId, usize, usize)>,
     current: usize,
+}
+
+/// One line of the palette.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PaletteItem {
+    /// What runs: an action or command name, `recent:<n>` or
+    /// `leftover:<n>`.
+    action: String,
+    title: String,
+    /// The command's name, or a file's folder.
+    detail: String,
 }
 
 #[derive(Debug, Default)]
@@ -132,6 +164,18 @@ pub struct App {
     match_ranges: Vec<NormRange>,
     marked_elems: BTreeSet<usize>,
     pub perf: Perf,
+    dialogs: Dialogs,
+    /// A save in place being written on the worker thread.
+    saving: Option<PreparedSave>,
+    /// Save again when the running save finishes.
+    save_again: bool,
+    /// What to do once the script is saved.
+    after_save: Option<After>,
+    pub prompt: Option<Prompt>,
+    pub recovery: Option<Recovery>,
+    pub export: Option<ExportForm>,
+    /// Scripts with unsaved work from an earlier session (editor.md §11).
+    pub leftover: Vec<PathBuf>,
 }
 
 /// How the app starts.
@@ -204,6 +248,14 @@ impl App {
             match_ranges: Vec::new(),
             marked_elems: BTreeSet::new(),
             perf: Perf::default(),
+            dialogs: Dialogs::native(),
+            saving: None,
+            save_again: false,
+            after_save: None,
+            prompt: None,
+            recovery: None,
+            export: None,
+            leftover: Vec::new(),
         };
         if let Some(text) = app
             .dirs
@@ -215,11 +267,22 @@ impl App {
         }
         match boot.file {
             Some(f) => app.open(&f),
-            None => app.new_script(),
+            None => {
+                if let Some(d) = &app.dirs {
+                    app.leftover = crate::files::leftover_work(d, &app.settings.recent);
+                }
+                app.new_script();
+            }
         }
         app.editor.draft = app.settings.draft;
         let _ = app.after_change(false);
         app
+    }
+
+    /// Answers file dialogs some other way than the system's dialogs
+    /// (tests and the gate driver).
+    pub fn set_dialogs(&mut self, dialogs: Dialogs) {
+        self.dialogs = dialogs;
     }
 
     /// For screenshots: a new speech on page 1 with the autocomplete list
@@ -292,16 +355,12 @@ impl App {
             crate::files::next_untitled(d)
         });
         let params = match &path {
-            Some(p) => json!({ "path": p }),
-            None => json!({}),
+            Some(p) => json!({ "path": p, "start": "scene_heading" }),
+            None => json!({ "start": "scene_heading" }),
         };
         if self.run("doc.new", params).is_none() {
-            self.run("doc.new", json!({}));
+            self.run("doc.new", json!({ "start": "scene_heading" }));
         }
-        self.run(
-            "block.insert",
-            json!({ "type": "scene_heading", "text": "" }),
-        );
         if let Some(s) = self.d.session() {
             self.editor = Editor::new(&s.doc);
             self.editor.draft = self.settings.draft;
@@ -316,20 +375,24 @@ impl App {
                         self.banners.push(m.to_string());
                     }
                 }
-                if !r["recovered"].is_null() {
-                    self.banners.push(format!(
-                        "Recovered {} unsaved changes from the last session.",
-                        r["recovered"]["commands"]
-                    ));
-                }
-                self.settings.add_recent(path);
-                self.save_settings();
                 if let Some(s) = self.d.session() {
                     self.editor = Editor::new(&s.doc);
                     self.editor.draft = self.settings.draft;
                 }
+                self.recovery_from(&r["recovered"], path);
+                self.leftover.retain(|p| p != path);
+                let unsaved = self
+                    .dirs
+                    .as_ref()
+                    .is_some_and(|d| path.starts_with(d.unsaved()));
+                if !unsaved {
+                    self.settings.add_recent(path);
+                    self.save_settings();
+                }
             }
-            None => self.new_script(),
+            // The banner says why; the script that was open stays open.
+            None if self.d.session().is_none() => self.new_script(),
+            None => {}
         }
     }
 
@@ -576,6 +639,40 @@ impl App {
                 self.banners.clear();
                 Task::none()
             }
+            Message::Chosen(ask, path) => self.chosen(ask, path),
+            Message::Saved(r) => self.saved(r),
+            Message::Reply(r) => self.reply(r),
+            Message::RecoveryKeep => self.recovery_keep(),
+            Message::RecoveryDiscard => self.recovery_discard(),
+            Message::ExportNumbers => {
+                if let Some(f) = &mut self.export {
+                    f.scene_numbers = !f.scene_numbers;
+                }
+                Task::none()
+            }
+            Message::ExportTitle => {
+                if let Some(f) = &mut self.export {
+                    f.title_page = !f.title_page;
+                }
+                Task::none()
+            }
+            Message::ExportWatermark(w) => {
+                if let Some(f) = &mut self.export {
+                    f.watermark = w;
+                }
+                Task::none()
+            }
+            Message::ExportGo => self.export_choose(),
+            Message::ExportCancel => {
+                self.export = None;
+                Task::none()
+            }
+            Message::OpenPath(p) => self.leave(After::OpenPath(p)),
+            Message::DismissLeftover => {
+                self.leftover.clear();
+                Task::none()
+            }
+            Message::CloseRequested => self.leave(After::Quit),
             Message::Noop => Task::none(),
         }
     }
@@ -720,8 +817,60 @@ impl App {
         self.agent_marks.remove(&self.editor.caret.block);
     }
 
+    /// A dialog is open over the window, so the page takes no keys.
+    pub(super) fn modal(&self) -> bool {
+        self.prompt.is_some() || self.recovery.is_some() || self.export.is_some()
+    }
+
+    /// Keys for an open dialog (editor.md §11, §13): each button has a key,
+    /// and nothing else runs while it is open.
+    fn modal_key(&mut self, kp: &KeyPress) -> Task<Message> {
+        let ch = match kp.key.as_ref() {
+            Key::Character(c) => c.to_lowercase(),
+            _ => String::new(),
+        };
+        let cmd = kp.modifiers.command();
+        let enter = matches!(kp.key.as_ref(), Key::Named(Named::Enter));
+        let esc = matches!(kp.key.as_ref(), Key::Named(Named::Escape));
+        if self.prompt.is_some() {
+            return if enter || ch == "s" {
+                self.reply(Reply::Save)
+            } else if ch == "d" || ch == "n" {
+                self.reply(Reply::DontSave)
+            } else if esc || ch == "c" {
+                self.reply(Reply::Cancel)
+            } else {
+                Task::none()
+            };
+        }
+        if self.recovery.is_some() {
+            return if enter || esc || ch == "k" {
+                self.recovery_keep()
+            } else if ch == "d" {
+                self.recovery_discard()
+            } else {
+                Task::none()
+            };
+        }
+        if self.export.is_some() {
+            if esc {
+                self.export = None;
+            } else if enter {
+                return self.export_choose();
+            } else if cmd && ch == "1" {
+                return self.update(Message::ExportNumbers);
+            } else if cmd && ch == "2" {
+                return self.update(Message::ExportTitle);
+            }
+        }
+        Task::none()
+    }
+
     /// Keys the page did not take: shortcuts, palette navigation, Esc.
     fn global_key(&mut self, kp: KeyPress) -> Task<Message> {
+        if self.modal() {
+            return self.modal_key(&kp);
+        }
         if let Some(p) = &mut self.palette {
             match kp.key.as_ref() {
                 Key::Named(Named::ArrowDown) => {
@@ -922,15 +1071,29 @@ impl App {
                 self.focus = Focus::Palette;
                 return iced::widget::operation::focus(PALETTE);
             }
-            "app.new" => {
-                if self.d.session().is_some_and(|s| s.dirty) {
-                    self.banners.push("Save or close this script first.".into());
-                } else {
-                    self.d.shutdown();
-                    self.new_script();
+            "app.new" => return self.leave(After::New),
+            "app.open" => return self.leave(After::Open),
+            "app.close" => return self.leave(After::Close),
+            "app.quit" => return self.leave(After::Quit),
+            "doc.save" => return self.save(false),
+            "app.save_as" => {
+                if self.d.session().is_some() {
+                    return self.ask(Ask::SaveAs(format!("{}.fountain", self.stem())));
                 }
             }
-            "doc.save" => self.save(),
+            "app.export_pdf" => return self.export_start(),
+            n if n.starts_with("leftover:") => {
+                let i: usize = n["leftover:".len()..].parse().unwrap_or(usize::MAX);
+                if let Some(p) = self.leftover.get(i).cloned() {
+                    return self.leave(After::OpenPath(p));
+                }
+            }
+            n if n.starts_with("recent:") => {
+                let i: usize = n["recent:".len()..].parse().unwrap_or(usize::MAX);
+                if let Some(p) = self.settings.recent.get(i).cloned() {
+                    return self.leave(After::OpenPath(p));
+                }
+            }
             "undo" => self.editor.undo(&mut self.d, false),
             "redo" => self.editor.undo(&mut self.d, true),
             "app.undo_agent" => {
@@ -1073,16 +1236,6 @@ impl App {
                     self.editor.set_type(&mut self.d, kind);
                 }
             }
-            "app.quit" => {
-                if self.d.session().is_some_and(|s| s.dirty) {
-                    self.banners.push(
-                        "This script has unsaved changes. Save it first, or close it from the palette with discard.".into(),
-                    );
-                } else {
-                    self.d.shutdown();
-                    return iced::exit();
-                }
-            }
             n if Command::NAMES.contains(&n) => {
                 self.palette = Some(PaletteState {
                     params: Some((n.to_string(), "{}".to_string())),
@@ -1098,57 +1251,54 @@ impl App {
         self.after_change(scroll)
     }
 
-    /// Saves in place, off the UI thread when there is a file
-    /// (docs/specs/journal.md, "Saving off the UI thread"). For now the
-    /// write runs here; the worker thread arrives with the file dialogs.
-    fn save(&mut self) {
-        let untitled = self
-            .d
-            .session()
-            .and_then(|s| s.path.as_ref())
-            .is_none_or(|p| {
-                self.dirs
-                    .as_ref()
-                    .is_some_and(|d| p.starts_with(d.unsaved()))
-            });
-        if untitled {
-            self.banners
-                .push("Use Save as to choose where to keep this script.".into());
-            return;
-        }
-        match self.d.save_prepare(&Default::default()) {
-            Ok(prepared) => {
-                let written = coldopen_core::io::atomic_write(&prepared.target, &prepared.bytes);
-                if let Err(e) = self.d.save_commit(prepared, written) {
-                    self.banners.push(e.message);
-                }
-            }
-            Err(e) if e.code == "lossy_format" => self.banners.push(format!(
-                "{} Use the palette's doc.save with allow_lossy to save anyway.",
-                e.message
-            )),
-            Err(e) => self.banners.push(e.message),
-        }
-    }
-
-    fn palette_items(&self) -> Vec<(&'static str, &'static str)> {
+    /// What the palette lists for its query: actions and commands, recent
+    /// files and leftover work (editor.md §9, §11), best match first.
+    fn palette_items(&self) -> Vec<PaletteItem> {
         let q = self.palette.as_ref().map_or("", |p| p.query.as_str());
-        let mut items: Vec<(i32, &'static str, &'static str)> = actions::all()
+        let file = |action: String, verb: &str, p: &Path| {
+            let name = p
+                .file_name()
+                .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+            PaletteItem {
+                action,
+                title: format!("{verb}: {name}"),
+                detail: p
+                    .parent()
+                    .map_or_else(String::new, |d| d.display().to_string()),
+            }
+        };
+        let mut all: Vec<PaletteItem> = Vec::new();
+        for (i, p) in self.leftover.iter().enumerate() {
+            all.push(file(format!("leftover:{i}"), "Reopen unsaved work", p));
+        }
+        for (n, t) in actions::all() {
+            all.push(PaletteItem {
+                action: n.to_string(),
+                title: t.to_string(),
+                detail: n.to_string(),
+            });
+        }
+        for (i, p) in self.settings.recent.iter().enumerate() {
+            all.push(file(format!("recent:{i}"), "Open recent", p));
+        }
+        let mut scored: Vec<(i32, usize, PaletteItem)> = all
             .into_iter()
-            .filter_map(|(n, t)| actions::score(q, n, t).map(|s| (s, n, t)))
+            .enumerate()
+            .filter_map(|(k, it)| actions::score(q, &it.detail, &it.title).map(|s| (s, k, it)))
             .collect();
-        items.sort_by_key(|i| std::cmp::Reverse(i.0));
-        items.into_iter().take(12).map(|(_, n, t)| (n, t)).collect()
+        scored.sort_by_key(|(s, k, _)| (std::cmp::Reverse(*s), *k));
+        scored.into_iter().take(12).map(|(_, _, it)| it).collect()
     }
 
     fn palette_run(&mut self, i: usize) -> Task<Message> {
         let items = self.palette_items();
-        let Some(&(name, _)) = items.get(i.min(items.len().saturating_sub(1))) else {
+        let Some(item) = items.get(i.min(items.len().saturating_sub(1))) else {
             return Task::none();
         };
+        let action = item.action.clone();
         self.palette = None;
         self.focus = Focus::Page;
-        self.action(name)
+        self.action(&action)
     }
 
     fn params_run(&mut self) -> Task<Message> {
@@ -1173,533 +1323,39 @@ impl App {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        let keys = iced::event::listen_with(|event, status, _window| match (event, status) {
-            (
-                iced::Event::Keyboard(keyboard::Event::KeyPressed {
-                    key,
-                    modifiers,
-                    text,
-                    ..
-                }),
-                iced::event::Status::Ignored,
-            ) => Some(Message::GlobalKey(KeyPress {
-                key,
-                modifiers,
-                text: text.map(|t| t.to_string()),
-            })),
-            _ => None,
-        });
+        let keys = iced::event::listen_with(unclaimed_key);
         Subscription::batch([
             keys,
+            iced::window::close_requests().map(|_| Message::CloseRequested),
             iced::time::every(Duration::from_millis(530)).map(|_| Message::Tick),
             iced::system::theme_changes()
                 .map(|m| Message::SystemTheme(m == iced::theme::Mode::Dark)),
         ])
     }
-
-    pub fn view(&self) -> Element<'_, Message> {
-        let pal = self.palette_colors();
-        let (Some(view), Some(session)) = (self.d.cached_view(), self.d.session()) else {
-            return container(text("No script is open.").font(fonts::UI))
-                .center(Fill)
-                .into();
-        };
-        let doc = &session.doc;
-        let page = PageView {
-            view,
-            doc,
-            draft: if self.editor.draft {
-                self.editor.draft_index.draft.as_ref()
-            } else {
-                None
-            },
-            palette: pal,
-            zoom: self.settings.zoom,
-            focused: self.focus == Focus::Page && self.palette.is_none(),
-            caret: self.caret_spot,
-            caret_on: self.caret_on,
-            preedit: self.editor.preedit.as_ref().map(|p| p.text.as_str()),
-            completion: self.editor.completion.as_ref(),
-            selection: self.sel_range,
-            matches: &self.match_ranges,
-            marked: &self.marked_elems,
-            coverage: &*self.fonts,
-            on_event: Box::new(Message::Page),
-        };
-        let pages = scrollable(Element::from(page))
-            .id(PAGES)
-            .on_scroll(Message::Scrolled)
-            .width(Fill)
-            .height(Fill);
-        let mut body = row![];
-        if self.settings.navigator && !self.focus_mode {
-            body = body.push(self.navigator(pal));
-        }
-        body = body.push(pages);
-        let mut main = column![];
-        if !self.focus_mode {
-            main = main.push(self.hint_bar(pal));
-        }
-        if !self.banners.is_empty() {
-            main = main.push(self.banner(pal));
-        }
-        if self.find.is_some() {
-            main = main.push(self.find_bar(pal));
-        }
-        main = main.push(body.height(Fill));
-        if !self.focus_mode {
-            main = main.push(self.status_bar(pal));
-        }
-        let mut layers = stack![main];
-        if self.palette.is_some() {
-            layers = layers.push(self.palette_view(pal));
-        }
-        layers.into()
-    }
-
-    fn hint_bar(&self, pal: Palette) -> Element<'_, Message> {
-        let session = self.d.session();
-        let name = session
-            .and_then(|s| s.path.as_ref())
-            .filter(|p| {
-                !self
-                    .dirs
-                    .as_ref()
-                    .is_some_and(|d| p.starts_with(d.unsaved()))
-            })
-            .and_then(|p| p.file_name())
-            .map_or_else(
-                || "Untitled".to_string(),
-                |n| n.to_string_lossy().into_owned(),
-            );
-        let dirty = session.is_some_and(|s| s.dirty);
-        let kind = session
-            .and_then(|s| s.doc.get(self.editor.caret.block))
-            .map(|b| b.element.kind);
-        let mut r = row![
-            text(name).font(fonts::UI_BOLD).size(14).color(pal.text),
-            text(if dirty { "edited" } else { "" })
-                .font(fonts::UI)
-                .size(13)
-                .color(pal.text_quiet),
-            space::horizontal(),
-        ]
-        .spacing(10)
-        .align_y(Center);
-        if let Some(k) = kind {
-            let row_flow = self.editor.flow.row(k);
-            r = r.push(
-                container(
-                    text(kind_label(k))
-                        .font(fonts::UI_BOLD)
-                        .size(13)
-                        .color(pal.accent_text),
-                )
-                .padding([3, 12])
-                .style(move |_| pill(pal.accent_soft)),
-            );
-            let mut hint = format!("Enter: {}", kind_label(row_flow.enter));
-            if let Some(t) = row_flow.tab {
-                hint.push_str(&format!("  ·  Tab: {}", kind_label(t)));
-            }
-            r = r.push(text(hint).font(fonts::UI).size(13).color(pal.text_quiet));
-        }
-        let palette_keys = self
-            .keymap
-            .keys_for("app.palette")
-            .into_iter()
-            .next()
-            .unwrap_or_default();
-        r = r.push(space::horizontal());
-        r = r.push(
-            container(
-                text(palette_keys)
-                    .font(fonts::UI)
-                    .size(12)
-                    .color(pal.text_quiet),
-            )
-            .padding([2, 8])
-            .style(move |_| outline(pal.border)),
-        );
-        container(r)
-            .padding([7, 14])
-            .width(Fill)
-            .style(move |_| bar(pal.panel_alt, pal.border))
-            .into()
-    }
-
-    fn navigator(&self, pal: Palette) -> Element<'_, Message> {
-        let current = self.current_scene_row();
-        let mut list = column![
-            container(
-                text(format!(
-                    "Scenes · {}",
-                    self.nav.iter().filter(|r| !r.section).count()
-                ))
-                .font(fonts::UI)
-                .size(12)
-                .color(pal.text_quiet)
-            )
-            .padding([4, 12])
-        ];
-        for (i, r) in self.nav.iter().enumerate() {
-            let selected = current == Some(i);
-            let hovering = self.nav_drag.is_some() && self.nav_hover == Some(i);
-            let label = if r.section {
-                row![
-                    text(r.heading.clone())
-                        .font(fonts::UI_BOLD)
-                        .size(12)
-                        .color(pal.text_quiet)
-                ]
-                .padding([0, 4 * u16::from(r.depth.saturating_sub(1))])
-            } else {
-                let page = r.page.map_or_else(String::new, |p| p.to_string());
-                let fg = if selected { pal.accent_text } else { pal.text };
-                row![
-                    text(r.number.clone())
-                        .font(fonts::UI)
-                        .size(12)
-                        .color(pal.text_quiet)
-                        .width(Length::Fixed(22.0)),
-                    text(ellipsize(&r.heading, 24))
-                        .font(fonts::UI)
-                        .size(13)
-                        .color(fg)
-                        .wrapping(text::Wrapping::None)
-                        .width(Fill),
-                    text(page).font(fonts::UI).size(12).color(pal.text_quiet),
-                ]
-                .spacing(6)
-            };
-            let bg = if selected { pal.accent_soft } else { pal.panel };
-            let rule = if hovering {
-                pal.accent
-            } else {
-                Color::TRANSPARENT
-            };
-            let cell = container(label)
-                .padding([6, 12])
-                .width(Fill)
-                .style(move |_| container::Style {
-                    background: Some(Background::Color(bg)),
-                    border: Border {
-                        color: rule,
-                        width: if hovering { 2.0 } else { 0.0 },
-                        radius: 0.0.into(),
-                    },
-                    ..container::Style::default()
-                });
-            list = list.push(
-                mouse_area(cell)
-                    .on_press(Message::NavPress(i))
-                    .on_release(Message::NavRelease(i))
-                    .on_enter(Message::NavEnter(i)),
-            );
-        }
-        list = list.push(
-            container(
-                text("Drag a scene, or Alt+Up/Down, to move it")
-                    .font(fonts::UI)
-                    .size(11)
-                    .color(pal.text_quiet),
-            )
-            .padding([6, 12]),
-        );
-        let focused = self.focus == Focus::Navigator;
-        container(scrollable(list).height(Fill))
-            .width(Length::Fixed(250.0))
-            .height(Fill)
-            .style(move |_| container::Style {
-                background: Some(Background::Color(pal.panel)),
-                border: Border {
-                    color: if focused { pal.focus } else { pal.border },
-                    width: if focused { 2.0 } else { 1.0 },
-                    radius: 0.0.into(),
-                },
-                ..container::Style::default()
-            })
-            .into()
-    }
-
-    fn status_bar(&self, pal: Palette) -> Element<'_, Message> {
-        let total = self.d.cached_view().map_or(0, |v| v.layout().pages.len());
-        let page = self.caret_spot.map_or(1, |s| s.page + 1);
-        let scene = self.current_scene_row().and_then(|i| self.nav.get(i));
-        let scene_txt = scene.map_or_else(String::new, |r| {
-            format!("Scene {} · {}", r.number, eighths(r.eighths))
-        });
-        let (journal, jcolor) = match self.d.journal_status() {
-            Some(st) if st.error.is_some() => ("Not protected".to_string(), pal.danger),
-            Some(st) if st.oldest.is_some_and(|a| a > Duration::from_millis(250)) => {
-                ("Protecting…".to_string(), pal.text_quiet)
-            }
-            Some(_) => ("Protected".to_string(), pal.success),
-            None => (String::new(), pal.text_quiet),
-        };
-        let page_txt = if self.editor.draft {
-            "Draft view".to_string()
-        } else {
-            format!("Page {page} of {total}")
-        };
-        let r = row![
-            text(page_txt)
-                .font(fonts::UI)
-                .size(12)
-                .color(pal.text_quiet),
-            text(scene_txt)
-                .font(fonts::UI)
-                .size(12)
-                .color(pal.text_quiet),
-            text(journal).font(fonts::UI).size(12).color(jcolor),
-            space::horizontal(),
-            text(format!("{}%", (self.settings.zoom * 100.0).round() as u32))
-                .font(fonts::UI)
-                .size(12)
-                .color(pal.text_quiet),
-        ]
-        .spacing(16)
-        .align_y(Center);
-        container(r)
-            .padding([5, 14])
-            .width(Fill)
-            .style(move |_| bar(pal.panel_alt, pal.border))
-            .into()
-    }
-
-    fn banner(&self, pal: Palette) -> Element<'_, Message> {
-        let msg = self.banners.last().cloned().unwrap_or_default();
-        let more = if self.banners.len() > 1 {
-            format!("  (+{} more)", self.banners.len() - 1)
-        } else {
-            String::new()
-        };
-        container(
-            row![
-                text(format!("{msg}{more}"))
-                    .font(fonts::UI)
-                    .size(13)
-                    .color(pal.text)
-                    .width(Fill),
-                button(text("Dismiss").font(fonts::UI).size(12))
-                    .on_press(Message::DismissBanner)
-                    .padding([3, 10]),
-            ]
-            .spacing(10)
-            .align_y(Center),
-        )
-        .padding([6, 14])
-        .width(Fill)
-        .style(move |_| bar(pal.accent_soft, pal.border))
-        .into()
-    }
-
-    fn find_bar(&self, pal: Palette) -> Element<'_, Message> {
-        let Some(f) = &self.find else {
-            return space().into();
-        };
-        let count = if f.query.is_empty() {
-            String::new()
-        } else if f.matches.is_empty() {
-            "No matches".to_string()
-        } else {
-            format!("{} of {}", f.current + 1, f.matches.len())
-        };
-        let toggle = |label: &'static str, on: bool, msg: Message| {
-            button(text(label).font(fonts::UI).size(12))
-                .on_press(msg)
-                .padding([3, 8])
-                .style(move |theme: &Theme, status| {
-                    let mut s = button::secondary(theme, status);
-                    if on {
-                        s.background = Some(Background::Color(pal.accent_soft));
-                        s.text_color = pal.accent_text;
-                    }
-                    s
-                })
-        };
-        let mut r = row![
-            text_input("Find", &f.query)
-                .id(FIND)
-                .on_input(Message::FindInput)
-                .on_submit(Message::Action("edit.find_next".into()))
-                .font(fonts::UI)
-                .size(13)
-                .width(Length::Fixed(260.0)),
-            text(count).font(fonts::UI).size(12).color(pal.text_quiet),
-            toggle("Match case", f.match_case, Message::FindCase),
-            toggle("This scene", f.scene_only, Message::FindScope),
-        ]
-        .spacing(8)
-        .align_y(Center);
-        if f.replace_open {
-            r = r.push(
-                text_input("Replace with", &f.replace)
-                    .on_input(Message::ReplaceInput)
-                    .font(fonts::UI)
-                    .size(13)
-                    .width(Length::Fixed(200.0)),
-            );
-            r = r.push(
-                button(text("Replace").font(fonts::UI).size(12))
-                    .on_press(Message::ReplaceOne)
-                    .padding([3, 8]),
-            );
-            r = r.push(
-                button(text("Replace all").font(fonts::UI).size(12))
-                    .on_press(Message::ReplaceAll)
-                    .padding([3, 8]),
-            );
-        }
-        container(r)
-            .padding([6, 14])
-            .width(Fill)
-            .style(move |_| bar(pal.panel, pal.border))
-            .into()
-    }
-
-    fn palette_view(&self, pal: Palette) -> Element<'_, Message> {
-        let Some(p) = &self.palette else {
-            return space().into();
-        };
-        let mut col = column![].spacing(6);
-        if let Some((name, json)) = &p.params {
-            col = col.push(
-                text(format!("{name} — params as JSON"))
-                    .font(fonts::UI_BOLD)
-                    .size(14)
-                    .color(pal.text),
-            );
-            col = col.push(
-                text_input("{}", json)
-                    .id(PALETTE)
-                    .on_input(Message::ParamsInput)
-                    .on_submit(Message::ParamsRun)
-                    .font(fonts::PAGE)
-                    .size(13),
-            );
-            if let Some(r) = &p.response {
-                col = col.push(
-                    scrollable(text(r.clone()).font(fonts::PAGE).size(12).color(pal.text))
-                        .height(Length::Fixed(260.0)),
-                );
-            }
-        } else {
-            col = col.push(
-                text_input("Type a command", &p.query)
-                    .id(PALETTE)
-                    .on_input(Message::PaletteInput)
-                    .on_submit(Message::PaletteRun(p.selected))
-                    .font(fonts::UI)
-                    .size(14),
-            );
-            let items = self.palette_items();
-            let sel = p.selected.min(items.len().saturating_sub(1));
-            for (i, (name, title)) in items.iter().enumerate() {
-                let keys = self.keymap.keys_for(name).join(", ");
-                let selected = i == sel;
-                let fg = if selected { pal.accent_text } else { pal.text };
-                let item = row![
-                    text(*title).font(fonts::UI).size(13).color(fg).width(Fill),
-                    text(*name).font(fonts::UI).size(11).color(pal.text_quiet),
-                    text(keys).font(fonts::UI).size(11).color(pal.text_quiet),
-                ]
-                .spacing(10);
-                col = col.push(
-                    button(item)
-                        .on_press(Message::PaletteRun(i))
-                        .padding([5, 8])
-                        .width(Fill)
-                        .style(move |_t: &Theme, _s| button::Style {
-                            background: Some(Background::Color(if selected {
-                                pal.accent_soft
-                            } else {
-                                Color::TRANSPARENT
-                            })),
-                            text_color: fg,
-                            border: Border {
-                                radius: 4.0.into(),
-                                ..Border::default()
-                            },
-                            ..button::Style::default()
-                        }),
-                );
-            }
-        }
-        let card = container(col)
-            .padding(14)
-            .width(Length::Fixed(560.0))
-            .style(move |_| container::Style {
-                background: Some(Background::Color(pal.panel_alt)),
-                border: Border {
-                    color: pal.border,
-                    width: 1.0,
-                    radius: 10.0.into(),
-                },
-                ..container::Style::default()
-            });
-        container(column![space().height(Length::Fixed(80.0)), card].align_x(Center))
-            .width(Fill)
-            .height(Fill)
-            .align_x(Center)
-            .style(|_| container::Style {
-                background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.25))),
-                ..container::Style::default()
-            })
-            .into()
-    }
 }
 
-fn pill(bg: Color) -> container::Style {
-    container::Style {
-        background: Some(Background::Color(bg)),
-        border: Border {
-            radius: 999.0.into(),
-            ..Border::default()
-        },
-        ..container::Style::default()
-    }
-}
-
-fn outline(c: Color) -> container::Style {
-    container::Style {
-        border: Border {
-            color: c,
-            width: 1.0,
-            radius: 6.0.into(),
-        },
-        ..container::Style::default()
-    }
-}
-
-fn bar(bg: Color, edge: Color) -> container::Style {
-    container::Style {
-        background: Some(Background::Color(bg)),
-        border: Border {
-            color: edge,
-            width: 0.5,
-            radius: 0.0.into(),
-        },
-        ..container::Style::default()
-    }
-}
-
-fn ellipsize(s: &str, n: usize) -> String {
-    if s.chars().count() <= n {
-        s.to_string()
-    } else {
-        let mut t: String = s.chars().take(n - 1).collect();
-        t.push('…');
-        t
-    }
-}
-
-/// A length in eighths of a page, as scripts write it.
-pub fn eighths(n: u64) -> String {
-    match (n / 8, n % 8) {
-        (0, r) => format!("{r}/8"),
-        (w, 0) => format!("{w}"),
-        (w, r) => format!("{w} {r}/8"),
+/// A key press no widget captured becomes a [`Message::GlobalKey`]: the
+/// app's keyboard subscription, and the headless runner, use it.
+pub fn unclaimed_key(
+    event: iced::Event,
+    status: iced::event::Status,
+    _window: iced::window::Id,
+) -> Option<Message> {
+    match (event, status) {
+        (
+            iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                key,
+                modifiers,
+                text,
+                ..
+            }),
+            iced::event::Status::Ignored,
+        ) => Some(Message::GlobalKey(KeyPress {
+            key,
+            modifiers,
+            text: text.map(|t| t.to_string()),
+        })),
+        _ => None,
     }
 }
 

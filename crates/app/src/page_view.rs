@@ -95,6 +95,8 @@ pub struct PageView<'a, Message> {
 struct State {
     pressed: Option<(usize, Point)>,
     last_click: Option<(Instant, Point, u8)>,
+    /// The modifier keys held now, for Shift+click.
+    modifiers: Modifiers,
     /// Glyph coverage answers, per character and look.
     cache: RefCell<Vec<(char, Look, bool)>>,
 }
@@ -255,7 +257,7 @@ impl<Message> widget::Widget<Message, iced::Theme, iced::Renderer> for PageView<
                 };
                 state.last_click = Some((now, at, clicks));
                 state.pressed = Some((page, at));
-                let shift = false;
+                let shift = state.modifiers.shift();
                 shell.publish((self.on_event)(PageEvent::Press {
                     page,
                     x,
@@ -275,6 +277,9 @@ impl<Message> widget::Widget<Message, iced::Theme, iced::Renderer> for PageView<
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
                 state.pressed = None;
+            }
+            Event::Keyboard(keyboard::Event::ModifiersChanged(m)) => {
+                state.modifiers = *m;
             }
             Event::Keyboard(keyboard::Event::KeyPressed {
                 key,

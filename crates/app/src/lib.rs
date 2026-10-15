@@ -11,6 +11,7 @@ pub mod app;
 pub mod editor;
 pub mod files;
 pub mod fonts;
+pub mod headless;
 pub mod keymap;
 pub mod page_view;
 pub mod theme;

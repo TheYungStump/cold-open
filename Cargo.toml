@@ -49,6 +49,12 @@ quick-xml = "0.42"
 # wgpu for comparison builds.
 iced = { version = "0.14", default-features = false, features = ["tiny-skia", "x11", "wayland", "smol", "advanced", "linux-theme-detection"] }
 iced_test = "0.14"
+# Already part of iced; named directly so the app can run itself headless
+# (user interface, tasks) for tests and the gate driver.
+iced_runtime = "0.14"
+# Native open and save dialogs. Without default features it uses the XDG
+# desktop portal on Linux (no GTK) and the system dialogs elsewhere.
+rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 
 # Dev-only.
 proptest = "1.5"
