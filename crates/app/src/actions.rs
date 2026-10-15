@@ -61,6 +61,10 @@ pub const APP_ACTIONS: &[ActionInfo] = &[
         title: "Dismiss agent marks",
     },
     ActionInfo {
+        name: "app.dismiss_messages",
+        title: "Dismiss messages (also Esc)",
+    },
+    ActionInfo {
         name: "app.renderer_cpu",
         title: "Draw with the CPU (less memory; after a restart)",
     },

@@ -286,6 +286,7 @@ When an agent attaches to the open script through `coldopen mcp` (`docs/specs/mc
   **Keep** (Enter, K or Esc) continues with the recovered script, unsaved. **Discard** (D) sends `doc.revert`, which keeps a copy of the journal. For a script that was never saved there is no file to go back to: Discard closes it with `discard` and starts a new script, and the dialog says that the recovered work will be deleted.
   The number of changes is the number of recovered commands, so a burst of typing counts each key.
 - **Errors.** A command that fails shows a banner with the error's message, and the editor stays usable. Nothing fails silently.
+- **Esc** closes the nearest thing first: the autocomplete list, the find bar or palette, a selection, then the banners, then the leftover-work offer. "Dismiss messages" in the palette does the last two.
 
 ## 14. Testing the app
 

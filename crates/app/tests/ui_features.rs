@@ -216,3 +216,24 @@ fn the_writer_s_keymap_and_flow_files_apply_and_bad_entries_are_reported() {
     assert_eq!(format!("{kind:?}"), "Transition");
     h.app.d.discard();
 }
+
+#[test]
+fn esc_dismisses_messages_once_nothing_else_is_open() {
+    let home = tempfile::tempdir().unwrap();
+    let mut h = app(home.path());
+    h.app.banners.push("A message.".into());
+    h.app.leftover.push(home.path().join("lost.fountain"));
+    // A selection goes first...
+    h.named(Named::End, Modifiers::SHIFT);
+    assert!(h.app.editor.has_selection());
+    esc(&mut h);
+    assert!(!h.app.editor.has_selection());
+    assert_eq!(h.app.banners.len(), 1);
+    // ...then the banner, then the leftover-work offer.
+    esc(&mut h);
+    assert!(h.app.banners.is_empty());
+    assert_eq!(h.app.leftover.len(), 1);
+    esc(&mut h);
+    assert!(h.app.leftover.is_empty());
+    h.app.d.discard();
+}

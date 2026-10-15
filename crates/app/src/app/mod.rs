@@ -929,9 +929,16 @@ impl App {
             Key::Named(Named::Backspace) => self.editor.delete(&mut self.d, false, word),
             Key::Named(Named::Delete) => self.editor.delete(&mut self.d, true, word),
             Key::Named(Named::Escape) => {
-                self.find = None;
-                self.palette = None;
-                self.editor.anchor = self.editor.caret;
+                // Esc closes the nearest thing: the find bar, a selection,
+                // then messages and the leftover-work offer.
+                if self.find.is_some() || self.palette.is_some() {
+                    self.find = None;
+                    self.palette = None;
+                } else if self.editor.has_selection() {
+                    self.editor.anchor = self.editor.caret;
+                } else {
+                    self.dismiss_messages();
+                }
             }
             _ => {
                 // Text: no Ctrl or Cmd, except AltGr, which Windows reports
@@ -953,6 +960,16 @@ impl App {
     /// Writer edits clear the agent mark on that block (editor.md §12).
     fn clear_marks_at_caret(&mut self) {
         self.agent_marks.remove(&self.editor.caret.block);
+    }
+
+    /// Clears the banners, then (once they are gone) the leftover-work
+    /// offer: Esc and the palette reach both.
+    fn dismiss_messages(&mut self) {
+        if self.banners.is_empty() {
+            self.leftover.clear();
+        } else {
+            self.banners.clear();
+        }
     }
 
     /// A dialog is open over the window, so the page takes no keys.
@@ -1042,6 +1059,9 @@ impl App {
             }
         }
         if let Key::Named(Named::Escape) = kp.key.as_ref() {
+            if self.find.is_none() {
+                self.dismiss_messages();
+            }
             self.find = None;
             self.focus = Focus::Page;
             return self.after_change(false);
@@ -1259,6 +1279,10 @@ impl App {
                 }
             }
             "app.dismiss_marks" => self.agent_marks.clear(),
+            "app.dismiss_messages" => {
+                self.dismiss_messages();
+                scroll = false;
+            }
             "app.history" => {
                 self.sheet = Some(Sheet::History);
                 scroll = false;
