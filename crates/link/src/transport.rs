@@ -140,6 +140,7 @@ impl Server {
     pub fn same_user(&self, conn: &Conn) -> bool {
         #[cfg(unix)]
         {
+            use interprocess::local_socket::traits::StreamCommon as _;
             conn.stream.peer_creds().ok().and_then(|c| c.euid()) == Some(self.uid)
         }
         #[cfg(not(unix))]
