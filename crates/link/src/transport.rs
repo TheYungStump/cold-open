@@ -88,11 +88,21 @@ impl Server {
             let (socket, uid) = unix::socket_path(run, pid)?;
             // A socket left by a crashed process with this pid.
             let _ = std::fs::remove_file(&socket);
-            let name = socket.as_path().to_fs_name::<GenericFilePath>()?;
-            let listener = ListenerOptions::new()
-                .name(name)
+            let name = || socket.as_path().to_fs_name::<GenericFilePath>();
+            // Mode 0600 where the OS lets a socket have one before it is
+            // bound (Linux). macOS does not; there the 0700 folder, which no
+            // one else can enter, and the peer check protect it.
+            let listener = match ListenerOptions::new()
+                .name(name()?)
                 .mode(0o600)
-                .create_sync()?;
+                .create_sync()
+            {
+                Err(e) if e.kind() == io::ErrorKind::Unsupported => {
+                    let _ = std::fs::remove_file(&socket);
+                    ListenerOptions::new().name(name()?).create_sync()?
+                }
+                other => other?,
+            };
             Ok(Server {
                 listener,
                 endpoint: socket.display().to_string(),

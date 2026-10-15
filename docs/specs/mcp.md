@@ -98,7 +98,7 @@ When the desktop app has a script open and agent access is on (`docs/specs/edito
 
 | OS | Endpoint | Protection |
 | --- | --- | --- |
-| Linux, macOS | A Unix domain socket, `<run folder>/<pid>.sock` | The run folder is created with mode 0700 and must be owned by the user. If it has any other owner or mode, the app does not host a link and says so. The socket gets mode 0600. Each connection's peer user id (`SO_PEERCRED` on Linux, `getpeereid` on macOS) must equal the app's, or the connection is closed at once. |
+| Linux, macOS | A Unix domain socket, `<run folder>/<pid>.sock` | The run folder is created with mode 0700 and must be owned by the user. If it has any other owner or mode, the app does not host a link and says so. The socket gets mode 0600 where the OS allows a mode before the socket is bound (Linux); macOS does not, and there the 0700 folder and the peer check protect it. Each connection's peer user id (`SO_PEERCRED` on Linux, `getpeereid` on macOS) must equal the app's, or the connection is closed at once. |
 | Windows | A named pipe, `\\.\pipe\coldopen-<32 random hex digits>` | It is created as the first instance of its name and rejects remote clients. Its access list grants access to the current user only. Other users can neither connect nor create another instance of the name. |
 
 **Resolution:** a Unix socket path is limited to about 100 bytes. When the run folder makes it longer, the app uses `$TMPDIR/coldopen-<uid>/` instead, with the same 0700 ownership checks.
