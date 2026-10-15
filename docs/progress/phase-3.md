@@ -21,9 +21,9 @@ only in one person's (or one agent's) notes.
 | 11 | Files (dialogs, recent files, PDF export), recovery dialog, save worker | done |
 | 12 | Agent link server in the app, `crates/mcp`, `coldopen mcp`, the agent gate | done |
 | 13 | The headless driver and the crash gate | done |
-| 14 | CI: app builds and artifacts on three OSes, budgets job, fuzz targets | in CI now |
-| 15 | Measurements: Windows locally (Big Fish, both renderers at 4K) and all three OSes in CI | Windows synthetic done |
-| 16 | README, the PR, the final report | |
+| 14 | CI: app builds and artifacts on three OSes, budgets job, fuzz targets | done |
+| 15 | Measurements: Windows locally (Big Fish, both renderers at 4K) and all three OSes in CI | done |
+| 16 | README, the PR, the final report | README done; PR next |
 
 ## Measured so far (Windows 11, release build)
 
@@ -63,6 +63,27 @@ installer under 15 MB).
 This machine has no 4K or high-DPI screen: the 3840×2160 numbers come from
 a window larger than the screen, which Windows allows. CI adds every OS,
 headless for both renderers and windowed under its own display.
+
+### CI, synthetic script (GitHub's hosted runners, 2026-10-15)
+
+Shared virtual machines: slower than a writer's computer, with no GPU on
+Linux and a software one (WARP) on Windows. Windowed numbers are frame to
+frame at 1920×1080 (under Xvfb on Linux).
+
+| What | Linux x86-64 | macOS arm64 | Windows x86-64 | Budget |
+| --- | --- | --- | --- | --- |
+| Cold start (launch to first frame and exit, median of 7) | 60 ms | 1,058 ms (GPU set-up in the VM) | 291 ms | under 1 s |
+| Typing, CPU renderer | median 13.5 ms, p95 19.9 ms | median 28.1 ms, p95 47.7 ms | median 18.0 ms, p95 21.7 ms | under 16 ms |
+| Scrolling, CPU renderer | median 23.3 ms | median 21.8 ms | median 27.0 ms | (smooth) |
+| Typing, GPU renderer | no GPU | median 16.6 ms (the 60 Hz refresh), p95 23.7 ms | 95.2 ms (software GPU) | under 16 ms |
+| Scrolling, GPU renderer | no GPU | median 16.8 ms | 94.7 ms (software GPU) | (smooth) |
+| Full layout | 17.0 ms | 42.8 ms | 46.7 ms | under 50 ms |
+| Memory, CPU renderer, all pages | 42 MiB | 53 MiB | 45 MiB | under 150 MB |
+| Journal write on the UI thread, p95 | 0.016 ms | 0.056 ms | 0.049 ms | under 10 ms |
+| fsync, p95 | 0.21 ms | 1.30 ms | 4.93 ms | within 250 ms |
+| App (both renderers) / CLI / download | 16.0 / 4.8 / 8.9 MiB | 9.4 / 4.1 / 6.1 MiB | 12.9 / 5.3 / 7.0 MiB | download under 15 MB |
+
+macOS x86-64 builds too: app 9.9 MiB, CLI 4.5 MiB, download 6.6 MiB.
 
 ### Big Fish (125 pages, from the local corpus), same machine
 
@@ -131,3 +152,6 @@ stopping to ask:
 44. In the windowed app, the window's close button asks about unsaved changes (`exit_on_close_request(false)`).
 45. CI's headless budgets do not assert keystroke-to-screen: headless frames redraw the whole window while the real app redraws only what changed. The windowed numbers are reported per OS; Linux asserts layout, memory and journal latency.
 46. While the writer types in body text, the navigator's page numbers and lengths update on the next half-second tick instead of every key; headings, new blocks, moves and agent edits update it at once. It saved 1.5 ms a key on Big Fish and brought the CPU renderer's typing there under budget.
+47. The CI test build was checked on this machine: it typed 768 keys into a scene in a real window, was ended with TerminateProcess, and its own CLI recovered all 768 with the file untouched. That found two things, both fixed: `serve --stdio` now ignores a byte-order mark (Windows PowerShell adds one to what it pipes), and the windowed benchmark falls back to the first speech on a short script.
+48. Esc closes the nearest thing first (autocomplete, find bar or palette, selection), then banners, then the leftover-work offer; the palette has "Dismiss messages". Before, those two dismiss buttons could only be clicked.
+49. The performance overlay planned as `COLDOPEN_PERF_HUD` became the self-driving benchmark (`COLDOPEN_BENCH`): it measures the same thing, frame to frame in a real window, and CI can run it.
