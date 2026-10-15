@@ -36,7 +36,8 @@
   - **Title page.** Title pages are shown before the body, read-only in phase 3.
   - **Non-printing content.** Notes and boneyard inside a line, and transparent elements (sections, synopses, notes, boneyard, page breaks), never change the page. Each is shown by a small marker in the left margin at the line it belongs to.
 - **Draft view.** One continuous column with the same wrapping as the pages, from layout's draft lines (`docs/specs/layout.md` §15.3). There are no page breaks, (MORE) or (CONT'D). A thin rule and the page number mark where each body page starts. Transparent elements show as grey, non-printing lines, so sections and synopses can be read and edited.
-- **Zoom.** The steps are 50, 67, 80, 90, 100, 110, 125, 150, 175, 200, 250 and 300 percent. At 100% a page is drawn at its paper size on a 96-pixels-per-inch logical display; the operating system's scale factor applies on top.
+- **Zoom.** The steps are 50, 67, 80, 90, 100, 110, 125, 150, 175, 200, 250 and 300 percent. At 100% a page is drawn at its paper size on a 96-pixels-per-inch logical display; the operating system's scale factor applies on top. Zooming keeps what is in view in place: the caret's line stays at the same height on screen when the caret is in view, and otherwise the middle of the view stays put (2026-10-15).
+- **The bars stay clear.** Pages scroll under the hint bar and the status bar, never over them: page text is clipped to the page area.
 - **Themes.**
 
   | Theme | Desk | Page | Text |
@@ -52,6 +53,7 @@
 
 - **The caret** is a position `(block id, offset)`, with the offset as in `docs/specs/commands.md` ("Positions in text"). It is drawn at the grid cell the layout gives for that position, mapped through the normal form's source map (`docs/specs/fountain.md` §10).
   - A position in text the normal form trims, such as a trailing space just typed, is drawn one cell further right for each trimmed space, on the same line.
+  - In a block layout leaves out, because it is empty or holds only spaces, the caret is drawn where the block's first line will go: below the block before it, after the space layout would put between them (none inside a speech, so a new dialogue or parenthetical sits right under the line above), at its kind's column, after any spaces typed, or at the right edge for a right-aligned kind such as a transition (2026-10-15).
 - **The selection** runs from an anchor position to the caret, and may cross blocks.
 - **When an edit moves text**, its own or an agent's, the caret and anchor move with the text they sit in. If their block is deleted, they move to the nearest remaining block.
 
@@ -116,7 +118,12 @@ Shift with any of these extends the selection. Mod+A selects the whole script. A
 | General | general | action | action | action |
 | Section, synopsis, note, boneyard | action | action | — | — |
 
-- **Parentheses.** When a block becomes a parenthetical while empty, `()` is inserted with the caret between them, in the same `batch` as the type change.
+- **Parentheses.** When a block becomes a parenthetical while empty, `()` is inserted with the caret between them, in the same `batch` as the type change. Brackets inserted this way, with nothing typed between them, are removed when the writer leaves them, so cycling through types never leaves `()` behind (2026-10-15):
+  - changing the type (Tab, Shift+Tab, an element shortcut) removes them in the same `batch` as the type change;
+  - Enter on them acts as on an empty block;
+  - moving the caret to another block removes them, as their own undo step.
+
+  Undo and redo step through these exactly, with the caret back between the brackets. Brackets the writer typed, and brackets with text inside, are never removed.
 - **Auto-convert.** These run as their own commands, so one undo reverses the conversion and keeps the text:
   - In an action block that was empty when typing began, a text equal to a scene prefix (`INT`, `EXT`, `EST`, `INT./EXT`, `INT/EXT`, `I/E`, `EXT/INT`, `E/I`, any case) followed by `.` or a space changes the block to a scene heading.
   - In an empty dialogue block, typing `(` changes the block to a parenthetical.

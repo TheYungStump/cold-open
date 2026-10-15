@@ -651,6 +651,97 @@ impl App {
         }
     }
 
+    /// Pixels per Pt unit at `zoom`, the height of a page (or of the draft
+    /// view's one long column) in pixels, and how many there are.
+    fn page_geometry(&self, zoom: f32) -> Option<(f32, f32, usize)> {
+        let view = self.d.cached_view()?;
+        let f = view.layout().format();
+        let k = zoom * 96.0 / 72.0 / 100.0;
+        if self.editor.draft {
+            let h = self
+                .editor
+                .draft_index
+                .draft
+                .as_ref()
+                .map_or(0, |d| d.height.0)
+                + f.margin_top.0
+                + f.margin_bottom.0;
+            Some((k, h as f32 * k, 1))
+        } else {
+            Some((
+                k,
+                f.page_height.0 as f32 * k,
+                view.layout().pages.len().max(1),
+            ))
+        }
+    }
+
+    /// The page and the Pt-unit height on it at a y in the page area's
+    /// content, at the current zoom.
+    fn page_at(&self, y: f32) -> Option<(usize, f32)> {
+        let (k, page_h, pages) = self.page_geometry(self.settings.zoom)?;
+        let step = page_h + page_view::GAP;
+        let p = (((y - page_view::MARGIN) / step).floor().max(0.0) as usize).min(pages - 1);
+        Some((p, (y - page_view::MARGIN - p as f32 * step) / k))
+    }
+
+    /// The page in the middle of the view, from 0; the draft view is one
+    /// page.
+    pub fn visible_page(&self) -> Option<usize> {
+        let vp = self.viewport.as_ref()?;
+        let mid = vp.absolute_offset().y + vp.bounds().height / 2.0;
+        self.page_at(mid).map(|(p, _)| p)
+    }
+
+    /// What stays put on screen when zooming: the caret's line when it is
+    /// in view, otherwise the middle of the view. As (page, height on that
+    /// page in Pt units, distance from the top of the page area).
+    fn zoom_anchor(&self) -> Option<(usize, f32, f32)> {
+        if let (Some(y), Some(spot)) = (self.caret_screen_y(), self.caret_spot) {
+            return Some((spot.page, spot.top.0 as f32, y));
+        }
+        let vp = self.viewport.as_ref()?;
+        let h = vp.bounds().height;
+        let (p, y_pt) = self.page_at(vp.absolute_offset().y + h / 2.0)?;
+        Some((p, y_pt, h / 2.0))
+    }
+
+    /// How far the caret's line is below the top of the page area, when it
+    /// is in view.
+    pub fn caret_screen_y(&self) -> Option<f32> {
+        let vp = self.viewport.as_ref()?;
+        let spot = self.caret_spot?;
+        let (k, page_h, _) = self.page_geometry(self.settings.zoom)?;
+        let y = page_view::MARGIN
+            + spot.page as f32 * (page_h + page_view::GAP)
+            + spot.top.0 as f32 * k;
+        let top = vp.absolute_offset().y;
+        (y >= top && y < top + vp.bounds().height).then_some(y - top)
+    }
+
+    /// Zooms, keeping the caret's line, or else the middle of the view,
+    /// where it was on screen (editor.md §3).
+    fn zoom_to(&mut self, zoom: f32) -> Task<Message> {
+        let anchor = self.zoom_anchor();
+        self.settings.zoom = zoom;
+        self.save_settings();
+        let refresh = self.after_change(false);
+        let (Some((page, y_pt, on_screen)), Some((k, page_h, _))) =
+            (anchor, self.page_geometry(zoom))
+        else {
+            return refresh;
+        };
+        let y = page_view::MARGIN + page as f32 * (page_h + page_view::GAP) + y_pt * k;
+        let keep = iced::widget::operation::scroll_to(
+            PAGES,
+            scrollable::AbsoluteOffset {
+                x: None,
+                y: Some((y - on_screen).max(0.0)),
+            },
+        );
+        Task::batch([refresh, keep])
+    }
+
     fn screen_height(&self) -> Pt {
         let h = self.viewport.as_ref().map_or(700.0, |v| v.bounds().height);
         Pt((h / (self.settings.zoom * 96.0 / 72.0 / 100.0)) as i32)
@@ -1353,18 +1444,12 @@ impl App {
             }
             "edit.find_next" => return self.find_step(false),
             "edit.find_previous" => return self.find_step(true),
-            "view.zoom_in" => {
-                self.settings.zoom_step(1);
-                self.save_settings();
+            "view.zoom_in" | "view.zoom_out" => {
+                let mut s = self.settings.clone();
+                s.zoom_step(if name == "view.zoom_in" { 1 } else { -1 });
+                return self.zoom_to(s.zoom);
             }
-            "view.zoom_out" => {
-                self.settings.zoom_step(-1);
-                self.save_settings();
-            }
-            "view.zoom_reset" => {
-                self.settings.zoom = 1.0;
-                self.save_settings();
-            }
+            "view.zoom_reset" => return self.zoom_to(1.0),
             "view.draft" => {
                 self.settings.draft = !self.settings.draft;
                 self.editor.draft = self.settings.draft;

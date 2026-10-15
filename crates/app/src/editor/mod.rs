@@ -121,6 +121,9 @@ pub struct Editor {
     fresh: Option<BlockId>,
     /// Autocomplete closed by Esc for this block and text.
     dismissed: Option<(BlockId, String)>,
+    /// Parentheticals whose `()` the editor added, not the writer. Empty
+    /// ones are removed when the writer leaves them (editor.md §5.2).
+    auto_parens: std::collections::BTreeSet<BlockId>,
     /// The last command failures, for the banner.
     pub problems: Vec<Problem>,
 }
@@ -205,6 +208,7 @@ impl Editor {
             draft_rev: None,
             fresh: None,
             dismissed: None,
+            auto_parens: std::collections::BTreeSet::new(),
             problems: Vec::new(),
         }
     }
@@ -351,6 +355,37 @@ impl Editor {
 
     /// Moves the caret. `screen` is the visible height, for Page Up/Down.
     pub fn motion(&mut self, d: &mut Dispatcher, m: Motion, extend: bool, screen: Pt) {
+        let from = self.caret.block;
+        self.move_caret(d, m, extend, screen);
+        self.left(d, from);
+    }
+
+    /// Whether a block is a parenthetical holding only the `()` the
+    /// editor added.
+    fn bare_parens(&self, d: &Dispatcher, id: BlockId) -> bool {
+        self.auto_parens.contains(&id)
+            && d.session().and_then(|s| s.doc.get(id)).is_some_and(|b| {
+                b.element.kind == ElementKind::Parenthetical && b.element.text.plain_text() == "()"
+            })
+    }
+
+    /// After the caret left block `from`: brackets the editor added there,
+    /// with nothing typed inside, go (editor.md §5.2).
+    fn left(&mut self, d: &mut Dispatcher, from: BlockId) {
+        if self.caret.block != from && self.bare_parens(d, from) {
+            let cmd = Command::TextDelete(TextDelete {
+                id: from,
+                from: 0,
+                to: 2,
+            });
+            self.run(d, vec![cmd]);
+            if let Some(s) = d.session() {
+                self.fix_caret(&s.doc);
+            }
+        }
+    }
+
+    fn move_caret(&mut self, d: &mut Dispatcher, m: Motion, extend: bool, screen: Pt) {
         let Some(doc) = d.session().map(|s| s.doc.clone()) else {
             return;
         };
@@ -512,11 +547,13 @@ impl Editor {
 
     /// Places the caret at a point on a page (a click).
     pub fn click(&mut self, d: &mut Dispatcher, page: usize, x: Pt, y: Pt, extend: bool) {
+        let from = self.caret.block;
         if let Some(Some(c)) = self.with_surface(d, |doc, s| s.hit(doc, page, x, y)) {
             self.set_caret(c, extend);
             self.goal_x = None;
             self.completion = None;
         }
+        self.left(d, from);
     }
 
     pub fn select_all(&mut self, d: &mut Dispatcher) {
@@ -825,6 +862,13 @@ impl Editor {
         let Some(mut kind) = kind_of(&doc, id) else {
             return;
         };
+        if self.bare_parens(d, id) {
+            let to = self.flow.row(kind).empty_enter;
+            if to != kind {
+                self.set_kind(d, id, to);
+            }
+            return;
+        }
         let text = text_of(&doc, id);
         let len = text.chars().count();
         let mut off = self.caret.offset.min(len);
@@ -910,6 +954,7 @@ impl Editor {
             style: None,
         });
         if self.run(d, vec![cmd]).is_some() {
+            self.auto_parens.insert(id);
             self.set_caret(
                 Caret {
                     block: id,
@@ -920,14 +965,23 @@ impl Editor {
         }
     }
 
-    /// Changes a block's kind; an empty block that becomes a parenthetical
-    /// gets its brackets in the same change.
+    /// Changes a block's kind, as one undo step. An empty block that
+    /// becomes a parenthetical gets its brackets; a parenthetical holding
+    /// only the brackets the editor added loses them when it becomes
+    /// anything else, so cycling with Tab leaves nothing behind
+    /// (editor.md §5.2).
     fn set_kind(&mut self, d: &mut Dispatcher, id: BlockId, kind: ElementKind) {
-        let empty = d
-            .session()
-            .is_some_and(|s| s.doc.get(id).is_some_and(|b| b.element.text.is_empty()));
-        let mut cmds = vec![Command::BlockSetType(BlockSetType { id, kind })];
-        if kind == ElementKind::Parenthetical && empty {
+        let bare = kind != ElementKind::Parenthetical && self.bare_parens(d, id);
+        let empty = bare
+            || d.session()
+                .is_some_and(|s| s.doc.get(id).is_some_and(|b| b.element.text.is_empty()));
+        let mut cmds = Vec::new();
+        if bare {
+            cmds.push(Command::TextDelete(TextDelete { id, from: 0, to: 2 }));
+        }
+        cmds.push(Command::BlockSetType(BlockSetType { id, kind }));
+        let parens = kind == ElementKind::Parenthetical && empty;
+        if parens {
             cmds.push(Command::TextInsert(TextInsert {
                 id,
                 at: 0,
@@ -935,15 +989,25 @@ impl Editor {
                 style: None,
             }));
         }
-        let parens = cmds.len() == 2;
-        if self.run(d, cmds).is_some() && parens {
-            self.set_caret(
-                Caret {
-                    block: id,
-                    offset: 1,
-                },
-                false,
-            );
+        if self.run(d, cmds).is_some() {
+            if parens {
+                self.auto_parens.insert(id);
+                self.set_caret(
+                    Caret {
+                        block: id,
+                        offset: 1,
+                    },
+                    false,
+                );
+            } else if bare {
+                self.set_caret(
+                    Caret {
+                        block: id,
+                        offset: 0,
+                    },
+                    false,
+                );
+            }
         }
         self.refresh_completion(d);
     }
@@ -1046,6 +1110,13 @@ impl Editor {
         self.run(d, vec![cmd]);
         if let Some(s) = d.session() {
             self.fix_caret(&s.doc);
+        }
+        if self.bare_parens(d, self.caret.block) {
+            let c = Caret {
+                block: self.caret.block,
+                offset: 1,
+            };
+            self.set_caret(c, false);
         }
         self.completion = None;
     }

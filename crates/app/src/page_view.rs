@@ -30,8 +30,8 @@ use crate::theme::Palette;
 /// on a 96-pixels-per-inch display (editor.md §3).
 const PX_PER_PT: f32 = 96.0 / 72.0;
 /// Space around and between pages, in logical pixels.
-const MARGIN: f32 = 28.0;
-const GAP: f32 = 24.0;
+pub const MARGIN: f32 = 28.0;
+pub const GAP: f32 = 24.0;
 
 /// A key pressed while the page area has focus.
 #[derive(Clone, Debug, PartialEq)]
@@ -447,17 +447,7 @@ impl<Message> widget::Widget<Message, iced::Theme, iced::Renderer> for PageView<
                     LineKind::PageNumber | LineKind::SceneNumber => pal.ink_quiet,
                     _ => pal.ink,
                 };
-                self.draw_line(
-                    renderer,
-                    state,
-                    l,
-                    at(l.x, top),
-                    pitch,
-                    lh,
-                    font_px,
-                    color,
-                    clip,
-                );
+                self.draw_line(renderer, state, l, at(l.x, top), pitch, lh, font_px, color);
             }
         }
 
@@ -479,7 +469,7 @@ impl<Message> widget::Widget<Message, iced::Theme, iced::Renderer> for PageView<
                     page_text(pre, font_px, lh, fonts::PAGE, w + pitch),
                     Point::new(x, y),
                     pal.ink,
-                    clip,
+                    text_clip(Point::new(x, y), w + pitch, lh),
                 );
                 renderer.fill_quad(
                     Quad {
@@ -502,11 +492,19 @@ impl<Message> widget::Widget<Message, iced::Theme, iced::Renderer> for PageView<
                 // Its own layer, so the page text under it does not show
                 // through: a layer draws its quads before its text.
                 renderer.with_layer(clip, |r| {
-                    self.draw_completion(r, c, Point::new(x, y + lh + 2.0), clip);
+                    self.draw_completion(r, c, Point::new(x, y + lh + 2.0));
                 });
             }
         }
     }
+}
+
+/// The clip for one text call: its own box. iced's CPU renderer clips a
+/// text only when its clip rectangle reaches past the layer it is drawn
+/// in, so passing the visible area would let a line straddling the top or
+/// bottom of the pages draw over the bars around them.
+fn text_clip(at: Point, width: f32, height: f32) -> Rectangle {
+    Rectangle::new(at, Size::new(width, height))
 }
 
 fn page_text(content: &str, font_px: f32, lh: f32, font: Font, width: f32) -> Text<String, Font> {
@@ -538,7 +536,6 @@ impl<Message> PageView<'_, Message> {
         lh: f32,
         font_px: f32,
         color: Color,
-        clip: Rectangle,
     ) {
         let mut run = String::new();
         let mut run_cell = 0i32;
@@ -560,7 +557,7 @@ impl<Message> PageView<'_, Message> {
                 ),
                 at,
                 color,
-                clip,
+                text_clip(at, w + pitch, lh),
             );
             if look.underline {
                 renderer.fill_quad(
@@ -632,7 +629,7 @@ impl<Message> PageView<'_, Message> {
                     ),
                     at,
                     color,
-                    clip,
+                    text_clip(at, w + pitch, lh),
                 );
             }
             cell = start as i32 + i32::from(c.cells);
@@ -641,13 +638,7 @@ impl<Message> PageView<'_, Message> {
         let _ = cell;
     }
 
-    fn draw_completion(
-        &self,
-        renderer: &mut iced::Renderer,
-        c: &Completion,
-        at: Point,
-        clip: Rectangle,
-    ) {
+    fn draw_completion(&self, renderer: &mut iced::Renderer, c: &Completion, at: Point) {
         let pal = self.palette;
         let row = 22.0;
         let w = 220.0;
@@ -697,7 +688,7 @@ impl<Message> PageView<'_, Message> {
                 } else {
                     pal.text
                 },
-                clip,
+                text_clip(Point::new(at.x + 10.0, y), w - 16.0, row),
             );
         }
     }

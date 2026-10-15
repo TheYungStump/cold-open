@@ -8,7 +8,7 @@
 
 use coldopen_core::{BlockId, Document, View};
 use coldopen_layout::{Draft, LineKind, PlacedLine};
-use coldopen_screenplay::{ElementKind, Pt};
+use coldopen_screenplay::{Align, ElementKind, Pt};
 
 /// A caret position: a block and a character offset in its printed text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -199,32 +199,57 @@ impl<'a> Surface<'a> {
         })
     }
 
-    /// For a block with no lines (an empty block at the end, which layout
-    /// drops, or one that never prints): just below the nearest block
-    /// before it that has lines, at the column its kind starts in.
+    /// For a block with no lines (an empty block, or one holding only
+    /// spaces, both of which layout drops, or one that never prints): where
+    /// its first line will go. That is below the nearest block before it
+    /// that has lines, after its kind's usual space above (none for
+    /// dialogue and parentheticals, which sit right under the line before),
+    /// at its kind's column: the left edge plus any spaces typed, the right
+    /// edge for a right-aligned kind such as a transition, or the middle.
     fn fallback_spot(&self, doc: &Document, bi: usize) -> Option<Spot> {
-        let kind = doc.blocks[bi].element.kind;
+        let block = &doc.blocks[bi].element;
         let format = self.view().layout().format();
-        let left = format
-            .elements
-            .get(kind)
-            .map_or(format.elements.action.left, |f| f.left);
+        let text = block.text.plain_text();
+        let spaces = if text.trim().is_empty() {
+            text.chars().count() as i32
+        } else {
+            0
+        };
+        let typed = spaces * self.pitch().0;
+        let (x, usual_space) = match format.elements.get(block.kind) {
+            Some(f) => {
+                let x = match f.align {
+                    Align::Left => f.left.0 + f.first_indent.0 + typed,
+                    Align::Right => f.right.0,
+                    Align::Center => (f.left.0 + f.right.0) / 2,
+                };
+                (Pt(x), f.space_before.0)
+            }
+            None => (Pt(format.elements.action.left.0 + typed), 0),
+        };
         for prev in (0..bi).rev() {
             let text = doc.blocks[prev].element.text.plain_text();
             if let Some((elem, _)) = self.view().sources.to_norm(prev, text.len() as u32)
                 && let Some(&(page, last)) = self.lines_of(elem).last()
             {
-                let gap = if kind.is_printing() { 2 } else { 1 };
+                // The space above it, as layout gives it (layout.md §6):
+                // none inside a speech, else the block's own or the usual.
+                let prev_kind = doc.blocks[prev].element.kind;
+                let space = match block.space_before {
+                    Some(n) => i32::from(n) * self.line_height().0,
+                    None if block.kind.default_gap(Some(prev_kind)) == 0 => 0,
+                    None => usual_space,
+                };
                 return Some(Spot {
                     page,
-                    x: left,
-                    top: Pt(self.top_of(last).0 + gap * self.line_height().0),
+                    x,
+                    top: Pt(self.top_of(last).0 + self.line_height().0 + space),
                 });
             }
         }
         Some(Spot {
             page: 0,
-            x: left,
+            x,
             top: format.margin_top,
         })
     }
