@@ -15,6 +15,7 @@ use crate::flush::{Durability, FlushStatus};
 use crate::io::{self, Fingerprint, SourceStyle};
 use crate::journal::{self, Journal, OpenError};
 use crate::session::{Exec, Merge, Session};
+use crate::view::View;
 
 /// How a dispatcher treats files.
 #[derive(Clone, Copy, Debug)]
@@ -111,6 +112,17 @@ impl Dispatcher {
         } else {
             Durability::OsOnly
         })
+    }
+
+    /// The open document laid out and up to date, for drawing it.
+    pub fn view(&mut self) -> Option<&View> {
+        Some(self.session.as_mut()?.view())
+    }
+
+    /// The open document's layout as last brought up to date by
+    /// [`Dispatcher::view`].
+    pub fn cached_view(&self) -> Option<&View> {
+        self.session.as_ref()?.cached_view()
     }
 
     /// The open journal's flushing state, in deferred mode.

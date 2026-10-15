@@ -17,6 +17,7 @@ use crate::io::SourceStyle;
 use crate::journal::Journal;
 use crate::ops::{Op, Transaction};
 use crate::replace::{find_in, replace_in, replace_one};
+use crate::view::View;
 
 /// Typing within this many milliseconds of the last keystroke joins the
 /// same undo step (docs/specs/commands.md, "Authors and undo steps").
@@ -92,6 +93,8 @@ pub struct Session {
     pub clock: Clock,
     undo: Vec<Step>,
     redo: Vec<Step>,
+    /// The laid-out document, refreshed when `rev` moves on.
+    view: Option<View>,
 }
 
 fn range_error(e: RangeError) -> CommandError {
@@ -151,7 +154,27 @@ impl Session {
             clock: Clock::default(),
             undo: Vec::new(),
             redo: Vec::new(),
+            view: None,
         }
+    }
+
+    /// The laid-out document, brought up to date first. Only the pages an
+    /// edit can change are laid out again (docs/specs/layout.md §15).
+    pub fn view(&mut self) -> &View {
+        let rev = self.rev;
+        if let Some(v) = &mut self.view
+            && v.rev != rev
+        {
+            v.refresh(&self.doc, rev);
+        }
+        let doc = &self.doc;
+        self.view.get_or_insert_with(|| View::new(doc, rev))
+    }
+
+    /// The laid-out document as last brought up to date, which may be
+    /// behind the document. `Dispatcher::view` refreshes it.
+    pub fn cached_view(&self) -> Option<&View> {
+        self.view.as_ref()
     }
 
     /// Runs a query, edit or history command as a writer.
@@ -172,7 +195,7 @@ impl Session {
         }
     }
 
-    fn query(&self, cmd: &Command) -> Result<Value, CommandError> {
+    fn query(&mut self, cmd: &Command) -> Result<Value, CommandError> {
         match cmd {
             Command::DocGet(_) => Ok(json!({
                 "path": self.path.as_ref().map(|p| p.display().to_string()),
@@ -201,7 +224,7 @@ impl Session {
                     Ok(json!({ "format": "json", "text": text + "\n", "losses": [] }))
                 }
                 "pages" => {
-                    let (layout, _) = self.layout(&coldopen_layout::Options::default());
+                    let layout = self.view().layout();
                     let text = match coldopen_layout::Fonts::new() {
                         Ok(fonts) => layout.page_view(&fonts),
                         Err(_) => layout.page_view(&coldopen_layout::AllGlyphs),
@@ -288,8 +311,12 @@ impl Session {
         (layout, map)
     }
 
-    pub fn scene_list(&self) -> Vec<Value> {
-        let (layout, map) = self.layout(&coldopen_layout::Options::default());
+    pub fn scene_list(&mut self) -> Vec<Value> {
+        self.view();
+        let Some(view) = &self.view else {
+            return Vec::new();
+        };
+        let (layout, map) = (view.layout(), &view.map);
         // Laid-out elements whose source block falls in [start, end).
         let elements = |start: usize, end: usize| {
             map.partition_point(|&b| b < start)..map.partition_point(|&b| b < end)

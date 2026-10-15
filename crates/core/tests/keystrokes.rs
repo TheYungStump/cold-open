@@ -604,3 +604,39 @@ fn saved_markers_are_skipped_and_name_the_file() {
     let r = h3.ok("doc.open", json!({"path": p}));
     assert_eq!(r["recovered"], Value::Null);
 }
+
+#[test]
+fn the_view_follows_edits_and_matches_a_full_layout() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("long.fountain");
+    let script = coldopen_layout::synthetic::feature_script(1);
+    fs::write(&p, coldopen_fountain::write(&script).text).unwrap();
+    let mut h = Harness::new();
+    h.ok("doc.open", json!({"path": p}));
+    let pages = h.d.view().unwrap().layout().pages.len();
+    assert!(pages >= 118, "{pages}");
+    // Type into a speech about three quarters of the way through.
+    let blocks = h.ok("doc.get", json!({}))["blocks"].clone();
+    let speeches: Vec<&Value> = blocks
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|b| b["type"] == "dialogue")
+        .collect();
+    let target = speeches[speeches.len() * 3 / 4];
+    let id = target["id"].as_str().unwrap().to_string();
+    let len = target["text"].as_str().unwrap().chars().count();
+    h.type_str(&id, len, " Wait.", 10);
+    let doc = h.d.session().unwrap().doc.to_script();
+    let view = h.d.view().unwrap();
+    assert!(view.stats().laid_out <= 3, "{:?}", view.stats());
+    let full = coldopen_layout::layout(
+        &coldopen_fountain::normalize(&doc),
+        &coldopen_layout::ValidFormat::default(),
+        &coldopen_layout::Options::default(),
+    );
+    assert_eq!(view.layout(), &full);
+    // Queries read the same view.
+    let scenes = h.ok("scene.list", json!({}))["scenes"].clone();
+    assert!(scenes.as_array().unwrap().len() > 100);
+}

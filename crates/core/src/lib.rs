@@ -24,6 +24,7 @@ pub mod journal;
 pub mod ops;
 pub mod replace;
 pub mod session;
+pub mod view;
 
 pub use author::{Author, Clock};
 pub use command::Command;
@@ -32,3 +33,4 @@ pub use document::{Block, BlockId, Document};
 pub use error::CommandError;
 pub use flush::{Durability, FlushStatus};
 pub use session::{Exec, Merge};
+pub use view::View;
