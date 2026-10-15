@@ -146,16 +146,16 @@ It shows the caret block's kind, and what Enter and Tab would make it, from the 
 
 | Context | When | Suggestions, in order |
 | --- | --- | --- |
-| `character` | In a character block, before any `(` | Names already used in character blocks (the text before any `(`, trimmed), compared in capitals, prefix-matched against the text typed so far. The block being typed in doesn't count. Order: (1) the speaker before the previous one in the current scene, (2) other speakers in this scene, most recent first, (3) all other names by how often they speak, (4) alphabetical. |
+| `character` | In a character block, before any `(` | Names already used in character blocks (the text before any `(`, trimmed), compared in capitals, prefix-matched against the text typed so far. The block being typed in doesn't count. Order: (1) the speaker before the previous one in the current scene, (2) other speakers in this scene, most recent first, (3) all other names, most lines first. |
 | `extension` | In a character block, after `(` | `V.O.`, `O.S.`, `O.C.`, `CONT'D`, and every extension used in the script. Order: most used first, then this list's order. Accepting adds the closing `)`. |
-| `scene_prefix` | In a scene heading, before the first `.` or space | `INT.`, `EXT.`, `INT./EXT.`, `EST.`, `I/E.`. Accepting adds a space. |
-| `location` | In a scene heading, after the prefix and before ` - ` | Locations from other headings (the text between the prefix and the last ` - `). Order: most used, then most recent. |
-| `time` | In a scene heading, after ` - ` | `DAY`, `NIGHT`, `MORNING`, `AFTERNOON`, `EVENING`, `DAWN`, `DUSK`, `LATER`, `CONTINUOUS`, `MOMENTS LATER`, `SAME`, and every time used in the script. Order: most used, then this list's order. |
+| `scene_prefix` | In a scene heading, before the first space | `INT.`, `EXT.`, `INT./EXT.`, `EST.`, `I/E.`. Accepting adds a space. |
+| `location` | In a scene heading, after the first space and before any ` - ` | Locations from other headings: the text after the first space, up to the last ` - `. Order: most used, then most recent. |
+| `time` | In a scene heading, after the last ` - ` | `DAY`, `NIGHT`, `MORNING`, `AFTERNOON`, `EVENING`, `DAWN`, `DUSK`, `LATER`, `CONTINUOUS`, `MOMENTS LATER`, `SAME`, and every time used in the script. Order: most used, then this list's order. |
 | `transition` | In a transition block | `CUT TO:`, `DISSOLVE TO:`, `SMASH CUT TO:`, `MATCH CUT TO:`, `FADE OUT.`, `FADE TO BLACK.`, and every transition used. Order: most used, then this list's order. |
 
 - **Matching.** Matching ignores case and requires at least one typed character, except for `time` and `extension`, whose list opens as soon as the separator is typed.
 - **Shown.** At most 8 items are shown. The list does not open when the only match is exactly what is already typed.
-- **Determinism.** Counts and ties are broken by first appearance in the script, so the same script always gives the same list.
+- **Determinism.** Remaining ties are broken by first appearance in the script, so the same script always gives the same list. "In the current scene" means the character blocks between the nearest scene heading before the caret's block and that block.
 
 ## 7. Scene navigator
 

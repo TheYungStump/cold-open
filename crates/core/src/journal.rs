@@ -9,11 +9,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::author::Author;
 use crate::document::Document;
 use crate::io::{Fingerprint, open_rw};
 
 pub const FORMAT: &str = "coldopen";
 pub const VERSION: u32 = 1;
+/// The command name of a save marker (docs/specs/journal.md).
+pub const SAVED: &str = "doc.saved";
 
 /// `.script.fountain.coldopen-journal` next to `script.fountain`.
 pub fn path_for(doc: &Path) -> PathBuf {
@@ -40,6 +43,26 @@ pub struct Entry {
     pub command: String,
     pub params: Value,
     pub result: Value,
+    /// Absent for a writer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<Author>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub merge: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+impl Entry {
+    /// The fingerprint a `doc.saved` marker records, or `None` for any
+    /// other entry.
+    pub fn saved_disk(&self) -> Option<Fingerprint> {
+        if self.command != SAVED {
+            return None;
+        }
+        serde_json::from_value(self.params.get("disk")?.clone()).ok()
+    }
 }
 
 pub enum OpenError {
@@ -115,7 +138,14 @@ impl Journal {
     }
 
     /// Appends one applied command in a single write.
-    pub fn append(&mut self, command: &str, params: Value, result: &Value) -> io::Result<()> {
+    pub fn append(
+        &mut self,
+        command: &str,
+        params: Value,
+        result: &Value,
+        by: &Author,
+        merge: bool,
+    ) -> io::Result<()> {
         let entry = Entry {
             seq: self.seq + 1,
             t: SystemTime::now()
@@ -124,8 +154,45 @@ impl Journal {
             command: command.into(),
             params,
             result: result.clone(),
+            by: (!by.is_writer()).then(|| by.clone()),
+            merge,
         };
-        let mut line = serde_json::to_vec(&entry).map_err(io::Error::other)?;
+        self.write_entry(&entry)
+    }
+
+    /// Appends a `doc.saved` marker for a save of these bytes that is about
+    /// to start.
+    pub fn append_saved(&mut self, disk: Fingerprint) -> io::Result<()> {
+        let entry = Entry {
+            seq: self.seq + 1,
+            t: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as u64),
+            command: SAVED.into(),
+            params: serde_json::json!({ "disk": disk }),
+            result: serde_json::json!({}),
+            by: None,
+            merge: false,
+        };
+        self.write_entry(&entry)
+    }
+
+    /// Entries written since the header.
+    pub fn entries(&self) -> u64 {
+        self.seq
+    }
+
+    /// The journal's bytes, read through the locked handle.
+    pub fn contents(&mut self) -> io::Result<Vec<u8>> {
+        let mut out = Vec::new();
+        self.file.seek(SeekFrom::Start(0))?;
+        let r = self.file.read_to_end(&mut out);
+        self.file.seek(SeekFrom::End(0))?;
+        r.map(|_| out)
+    }
+
+    fn write_entry(&mut self, entry: &Entry) -> io::Result<()> {
+        let mut line = serde_json::to_vec(entry).map_err(io::Error::other)?;
         line.push(b'\n');
         self.file.write_all(&line)?;
         if self.fsync {
@@ -254,6 +321,8 @@ mod tests {
                 "block.delete",
                 json!({ "id": format!("b_{k}") }),
                 &json!({}),
+                &Author::Writer,
+                false,
             )
             .unwrap();
         }
@@ -304,6 +373,33 @@ mod tests {
         let r = read(text.as_bytes()).unwrap();
         assert_eq!(r.entries.len(), 1);
         assert!(r.problem.is_some());
+    }
+
+    #[test]
+    fn authors_merges_and_markers_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(".m.fountain.coldopen-journal");
+        let (mut j, _) = Journal::open_locked(&p, false).ok().unwrap();
+        j.start(&Document::default(), None).unwrap();
+        let agent = Author::agent("claude-code", Some("text_insert".into()));
+        j.append("text.insert", json!({}), &json!({}), &agent, false)
+            .unwrap();
+        j.append("text.insert", json!({}), &json!({}), &Author::Writer, true)
+            .unwrap();
+        j.append_saved(Fingerprint::of(b"x")).unwrap();
+        assert_eq!(j.entries(), 3);
+        let bytes = j.contents().unwrap();
+        let text = String::from_utf8(bytes.clone()).unwrap();
+        // A writer's entry carries neither field.
+        assert!(
+            text.contains(r#""by":{"kind":"agent","name":"claude-code","tool":"text_insert"}"#)
+        );
+        assert_eq!(text.matches(r#""merge":true"#).count(), 1);
+        let r = read(&bytes).unwrap();
+        assert_eq!(r.entries[0].by, Some(agent));
+        assert!(r.entries[1].merge);
+        assert_eq!(r.entries[2].saved_disk(), Some(Fingerprint::of(b"x")));
+        assert_eq!(r.entries[0].saved_disk(), None);
     }
 
     #[test]

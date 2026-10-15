@@ -248,7 +248,8 @@ The keystroke commands below (2026-10-15) are what the desktop editor sends for 
   - Fails with `invalid_attr` on raw-text blocks.
 - **`block.split`**
   - Splits a block at offset `at`. The block keeps the text before `at` and all its attributes.
-  - A new block after it gets the rest of the text, including any hidden runs at the split point, and no attributes. Its type is `type`, or the block's own type when `type` is omitted.
+  - A new block after it gets the rest of the text and no attributes. Its type is `type`, or the block's own type when `type` is omitted.
+  - Hidden runs at the split point go to the new block with the text after them. **Resolution:** at the very end of the block they stay where they are, so a note at the end of a speech stays with the speech when Enter starts the next element.
   - Fails with `invalid_attr` when either part would break a model rule, such as text left in a page break.
   - The result is the new block's id. Splitting at the end of a block makes an empty new block, which is how the editor starts the next element.
 - **`block.join`**

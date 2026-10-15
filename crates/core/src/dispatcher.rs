@@ -7,12 +7,13 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
+use crate::author::{Author, Clock};
 use crate::command::{Class, Command, DocClose, DocNew, DocOpen, DocSave, ExportPdf, Recover};
 use crate::document::Document;
 use crate::error::CommandError;
 use crate::io::{self, Fingerprint, SourceStyle};
 use crate::journal::{self, Journal, OpenError};
-use crate::session::Session;
+use crate::session::{Exec, Merge, Session};
 
 /// How a dispatcher treats files.
 #[derive(Clone, Copy, Debug)]
@@ -36,6 +37,7 @@ impl Default for Options {
 pub struct Dispatcher {
     session: Option<Session>,
     opts: Options,
+    clock: Clock,
 }
 
 fn warning(code: &str, message: impl Into<String>) -> Value {
@@ -69,6 +71,7 @@ impl Dispatcher {
         Dispatcher {
             session: None,
             opts,
+            clock: Clock::default(),
         }
     }
 
@@ -76,19 +79,39 @@ impl Dispatcher {
         self.session.as_ref()
     }
 
-    /// Runs one command.
+    /// Replaces the clock used to group typing into undo steps, for tests.
+    pub fn set_clock(&mut self, clock: Clock) {
+        if let Some(s) = &mut self.session {
+            s.clock = clock.clone();
+        }
+        self.clock = clock;
+    }
+
+    fn new_session(&self, doc: Document, path: Option<PathBuf>, style: SourceStyle) -> Session {
+        let mut s = Session::new(doc, path, style);
+        s.clock = self.clock.clone();
+        s
+    }
+
+    /// Runs one command as a writer.
     pub fn execute(&mut self, cmd: Command) -> Result<Value, CommandError> {
+        self.execute_as(cmd, &Author::Writer)
+    }
+
+    /// Runs one command for an author.
+    pub fn execute_as(&mut self, cmd: Command, by: &Author) -> Result<Value, CommandError> {
         match cmd {
             Command::DocNew(p) => self.doc_new(p),
             Command::DocOpen(p) => self.doc_open(p),
             Command::DocSave(p) => self.doc_save(p),
             Command::DocClose(p) => self.doc_close(p),
+            Command::DocRevert(_) => self.doc_revert(),
             Command::ExportPdf(p) => self.export_pdf(p),
             other => self
                 .session
                 .as_mut()
                 .ok_or_else(CommandError::no_document)?
-                .execute(&other),
+                .execute_with(&other, &Exec::by(by.clone())),
         }
     }
 
@@ -143,14 +166,14 @@ impl Dispatcher {
                 if !is_fountain(&path) {
                     return Err(unsupported(&path));
                 }
-                Session::new(doc, Some(path), SourceStyle::default())
+                self.new_session(doc, Some(path), SourceStyle::default())
             }
             None => {
                 warnings.push(warning(
                     "unjournaled",
                     "an untitled document is not protected by a crash journal until it is saved",
                 ));
-                Session::new(doc, None, SourceStyle::default())
+                self.new_session(doc, None, SourceStyle::default())
             }
         };
         if self.opts.journal
@@ -172,7 +195,19 @@ impl Dispatcher {
         if !is_fountain(&path) {
             return Err(unsupported(&path));
         }
-        let bytes = fs::read(&path).map_err(|e| CommandError::io(&path, &e))?;
+        // A file that was never saved can still have a crash journal
+        // (docs/specs/journal.md, "A file that does not exist").
+        let (bytes, missing) = match fs::read(&path) {
+            Ok(b) => (b, false),
+            Err(e)
+                if e.kind() == std::io::ErrorKind::NotFound
+                    && self.opts.journal
+                    && journal::path_for(&path).exists() =>
+            {
+                (Vec::new(), true)
+            }
+            Err(e) => return Err(CommandError::io(&path, &e)),
+        };
         let decoded = io::decode(&bytes);
         let parsed = coldopen_fountain::parse(&decoded.text);
         let mut warnings: Vec<Value> = Vec::new();
@@ -187,7 +222,7 @@ impl Dispatcher {
         }
 
         let disk_doc = Document::from_script(parsed.script);
-        let mut session = Session::new(disk_doc.clone(), Some(path.clone()), decoded.style);
+        let mut session = self.new_session(disk_doc.clone(), Some(path.clone()), decoded.style);
         let mut recovered = Value::Null;
 
         if self.opts.journal {
@@ -209,7 +244,7 @@ impl Dispatcher {
                             &mut session,
                             &mut j,
                             &contents,
-                            &bytes,
+                            (&bytes, missing),
                             &mut warnings,
                             &mut recovered,
                         )?;
@@ -217,7 +252,8 @@ impl Dispatcher {
                 }
             }
             if !resumed {
-                j.start(&disk_doc, Some(Fingerprint::of(&bytes)))
+                let disk = (!missing).then(|| Fingerprint::of(&bytes));
+                j.start(&disk_doc, disk)
                     .map_err(|e| CommandError::io(j.path(), &e))?;
             }
             session.journal = Some(j);
@@ -243,7 +279,7 @@ impl Dispatcher {
         session: &mut Session,
         j: &mut Journal,
         contents: &[u8],
-        disk_bytes: &[u8],
+        (disk_bytes, missing): (&[u8], bool),
         warnings: &mut Vec<Value>,
         recovered: &mut Value,
     ) -> Result<bool, CommandError> {
@@ -260,11 +296,26 @@ impl Dispatcher {
             }
         };
 
-        let mut replay = Session::new(read.header.doc.clone(), session.path.clone(), session.style);
+        let mut replay =
+            self.new_session(read.header.doc.clone(), session.path.clone(), session.style);
+        // Fingerprints the file may legitimately have: the header's, and
+        // those of the saves the journal records.
+        let mut known_disk: Vec<Fingerprint> = read.header.disk.into_iter().collect();
         let mut applied = 0usize;
+        let mut commands = 0usize;
         let mut valid_len = read.header_len();
         let mut problem = read.problem.clone();
         for (k, entry) in read.entries.iter().enumerate() {
+            if let Some(fp) = entry.saved_disk() {
+                known_disk.push(fp);
+                applied = k + 1;
+                valid_len = read.entry_end(k);
+                continue;
+            }
+            let ex = Exec {
+                by: entry.by.clone().unwrap_or_default(),
+                merge: Merge::Recorded(entry.merge),
+            };
             let outcome = Command::from_parts(&entry.command, entry.params.clone())
                 .map_err(|e| format!("entry {} cannot be read as a command: {e}", entry.seq))
                 .and_then(|cmd| {
@@ -279,7 +330,7 @@ impl Dispatcher {
                 })
                 .and_then(|cmd| {
                     replay
-                        .execute(&cmd)
+                        .execute_with(&cmd, &ex)
                         .map_err(|e| format!("entry {} failed on replay: {e}", entry.seq))
                 })
                 .and_then(|result| {
@@ -297,6 +348,7 @@ impl Dispatcher {
                 break;
             }
             applied = k + 1;
+            commands += 1;
             valid_len = read.entry_end(k);
         }
         if let Some(msg) = &problem {
@@ -309,29 +361,35 @@ impl Dispatcher {
             warnings.push(warning(
                 "journal_partial",
                 format!(
-                    "recovered {applied} of the journal's changes; {msg}; the journal was kept in {}",
+                    "recovered {commands} of the journal's changes; {msg}; the journal was kept in {}",
                     aside.display()
                 ),
             ));
         }
-        if applied == 0 {
+        if commands == 0 && !missing {
             return Ok(false);
         }
 
         // The file already holds the replayed document only if writing it
         // is lossless and gives the same bytes. A lossy write can match the
         // file's text while the document differs, so it always recovers.
-        let written = coldopen_fountain::write(&replay.doc.to_script());
-        if written.losses.is_empty() && io::encode(&written.text, session.style) == disk_bytes {
-            return Ok(false);
+        if !missing {
+            let written = coldopen_fountain::write(&replay.doc.to_script());
+            if written.losses.is_empty() && io::encode(&written.text, session.style) == disk_bytes {
+                return Ok(false);
+            }
         }
 
-        let external_change = read.header.disk != Some(Fingerprint::of(disk_bytes));
+        let external_change = if missing {
+            !known_disk.is_empty()
+        } else {
+            !known_disk.contains(&Fingerprint::of(disk_bytes))
+        };
         j.resume(valid_len, applied as u64).map_err(|e| jio(e, j))?;
         replay.dirty = true;
         replay.journal = None;
         *session = replay;
-        *recovered = json!({ "commands": applied, "external_change": external_change });
+        *recovered = json!({ "commands": commands, "external_change": external_change });
         Ok(true)
     }
 
@@ -501,6 +559,62 @@ impl Dispatcher {
         }
         self.discard();
         Ok(json!({}))
+    }
+
+    /// Reads the file again, dropping unsaved changes and undo history. The
+    /// journal is copied aside first when it holds entries.
+    fn doc_revert(&mut self) -> Result<Value, CommandError> {
+        let clock = self.clock.clone();
+        let session = self
+            .session
+            .as_mut()
+            .ok_or_else(CommandError::no_document)?;
+        let Some(path) = session.path.clone() else {
+            return Err(CommandError::new(
+                "no_path",
+                "this document has never been saved, so there is no file to revert to",
+            ));
+        };
+        let bytes = fs::read(&path).map_err(|e| CommandError::io(&path, &e))?;
+        let decoded = io::decode(&bytes);
+        let parsed = coldopen_fountain::parse(&decoded.text);
+        let mut warnings: Vec<Value> = Vec::new();
+        if decoded.not_utf8 {
+            warnings.push(warning(
+                "not_utf8",
+                "the file is not UTF-8; it was read as Windows-1252 and will be saved as UTF-8",
+            ));
+        }
+        for d in &parsed.diagnostics {
+            warnings.push(json!({ "code": d.code, "message": d.message, "line": d.line }));
+        }
+        let doc = Document::from_script(parsed.script);
+        if let Some(j) = &mut session.journal {
+            let mut restart = || -> std::io::Result<()> {
+                if j.entries() > 0 {
+                    let contents = j.contents()?;
+                    let aside = j.copy_aside(&contents, "discarded")?;
+                    warnings.push(warning(
+                        "journal_discarded",
+                        format!("unsaved changes were set aside in {}", aside.display()),
+                    ));
+                }
+                j.start(&doc, Some(Fingerprint::of(&bytes)))
+            };
+            restart().map_err(|e| CommandError::io(j.path(), &e))?;
+        }
+        let mut fresh = Session::new(doc, Some(path.clone()), decoded.style);
+        fresh.clock = clock;
+        fresh.journal = session.journal.take();
+        fresh.rev = session.rev + 1;
+        let result = json!({
+            "path": path.display().to_string(),
+            "blocks": fresh.doc.blocks.len(),
+            "scenes": fresh.doc.scenes().len(),
+            "warnings": warnings,
+        });
+        *session = fresh;
+        Ok(result)
     }
 
     /// Handles one request envelope and returns the response envelope.

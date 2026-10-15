@@ -74,6 +74,38 @@ enum Step {
     },
     Undo,
     Redo,
+    /// Types `text` one character at a time from offset `off` (the
+    /// keystroke commands, which group into one undo step).
+    Type {
+        at: usize,
+        off: usize,
+        text: String,
+    },
+    Erase {
+        at: usize,
+        off: usize,
+        len: usize,
+    },
+    Style {
+        at: usize,
+        off: usize,
+        len: usize,
+        bold: bool,
+    },
+    Split {
+        at: usize,
+        off: usize,
+        kind: Option<usize>,
+    },
+    Join {
+        at: usize,
+    },
+    /// A batch of inserts, the last of which may fail.
+    Batch {
+        at: usize,
+        n: usize,
+        fail: bool,
+    },
 }
 
 fn step() -> impl Strategy<Value = Step> {
@@ -99,6 +131,35 @@ fn step() -> impl Strategy<Value = Step> {
             .prop_map(|(at, space)| Step::Attrs { at, space }),
         Just(Step::Undo),
         Just(Step::Redo),
+        (
+            any::<usize>(),
+            any::<usize>(),
+            prop::sample::select(&["ab", "é ñ", "x", " Tom"][..])
+        )
+            .prop_map(|(at, off, text)| Step::Type {
+                at,
+                off,
+                text: text.to_string()
+            }),
+        (any::<usize>(), any::<usize>(), 0usize..4).prop_map(|(at, off, len)| Step::Erase {
+            at,
+            off,
+            len
+        }),
+        (any::<usize>(), any::<usize>(), 0usize..4, any::<bool>())
+            .prop_map(|(at, off, len, bold)| Step::Style { at, off, len, bold }),
+        (
+            any::<usize>(),
+            any::<usize>(),
+            prop::option::of(0..KINDS.len())
+        )
+            .prop_map(|(at, off, kind)| Step::Split { at, off, kind }),
+        any::<usize>().prop_map(|at| Step::Join { at }),
+        (any::<usize>(), 0usize..3, any::<bool>()).prop_map(|(at, n, fail)| Step::Batch {
+            at,
+            n,
+            fail
+        }),
     ]
 }
 
@@ -128,10 +189,22 @@ fn scene_ids(d: &mut Dispatcher) -> Vec<Value> {
         .collect()
 }
 
+/// The printed text length of each block, in characters.
+fn lens(d: &mut Dispatcher) -> Vec<usize> {
+    blocks(d)
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["text"].as_str().unwrap_or("").chars().count())
+        .collect()
+}
+
 /// Runs one step. Returns true if it changed the undo history.
 fn run(d: &mut Dispatcher, s: &Step) -> bool {
     let ids = ids(d);
+    let lens = lens(d);
     let pick = |at: usize| ids.get(at % ids.len().max(1)).cloned();
+    let len_of = |at: usize| lens.get(at % lens.len().max(1)).copied().unwrap_or(0);
     let r = match s {
         Step::Insert { at, kind, text } => {
             let mut p = json!({ "type": KINDS[*kind], "text": text });
@@ -185,8 +258,74 @@ fn run(d: &mut Dispatcher, s: &Step) -> bool {
         },
         Step::Undo => call(d, "undo", json!({})),
         Step::Redo => call(d, "redo", json!({})),
+        Step::Type { at, off, text } => {
+            let Some(id) = pick(*at) else { return false };
+            let mut pos = off % (len_of(*at) + 1);
+            let mut ok = false;
+            for c in text.chars() {
+                let r = call(
+                    d,
+                    "text.insert",
+                    json!({ "id": id, "at": pos, "text": c.to_string() }),
+                );
+                ok |= r["ok"] == true;
+                pos += 1;
+            }
+            return ok;
+        }
+        Step::Erase { at, off, len } => {
+            let Some(id) = pick(*at) else { return false };
+            let from = off % (len_of(*at) + 1);
+            let to = (from + len).min(len_of(*at));
+            call(
+                d,
+                "text.delete",
+                json!({ "id": id, "from": from, "to": to }),
+            )
+        }
+        Step::Style { at, off, len, bold } => {
+            let Some(id) = pick(*at) else { return false };
+            let from = off % (len_of(*at) + 1);
+            let to = (from + len).min(len_of(*at));
+            call(
+                d,
+                "text.style",
+                json!({ "id": id, "from": from, "to": to, "bold": bold }),
+            )
+        }
+        Step::Split { at, off, kind } => {
+            let Some(id) = pick(*at) else { return false };
+            let mut p = json!({ "id": id, "at": off % (len_of(*at) + 1) });
+            if let Some(k) = kind {
+                p["type"] = json!(KINDS[*k]);
+            }
+            call(d, "block.split", p)
+        }
+        Step::Join { at } => match pick(*at) {
+            Some(id) => call(d, "block.join", json!({ "id": id })),
+            None => return false,
+        },
+        Step::Batch { at, n, fail } => {
+            let mut commands: Vec<Value> = (0..*n)
+                .map(|k| {
+                    let mut p = json!({ "type": "action", "text": format!("batch {k}") });
+                    if let Some(id) = pick(*at) {
+                        p["after"] = id;
+                    }
+                    json!({ "command": "block.insert", "params": p })
+                })
+                .collect();
+            if *fail {
+                commands.push(json!({ "command": "block.delete", "params": { "id": "b_9999" } }));
+            }
+            call(d, "batch", json!({ "commands": commands }))
+        }
     };
     r["ok"] == true
+}
+
+fn history(d: &mut Dispatcher) -> Value {
+    call(d, "history.list", json!({}))["result"].clone()
 }
 
 fn script_of(blocks: &Value) -> coldopen_screenplay::Script {
@@ -252,6 +391,7 @@ proptest! {
             run(&mut d, s);
         }
         let live = blocks(&mut d);
+        let live_history = history(&mut d);
         drop(d); // a crash: no shutdown, the journal stays
 
         let mut d2 = Dispatcher::new(opts);
@@ -266,6 +406,8 @@ proptest! {
             prop_assert_eq!(script_of(&recovered), coldopen_fountain::normalize(&script_of(&live)));
         } else {
             prop_assert_eq!(recovered, live);
+            // Undo groups, labels and authors come back exactly.
+            prop_assert_eq!(history(&mut d2), live_history);
         }
     }
 }

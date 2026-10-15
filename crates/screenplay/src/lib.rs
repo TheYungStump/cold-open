@@ -12,11 +12,13 @@
 //! application core.
 #![forbid(unsafe_code)]
 
+mod edit;
 mod element;
 mod format;
 mod script;
 mod text;
 
+pub use edit::{RangeError, StyleChange};
 pub use element::{Element, ElementKind, ElementRepr};
 pub use format::{
     Align, DualColumn, DualFormat, ElementFormat, Elements, MAX_INSERT, MAX_PAGE_SUFFIX,
