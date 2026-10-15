@@ -71,6 +71,7 @@ impl<'a> Placer<'a> {
                 end: text.len() as u32,
                 cells: c.width,
                 look: c.look,
+                src: 0,
             });
         }
         self.pages[page].push(PlacedLine {

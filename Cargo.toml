@@ -8,6 +8,7 @@ members = [
     "crates/fdx",
     "crates/core",
     "crates/cli",
+    "crates/app",
 ]
 exclude = ["fuzz", "tools/refpdf"]
 
@@ -42,6 +43,12 @@ subsetter = { version = "0.2.6", default-features = false }
 miniz_oxide = "0.9"
 # XML for .fdx (docs/spec.md, "Technology"); no default features.
 quick-xml = "0.42"
+
+# The desktop app (docs/spec.md: iced, chosen in phase 1). Only the
+# tiny-skia CPU renderer by default; the `gpu` feature of coldopen-app adds
+# wgpu for comparison builds.
+iced = { version = "0.14", default-features = false, features = ["tiny-skia", "x11", "wayland", "smol", "advanced", "linux-theme-detection"] }
+iced_test = "0.14"
 
 # Dev-only.
 proptest = "1.5"

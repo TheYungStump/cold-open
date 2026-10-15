@@ -914,6 +914,7 @@ impl Paginator<'_> {
                 end: text.len() as u32,
                 cells: c.width,
                 look: c.look,
+                src: c.src_start,
             });
         }
         let src = match (source, cells.first(), cells.last()) {
@@ -1059,6 +1060,7 @@ pub(crate) fn plain_line(s: &str, x: Pt, y: Pt, kind: LineKind) -> PlacedLine {
             end: text.len() as u32,
             cells: c.width,
             look: c.look,
+            src: 0,
         });
     }
     PlacedLine {
