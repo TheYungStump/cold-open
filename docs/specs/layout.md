@@ -472,7 +472,7 @@ The caller gives the whole edited script. The engine keeps the flow and pages of
 3. **Pagination restarts one page early.** Pages up to the one before the first page that could see a changed block are kept. A page can look at most three blocks past its last line: the line that does not fit, a heading's two following lines, and a transition after a candidate break. From there, pages are laid out again with `page_from` (§7.1).
 4. **Pagination stops where it agrees.** When a new page ends past the changed blocks at a cursor where an old page started (allowing for the change in block count), every later page is the same as before. They are kept, with their element indices and block cursors shifted, their page numbers rewritten, and the spans and diagnostics of §10 gathered again.
 
-**Measured (2026-10-15).** On the synthetic 119-page script of `layout::synthetic`, release build: a full layout takes 16 ms, and an edit on page 90 takes a median of 0.8 ms and lays out at most 3 pages.
+**Measured (2026-10-15).** On the synthetic 119-page script of `layout::synthetic`, release build: a full layout takes 16 ms, and an edit on page 90 takes a median of 0.8 ms and lays out at most 3 pages. On GitHub's Linux runner the same test gives 27 ms and 2.0 ms. The aim for an edit is 2 ms; CI fails above 4 ms, a quarter of a 60 Hz frame.
 
 ### 15.3 Draft lines
 
