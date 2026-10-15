@@ -7,6 +7,14 @@ on:
 permissions:
   contents: read
 
+# Actions minutes are limited (2026-10-15): pull requests and pushes to main
+# run every OS; pushes to other branches run Linux only. A newer run on the
+# same branch or pull request cancels the older one, except on main, where
+# every commit keeps its result.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -26,7 +34,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Every OS on pull requests and main; Linux on other branches.
+        os: ${{ fromJSON((github.event_name == 'pull_request' || github.ref == 'refs/heads/main') && '["ubuntu-latest", "macos-latest", "windows-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -201,12 +210,8 @@ jobs:
     name: app build (${{ matrix.name }})
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { name: windows-x86_64, os: windows-latest, target: x86_64-pc-windows-msvc }
-          - { name: macos-arm64, os: macos-latest, target: aarch64-apple-darwin }
-          - { name: macos-x86_64, os: macos-latest, target: x86_64-apple-darwin }
-          - { name: linux-x86_64, os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+      # Every OS on pull requests and main; Linux on other branches.
+      matrix: ${{ fromJSON((github.event_name == 'pull_request' || github.ref == 'refs/heads/main') && '{"include":[{"name":"windows-x86_64","os":"windows-latest","target":"x86_64-pc-windows-msvc"},{"name":"macos-arm64","os":"macos-latest","target":"aarch64-apple-darwin"},{"name":"macos-x86_64","os":"macos-latest","target":"x86_64-apple-darwin"},{"name":"linux-x86_64","os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu"}]}' || '{"include":[{"name":"linux-x86_64","os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu"}]}') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -243,7 +248,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Every OS on pull requests and main; Linux on other branches.
+        os: ${{ fromJSON((github.event_name == 'pull_request' || github.ref == 'refs/heads/main') && '["ubuntu-latest", "macos-latest", "windows-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5

@@ -1,11 +1,9 @@
 name: Fuzz
 
-# Not part of the phase gate: a weekly run of each cargo-fuzz target
-# (Sundays). Weekly rather than nightly keeps a private repo inside its
-# free Actions minutes; run it by hand from the Actions tab any time.
+# Not part of the phase gate: ten minutes of each cargo-fuzz target. The
+# weekly schedule is off until further notice (2026-10-15, Actions minutes
+# ran out); run it by hand from the Actions tab.
 on:
-  schedule:
-    - cron: "17 4 * * 0"
   workflow_dispatch:
 
 permissions:
