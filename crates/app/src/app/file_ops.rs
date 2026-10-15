@@ -14,7 +14,6 @@ use iced::Task;
 use serde_json::{Value, json};
 
 use super::{App, Message};
-use crate::editor::Editor;
 use crate::files::{Ask, with_extension};
 
 /// What waits for the writer's answer to "save the changes?".
@@ -232,7 +231,7 @@ impl App {
             }
             After::Close => {
                 self.d.shutdown();
-                self.editor = Editor::new(&Document::default());
+                self.editor = self.fresh_editor(&Document::default());
                 self.after_change(false)
             }
             After::Quit => {
@@ -474,8 +473,7 @@ impl App {
         } else if self.run("doc.revert", json!({})).is_some()
             && let Some(s) = self.d.session()
         {
-            self.editor = Editor::new(&s.doc);
-            self.editor.draft = self.settings.draft;
+            self.editor = self.fresh_editor(&s.doc);
         }
         self.after_change(true)
     }

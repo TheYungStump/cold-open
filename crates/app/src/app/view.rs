@@ -6,6 +6,7 @@ use iced::widget::{
 };
 use iced::{Background, Border, Center, Color, Element, Fill, Length, Theme};
 
+use super::Sheet;
 use super::file_ops::ago;
 use super::{
     App, EXPORT, ExportForm, FIND, Focus, Message, PAGES, PALETTE, Prompt, Recovery, Reply,
@@ -209,7 +210,7 @@ impl App {
         } else if let Some(f) = &self.export {
             export_view(pal, f)
         } else {
-            return None;
+            self.sheet_view(pal, self.sheet?)
         };
         let card = container(content)
             .padding(18)
@@ -288,6 +289,90 @@ impl App {
                 hint(pal, "Enter: Save anyway  ·  Esc: Cancel"),
             ]
             .spacing(12)
+            .into(),
+        }
+    }
+
+    fn sheet_view(&self, pal: Palette, sheet: Sheet) -> Element<'_, Message> {
+        let m = if crate::keymap::MAC { "Cmd" } else { "Ctrl" };
+        match sheet {
+            Sheet::History => {
+                let mut list = column![].spacing(3);
+                let step = |label: &str, by: &coldopen_core::Author, quiet: bool| {
+                    let who = if by.is_writer() {
+                        String::new()
+                    } else {
+                        "  (agent)".to_string()
+                    };
+                    let color = if quiet {
+                        pal.text_quiet
+                    } else if by.is_writer() {
+                        pal.text
+                    } else {
+                        pal.agent
+                    };
+                    text(format!("{label}{who}"))
+                        .font(fonts::UI)
+                        .size(13)
+                        .color(color)
+                };
+                let mut n = 0;
+                if let Some(s) = self.d.session() {
+                    let redo: Vec<_> = s.redo_steps().collect();
+                    for (_, label, by) in redo.into_iter().rev() {
+                        list = list.push(step(&format!("Redo: {label}"), by, true));
+                        n += 1;
+                    }
+                    for (_, label, by) in s.undo_steps() {
+                        list = list.push(step(label, by, false));
+                        n += 1;
+                    }
+                }
+                if n == 0 {
+                    list = list.push(hint(pal, "Nothing to undo yet."));
+                }
+                column![
+                    title(pal, "Undo history"),
+                    hint(pal, "Newest first. Steps that redo would bring back are greyed."),
+                    scrollable(list).height(Length::Fixed(320.0)),
+                    hint(
+                        pal,
+                        format!("{m}+Z: undo  ·  {m}+Shift+Z: redo  ·  Esc: close")
+                    ),
+                ]
+                .spacing(10)
+                .into()
+            }
+            Sheet::About => column![
+                title(pal, format!("Cold Open {}", env!("CARGO_PKG_VERSION"))),
+                body(
+                    pal,
+                    "Free software under the GNU General Public License, version 3 or                      later. The format and layout libraries are also available under the                      MIT or Apache-2.0 licenses."
+                ),
+                hint(
+                    pal,
+                    "Bundled fonts: Courier Prime for the page, and Atkinson Hyperlegible                      Next (subset to Latin) for the interface, both under the SIL Open Font                      License 1.1:"
+                ),
+                scrollable(
+                    text(format!(
+                        "Courier Prime
+
+{}
+
+Atkinson Hyperlegible Next
+
+{}",
+                        coldopen_fonts::LICENSE,
+                        coldopen_fonts::UI_LICENSE
+                    ))
+                    .font(fonts::PAGE)
+                    .size(11)
+                    .color(pal.text)
+                )
+                .height(Length::Fixed(300.0)),
+                hint(pal, "Esc: close"),
+            ]
+            .spacing(10)
             .into(),
         }
     }

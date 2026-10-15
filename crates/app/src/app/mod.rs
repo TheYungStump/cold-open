@@ -83,6 +83,8 @@ pub enum Message {
     DismissLeftover,
     /// The window's close button.
     CloseRequested,
+    /// Esc pressed in a text field.
+    Escaped,
     Noop,
 }
 
@@ -108,6 +110,15 @@ struct FindState {
     /// Matches as (block, from, to) in characters.
     matches: Vec<(BlockId, usize, usize)>,
     current: usize,
+}
+
+/// A read-only sheet over the window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sheet {
+    /// The undo history, with each step's label and author (editor.md §12).
+    History,
+    /// Version and licenses.
+    About,
 }
 
 /// One line of the palette.
@@ -164,6 +175,8 @@ pub struct App {
     match_ranges: Vec<NormRange>,
     marked_elems: BTreeSet<usize>,
     pub perf: Perf,
+    /// The element flow: the template with the writer's `flow.json`.
+    flow: crate::editor::flow::FlowTable,
     dialogs: Dialogs,
     /// A save in place being written on the worker thread.
     saving: Option<PreparedSave>,
@@ -174,6 +187,7 @@ pub struct App {
     pub prompt: Option<Prompt>,
     pub recovery: Option<Recovery>,
     pub export: Option<ExportForm>,
+    pub sheet: Option<Sheet>,
     /// Scripts with unsaved work from an earlier session (editor.md §11).
     pub leftover: Vec<PathBuf>,
 }
@@ -248,6 +262,7 @@ impl App {
             match_ranges: Vec::new(),
             marked_elems: BTreeSet::new(),
             perf: Perf::default(),
+            flow: crate::editor::flow::FlowTable::default(),
             dialogs: Dialogs::native(),
             saving: None,
             save_again: false,
@@ -255,6 +270,7 @@ impl App {
             prompt: None,
             recovery: None,
             export: None,
+            sheet: None,
             leftover: Vec::new(),
         };
         if let Some(text) = app
@@ -262,7 +278,7 @@ impl App {
             .as_ref()
             .and_then(|d| std::fs::read_to_string(d.config.join("flow.json")).ok())
         {
-            let w = app.editor.flow.apply_overrides(&text);
+            let w = app.flow.apply_overrides(&text);
             app.banners.extend(w);
         }
         match boot.file {
@@ -277,6 +293,15 @@ impl App {
         app.editor.draft = app.settings.draft;
         let _ = app.after_change(false);
         app
+    }
+
+    /// An editor for a document just opened or created, with the writer's
+    /// flow table and view.
+    pub(super) fn fresh_editor(&self, doc: &coldopen_core::Document) -> Editor {
+        let mut e = Editor::new(doc);
+        e.flow = self.flow.clone();
+        e.draft = self.settings.draft;
+        e
     }
 
     /// Answers file dialogs some other way than the system's dialogs
@@ -362,8 +387,7 @@ impl App {
             self.run("doc.new", json!({ "start": "scene_heading" }));
         }
         if let Some(s) = self.d.session() {
-            self.editor = Editor::new(&s.doc);
-            self.editor.draft = self.settings.draft;
+            self.editor = self.fresh_editor(&s.doc);
         }
     }
 
@@ -376,8 +400,7 @@ impl App {
                     }
                 }
                 if let Some(s) = self.d.session() {
-                    self.editor = Editor::new(&s.doc);
-                    self.editor.draft = self.settings.draft;
+                    self.editor = self.fresh_editor(&s.doc);
                 }
                 self.recovery_from(&r["recovered"], path);
                 self.leftover.retain(|p| p != path);
@@ -673,6 +696,19 @@ impl App {
                 Task::none()
             }
             Message::CloseRequested => self.leave(After::Quit),
+            Message::Escaped => {
+                if self.palette.is_some() {
+                    self.palette = None;
+                    self.focus = Focus::Page;
+                } else if self.export.is_some() {
+                    self.export = None;
+                } else if self.focus == Focus::Find {
+                    self.find = None;
+                    self.focus = Focus::Page;
+                    return self.after_change(false);
+                }
+                Task::none()
+            }
             Message::Noop => Task::none(),
         }
     }
@@ -819,7 +855,10 @@ impl App {
 
     /// A dialog is open over the window, so the page takes no keys.
     pub(super) fn modal(&self) -> bool {
-        self.prompt.is_some() || self.recovery.is_some() || self.export.is_some()
+        self.prompt.is_some()
+            || self.recovery.is_some()
+            || self.export.is_some()
+            || self.sheet.is_some()
     }
 
     /// Keys for an open dialog (editor.md §11, §13): each button has a key,
@@ -851,6 +890,17 @@ impl App {
             } else {
                 Task::none()
             };
+        }
+        if let Some(sheet) = self.sheet {
+            if esc || enter {
+                self.sheet = None;
+            } else if sheet == Sheet::History && cmd && ch == "z" {
+                // Step through the history while watching it.
+                let redo = kp.modifiers.shift();
+                self.editor.undo(&mut self.d, redo);
+                return self.after_change(false);
+            }
+            return Task::none();
         }
         if self.export.is_some() {
             if esc {
@@ -1107,6 +1157,28 @@ impl App {
                 }
             }
             "app.dismiss_marks" => self.agent_marks.clear(),
+            "app.history" => {
+                self.sheet = Some(Sheet::History);
+                scroll = false;
+            }
+            "app.about" => {
+                self.sheet = Some(Sheet::About);
+                scroll = false;
+            }
+            "app.agent_access" => {
+                self.settings.agent_access = !self.settings.agent_access;
+                self.save_settings();
+                self.banners.push(if self.settings.agent_access {
+                    "Agent access is on: an agent you start with `coldopen mcp` can attach to this script.".into()
+                } else {
+                    "Agent access is off: no agent can attach to scripts open here.".into()
+                });
+                scroll = false;
+            }
+            "app.agent_disconnect" => {
+                self.banners.push("No agent is connected.".into());
+                scroll = false;
+            }
             "edit.copy" => {
                 if let Some(t) = self.editor.copy(&self.d) {
                     return iced::clipboard::write(t);
@@ -1334,14 +1406,24 @@ impl App {
     }
 }
 
-/// A key press no widget captured becomes a [`Message::GlobalKey`]: the
-/// app's keyboard subscription, and the headless runner, use it.
+/// A key press no widget captured becomes a [`Message::GlobalKey`], and Esc
+/// that a text field captured becomes [`Message::Escaped`]: the app's
+/// keyboard subscription, and the headless runner, use it.
 pub fn unclaimed_key(
     event: iced::Event,
     status: iced::event::Status,
     _window: iced::window::Id,
 ) -> Option<Message> {
     match (event, status) {
+        // A text field takes Esc to let go of the keyboard; the overlay it
+        // belongs to closes on the same press.
+        (
+            iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                key: Key::Named(Named::Escape),
+                ..
+            }),
+            iced::event::Status::Captured,
+        ) => Some(Message::Escaped),
         (
             iced::Event::Keyboard(keyboard::Event::KeyPressed {
                 key,
