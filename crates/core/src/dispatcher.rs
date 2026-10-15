@@ -204,10 +204,17 @@ impl Dispatcher {
 
     fn doc_new(&mut self, p: DocNew) -> Result<Value, CommandError> {
         self.close_for_switch()?;
-        let doc = Document {
+        let mut doc = Document {
             next_id: 1,
             ..Default::default()
         };
+        if let Some(kind) = p.start {
+            let id = doc.allocate_id();
+            doc.blocks.push(crate::document::Block {
+                id,
+                element: coldopen_screenplay::Element::new(kind, ""),
+            });
+        }
         let mut warnings = Vec::new();
         let mut session = match &p.path {
             Some(path) => {
@@ -358,6 +365,7 @@ impl Dispatcher {
         let mut known_disk: Vec<Fingerprint> = read.header.disk.into_iter().collect();
         let mut applied = 0usize;
         let mut commands = 0usize;
+        let mut last = 0u64;
         let mut valid_len = read.header_len();
         let mut problem = read.problem.clone();
         for (k, entry) in read.entries.iter().enumerate() {
@@ -404,6 +412,7 @@ impl Dispatcher {
             }
             applied = k + 1;
             commands += 1;
+            last = entry.t;
             valid_len = read.entry_end(k);
         }
         if let Some(msg) = &problem {
@@ -444,7 +453,11 @@ impl Dispatcher {
         replay.dirty = true;
         replay.journal = None;
         *session = replay;
-        *recovered = json!({ "commands": commands, "external_change": external_change });
+        *recovered = json!({
+            "commands": commands,
+            "external_change": external_change,
+            "last": last,
+        });
         Ok(true)
     }
 

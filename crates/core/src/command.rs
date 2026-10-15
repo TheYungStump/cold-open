@@ -204,6 +204,10 @@ pub struct Empty {}
 pub struct DocNew {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// The kind of one empty block the document starts with, so an editor
+    /// has somewhere to type. Part of the new document, not an edit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<ElementKind>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

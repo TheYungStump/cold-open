@@ -110,6 +110,19 @@ fn new_doc(h: &mut Harness) -> String {
         .to_string()
 }
 
+/// The `recovered` report without `last`, which comes from the wall clock;
+/// `last` must be a recent time.
+fn recovered(r: &Value) -> Value {
+    let mut v = r["recovered"].clone();
+    let last = v.as_object_mut().and_then(|o| o.remove("last"));
+    assert!(
+        last.and_then(|l| l.as_u64())
+            .is_some_and(|t| t > 1_600_000_000_000),
+        "{r}"
+    );
+    v
+}
+
 #[test]
 fn insert_delete_style_split_join() {
     let mut h = Harness::new();
@@ -474,7 +487,7 @@ fn recovery_rebuilds_groups_authors_and_labels() {
     let mut h2 = Harness::new();
     let r = h2.ok("doc.open", json!({"path": p}));
     assert_eq!(
-        r["recovered"],
+        recovered(&r),
         json!({"commands": 7, "external_change": false})
     );
     assert_eq!(h2.texts(), text);
@@ -593,7 +606,7 @@ fn saved_markers_are_skipped_and_name_the_file() {
     let mut h2 = Harness::new();
     let r = h2.ok("doc.open", json!({"path": p}));
     assert_eq!(
-        r["recovered"],
+        recovered(&r),
         json!({"commands": 5, "external_change": true})
     );
     crash(h2);
@@ -639,4 +652,30 @@ fn the_view_follows_edits_and_matches_a_full_layout() {
     // Queries read the same view.
     let scenes = h.ok("scene.list", json!({}))["scenes"].clone();
     assert!(scenes.as_array().unwrap().len() > 100);
+}
+
+#[test]
+fn a_new_document_can_start_with_an_empty_block_and_stay_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("Untitled-2.fountain");
+    let mut h = Harness::new();
+    h.ok("doc.new", json!({"path": p, "start": "scene_heading"}));
+    assert_eq!(h.texts(), ["scene_heading:"]);
+    assert_eq!(h.ok("doc.get", json!({}))["dirty"], false);
+    assert_eq!(h.err("undo", json!({})), "nothing_to_undo");
+    // Nothing was journaled, so a crash now leaves nothing to recover and
+    // the next session starts a new script instead.
+    let j = h.d.session().unwrap().journal.as_ref().unwrap();
+    assert_eq!(j.entries(), 0);
+    // Typing is recorded against the starting block.
+    h.type_str("b_1", 0, "EXT. PIER", 10);
+    crash(h);
+    let mut h2 = Harness::new();
+    h2.ok("doc.open", json!({"path": p}));
+    assert_eq!(h2.texts(), ["scene_heading:EXT. PIER"]);
+    assert!(
+        Harness::new()
+            .err("doc.new", json!({"start": "nonsense"}))
+            .starts_with("bad params")
+    );
 }

@@ -120,7 +120,7 @@ An edit that changes nothing, such as `text.replace` with no matches, succeeds w
 
 | Command | Params | Result |
 | --- | --- | --- |
-| `doc.new` | `path?` | `{path, warnings}` |
+| `doc.new` | `path?`, `start?` | `{path, warnings}` |
 | `doc.open` | `path`, `recover?` | `{path, format, blocks, scenes, warnings, recovered}` |
 | `doc.save` | `path?`, `format?`, `allow_lossy?` | `{path, format, bytes, losses}` |
 | `doc.close` | `discard?` | `{}` |
@@ -132,10 +132,11 @@ Notes on each command:
   - Starts an empty document.
   - With `path`, the document is journaled next to that path. The file must not already exist (`already_exists`).
   - Without a path, the document is held in memory only, and a warning says so.
+  - `start` (2026-10-15) is an element type, such as `"scene_heading"`. The document then begins with one empty block of that type, so an editor has a line to type on. The block is part of the new document, not an edit: the document starts clean, with nothing to undo and an empty journal.
 - **`doc.open`**
   - Reads a `.fountain`, `.spmd` or `.txt` file.
   - `recover` is `"auto"` (the default) or `"discard"`. If a crash journal exists, `auto` recovers it and `discard` sets it aside unread; see the journal spec.
-  - `recovered` is null, or `{commands, external_change}`.
+  - `recovered` is null, or `{commands, external_change, last}`. `last` (added 2026-10-15) is when the newest recovered change was made, in milliseconds since the Unix epoch, for the app's recovery dialog.
 - **`doc.save`**
   - Saves atomically.
   - `path` is "save as".

@@ -51,6 +51,19 @@ fn text(d: &mut Dispatcher) -> String {
         .to_string()
 }
 
+/// The `recovered` report without `last`, which comes from the wall clock;
+/// `last` must be a recent time.
+fn recovered(r: &Value) -> Value {
+    let mut v = r["recovered"].clone();
+    let last = v.as_object_mut().and_then(|o| o.remove("last"));
+    assert!(
+        last.and_then(|l| l.as_u64())
+            .is_some_and(|t| t > 1_600_000_000_000),
+        "{r}"
+    );
+    v
+}
+
 #[test]
 fn deferred_flushing_catches_up() {
     let dir = tempfile::tempdir().unwrap();
@@ -138,7 +151,7 @@ fn a_crash_before_the_file_is_replaced_recovers_everything() {
     let mut d2 = app();
     let r = ok(&mut d2, "doc.open", json!({"path": p}));
     assert_eq!(
-        r["recovered"],
+        recovered(&r),
         json!({"commands": 6, "external_change": false})
     );
     assert_eq!(text(&mut d2), live);
