@@ -1,9 +1,15 @@
-//! The fonts Cold Open bundles: Courier Prime Regular, Bold, Italic and Bold
-//! Italic, under the SIL Open Font License 1.1 ([`LICENSE`]).
+//! The fonts Cold Open bundles, under the SIL Open Font License 1.1:
 //!
-//! Every copy of a program that contains these fonts must carry the license
-//! text; the `coldopen licenses` command prints it. Documents made with the
-//! fonts, such as exported PDFs, are not covered by the license.
+//! - Courier Prime Regular, Bold, Italic and Bold Italic, for the page
+//!   ([`LICENSE`]);
+//! - Atkinson Hyperlegible Next Regular and Bold, subset to Latin, for the
+//!   desktop app's menus and panels ([`UI_LICENSE`]). Only the `ui` feature
+//!   includes them, so the CLI and the layout library never carry them.
+//!
+//! Every copy of a program that contains these fonts must carry their
+//! license text; `coldopen licenses` and the app's About screen print it.
+//! Documents made with the fonts, such as exported PDFs, are not covered by
+//! the license.
 //!
 //! Where the files come from, and their hashes, is recorded in
 //! `crates/fonts/README.md`.
@@ -65,6 +71,20 @@ pub fn face(bold: bool, italic: bool) -> &'static Face {
 /// copyright notice, exactly as distributed with the fonts.
 pub const LICENSE: &str = include_str!("../fonts/OFL.txt");
 
+/// The SIL Open Font License 1.1 with the Atkinson Hyperlegible Next
+/// copyright notice, exactly as distributed with that font.
+pub const UI_LICENSE: &str = include_str!("../fonts/OFL-AtkinsonHyperlegibleNext.txt");
+
+/// The desktop app's interface font, Atkinson Hyperlegible Next, subset to
+/// Latin as `crates/fonts/README.md` records.
+#[cfg(feature = "ui")]
+pub mod ui {
+    /// The family name the faces declare.
+    pub const FAMILY: &str = "Atkinson Hyperlegible Next";
+    pub static REGULAR: &[u8] = include_bytes!("../fonts/AtkinsonHyperlegibleNext-Regular.ttf");
+    pub static BOLD: &[u8] = include_bytes!("../fonts/AtkinsonHyperlegibleNext-Bold.ttf");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -113,5 +133,25 @@ mod tests {
     fn license_text_is_the_ofl() {
         assert!(LICENSE.starts_with("Copyright 2015 The Courier Prime Project Authors"));
         assert!(LICENSE.contains("SIL OPEN FONT LICENSE Version 1.1"));
+        assert!(
+            UI_LICENSE
+                .starts_with("Copyright 2020-2024 The Atkinson Hyperlegible Next Project Authors")
+        );
+        assert!(UI_LICENSE.contains("SIL OPEN FONT LICENSE Version 1.1"));
+        // No Reserved Font Name, so the subset may keep the font's name.
+        assert!(!UI_LICENSE.contains("Reserved Font Name \""));
+    }
+
+    #[cfg(feature = "ui")]
+    #[test]
+    fn interface_faces_are_the_recorded_subsets() {
+        for (data, len, hash) in [
+            (ui::REGULAR, 36_612, 0xeede_f7a8_cb25_e666),
+            (ui::BOLD, 37_128, 0x8c52_c588_de5d_6765),
+        ] {
+            assert_eq!(data.len() as u64, len);
+            assert_eq!(fnv1a64(data), hash);
+            assert_eq!(&data[..4], b"\0\x01\0\0");
+        }
     }
 }

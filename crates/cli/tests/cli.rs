@@ -165,6 +165,7 @@ fn licenses_include_the_font_license() {
     assert!(text.contains("GNU General Public License"));
     assert!(text.contains("SIL OPEN FONT LICENSE Version 1.1"));
     assert!(text.contains("Courier Prime"));
+    assert!(text.contains("Atkinson Hyperlegible Next Project Authors"));
 }
 
 #[test]

@@ -312,8 +312,13 @@ fn licenses() -> Result<ExitCode, String> {
          \n\
          Cold Open bundles the Courier Prime fonts, licensed as follows.\n\
          \n\
+         {}\n\
+         The desktop app also bundles the Atkinson Hyperlegible Next fonts,\n\
+         subset to Latin, licensed as follows.\n\
+         \n\
          {}",
-        coldopen_fonts::LICENSE
+        coldopen_fonts::LICENSE,
+        coldopen_fonts::UI_LICENSE
     );
     out.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
     out.flush().map_err(|e| e.to_string())?;

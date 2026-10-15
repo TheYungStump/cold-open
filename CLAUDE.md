@@ -20,7 +20,7 @@ Front ends never mutate the document directly. If something can be done in the G
 | `crates/fountain` | MIT OR Apache-2.0 | 1 | Fountain parser and writer over `screenplay` types. |
 | `crates/core` | GPL-3.0-or-later | 1 | Document with stable element ids, `Command` enum, dispatcher, undo/redo, command journal, atomic save, version snapshots. |
 | `crates/cli` | GPL-3.0-or-later | 1 | The `coldopen` binary: subcommands plus `serve --stdio`. |
-| `crates/fonts` | OFL-1.1 AND (MIT OR Apache-2.0) | 2 | The bundled Courier Prime faces and their license, nothing else. |
+| `crates/fonts` | OFL-1.1 AND (MIT OR Apache-2.0) | 2, 3 | The bundled fonts and their licenses, nothing else: Courier Prime for the page, and (phase 3, `ui` feature) Atkinson Hyperlegible Next subset to Latin for the app's interface. |
 | `crates/layout` | MIT OR Apache-2.0 | 2 | Character-grid layout, pagination rules, page view, PDF export. |
 | `crates/fdx` | MIT OR Apache-2.0 | 2, 4 | .fdx reader (phase 2: read-only, for the layout gate), then writer, unknown-element passthrough, repair report (phase 4). |
 | `crates/app` | GPL-3.0-or-later | 3 | iced desktop app with a custom page-view editor widget. |
