@@ -8,7 +8,7 @@ Every action in Cold Open is a command. The desktop app, the CLI, JSON over stdi
 
 ## Envelope
 
-Requests and responses are single JSON objects. Over stdio they are one per line (NDJSON).
+Requests and responses are single JSON objects. Over stdio they are one per line (NDJSON). A byte-order mark at the start of a line is ignored (2026-10-15: Windows PowerShell puts one before what it pipes).
 
 ```json
 {"v": 1, "id": 7, "command": "block.insert", "params": {"after": "b_142", "type": "character", "text": "MAYA"}}

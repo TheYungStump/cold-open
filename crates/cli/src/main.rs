@@ -460,7 +460,12 @@ fn serve_stdio() -> Result<ExitCode, String> {
         }
         let response = match std::str::from_utf8(&buf) {
             Ok(line) if line.trim().is_empty() => continue,
-            Ok(line) => d.handle_line(line.trim_end_matches(['\r', '\n'])),
+            // Windows PowerShell starts what it pipes with a byte-order
+            // mark; it is not part of the request.
+            Ok(line) => d.handle_line(
+                line.trim_start_matches('\u{feff}')
+                    .trim_end_matches(['\r', '\n']),
+            ),
             Err(_) => json!({
                 "v": 1, "id": null, "ok": false,
                 "error": { "code": "invalid_request", "message": "a request line must be UTF-8" }

@@ -20,7 +20,6 @@ use coldopen_app::files::{Dialogs, Dirs};
 use coldopen_app::headless::Headless;
 use coldopen_app::{App, Boot};
 use coldopen_core::{Command, Dispatcher, Durability, Options};
-use coldopen_screenplay::ElementKind;
 use iced::keyboard::Modifiers;
 use iced::{Event, Point, Size, mouse};
 use serde_json::{Value, json};
@@ -83,36 +82,6 @@ fn open(home: &Path, script: &Path, size: Size, renderer: &str) -> Headless {
     });
     app.set_dialogs(Dialogs::scripted(|_| None));
     Headless::with_renderer(app, size, renderer).expect("a headless renderer")
-}
-
-/// Puts the caret at the end of a speech on page `target` (or the last
-/// page that has one before it).
-fn caret_on_page(h: &mut Headless, target: u32) -> u32 {
-    let (block, page) = {
-        let view = h.app.d.view().expect("a view");
-        let layout = view.layout();
-        let mut best = None;
-        for (e, el) in view.norm.elements.iter().enumerate() {
-            if el.kind != ElementKind::Dialogue {
-                continue;
-            }
-            match layout.first_page(e) {
-                Some(p) if p <= target => best = Some((view.map[e], p)),
-                Some(_) => break,
-                None => {}
-            }
-        }
-        best.expect("a speech")
-    };
-    let doc = &h.app.d.session().expect("a script").doc;
-    let b = &doc.blocks[block];
-    let c = coldopen_app::editor::Caret {
-        block: b.id,
-        offset: b.element.text.char_len(),
-    };
-    h.app.editor.caret = c;
-    h.app.editor.anchor = c;
-    page
 }
 
 /// Keystroke to screen: the update for one typed key (command, journal
@@ -289,7 +258,10 @@ fn main() {
         std::fs::write(&file, &source).unwrap();
         let mut h = open(&home, &file, *size, &renderer);
         let pages = h.app.d.view().map_or(0, |v| v.layout().pages.len()) as u32;
-        let page = caret_on_page(&mut h, 90.min(pages * 3 / 4));
+        let page = h
+            .app
+            .place_caret_on_page(90.min(pages * 3 / 4))
+            .expect("a speech");
         let (u, f, t) = typing(&mut h, *scale, 60);
         if i == 0 {
             keystroke_1080 = t.p95;

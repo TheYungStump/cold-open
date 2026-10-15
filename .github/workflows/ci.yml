@@ -276,9 +276,16 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then cmd[0]=python; fi
           if [ "$RUNNER_OS" = Linux ]; then cmd=(xvfb-run -a -s "-screen 0 1920x1080x24" "${cmd[@]}"); fi
           "${cmd[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Screenshots of the three themes
+        env:
+          # The same renderer on every OS, so the pictures compare.
+          ICED_TEST_BACKEND: tiny-skia
+        run: cargo run --release --locked -p coldopen-app --example screenshots -- screenshots
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: budgets-${{ matrix.os }}
-          path: "*.json"
+          path: |
+            *.json
+            screenshots/*.png
           if-no-files-found: ignore

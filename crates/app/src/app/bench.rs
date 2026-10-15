@@ -60,17 +60,23 @@ impl App {
             let view = self.d.view()?;
             let layout = view.layout();
             let mut best = None;
+            let mut first = None;
             for (e, el) in view.norm.elements.iter().enumerate() {
                 if el.kind != coldopen_screenplay::ElementKind::Dialogue {
                     continue;
                 }
-                match layout.first_page(e) {
+                let page = layout.first_page(e);
+                if first.is_none() {
+                    first = page.map(|p| (view.map[e], p));
+                }
+                match page {
                     Some(p) if p <= target => best = Some((view.map[e], p)),
                     Some(_) => break,
                     None => {}
                 }
             }
-            best?
+            // A short script may have no speech that early: use its first.
+            best.or(first)?
         };
         let b = self.d.session()?.doc.blocks.get(block)?;
         let c = crate::editor::Caret {
