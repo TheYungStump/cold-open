@@ -78,6 +78,32 @@ impl Dirs {
     }
 }
 
+/// Which renderer draws the window (docs/progress/phase-3.md,
+/// measurements): the CPU one uses the least memory and keeps up on
+/// screens up to about 1080p; the GPU one keeps up on 4K and Retina
+/// screens but its driver adds 100 MB or more.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Renderer {
+    /// The GPU on macOS, whose screens are nearly all high-density; the
+    /// CPU elsewhere.
+    #[default]
+    Auto,
+    Cpu,
+    Gpu,
+}
+
+impl Renderer {
+    /// What iced's `ICED_BACKEND` should say: renderers to try, in order.
+    pub fn backends(self) -> &'static str {
+        match self {
+            Renderer::Auto if cfg!(target_os = "macos") => "wgpu,tiny-skia",
+            Renderer::Auto | Renderer::Cpu => "tiny-skia",
+            Renderer::Gpu => "wgpu,tiny-skia",
+        }
+    }
+}
+
 /// What `settings.json` remembers (editor.md §11).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -88,6 +114,7 @@ pub struct Settings {
     pub navigator: bool,
     pub agent_access: bool,
     pub recent: Vec<PathBuf>,
+    pub renderer: Renderer,
 }
 
 impl Default for Settings {
@@ -99,6 +126,7 @@ impl Default for Settings {
             navigator: true,
             agent_access: true,
             recent: Vec::new(),
+            renderer: Renderer::Auto,
         }
     }
 }

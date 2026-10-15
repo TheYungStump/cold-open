@@ -61,6 +61,14 @@ pub const APP_ACTIONS: &[ActionInfo] = &[
         title: "Dismiss agent marks",
     },
     ActionInfo {
+        name: "app.renderer_cpu",
+        title: "Draw with the CPU (less memory; after a restart)",
+    },
+    ActionInfo {
+        name: "app.renderer_gpu",
+        title: "Draw with the GPU (smoother on 4K and Retina; after a restart)",
+    },
+    ActionInfo {
         name: "app.about",
         title: "About Cold Open and licenses",
     },

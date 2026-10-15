@@ -129,12 +129,18 @@ impl Headless {
     /// The app in a window of `size` logical pixels, drawn with tiny-skia.
     /// `None` when no headless renderer could be made.
     pub fn new(app: App, size: Size) -> Option<Headless> {
+        Headless::with_renderer(app, size, "tiny-skia")
+    }
+
+    /// The same with a named renderer: "tiny-skia", or "wgpu" in a build
+    /// with the `gpu` feature (the renderer comparison).
+    pub fn with_renderer(app: App, size: Size, backend: &str) -> Option<Headless> {
         load_fonts();
         let s = iced_settings();
         let renderer = block_on(<iced::Renderer as renderer::Headless>::new(
             s.default_font,
             s.default_text_size,
-            Some("tiny-skia"),
+            Some(backend),
         ))?;
         let mut h = Headless {
             app,

@@ -15,10 +15,12 @@ use iced::{Subscription, Task, Theme};
 use serde_json::{Value, json};
 
 mod agents;
+mod bench;
 mod file_ops;
 mod view;
 
 pub use agents::Agent;
+pub use bench::{Bench, BenchKind};
 pub use file_ops::{After, ExportForm, Prompt, Recovery, Reply};
 pub use view::eighths;
 
@@ -87,6 +89,8 @@ pub enum Message {
     CloseRequested,
     /// Esc pressed in a text field.
     Escaped,
+    /// The window is about to draw a frame.
+    Frame,
     /// The agent link (docs/specs/mcp.md §5).
     Link(crate::link::LinkEvent),
     Noop,
@@ -203,6 +207,11 @@ pub struct App {
     pub agents: std::collections::BTreeMap<u64, Agent>,
     /// The last revision announced to agents.
     sent_rev: Option<u64>,
+    /// See [`Boot::exit_after_first_frame`].
+    first_frame: Option<Instant>,
+    bench: Option<bench::BenchState>,
+    /// See [`App::theme`].
+    scroll_flip: bool,
     /// The link could not start; said once.
     link_failed: bool,
 }
@@ -219,6 +228,11 @@ pub struct Boot {
     /// Keep the journal in the CLI's every-entry mode (tests that crash
     /// the app on purpose use the app's own mode, the default).
     pub every_entry: bool,
+    /// Exit after the first frame, printing how long it took since this
+    /// instant (cold-start measurement and the windowed smoke test).
+    pub exit_after_first_frame: Option<Instant>,
+    /// Run a self-driving benchmark, report it and exit.
+    pub bench: Option<Bench>,
 }
 
 fn coverage() -> Box<dyn coldopen_layout::Coverage> {
@@ -292,6 +306,9 @@ impl App {
             agents: std::collections::BTreeMap::new(),
             sent_rev: None,
             link_failed: false,
+            first_frame: boot.exit_after_first_frame,
+            bench: boot.bench.clone().map(bench::BenchState::new),
+            scroll_flip: false,
         };
         if let Some(text) = app
             .dirs
@@ -359,7 +376,21 @@ impl App {
     }
 
     pub fn theme(&self) -> Theme {
-        self.palette_colors().theme()
+        let mut pal = self.palette_colors();
+        // While the pages scroll, the window background alternates between
+        // two colours one step apart, which nobody can see. A change of
+        // background makes iced's CPU renderer redraw the window in one
+        // pass; otherwise it splits a scroll's damage into dozens of
+        // regions and redraws each, about five times slower
+        // (docs/progress/phase-3.md, measurements).
+        if self.scroll_flip {
+            pal.panel.b = if pal.panel.b > 0.5 {
+                pal.panel.b - 1.0 / 255.0
+            } else {
+                pal.panel.b + 1.0 / 255.0
+            };
+        }
+        pal.theme()
     }
 
     pub fn title(&self) -> String {
@@ -609,6 +640,13 @@ impl App {
                 Task::none()
             }
             Message::Scrolled(vp) => {
+                let moved = self
+                    .viewport
+                    .as_ref()
+                    .is_none_or(|old| old.absolute_offset() != vp.absolute_offset());
+                if moved {
+                    self.scroll_flip = !self.scroll_flip;
+                }
                 self.viewport = Some(vp);
                 Task::none()
             }
@@ -718,6 +756,18 @@ impl App {
             }
             Message::CloseRequested => self.leave(After::Quit),
             Message::Link(ev) => self.link_event(ev),
+            Message::Frame if self.bench.is_some() => self.bench_frame(),
+            Message::Frame => match self.first_frame.take() {
+                Some(t0) => {
+                    println!(
+                        "first frame {:.1} ms after launch",
+                        t0.elapsed().as_secs_f64() * 1000.0
+                    );
+                    self.d.shutdown();
+                    iced::exit()
+                }
+                None => Task::none(),
+            },
             Message::Escaped => {
                 if self.palette.is_some() {
                     self.palette = None;
@@ -1198,6 +1248,17 @@ impl App {
                 });
                 scroll = false;
             }
+            "app.renderer_cpu" | "app.renderer_gpu" => {
+                self.settings.renderer = if name == "app.renderer_gpu" {
+                    crate::files::Renderer::Gpu
+                } else {
+                    crate::files::Renderer::Cpu
+                };
+                self.save_settings();
+                self.banners
+                    .push("The new renderer is used from the next start of Cold Open.".into());
+                scroll = false;
+            }
             "app.agent_disconnect" => {
                 if self.agents.is_empty() {
                     self.banners.push("No agent is connected.".into());
@@ -1426,7 +1487,13 @@ impl App {
             Some(l) => Subscription::run_with(l.key.clone(), crate::link::stream),
             None => Subscription::none(),
         };
+        let frames = if self.first_frame.is_some() || self.bench.is_some() {
+            iced::window::frames().map(|_| Message::Frame)
+        } else {
+            Subscription::none()
+        };
         Subscription::batch([
+            frames,
             link,
             keys,
             iced::window::close_requests().map(|_| Message::CloseRequested),

@@ -17,7 +17,9 @@ name = "coldopen-app"
 path = "src/main.rs"
 
 [features]
-# Builds with iced's wgpu renderer too, for the renderer comparison only.
+# Both renderers: tiny-skia on the CPU and wgpu on the GPU, chosen at start
+# from settings.json (docs/progress/phase-3.md, decision on renderers).
+default = ["gpu"]
 gpu = ["iced/wgpu"]
 
 [dependencies]

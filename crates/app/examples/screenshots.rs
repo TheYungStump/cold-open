@@ -31,6 +31,7 @@ fn main() {
             dirs: Some(coldopen_app::files::Dirs::under(&home)),
             theme: Some(theme),
             every_entry: true,
+            ..Boot::default()
         });
         app.demo_autocomplete();
         let theme = app.theme();
