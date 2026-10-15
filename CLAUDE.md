@@ -42,6 +42,11 @@ Each phase starts only after the previous gate passes.
 
 ## Rules
 
+### Files you didn't create (non-negotiable)
+
+- Never delete, move or overwrite a file or folder you didn't create in this session; ask first.
+- This includes untracked files in the repo. A test build downloaded from CI into the repo root may be the user's, and may be running.
+
 ### Clean room (non-negotiable)
 
 - Never download, install, run or script Final Draft, including its trial and Reader Mode.
