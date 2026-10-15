@@ -62,8 +62,20 @@ installer under 15 MB).
 
 This machine has no 4K or high-DPI screen: the 3840×2160 numbers come from
 a window larger than the screen, which Windows allows. CI adds every OS,
-headless for both renderers and windowed under its own display. Big Fish
-locally is still to come.
+headless for both renderers and windowed under its own display.
+
+### Big Fish (125 pages, from the local corpus), same machine
+
+| What | CPU renderer (tiny-skia) | GPU renderer (wgpu) | Budget |
+| --- | --- | --- | --- |
+| Typing, full-screen 1920×1080 | median 10.1–10.4 ms, p95 13.5–13.9 ms (p95 was 16.9 ms before decision 46) | 6.9 ms (the screen's refresh) | under 16 ms |
+| Scrolling, full-screen 1920×1080 | median 14.1 ms, p95 15.5 ms | 6.9 ms | (smooth) |
+| Peak memory, scrolling through all 125 pages | 45 MiB working set, 31 MiB private | 191 MiB working set, 253 MiB private | under 150 MB |
+| Cold start with Big Fish open (to first frame and exit) | 172 ms wall; first frame 92 ms after `main` | 638 ms wall; first frame 495 ms (GPU setup) | under 1 s |
+| Opening it (first frame with the script, less first frame empty) | about 55 ms | | under 200 ms |
+| Full layout | 20.5 ms | | under 50 ms |
+| A key's update (command, journal, view, caret, navigator), headless | 9.6 ms before decision 46; the view refresh is about 7 ms of it | | (part of the 16 ms) |
+| Journal write on the UI thread | median 0.008 ms, p95 0.016 ms | | under 10 ms |
 
 ## Decisions made during the phase
 
@@ -118,3 +130,4 @@ stopping to ask:
 43. `coldopen-driver` is a plain binary of the app crate, not behind a feature, so the crash gate can find it; CI artifacts ship only the app and the CLI.
 44. In the windowed app, the window's close button asks about unsaved changes (`exit_on_close_request(false)`).
 45. CI's headless budgets do not assert keystroke-to-screen: headless frames redraw the whole window while the real app redraws only what changed. The windowed numbers are reported per OS; Linux asserts layout, memory and journal latency.
+46. While the writer types in body text, the navigator's page numbers and lengths update on the next half-second tick instead of every key; headings, new blocks, moves and agent edits update it at once. It saved 1.5 ms a key on Big Fish and brought the CPU renderer's typing there under budget.
