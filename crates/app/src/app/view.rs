@@ -625,7 +625,7 @@ Atkinson Hyperlegible Next
         } else {
             format!("Page {page} of {total}")
         };
-        let r = row![
+        let mut r = row![
             text(page_txt)
                 .font(fonts::UI)
                 .size(12)
@@ -636,13 +636,38 @@ Atkinson Hyperlegible Next
                 .color(pal.text_quiet),
             text(journal).font(fonts::UI).size(12).color(jcolor),
             space::horizontal(),
+        ]
+        .spacing(16)
+        .align_y(Center);
+        // Visible whenever an agent is attached, with one-click disconnect
+        // and the off switch (editor.md §12).
+        if let Some(agents) = self.agent_status() {
+            let small = |label: &'static str, action: &'static str| {
+                button(text(label).font(fonts::UI).size(11))
+                    .on_press(Message::Action(action.into()))
+                    .padding([1, 8])
+                    .style(button::secondary)
+            };
+            r = r.push(
+                container(
+                    row![
+                        text(agents).font(fonts::UI_BOLD).size(12).color(pal.agent),
+                        small("Disconnect", "app.agent_disconnect"),
+                        small("Turn off agent access", "app.agent_access"),
+                    ]
+                    .spacing(8)
+                    .align_y(Center),
+                )
+                .padding([1, 8])
+                .style(move |_| outline(pal.agent)),
+            );
+        }
+        r = r.push(
             text(format!("{}%", (self.settings.zoom * 100.0).round() as u32))
                 .font(fonts::UI)
                 .size(12)
                 .color(pal.text_quiet),
-        ]
-        .spacing(16)
-        .align_y(Center);
+        );
         container(r)
             .padding([5, 14])
             .width(Fill)

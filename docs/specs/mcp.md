@@ -1,7 +1,7 @@
 # MCP server and the agent link
 
 - **Date:** 2026-10-15
-- **Status:** being implemented in `crates/mcp` (the server, run as `coldopen mcp`) and `crates/app` (the agent link) (phase 3)
+- **Status:** implemented (phase 3, 2026-10-15): the server in `crates/mcp`, run as `coldopen mcp`; the link's protocol and transport in `crates/link`, shared by the server and the app; the app's end of the link in `crates/app`. The agent gate (`crates/cli/tests/agent_gate.rs`) runs a real `coldopen mcp` process against the app.
 - **Sources:**
   - `docs/spec.md`: Command interface, "Agents edit in the open", License (`coldopen mcp` and connecting any agent are always free).
   - The phase 3 brief and its approved decisions (2026-10-15).
@@ -65,7 +65,7 @@ With a document open:
 | `coldopen://scene/{id}` (template) | `text/plain` | One scene, heading to end, as Fountain. |
 
 - **No document.** With no document open, the list is empty, and reading any of these fails with "resource not found" (JSON-RPC `-32602`).
-- **Updates.** When the document changes, by any author including the writer in the app, the server reports every resource above as updated to clients that subscribed. Opening or closing a document changes the resource list, which the server announces.
+- **Updates.** When the document changes, by any author including the writer in the app, the server reports every resource above as updated to clients that subscribed. Opening or closing a document changes the resource list, which the server announces. Clients on revision 2026-07-28 subscribe with `subscriptions/listen`; older clients with `resources/subscribe`. Both are supported.
 - **Reports.** The reports of phase 5 (`report.characters` and others) will be added here as they arrive.
 
 ## 5. The agent link
@@ -135,6 +135,7 @@ After the handshake, each line from the client is a version 1 command envelope (
 - **One at a time.** Requests run one at a time, in order, in the app's own event loop, between the writer's keystrokes. A command from an agent and a keystroke can never interleave halfway.
 - **Authors.** Each command runs with the author `{"kind": "agent", "name": <from the handshake>, "tool": <tool>}`. It is journaled and labelled as `docs/specs/commands.md` describes.
 - **Refused commands.** These fail with `not_allowed_attached`: `doc.new`, `doc.open`, `doc.close`, `doc.revert`, and `doc.save` with a `path`. An agent can't replace, close or rename the writer's document. Saving it in place is allowed.
+- **Leaving.** A client that is done sends `{"bye":true}`. The app then sends `closed` and closes the link from its side. (2026-10-15: a client can't close a pipe while its own reading thread still holds it, so it asks.)
 - **Limits.** A line over 8 MiB, or a `batch` of more than 10,000 commands, is refused, and an over-long line closes the link.
 - **Events.** The app also writes these lines to every link:
   - `{"event": "changed", "rev": n}`: after any change by any author, sent at most once every 50 ms;
@@ -145,7 +146,8 @@ Steps an agent made stay in the history after it disconnects.
 ### 5.5 In `coldopen mcp`
 
 - **Forwarding.** While attached, every tool call except `doc_open` and `doc_close` becomes one request on the link. The response becomes the tool result.
-- **Detaching.** `doc_close` detaches and leaves the writer's document alone. `doc_open` of a different script detaches first.
+- **Attaching.** `doc_open`'s result then reads `{path, attached: true, rev, scenes, warnings: [], recovered: null}`.
+- **Detaching.** `doc_close` sends `{"bye":true}`, returns `{detached: true}`, and leaves the writer's document alone. `doc_open` of a different script detaches first.
 - **When the app closes the script.** If the link closes from the app's side, later tools fail with `no_document`, and the message explains that the app closed the script.
 - **Resource updates** come from the app's `changed` events.
 
@@ -167,7 +169,7 @@ Commands still run as the agent, so the undo labels and the `not_your_step` rule
 | Another user pretending to be the app | On Unix only the user can create files in the run folder. On Windows the app creates the first instance of a random pipe name, and no one else may create another instance. |
 | A stale session file after a crash, or a reused process id | Connecting fails or the token is wrong; the server then opens the file itself. |
 | A program run by the same user | It can already read and change the user's files, so the link gives it nothing new. That's why agent access is on by default, with a visible indicator, one-click disconnect and an off switch (`docs/specs/editor.md` §12). |
-| Flooding | At most 4 links, a 5-second handshake deadline, and the size limits of §5.4. The writer's own input is never queued behind more than one agent command at a time. |
+| Flooding | At most 4 links, a 5-second handshake deadline, and the size limits of §5.4. The writer's own input is never queued behind more than one agent command at a time. A connect waits at most 2 seconds for a busy endpoint, so nothing hangs on a pipe whose instances are all in use. |
 
 Tokens never appear in logs, errors or the journal.
 

@@ -96,6 +96,17 @@ enum Cmd {
         #[arg(long)]
         stdio: bool,
     },
+    /// Serve the Model Context Protocol on standard input and output, so an
+    /// AI agent can read and edit scripts. When the Cold Open app has the
+    /// script open, the agent's edits go into the app, live and undoable.
+    Mcp {
+        /// A script to open, or attach to, before the first request.
+        #[arg(long)]
+        doc: Option<PathBuf>,
+        /// Never attach to the app; always open the file in this process.
+        #[arg(long)]
+        no_attach: bool,
+    },
 }
 
 fn main() -> ExitCode {
@@ -123,6 +134,12 @@ fn main() -> ExitCode {
             save,
             keep_going,
         } => run(&edits, doc.as_deref(), save, keep_going),
+        Cmd::Mcp { doc, no_attach } => coldopen_mcp::run_stdio(coldopen_mcp::McpOptions {
+            doc,
+            no_attach,
+            run_dir: coldopen_link::run_dir(),
+        })
+        .map(|()| ExitCode::SUCCESS),
         Cmd::Serve { stdio } => {
             if stdio {
                 serve_stdio()

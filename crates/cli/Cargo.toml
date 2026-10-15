@@ -14,12 +14,17 @@ path = "src/main.rs"
 
 [dependencies]
 coldopen-core.workspace = true
+coldopen-link.workspace = true
+coldopen-mcp.workspace = true
 coldopen-fonts.workspace = true
 serde_json.workspace = true
 clap.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+# The agent gate runs the desktop app headless in the test process.
+coldopen-app.workspace = true
+iced.workspace = true
 
 [lints]
 workspace = true

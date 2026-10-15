@@ -1,0 +1,24 @@
+[package]
+name = "coldopen-mcp"
+description = "The Cold Open MCP server: every command as a tool, the script as resources, live in the desktop app when it has the script open."
+license = "GPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+coldopen-core = { workspace = true, features = ["schema"] }
+coldopen-link.workspace = true
+coldopen-screenplay.workspace = true
+coldopen-fountain.workspace = true
+rmcp.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

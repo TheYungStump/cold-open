@@ -9,6 +9,8 @@ members = [
     "crates/core",
     "crates/cli",
     "crates/app",
+    "crates/link",
+    "crates/mcp",
 ]
 exclude = ["fuzz", "tools/refpdf"]
 
@@ -27,6 +29,9 @@ coldopen-fonts = { path = "crates/fonts", version = "0.1.0" }
 coldopen-layout = { path = "crates/layout", version = "0.1.0" }
 coldopen-core = { path = "crates/core", version = "0.1.0" }
 coldopen-fdx = { path = "crates/fdx", version = "0.1.0" }
+coldopen-link = { path = "crates/link", version = "0.1.0" }
+coldopen-app = { path = "crates/app", version = "0.1.0" }
+coldopen-mcp = { path = "crates/mcp", version = "0.1.0" }
 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -52,6 +57,21 @@ iced_test = "0.14"
 # Already part of iced; named directly so the app can run itself headless
 # (user interface, tasks) for tests and the gate driver.
 iced_runtime = "0.14"
+# JSON Schema for command params, behind the core's `schema` feature, which
+# only the MCP server turns on (tool input schemas).
+schemars = "1"
+# The agent link (docs/specs/mcp.md §5): local sockets and Windows named
+# pipes, with the pipe's access list and the socket's peer check, without
+# unsafe code of our own. Synchronous API only.
+interprocess = "2.4"
+# The link's token and pipe name, from the OS's random source.
+getrandom = "0.3"
+# Windows only: the pipe's access list as an SDDL string (interprocess
+# already depends on it).
+widestring = "1"
+# The MCP server (docs/spec.md: rmcp). Server and stdio transport only.
+rmcp = { version = "3.5", default-features = false, features = ["server", "transport-io"] }
+tokio = { version = "1", default-features = false, features = ["rt", "sync", "macros", "time", "io-std"] }
 # Native open and save dialogs. Without default features it uses the XDG
 # desktop portal on Linux (no GTK) and the system dialogs elsewhere.
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }

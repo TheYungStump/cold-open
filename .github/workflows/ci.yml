@@ -150,7 +150,7 @@ jobs:
             fi
           done
 
-          if grep -E '^coldopen-(core|cli|app|mcp) ' <<<"$deps"; then
+          if grep -E '^coldopen-(core|cli|app|mcp|link) ' <<<"$deps"; then
             echo "::error::A permissively licensed crate depends on a GPL crate."
             exit 1
           fi

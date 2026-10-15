@@ -195,11 +195,60 @@ impl Command {
 }
 
 /// Params for commands that take none. Accepts `{}`.
+/// The JSON Schema of each command's params, with every subschema inline,
+/// for MCP tool input schemas (docs/specs/mcp.md §3). Generated from the
+/// same types the dispatcher deserializes, so the two cannot drift apart.
+#[cfg(feature = "schema")]
+impl Command {
+    pub fn params_schema(name: &str) -> Option<Value> {
+        fn of<T: schemars::JsonSchema>() -> Value {
+            let generator = schemars::generate::SchemaSettings::draft2020_12()
+                .with(|s| s.inline_subschemas = true)
+                .into_generator();
+            let mut v = generator.into_root_schema_for::<T>().to_value();
+            if let Some(o) = v.as_object_mut() {
+                o.remove("$schema");
+                o.remove("title");
+            }
+            v
+        }
+        Some(match name {
+            "doc.new" => of::<DocNew>(),
+            "doc.open" => of::<DocOpen>(),
+            "doc.save" => of::<DocSave>(),
+            "doc.close" => of::<DocClose>(),
+            "doc.export" => of::<DocExport>(),
+            "block.insert" => of::<BlockInsert>(),
+            "block.set_type" => of::<BlockSetType>(),
+            "block.set_text" => of::<BlockSetText>(),
+            "block.set_attrs" => of::<BlockSetAttrs>(),
+            "block.delete" => of::<BlockDelete>(),
+            "text.replace" => of::<TextReplace>(),
+            "scene.move" => of::<SceneMove>(),
+            "export.pdf" => of::<ExportPdf>(),
+            "text.insert" => of::<TextInsert>(),
+            "text.delete" => of::<TextDelete>(),
+            "text.style" => of::<TextStyle>(),
+            "block.split" => of::<BlockSplit>(),
+            "block.join" => of::<BlockJoin>(),
+            "batch" => of::<Batch>(),
+            "text.find" => of::<TextFind>(),
+            "text.complete" => of::<TextComplete>(),
+            "doc.get" | "scene.list" | "undo" | "redo" | "doc.revert" | "history.list" => {
+                of::<Empty>()
+            }
+            _ => return None,
+        })
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Empty {}
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct DocNew {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -211,6 +260,7 @@ pub struct DocNew {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Recover {
     #[default]
@@ -219,6 +269,7 @@ pub enum Recover {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct DocOpen {
     pub path: String,
@@ -227,6 +278,7 @@ pub struct DocOpen {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct DocSave {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -242,6 +294,7 @@ fn fountain() -> String {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct DocExport {
     #[serde(default = "fountain")]
@@ -249,6 +302,7 @@ pub struct DocExport {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct DocClose {
     #[serde(default)]
@@ -260,6 +314,7 @@ fn is_false(b: &bool) -> bool {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct BlockInsert {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -316,6 +371,7 @@ impl BlockInsert {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct BlockSetType {
     pub id: BlockId,
@@ -324,6 +380,7 @@ pub struct BlockSetType {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct BlockSetText {
     pub id: BlockId,
@@ -344,6 +401,7 @@ where
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct BlockSetAttrs {
     pub id: BlockId,
@@ -368,12 +426,14 @@ pub struct BlockSetAttrs {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct BlockDelete {
     pub id: BlockId,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Scope {
     pub scene: BlockId,
@@ -384,6 +444,7 @@ fn yes() -> bool {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct TextReplace {
     pub find: String,
@@ -398,6 +459,7 @@ pub struct TextReplace {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct ReplaceAt {
     pub id: BlockId,
@@ -405,6 +467,7 @@ pub struct ReplaceAt {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct SceneMove {
     pub id: BlockId,
@@ -413,6 +476,7 @@ pub struct SceneMove {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct ExportPdf {
     pub path: String,
@@ -426,6 +490,7 @@ pub struct ExportPdf {
 
 /// A style given in full, for `text.insert`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct StyleSpec {
     #[serde(default, skip_serializing_if = "is_false")]
@@ -457,6 +522,7 @@ impl From<Style> for StyleSpec {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct TextInsert {
     pub id: BlockId,
@@ -467,6 +533,7 @@ pub struct TextInsert {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct TextDelete {
     pub id: BlockId,
@@ -475,6 +542,7 @@ pub struct TextDelete {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct TextStyle {
     pub id: BlockId,
@@ -489,6 +557,7 @@ pub struct TextStyle {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct BlockSplit {
     pub id: BlockId,
@@ -498,6 +567,7 @@ pub struct BlockSplit {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct BlockJoin {
     pub id: BlockId,
@@ -509,6 +579,7 @@ fn empty_object() -> Value {
 
 /// One edit inside a `batch`, as `{"command", "params"}`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct BatchItem {
     pub command: String,
@@ -526,6 +597,7 @@ impl BatchItem {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Batch {
     pub commands: Vec<BatchItem>,
@@ -534,6 +606,7 @@ pub struct Batch {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct TextFind {
     pub find: String,
@@ -544,6 +617,7 @@ pub struct TextFind {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct TextComplete {
     pub id: BlockId,
@@ -554,6 +628,21 @@ pub struct TextComplete {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[cfg(feature = "schema")]
+    #[test]
+    fn every_command_has_a_closed_object_schema() {
+        for name in Command::NAMES {
+            let s = Command::params_schema(name).unwrap_or_else(|| panic!("{name}"));
+            assert_eq!(s["type"], "object", "{name}: {s}");
+            assert_eq!(s["additionalProperties"], false, "{name}: {s}");
+            assert!(!s.to_string().contains("$ref"), "{name}: {s}");
+        }
+        let s = Command::params_schema("block.insert").unwrap();
+        assert_eq!(s["required"], json!(["type"]));
+        assert_eq!(s["properties"]["after"]["pattern"], "^b_[0-9]+$");
+        eprintln!("{}", serde_json::to_string_pretty(&s).unwrap());
+    }
 
     #[test]
     fn names_match_serde() {

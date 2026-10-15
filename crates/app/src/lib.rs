@@ -13,6 +13,7 @@ pub mod files;
 pub mod fonts;
 pub mod headless;
 pub mod keymap;
+pub mod link;
 pub mod page_view;
 pub mod theme;
 

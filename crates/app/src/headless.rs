@@ -208,6 +208,15 @@ impl Headless {
         }
     }
 
+    /// Runs whatever the agent link has delivered, as the windowed app's
+    /// subscription would. Returns how many events there were.
+    pub fn pump(&mut self) -> usize {
+        let m = self.app.link_messages();
+        let n = m.len();
+        self.run(m);
+        n
+    }
+
     fn operate(&mut self, op: Box<dyn iced::advanced::widget::Operation>) {
         let mut current = Some(op);
         while let Some(mut op) = current.take() {

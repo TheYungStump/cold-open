@@ -34,13 +34,16 @@ impl Dirs {
         if let Some(home) = env("COLDOPEN_HOME") {
             return Some(Dirs::under(&home));
         }
+        // The run folder is shared with `coldopen mcp`, so both use the
+        // same rule.
+        let run = coldopen_link::run_dir()?;
         if cfg!(windows) {
             let roaming = env("APPDATA")?;
             let local = env("LOCALAPPDATA").unwrap_or_else(|| roaming.clone());
             return Some(Dirs {
                 config: roaming.join("Cold Open"),
                 data: local.join("Cold Open"),
-                run: local.join("Cold Open").join("run"),
+                run,
             });
         }
         let home = env("HOME")?;
@@ -48,17 +51,15 @@ impl Dirs {
             let base = home.join("Library/Application Support/Cold Open");
             return Some(Dirs {
                 config: base.clone(),
-                data: base.clone(),
-                run: base.join("run"),
+                data: base,
+                run,
             });
         }
         let config = env("XDG_CONFIG_HOME").unwrap_or_else(|| home.join(".config"));
         let data = env("XDG_DATA_HOME").unwrap_or_else(|| home.join(".local/share"));
-        let data = data.join("coldopen");
-        let run = env("XDG_RUNTIME_DIR").map_or_else(|| data.join("run"), |r| r.join("coldopen"));
         Some(Dirs {
             config: config.join("coldopen"),
-            data,
+            data: data.join("coldopen"),
             run,
         })
     }

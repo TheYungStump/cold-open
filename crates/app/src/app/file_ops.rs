@@ -219,22 +219,26 @@ impl App {
     fn proceed(&mut self, after: After) -> Task<Message> {
         match after {
             After::New => {
+                self.close_links();
                 self.d.shutdown();
                 self.new_script();
                 self.after_change(true)
             }
             After::Open => self.ask(Ask::Open),
             After::OpenPath(p) => {
+                self.close_links();
                 self.d.shutdown();
                 self.open(&p);
                 self.after_change(true)
             }
             After::Close => {
+                self.close_links();
                 self.d.shutdown();
                 self.editor = self.fresh_editor(&Document::default());
                 self.after_change(false)
             }
             After::Quit => {
+                self.close_links();
                 self.d.shutdown();
                 iced::exit()
             }
@@ -468,6 +472,7 @@ impl App {
             return Task::none();
         };
         if r.never_saved {
+            self.close_links();
             self.run("doc.close", json!({ "discard": true }));
             self.new_script();
         } else if self.run("doc.revert", json!({})).is_some()

@@ -25,6 +25,7 @@ coldopen-core.workspace = true
 coldopen-layout.workspace = true
 coldopen-screenplay.workspace = true
 coldopen-fountain.workspace = true
+coldopen-link.workspace = true
 coldopen-fonts = { workspace = true, features = ["ui"] }
 iced.workspace = true
 iced_runtime.workspace = true
@@ -35,6 +36,7 @@ unicode-width.workspace = true
 
 [dev-dependencies]
 iced_test.workspace = true
+coldopen-link.workspace = true
 tempfile.workspace = true
 
 [lints]

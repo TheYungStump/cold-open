@@ -8,6 +8,10 @@ rust-version.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+# JSON Schema for every command's params (MCP tool schemas).
+schema = ["dep:schemars", "coldopen-screenplay/schema"]
+
 [dependencies]
 coldopen-screenplay.workspace = true
 coldopen-fountain.workspace = true
@@ -15,6 +19,7 @@ coldopen-layout.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+schemars = { workspace = true, optional = true }
 
 [dev-dependencies]
 proptest.workspace = true

@@ -1,0 +1,24 @@
+[package]
+name = "coldopen-link"
+description = "The private local link between the Cold Open desktop app and `coldopen mcp`: session files, the handshake, and a same-user socket or pipe."
+license = "GPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+interprocess.workspace = true
+getrandom.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+widestring.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

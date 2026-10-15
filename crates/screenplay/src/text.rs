@@ -206,6 +206,29 @@ impl Serialize for Run {
     }
 }
 
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for Run {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Run".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "description": "A run of text with its style, or a hidden note or boneyard run. Exactly one of text, note and boneyard.",
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "bold": {"type": "boolean"},
+                "italic": {"type": "boolean"},
+                "underline": {"type": "boolean"},
+                "note": {"type": "string"},
+                "boneyard": {"type": "string"}
+            },
+            "additionalProperties": false
+        })
+    }
+}
+
 impl<'de> Deserialize<'de> for Run {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Run, D::Error> {
         use serde::de::Error;

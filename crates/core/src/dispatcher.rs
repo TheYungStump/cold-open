@@ -790,22 +790,38 @@ impl Dispatcher {
 
     /// Handles one request envelope and returns the response envelope.
     pub fn handle(&mut self, request: &Value) -> Value {
+        let (id, cmd) = Dispatcher::read_request(request);
+        let outcome = cmd.and_then(|cmd| self.execute(cmd));
+        Dispatcher::response(id, outcome)
+    }
+
+    /// Reads a request envelope: the `id` to echo, and the command or the
+    /// error to answer with. Front ends that check a command before running
+    /// it, such as the app's agent link, use this and [`Dispatcher::response`].
+    pub fn read_request(request: &Value) -> (Value, Result<Command, CommandError>) {
         let id = request.get("id").cloned().unwrap_or(Value::Null);
-        let id = if matches!(id, Value::Null | Value::Number(_) | Value::String(_)) {
-            id
-        } else {
-            return failure(
+        if !matches!(id, Value::Null | Value::Number(_) | Value::String(_)) {
+            return (
                 Value::Null,
-                CommandError::new("invalid_request", "\"id\" must be a number, string or null"),
+                Err(CommandError::new(
+                    "invalid_request",
+                    "\"id\" must be a number, string or null",
+                )),
             );
-        };
-        match self.parse_and_run(request) {
+        }
+        let cmd = Dispatcher::parse_request(request);
+        (id, cmd)
+    }
+
+    /// The response envelope for a request's id and outcome.
+    pub fn response(id: Value, outcome: Result<Value, CommandError>) -> Value {
+        match outcome {
             Ok(result) => json!({ "v": 1, "id": id, "ok": true, "result": result }),
             Err(e) => failure(id, e),
         }
     }
 
-    fn parse_and_run(&mut self, request: &Value) -> Result<Value, CommandError> {
+    fn parse_request(request: &Value) -> Result<Command, CommandError> {
         let Some(obj) = request.as_object() else {
             return Err(CommandError::new(
                 "invalid_request",
@@ -851,8 +867,7 @@ impl Dispatcher {
                 return Err(CommandError::invalid_params("\"params\" must be an object"));
             }
         };
-        let cmd = Command::from_parts(name, params).map_err(CommandError::invalid_params)?;
-        self.execute(cmd)
+        Command::from_parts(name, params).map_err(CommandError::invalid_params)
     }
 
     /// Handles one line of NDJSON and returns one line of NDJSON.

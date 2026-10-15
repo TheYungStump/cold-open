@@ -14,9 +14,11 @@ use iced::widget::scrollable;
 use iced::{Subscription, Task, Theme};
 use serde_json::{Value, json};
 
+mod agents;
 mod file_ops;
 mod view;
 
+pub use agents::Agent;
 pub use file_ops::{After, ExportForm, Prompt, Recovery, Reply};
 pub use view::eighths;
 
@@ -85,6 +87,8 @@ pub enum Message {
     CloseRequested,
     /// Esc pressed in a text field.
     Escaped,
+    /// The agent link (docs/specs/mcp.md §5).
+    Link(crate::link::LinkEvent),
     Noop,
 }
 
@@ -190,6 +194,17 @@ pub struct App {
     pub sheet: Option<Sheet>,
     /// Scripts with unsaved work from an earlier session (editor.md §11).
     pub leftover: Vec<PathBuf>,
+    /// The agent link server, while agent access is on and a script is
+    /// open (editor.md §12).
+    pub link: Option<crate::link::LinkServer>,
+    /// The path the link last published, to notice a change.
+    link_path: Option<PathBuf>,
+    /// Attached agents, by link.
+    pub agents: std::collections::BTreeMap<u64, Agent>,
+    /// The last revision announced to agents.
+    sent_rev: Option<u64>,
+    /// The link could not start; said once.
+    link_failed: bool,
 }
 
 /// How the app starts.
@@ -272,6 +287,11 @@ impl App {
             export: None,
             sheet: None,
             leftover: Vec::new(),
+            link: None,
+            link_path: None,
+            agents: std::collections::BTreeMap::new(),
+            sent_rev: None,
+            link_failed: false,
         };
         if let Some(text) = app
             .dirs
@@ -433,6 +453,7 @@ impl App {
     /// scroll the caret into sight.
     fn after_change(&mut self, scroll: bool) -> Task<Message> {
         self.d.view();
+        self.sync_link();
         if let Some(s) = self.d.session() {
             self.editor.fix_caret(&s.doc);
         }
@@ -696,6 +717,7 @@ impl App {
                 Task::none()
             }
             Message::CloseRequested => self.leave(After::Quit),
+            Message::Link(ev) => self.link_event(ev),
             Message::Escaped => {
                 if self.palette.is_some() {
                     self.palette = None;
@@ -1168,6 +1190,7 @@ impl App {
             "app.agent_access" => {
                 self.settings.agent_access = !self.settings.agent_access;
                 self.save_settings();
+                self.sync_link();
                 self.banners.push(if self.settings.agent_access {
                     "Agent access is on: an agent you start with `coldopen mcp` can attach to this script.".into()
                 } else {
@@ -1176,7 +1199,10 @@ impl App {
                 scroll = false;
             }
             "app.agent_disconnect" => {
-                self.banners.push("No agent is connected.".into());
+                if self.agents.is_empty() {
+                    self.banners.push("No agent is connected.".into());
+                }
+                self.close_links();
                 scroll = false;
             }
             "edit.copy" => {
@@ -1396,7 +1422,12 @@ impl App {
 
     pub fn subscription(&self) -> Subscription<Message> {
         let keys = iced::event::listen_with(unclaimed_key);
+        let link = match &self.link {
+            Some(l) => Subscription::run_with(l.key.clone(), crate::link::stream),
+            None => Subscription::none(),
+        };
         Subscription::batch([
+            link,
             keys,
             iced::window::close_requests().map(|_| Message::CloseRequested),
             iced::time::every(Duration::from_millis(530)).map(|_| Message::Tick),
