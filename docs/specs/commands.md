@@ -143,7 +143,7 @@ Notes on each command:
   - Saves atomically.
   - `path` is "save as". A path where another file already is fails with `already_exists` unless `overwrite` is true (2026-10-16): "save as" never replaces a file by accident, and every `.txt` counts as a script. The target's lock is taken, and its crash journal judged, before anything is written (2026-10-16; `docs/specs/journal.md`, "Saving"): a target open in another process fails with `doc_locked`, and one whose journal holds unsaved work fails with `unsaved_changes`. A refused save writes nothing.
   - `format` is `"fountain"`. It is inferred from the path when omitted.
-  - If Fountain cannot hold something in the document, the save fails with `lossy_format` and lists the losses, unless `allow_lossy` is true.
+  - If Fountain cannot hold something in the document, the save fails with `lossy_format` and lists the losses, unless `allow_lossy` is true. Only a writer may pass `allow_lossy` (2026-10-16); from an agent it fails with `writer_only`.
   - Saving in place over a file that another program changed since this session last read or wrote it fails with `file_changed` (2026-10-16; `docs/specs/journal.md`, "Saving"). `overwrite: true` replaces it anyway. Only a writer may pass `overwrite`; from an agent it fails with `writer_only`.
   - While a save off the UI thread is being written, `doc.save` fails with `save_in_progress` (2026-10-16; `docs/specs/journal.md`, "One save at a time"). Try again when it has finished.
 - **`doc.close`**
@@ -322,7 +322,7 @@ Undo is unlimited. A new edit clears the redo history.
 | `would_overwrite_document` | An output command was asked to write over the open document or its journal. |
 | `save_in_progress` | Another save of the document is being written; nothing changed. Retryable. |
 | `file_changed` | Another program changed the file since the document last read or wrote it; nothing was saved. `overwrite` replaces it. |
-| `writer_only` | An agent passed a choice only the writer may make, such as `overwrite`. |
+| `writer_only` | An agent passed a choice only the writer may make: `overwrite`, or `allow_lossy`. |
 | `invalid_range` | An offset is past the end of the block's text, or `from` is after `to`. |
 | `not_your_step` | An agent tried to undo or redo a step made by someone else, or to set aside a writer's recovered work (`details.recovered`). |
 | `not_allowed_attached` | A command an agent may not send over the app's agent link, such as `doc.open` (`docs/specs/mcp.md`). |

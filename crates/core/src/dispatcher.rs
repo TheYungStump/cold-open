@@ -659,6 +659,11 @@ impl Dispatcher {
                 "replace a file that is not the open document, or that another program changed",
             ));
         }
+        if p.allow_lossy && !by.is_writer() {
+            // What Fountain drops is the writer's call: their own save asks
+            // "Save anyway?" (docs/specs/editor.md §11).
+            return Err(writer_only("save with losses (allow_lossy)"));
+        }
         let opts = self.opts;
         let durability = self.durability();
         let session = self

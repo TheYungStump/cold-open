@@ -383,3 +383,27 @@ fn an_agent_cannot_overwrite_another_programs_changes() {
     assert!(fs::read_to_string(&p).unwrap().contains("Changed outside."));
     d.discard();
 }
+
+/// F19 without the app: in `coldopen mcp`'s own dispatcher the agent may
+/// not answer the lossy question either; it changes the element instead.
+#[test]
+fn an_agent_never_saves_with_losses() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = script(dir.path());
+    let mut d = app();
+    let agent = Author::agent("claude-code", Some("doc_save".into()));
+    let run = |d: &mut Dispatcher, c: &str, params: Value| {
+        d.execute_as(Command::from_parts(c, params).unwrap(), &agent)
+    };
+    run(&mut d, "doc.open", json!({"path": p})).unwrap();
+    run(
+        &mut d,
+        "block.set_type",
+        json!({"id": "b_2", "type": "shot"}),
+    )
+    .unwrap();
+    let e = run(&mut d, "doc.save", json!({"allow_lossy": true})).unwrap_err();
+    assert_eq!(e.code, "writer_only", "{e}");
+    assert_eq!(fs::read_to_string(&p).unwrap(), SCRIPT_TEXT);
+    d.discard();
+}

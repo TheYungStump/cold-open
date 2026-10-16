@@ -230,3 +230,36 @@ fn at_most_four_agents() {
     drop(links);
     h.app.d.discard();
 }
+
+/// Review finding F19: the writer marks a line as a Shot, which Fountain
+/// cannot hold, so their own Mod+S would ask "Save anyway?". An attached
+/// agent's `doc.save {"allow_lossy": true}` answered that question for
+/// them, and the Shot was gone from the file.
+#[test]
+fn an_agent_cannot_answer_the_writers_lossy_save_question() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut h, script) = app(home.path());
+    let s = session(home.path()).unwrap();
+    let l = LinkClient::attach(&s, &client("claude-code"), &script).unwrap();
+    h.named(
+        iced::keyboard::key::Named::ArrowDown,
+        iced::keyboard::Modifiers::empty(),
+    );
+    h.shortcut('7', false); // "Rain." becomes a Shot
+    assert!(h.app.d.session().unwrap().dirty);
+
+    let r = call(
+        &mut h,
+        &l,
+        "doc.save",
+        json!({"allow_lossy": true}),
+        "doc_save",
+    );
+    assert_eq!(r["ok"], false, "{r}");
+    assert_eq!(r["error"]["code"], "writer_only", "{r}");
+    let r = call(&mut h, &l, "doc.save", json!({}), "doc_save");
+    assert_eq!(r["error"]["code"], "lossy_format", "{r}");
+    assert_eq!(std::fs::read_to_string(&script).unwrap(), SCRIPT);
+    assert!(h.app.d.session().unwrap().dirty);
+    h.app.d.discard();
+}
