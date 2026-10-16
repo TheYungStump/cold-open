@@ -34,7 +34,7 @@
 | `seq` | Counts from 1. |
 | `t` | Milliseconds since the Unix epoch. Informational only. |
 | `command`, `params` | The command exactly as applied. |
-| `result` | The command's result, including assigned ids, so replay can confirm it reached the same state. |
+| `result` | The command's result, including assigned ids, so replay can confirm it reached the same state. Replay compares only part of it ("What replay compares", below). |
 | `by` | Optional (2026-10-15). The command's author, as in `docs/specs/commands.md` ("Authors and undo steps"). Absent means a writer. |
 | `merge` | Optional (2026-10-15). `true` when the command joined the undo step before it. Absent means false. |
 
@@ -47,6 +47,13 @@ Only edits, `undo`, `redo` and `doc.saved` markers are written. Queries, output 
 ```
 
 Replay runs nothing for a marker. It only remembers the fingerprint, for `external_change` (recovery step 5). The marker is written before the file is replaced, so whether or not that save completed, the file on disk matches either the header's `disk` or a marker's.
+
+**What replay compares** (2026-10-16). A replayed result must reproduce only what later entries depend on:
+
+- every id the recorded result names as `id`, at the top level or in a batch's `results` (later entries address blocks by these ids);
+- for `undo` and `redo`, the command name of the step reversed (`undone`, `redone`), and the step itself where the entry names it.
+
+Nothing else is compared. A field the recorded result lacks is never asked for, so a newer version may add result fields (as phase 3 added `label` to undo results) without stranding older journals, and labels may be reworded or translated. Because only ids and undo targets are checked, a change to what a command *does* must not hide behind an unchanged result: it needs a new `semantics` number (see "Header"). `tests/fixtures/journal/` holds journals written by the builds of phases 1 to 3, and `crates/core/tests/old_journals.rs` checks that each still recovers in full.
 
 **Old readers.** The new fields and markers are additive, so the journal stays version 1. A Cold Open from before phase 3 that meets a phase 3 journal stops replay at the first command or marker it does not know, keeps a copy of the journal (step 2 below), and recovers everything before that point.
 
@@ -129,7 +136,7 @@ When `doc.open` finds a journal for the file:
 2. **Replay.** Start from `doc` and replay the entries in order.
    - A final line with no `\n` is a write torn by the crash. It is ignored and cut off; it was never acknowledged.
    - A complete line that does not parse, or a `seq` out of order, stops replay at that point. The journal is copied aside, and a warning names how many entries were recovered.
-   - If a replayed result differs from the recorded one, replay stops at that entry, the journal is copied aside to `<journal>.diverged-<ms>`, and a warning is returned.
+   - If a replayed result does not reproduce the recorded one ("What replay compares"), replay stops at that entry, the journal is copied aside to `<journal>.diverged-<ms>`, and a warning is returned.
 3. **Discard if asked.** With `recover: "discard"`, the journal is copied to `<journal>.discarded-<ms>`, and a fresh journal is started from the file.
 4. **Nothing to recover?** If the replayed document writes as Fountain **without loss** and equals the file's bytes, open the file normally. A lossy write can produce the file's exact text while the document differs (for example, a scene heading retyped as a stray parenthetical), so a lossy write always recovers.
    - **No entries** (2026-10-16). Nothing is to recover when the file is the version the header's `disk` or a marker names, or holds the header's document as above. Otherwise the header is the only copy of the last save: the save's rename never reached the disk (a power cut), or another program changed the file and then Cold Open crashed. The header's document is then recovered, with `commands: 0` and `external_change: true`, and the writer decides. Before 2026-10-16, such a journal was overwritten without a word.

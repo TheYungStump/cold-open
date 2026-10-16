@@ -1,0 +1,15 @@
+{"id":1,"command":"doc.open","params":{"path":"lighthouse.fountain"}}
+{"id":2,"command":"block.insert","params":{"after":"b_2","type":"action","text":"A bell rings below."}}
+{"id":3,"command":"block.set_text","params":{"id":"b_7","text":"Gulls wheel over the black rocks."}}
+{"id":4,"command":"text.replace","params":{"find":"ships","with":"boats"}}
+{"id":5,"command":"undo"}
+{"id":6,"command":"block.insert","params":{"before":"b_6","type":"transition","text":"CUT TO:"}}
+{"id":7,"command":"undo"}
+{"id":8,"command":"redo"}
+{"id":9,"command":"block.set_attrs","params":{"id":"b_1","scene_number":"1"}}
+{"id":10,"command":"scene.move","params":{"id":"b_6","before":"b_1"}}
+{"id":11,"command":"block.delete","params":{"id":"b_4"}}
+{"id":12,"command":"undo"}
+{"id":13,"command":"block.set_type","params":{"id":"b_10","type":"lyric"}}
+{"id":14,"command":"doc.export"}
+{"id":15,"command":"doc.get"}

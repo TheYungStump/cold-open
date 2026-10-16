@@ -32,7 +32,7 @@ Responses echo `v` and `id`:
 
 ### How the schema evolves
 
-New commands, new optional params and new result fields are added without changing `v`. Clients must ignore result fields they do not know. A breaking change needs `v: 2`. A command name never changes meaning, because crash journals replay commands by name.
+New commands, new optional params and new result fields are added without changing `v`. Clients must ignore result fields they do not know. A breaking change needs `v: 2`. A command name never changes meaning, because crash journals replay commands by name. Result fields are never removed or renamed. Crash journal replay compares only the ids a result assigned and the step an undo or redo reversed (2026-10-16; `docs/specs/journal.md`, "What replay compares"), so new result fields never stop recovery.
 
 ## Ids
 

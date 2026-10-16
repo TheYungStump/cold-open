@@ -23,11 +23,11 @@ Each finding gets a test made from the reviewer's reproduction. The test is run 
 | 2 | F13 / A8: `doc.save {path}` and `export.pdf` overwrite any file | fixed. Before: `doc.save {"path": "notes.txt"}` replaced an unrelated `notes.txt` | `core/tests/no_lost_work.rs` `f13_saving_or_exporting_over_another_file_needs_overwrite` | "Saving or exporting over another file needs overwrite" |
 | 2 | F19 / A8: an agent saves with `allow_lossy` | fixed. Before: the attached agent's save returned `ok` with a `shot_element` loss | `app/tests/agent_link.rs` `an_agent_cannot_answer_the_writers_lossy_save_question` (real link client); `core/tests/saving.rs` `an_agent_never_saves_with_losses` | "Agents can't answer the writer's lossy-save question" |
 | 3 | C1: save, undo, type, crash: recovery fails with `nothing_to_undo` | to do | | |
-| 3 | F8 / C6: replay demands byte-equal results | to do | | |
+| 3 | F8 / C6: replay demands byte-equal results | fixed. Before: the real phase 1 and 2 journals stopped at their first undo ("entry 4 gave a different result on replay") | `core/tests/old_journals.rs`; `core/src/dispatcher.rs` `replay_compares_only_ids_and_undo_targets` | "Replay compares only ids and undo targets; old-phase journals as fixtures" |
 | 3 | F9: a diverged entry stays in the recovered document | to do | | |
 | 3 | C7: journal headers are not validated | to do | | |
 | 3 | F16: undo targets, resolved params, `semantics`, foreign journals | to do | | |
-| 3 | F17.3: journals from earlier phases as fixtures | to do | | |
+| 3 | F17.3: journals from earlier phases as fixtures | done: written by the real phase 1, 2 and 3 builds (`tests/fixtures/journal/`) | `core/tests/old_journals.rs` | same commit as F8 |
 | 4 | F7: the palette runs session commands past the app's flows | to do | | |
 | 4 | C5: a failed `doc_open` in `coldopen mcp` drops the open document | to do | | |
 | 4 | F12: `doc.revert` reuses block ids | to do | | |
@@ -65,6 +65,8 @@ Each finding gets a test made from the reviewer's reproduction. The test is run 
 12. **F11.** One flag, `overwrite`, serves both F11 (replace a file another program changed) and F13 (replace a file that is not the open document): both mean "replace what is there". It is writer-only (`writer_only` for agents, enforced in core by author, so it holds over the link and in `coldopen mcp`). The check reads the whole file before a save in place, on the UI thread for the background save; for a script that is a fraction of a millisecond. The window between that check and the rename is milliseconds and is accepted. In the app's question, Enter chooses Save as, which keeps both versions; the dialog was rendered headless and checked (2026-10-16).
 13. **F13.** An existing target that is not the open document needs `overwrite`, checked before the F2 lock and journal checks. Agents can never pass it (A8's point), so an agent exports or saves to a new path. The app passes it only when the system dialog asked about that very path (not when the app added the extension). The CLI's `export` subcommand passes it, like `convert`, since a person named the output; `run` and `serve` batches send raw commands and must pass it themselves. The F2 tests now pass `overwrite`, as the app does, so they still test the lock and journal checks behind it.
 14. **F19.** Refused in core by author, not only in the link's denylist, so it also holds in `coldopen mcp`'s own dispatcher, where a recovered journal may hold the writer's Shot. The user asked for "over the link"; the core rule covers that and the local case with one check, and an agent can still save after changing the element itself.
+15. **F17.3.** The old-phase journals were made by building 0654f37, f26f59c and ce171cb in a scratch worktree and running each build's `serve --stdio` on our own short scene, with the request files kept beside them. The test compares the recovered document's block JSON with the same build's `doc.get`, not exported text, since the writer's normal form changed between phases.
+16. **F8.** Replay compares the ids a result names (`id`, and each `results[].id` of a batch) and `undone`/`redone`; nothing else. The rule is in `journal.md`, together with its consequence: a change in what a command does needs a new `semantics` number (F16), since results alone won't show it.
 
 ## The Antigravity review (added 2026-10-16)
 

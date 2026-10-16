@@ -551,7 +551,7 @@ impl Dispatcher {
                         .map_err(|e| format!("entry {} failed on replay: {e}", entry.seq))
                 })
                 .and_then(|result| {
-                    if result == entry.result {
+                    if reproduces(&entry.result, &result) {
                         Ok(())
                     } else {
                         Err(format!(
@@ -1253,6 +1253,31 @@ fn refuse_while_saving(session: &Session) -> Result<(), CommandError> {
     Ok(())
 }
 
+/// Whether a replayed result reproduces what later entries depend on
+/// (docs/specs/journal.md, "What replay compares"): the ids a command
+/// assigned, and which step an undo or redo reversed. Nothing else is
+/// compared, because newer versions add result fields and labels are
+/// reworded or translated; a field the recorded result lacks is never
+/// asked for.
+fn reproduces(recorded: &Value, replayed: &Value) -> bool {
+    let same = |r: &Value, q: &Value, key: &str| r.get(key).is_none_or(|v| q.get(key) == Some(v));
+    if !["id", "undone", "redone"]
+        .iter()
+        .all(|k| same(recorded, replayed, k))
+    {
+        return false;
+    }
+    match recorded.get("results").and_then(Value::as_array) {
+        None => true,
+        Some(rs) => replayed
+            .get("results")
+            .and_then(Value::as_array)
+            .is_some_and(|qs| {
+                rs.len() == qs.len() && rs.iter().zip(qs).all(|(r, q)| same(r, q, "id"))
+            }),
+    }
+}
+
 /// Whether opening `path` would recover work from its crash journal,
 /// judged without locking or changing anything, for the app's start-up
 /// offer of leftover work. A journal that cannot be read, for example one
@@ -1331,6 +1356,41 @@ mod tests {
 
     fn faults(d: &mut Dispatcher) -> &mut crate::journal::Faults {
         &mut d.session.as_mut().unwrap().journal.as_mut().unwrap().faults
+    }
+
+    /// Review findings F8 and C6: replay compared results byte for byte, so
+    /// a field added later (phase 3's undo `label`) stopped every older
+    /// journal at its first undo. Only ids and undo targets count now.
+    #[test]
+    fn replay_compares_only_ids_and_undo_targets() {
+        let r = |v: Value, w: Value| reproduces(&v, &w);
+        assert!(r(
+            json!({"undone": "block.insert"}),
+            json!({"undone": "block.insert", "label": "Insert block"})
+        ));
+        assert!(r(
+            json!({"undone": "typing", "label": "Typing"}),
+            json!({"undone": "typing", "label": "Saisie"})
+        ));
+        assert!(!r(json!({"undone": "typing"}), json!({"undone": "batch"})));
+        assert!(r(
+            json!({"id": "b_3"}),
+            json!({"id": "b_3", "new_field": 1})
+        ));
+        assert!(!r(json!({"id": "b_3"}), json!({"id": "b_4"})));
+        assert!(r(
+            json!({"count": 2, "blocks": ["b_1"]}),
+            json!({"count": 3, "blocks": []})
+        ));
+        assert!(r(
+            json!({"results": [{"id": "b_5"}, {}]}),
+            json!({"results": [{"id": "b_5"}, {"x": 1}]})
+        ));
+        assert!(!r(
+            json!({"results": [{"id": "b_5"}]}),
+            json!({"results": [{"id": "b_6"}]})
+        ));
+        assert!(!r(json!({"results": [{}]}), json!({"results": []})));
     }
 
     /// Review finding F10, through the dispatcher: a journal that a failed

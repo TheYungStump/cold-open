@@ -1,0 +1,58 @@
+[
+ {
+  "id": "b_6",
+  "text": "EXT. CLIFF PATH - DAWN",
+  "type": "scene_heading"
+ },
+ {
+  "id": "b_7",
+  "text": "Gulls wheel over the black rocks.",
+  "type": "action"
+ },
+ {
+  "id": "b_8",
+  "text": "TOMAS",
+  "type": "character"
+ },
+ {
+  "id": "b_9",
+  "text": "She kept the light on.",
+  "type": "dialogue"
+ },
+ {
+  "id": "b_1",
+  "scene_number": "1",
+  "text": "INT. LIGHTHOUSE - NIGHT",
+  "type": "scene_heading"
+ },
+ {
+  "id": "b_2",
+  "text": "The lamp turns. Rain against the glass.",
+  "type": "action"
+ },
+ {
+  "id": "b_10",
+  "text": "A bell rings below.",
+  "type": "lyric"
+ },
+ {
+  "id": "b_3",
+  "text": "MARA",
+  "type": "character"
+ },
+ {
+  "id": "b_4",
+  "text": "(to herself)",
+  "type": "parenthetical"
+ },
+ {
+  "id": "b_5",
+  "text": "Three ships tonight.",
+  "type": "dialogue"
+ },
+ {
+  "id": "b_11",
+  "text": "CUT TO:",
+  "type": "transition"
+ }
+]
