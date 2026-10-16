@@ -150,7 +150,7 @@ Notes on each command:
   - An agent's `discard` fails with `not_your_step` when the document holds a writer's recovered work (2026-10-16; `docs/specs/mcp.md` §6). The same holds for an agent's `doc.revert`, and for its `doc.open` with `recover: "discard"`.
 - **`doc.revert`** (2026-10-15)
   - Throws away unsaved changes and the undo history, and reads the document's file again.
-  - The journal is never deleted by a revert: if it holds entries, it is copied aside to `<journal>.discarded-<ms>` first, then started again from the file.
+  - The journal is never deleted by a revert: if the document has unsaved changes or the journal holds entries, it is copied aside to `<journal>.discarded-<ms>` first, then started again from the file. (2026-10-16: "unsaved changes" covers a recovered journal header with no entries, `docs/specs/journal.md` recovery step 4.)
   - Fails with `no_path` for an untitled document, and with `io_error` if the file cannot be read; the open document is unchanged in both cases.
   - The desktop app's recovery dialog uses it for Discard.
 

@@ -122,11 +122,12 @@ When `doc.open` finds a journal for the file:
    - A complete line that does not parse, or a `seq` out of order, stops replay at that point. The journal is copied aside, and a warning names how many entries were recovered.
    - If a replayed result differs from the recorded one, replay stops at that entry, the journal is copied aside to `<journal>.diverged-<ms>`, and a warning is returned.
 3. **Discard if asked.** With `recover: "discard"`, the journal is copied to `<journal>.discarded-<ms>`, and a fresh journal is started from the file.
-4. **Nothing to recover?** If there were no entries, or the replayed document writes as Fountain **without loss** and equals the file's bytes, open the file normally. A lossy write can produce the file's exact text while the document differs (for example, a scene heading retyped as a stray parenthetical), so a lossy write always recovers.
+4. **Nothing to recover?** If the replayed document writes as Fountain **without loss** and equals the file's bytes, open the file normally. A lossy write can produce the file's exact text while the document differs (for example, a scene heading retyped as a stray parenthetical), so a lossy write always recovers.
+   - **No entries** (2026-10-16). Nothing is to recover when the file is the version the header's `disk` or a marker names, or holds the header's document as above. Otherwise the header is the only copy of the last save: the save's rename never reached the disk (a power cut), or another program changed the file and then Cold Open crashed. The header's document is then recovered, with `commands: 0` and `external_change: true`, and the writer decides. Before 2026-10-16, such a journal was overwritten without a word.
 5. **Otherwise, recover.** Open the replayed document as unsaved, with its undo history rebuilt, and report `recovered: {commands, external_change, last}`, where `last` is the newest replayed entry's `t`.
    - **Undo history.** It is rebuilt with each step's author and label. Entries marked `merge` join the step before them, exactly as they did when they were made.
    - `external_change` is true when the file matches neither `disk` nor the fingerprint of any `doc.saved` marker in the journal. In that case the file is never overwritten automatically; the writer decides.
-   - `commands` counts the commands replayed; markers are not counted.
+   - `commands` counts the commands replayed; markers are not counted. It is 0 when only the header was recovered.
 
 **A file that does not exist** (2026-10-15). If the script file is missing but a journal for it exists, as for a document created with `doc.new` that was never saved, the journal alone is recovered:
 - the file's bytes count as empty in step 4;

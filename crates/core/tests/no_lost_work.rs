@@ -331,3 +331,110 @@ fn f2_save_as_onto_a_script_with_nothing_unsaved_goes_ahead() {
     ok(&mut b, &w, "doc.save", json!({"path": r}));
     assert_eq!(asides(dir.path(), "corrupt").len(), 1);
 }
+
+/// Review finding F14: after a save, the journal starts again with the
+/// saved document in its header. If the file then is not that document
+/// (a rename that never reached the disk before a power cut), the header
+/// is the only copy of the save, and opening threw it away silently.
+#[test]
+fn f14_a_header_that_disagrees_with_the_file_is_recovered() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("s.fountain");
+    fs::write(&p, SCRIPT).unwrap();
+    let w = Author::Writer;
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &w, "doc.open", json!({"path": p}));
+    ok(
+        &mut d,
+        &w,
+        "block.insert",
+        json!({"type": "action", "text": "SAVED WORK."}),
+    );
+    ok(&mut d, &w, "doc.save", json!({}));
+    drop(d); // a crash with nothing unsaved
+    fs::write(&p, SCRIPT).unwrap(); // the save never reached the disk
+
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, &w, "doc.open", json!({"path": p}));
+    let mut rec = r["recovered"].clone();
+    rec.as_object_mut().map(|o| o.remove("last"));
+    assert_eq!(rec, json!({"commands": 0, "external_change": true}), "{r}");
+    assert!(text(&mut d).contains("SAVED WORK."));
+    assert_eq!(ok(&mut d, &w, "doc.get", json!({}))["dirty"], true);
+    // Nothing was lost on the way: the file is still the old one, and the
+    // journal still holds the save.
+    assert_eq!(fs::read_to_string(&p).unwrap(), SCRIPT);
+    d.shutdown();
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, &w, "doc.open", json!({"path": p}));
+    assert_eq!(r["recovered"]["commands"], 0, "{r}");
+    assert!(text(&mut d).contains("SAVED WORK."));
+}
+
+/// A header that the file does match is nothing to recover, even when the
+/// file is not in Cold Open's normal form.
+#[test]
+fn f14_a_header_that_matches_the_file_is_not_recovered() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("s.fountain");
+    // Not the normal form: trailing spaces and extra blank lines.
+    fs::write(&p, "INT. HOUSE - DAY   \n\n\n\nRain.\n\n").unwrap();
+    let w = Author::Writer;
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &w, "doc.open", json!({"path": p}));
+    drop(d);
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, &w, "doc.open", json!({"path": p}));
+    assert_eq!(r["recovered"], Value::Null, "{r}");
+    // Nor is a header whose document the file holds in the normal form,
+    // whatever its fingerprint.
+    ok(&mut d, &w, "doc.close", json!({}));
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &w, "doc.open", json!({"path": p}));
+    drop(d);
+    let normal = coldopen_fountain::write(
+        &coldopen_fountain::parse("INT. HOUSE - DAY   \n\n\n\nRain.\n\n").script,
+    )
+    .text;
+    fs::write(&p, normal).unwrap();
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, &w, "doc.open", json!({"path": p}));
+    assert_eq!(r["recovered"], Value::Null, "{r}");
+}
+
+/// Found by the Antigravity review (its finding 2): once only the header
+/// is recovered (F14), the journal has no entries, and `doc.revert`, which
+/// the app's Discard sends, copied the journal aside only when it had
+/// entries. It overwrote the only copy of the save.
+#[test]
+fn f14_discarding_a_recovered_header_keeps_a_copy() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("s.fountain");
+    fs::write(&p, SCRIPT).unwrap();
+    let w = Author::Writer;
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &w, "doc.open", json!({"path": p}));
+    ok(
+        &mut d,
+        &w,
+        "block.insert",
+        json!({"type": "action", "text": "SAVED WORK."}),
+    );
+    ok(&mut d, &w, "doc.save", json!({}));
+    drop(d);
+    fs::write(&p, SCRIPT).unwrap(); // the save never reached the disk
+
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, &w, "doc.open", json!({"path": p}));
+    assert_eq!(r["recovered"]["commands"], 0, "{r}");
+    let r = ok(&mut d, &w, "doc.revert", json!({}));
+    assert_eq!(r["warnings"][0]["code"], "journal_discarded", "{r}");
+    let kept = asides(dir.path(), "discarded");
+    assert_eq!(kept.len(), 1);
+    assert!(
+        fs::read_to_string(&kept[0])
+            .unwrap()
+            .contains("SAVED WORK.")
+    );
+    assert!(!text(&mut d).contains("SAVED WORK."));
+}

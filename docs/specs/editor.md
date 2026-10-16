@@ -268,7 +268,7 @@ Esc closes the topmost overlay, or the autocomplete list. Movement and editing k
 - **Close and quit.** With unsaved changes, the app asks: Save, Don't save, or Cancel. Keys: Enter or S saves, D or N doesn't, Esc or C cancels; nothing else runs while it asks. Don't save sends `doc.close` with `discard`. Save finishes the save, including a "Save as" for an untitled script, before closing. The window's close button asks the same question.
 - **Export PDF.** First a small form: scene numbers (Mod+1, off by default), title page (Mod+2, on by default) and a watermark field, which has the keyboard. Enter opens the dialog for the path; then `export.pdf`. A banner gives the page count and the first warning, if any.
 - **Dialogs.** Open, Save as and Export use the operating system's own file dialogs (the XDG desktop portal on Linux, with no GTK). The app's own questions (unsaved changes, recovery, export options) are drawn in the window, and every button in them has a key.
-- **Leftover work at start-up.** The app checks `Unsaved/` and the recent files for journals that hold entries, which means a session ended without saving. It offers to reopen each one, so a crash is recovered even if the writer never reopens the file by hand.
+- **Leftover work at start-up.** The app checks `Unsaved/` for journals that hold entries, and the recent files for journals that opening them would recover (2026-10-16: this includes a journal holding only the header of a save that never reached the disk). Either means a session ended without saving. It offers to reopen each one, so a crash is recovered even if the writer never reopens the file by hand.
 
 ## 12. Agents
 
@@ -288,7 +288,7 @@ When an agent attaches to the open script through `coldopen mcp` (`docs/specs/mc
   - "Protecting…": entries have waited more than 250 ms for the disk.
   - "Not protected": the journal failed. The reason is shown, and edits are refused until it is fixed.
 - **Recovery dialog.** When `doc.open` recovers unsaved work, a dialog shows:
-  - the number of changes recovered;
+  - the number of changes recovered or, when only the journal's header was (`commands` is 0; `docs/specs/journal.md`, recovery step 4), that the file on disk is not the version Cold Open last saved or opened, and that version is back in the script;
   - the time of the last one;
   - the scenes they touched, found by comparing blocks by id with the file on disk;
   - when `external_change` is true, a warning that the file was changed by another program and that saving will replace that version.

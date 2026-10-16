@@ -75,12 +75,19 @@ fn closing_with_changes_asks_and_each_answer_does_what_it_says() {
     h.type_text("!");
     assert!(h.app.d.session().is_some());
 
-    // D: don't save. The script closes and its journal goes with it.
+    // D: don't save. The script closes, and its journal is set aside, not
+    // deleted (docs/specs/journal.md, "Closing").
     h.shortcut('w', false);
     press(&mut h, "d");
     assert!(h.app.d.session().is_none());
     assert_eq!(std::fs::read_to_string(&p).unwrap(), SCRIPT);
     assert!(!coldopen_core::journal::path_for(&p).exists());
+    let kept = std::fs::read_dir(home.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().contains(".discarded-"))
+        .count();
+    assert_eq!(kept, 1);
 
     // The start screen: Mod+N starts a new script there.
     h.shortcut('n', false);
@@ -165,6 +172,33 @@ fn a_crash_is_recovered_with_a_dialog_and_discard_goes_back_to_the_file() {
         .filter_map(|e| e.ok())
         .any(|e| e.file_name().to_string_lossy().contains(".discarded-"));
     assert!(aside);
+    h.app.d.shutdown();
+}
+
+/// Review finding F14: a save whose rename never reached the disk, as in
+/// a power cut, leaves the file at the old version and the journal's
+/// header at the saved one. The recovery dialog offers the saved version.
+#[test]
+fn a_save_lost_in_a_power_cut_is_offered_back() {
+    let home = tempfile::tempdir().unwrap();
+    let p = script(home.path());
+    {
+        let mut h = app(home.path(), Some(&p), None);
+        to_first_action(&mut h);
+        h.type_text(" Thunder.");
+        h.shortcut('s', false);
+        assert!(!h.app.d.session().unwrap().dirty, "{:?}", h.app.banners);
+        // Dropped without closing: a crash with nothing unsaved.
+    }
+    std::fs::write(&p, SCRIPT).unwrap();
+    let mut h = app(home.path(), Some(&p), None);
+    let r = h.app.recovery.clone().expect("the recovery dialog");
+    assert_eq!(r.commands, 0);
+    assert!(r.external_change && !r.never_saved);
+    assert_eq!(r.scenes, ["INT. LAB - NIGHT"]);
+    let s = h.app.d.session().unwrap();
+    assert!(s.dirty);
+    assert_eq!(s.doc.blocks[1].element.text.plain_text(), "Rain. Thunder.");
     h.app.d.shutdown();
 }
 

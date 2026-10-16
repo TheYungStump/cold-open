@@ -294,8 +294,11 @@ pub fn leftover_work(dirs: &Dirs, recent: &[PathBuf]) -> Vec<PathBuf> {
             }
         }
     }
+    // A recent script's journal can hold work with no entries: the header
+    // of a save that never reached the disk (journal.md, recovery step 4).
+    // So it is judged as opening the script would judge it.
     for p in recent {
-        if has_entries(&coldopen_core::journal::path_for(p)) && !out.contains(p) {
+        if coldopen_core::dispatcher::journal_holds_work(p) && !out.contains(p) {
             out.push(p.clone());
         }
     }
@@ -321,6 +324,35 @@ mod tests {
         let (d, w) = Settings::load(&dirs);
         assert_eq!(d, Settings::default());
         assert!(w.is_some());
+    }
+
+    /// Found by the Antigravity review (its finding 2): the start-up scan
+    /// counted lines, so a recent script whose journal holds only the
+    /// header of a save lost in a power cut was not offered.
+    #[test]
+    fn a_recent_script_with_a_lost_save_is_leftover_work() {
+        use coldopen_core::{Command, Dispatcher, Options};
+        let dir = tempfile::tempdir().unwrap();
+        let dirs = Dirs::under(&dir.path().join("app"));
+        let p = dir.path().join("s.fountain");
+        let old = "INT. HOUSE - DAY\n\nRain.\n";
+        std::fs::write(&p, old).unwrap();
+        let mut d = Dispatcher::new(Options::default());
+        for (c, params) in [
+            ("doc.open", serde_json::json!({"path": p})),
+            (
+                "block.insert",
+                serde_json::json!({"type": "action", "text": "Saved."}),
+            ),
+            ("doc.save", serde_json::json!({})),
+        ] {
+            d.execute(Command::from_parts(c, params).unwrap()).unwrap();
+        }
+        drop(d); // a crash with nothing unsaved: nothing to offer
+        let recent = vec![p.clone()];
+        assert!(leftover_work(&dirs, &recent).is_empty());
+        std::fs::write(&p, old).unwrap(); // the save never reached the disk
+        assert_eq!(leftover_work(&dirs, &recent), recent);
     }
 
     #[test]

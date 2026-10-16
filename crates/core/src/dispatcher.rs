@@ -569,18 +569,25 @@ impl Dispatcher {
         // The file already holds the replayed document only if writing it
         // is lossless and gives the same bytes. A lossy write can match the
         // file's text while the document differs, so it always recovers.
-        let recover = if missing {
-            true
-        } else if commands == 0 {
-            false
-        } else {
-            let written = coldopen_fountain::write(&replay.doc.to_script());
-            !(written.losses.is_empty() && io::encode(&written.text, style) == disk_bytes)
+        let in_file = |doc: &Document| {
+            let written = coldopen_fountain::write(&doc.to_script());
+            written.losses.is_empty() && io::encode(&written.text, style) == disk_bytes
         };
         let external_change = if missing {
             !known_disk.is_empty()
         } else {
             !known_disk.contains(&Fingerprint::of(disk_bytes))
+        };
+        let recover = if missing {
+            true
+        } else if commands == 0 {
+            // With no entries, the header's document is in the file when the
+            // file is the version the header or a marker names, or holds the
+            // same document. Otherwise the header is the only copy of the
+            // last save (a rename lost in a power cut), so it is recovered.
+            external_change && !in_file(&replay.doc)
+        } else {
+            !in_file(&replay.doc)
         };
         // Work in the header alone has no author; it is treated as the
         // writer's, which is the cautious choice.
@@ -986,9 +993,12 @@ impl Dispatcher {
             warnings.push(json!({ "code": d.code, "message": d.message, "line": d.line }));
         }
         let doc = Document::from_script(parsed.script);
+        // A recovered header alone holds unsaved work with no entries, so
+        // being dirty is enough to keep a copy (docs/specs/journal.md).
+        let dirty = session.dirty;
         if let Some(j) = &mut session.journal {
             let mut restart = || -> std::io::Result<()> {
-                if j.entries() > 0 {
+                if dirty || j.entries() > 0 {
                     let contents = j.contents()?;
                     let aside = j.copy_aside(&contents, "discarded")?;
                     warnings.push(warning(
@@ -1145,6 +1155,29 @@ fn unsupported(path: &Path) -> CommandError {
             path.display()
         ),
     )
+}
+
+/// Whether opening `path` would recover work from its crash journal,
+/// judged without locking or changing anything, for the app's start-up
+/// offer of leftover work. A journal that cannot be read, for example one
+/// another process holds on Windows, counts as holding nothing.
+pub fn journal_holds_work(path: &Path) -> bool {
+    let Ok(contents) = fs::read(journal::path_for(path)) else {
+        return false;
+    };
+    if contents.is_empty() {
+        return false;
+    }
+    let (disk, missing) = match fs::read(path) {
+        Ok(b) => (b, false),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), true),
+        Err(_) => return false,
+    };
+    let style = io::decode(&disk).style;
+    match Dispatcher::default().assess(path, style, &contents, (&disk, missing)) {
+        Assessment::Unreadable(_) => false,
+        Assessment::Replayed(r) => r.recover,
+    }
 }
 
 /// Whether `by` is an agent and the session holds a writer's recovered,

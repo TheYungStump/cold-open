@@ -394,19 +394,24 @@ impl App {
             .last
             .map_or_else(String::new, |t| format!(", the last one {}", ago(t)));
         let changes = if r.commands == 1 { "change" } else { "changes" };
-        let mut col = column![
-            title(pal, "Unsaved work was recovered"),
-            body(
-                pal,
-                format!(
-                    "Cold Open found {} {changes} to {} that were not saved{when}. \
-                     They are back in the script.",
-                    r.commands,
-                    self.script_name()
-                )
-            ),
-        ]
-        .spacing(10);
+        let found = if r.commands == 0 {
+            // Only the journal's header: the file is not the version Cold
+            // Open last saved or opened (docs/specs/journal.md, step 4).
+            format!(
+                "{} on disk is not the version Cold Open last saved or opened. That \
+                 version is back in the script, unsaved.",
+                self.script_name()
+            )
+        } else {
+            format!(
+                "Cold Open found {} {changes} to {} that were not saved{when}. \
+                 They are back in the script.",
+                r.commands,
+                self.script_name()
+            )
+        };
+        let mut col =
+            column![title(pal, "Unsaved work was recovered"), body(pal, found),].spacing(10);
         if !r.scenes.is_empty() {
             let mut list = r
                 .scenes
