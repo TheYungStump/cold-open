@@ -51,6 +51,7 @@ Each finding gets a test made from the reviewer's reproduction. The test is run 
 - **Group 2** (2026-10-16, Windows 11): the same checks, all passing. Against the release binary: F11, a file changed by another program while `serve` had it open makes `doc.save` fail with `file_changed`, and the outside edit stays; F13, `doc.save {"path": "notes.txt"}` onto an existing file fails with `already_exists`, and the file is unchanged.
 - **Group 3** (2026-10-16, Windows 11): the same checks, all passing, including clippy for Linux and macOS with the new `gethostname` dependency. The journals written by the real phase 1, 2 and 3 builds recover in full (`old_journals.rs`); C1's exact sequence (set text, save, undo, type, crash) now recovers everything.
 - **Group 4** (2026-10-16, Windows 11): the same checks, all passing, with clippy for Linux and macOS on the app crate. CI on `42a2b52` (group 3, P1, F7, C5) passed every Linux job, including minimum Rust, which had failed on `418082c` because of P1. The F20 and P2 tests use a real link server and client; the C5 test drives a real `coldopen mcp --no-attach`.
+- **Group 5** (2026-10-16, Windows 11): the same checks, all passing, with clippy for Linux and macOS on core and the Fountain crate. CI on `f4312d6` (group 4) passed every Linux job. F15's timings were measured in a release build (see the table); the property tests were also run several times in a row, since they draw new inputs each run.
 
 ## Decisions
 
