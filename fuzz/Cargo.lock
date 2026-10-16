@@ -473,6 +473,7 @@ dependencies = [
  "coldopen-fountain",
  "coldopen-layout",
  "coldopen-screenplay",
+ "gethostname",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

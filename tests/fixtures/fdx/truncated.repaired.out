@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FinalDraft DocumentType="Script" Version="4">
+  <Content>
+    <Paragraph Type="Scene Heading">
+      <Text>INT. ARCHIVE - NIGHT</Text>
+    </Paragraph>
+    <Paragraph Type="Action">
+      <Text>This paragraph survives the cut.</Text>
+    </Paragraph>
+    <Paragraph Type="Action">
+      <Text>So does this partial one, up to here</Text>
+    </Paragraph>
+  </Content>
+</FinalDraft>

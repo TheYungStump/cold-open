@@ -1,9 +1,285 @@
 //! Checks shared by the cargo-fuzz target in `fuzz/` and the stable test
 //! suite, so the fuzzed properties also run on every CI build.
 
-use coldopen_screenplay::{ElementKind, Pt};
+use std::collections::BTreeMap;
 
-use crate::FdxDoc;
+use coldopen_screenplay::{Element, ElementKind, PageFormat, Pt, RichText, Run, Style};
+
+use crate::{Blk, Doc, FdxDoc};
+
+/// Reads `data`, writes it back unedited and reads that again: the
+/// round-trip gate's G1 and G2 on any input (docs/specs/fdx.md §16.1).
+pub fn roundtrip(data: &[u8]) -> Result<(), String> {
+    let Ok(doc) = crate::read(data) else {
+        return Ok(());
+    };
+    let written = doc.write_back();
+    if !written.losses.is_empty() {
+        let codes: Vec<&str> = written.losses.iter().map(|l| l.code).collect();
+        return Err(format!("writing back unedited reports losses: {codes:?}"));
+    }
+    let out = crate::encode(&written.text, doc.encoding);
+    if !doc.repaired() && out != data {
+        let at = out.iter().zip(data).take_while(|(a, b)| a == b).count();
+        return Err(format!(
+            "G1: an unrepaired file written back unedited differs at byte {at}"
+        ));
+    }
+    let again =
+        crate::read(&out).map_err(|e| format!("G2: what was written cannot be read: {e}"))?;
+    if let Some(i) = again.report.iter().find(|i| i.is_repair()) {
+        return Err(format!("G2: what was written needs repair: {}", i.code));
+    }
+    if again.script != doc.script
+        || again.format != doc.format
+        || again.overrides != doc.overrides
+        || again.title_lines != doc.title_lines
+    {
+        return Err("G2: reading what was written gives another document".into());
+    }
+    if !doc.repaired() && again.kept != doc.kept {
+        return Err("G2: reading what was written gives another store".into());
+    }
+    let twice = crate::encode(&again.write_back().text, again.encoding);
+    if twice != out {
+        return Err("G2: writing what was read back gives other bytes".into());
+    }
+    Ok(())
+}
+
+/// A file split for the round-trip gate's G3 (docs/specs/fdx.md §16.1):
+/// everything outside `Content`'s children, and each child with the
+/// whitespace before it.
+pub fn content_children(text: &str) -> Option<(String, Vec<String>)> {
+    let mut report = crate::report::Report::default();
+    let tree = crate::xml::parse(text, &mut report).ok()?;
+    let content = tree.root.child("Content")?;
+    let mut children = Vec::new();
+    // Where the next child's entry starts: whitespace joins what follows.
+    let mut pending = content.open_end;
+    for c in &content.children {
+        let span = match c {
+            crate::xml::Child::Element(n) => n.span.clone(),
+            crate::xml::Child::Text { raw, .. } | crate::xml::Child::Other(raw) => raw.clone(),
+        };
+        let this = text.get(pending..span.end)?;
+        if matches!(c, crate::xml::Child::Text { .. }) && this.trim().is_empty() {
+            continue;
+        }
+        children.push(this.to_string());
+        pending = span.end;
+    }
+    let outside = format!("{}{}", text.get(..content.open_end)?, text.get(pending..)?);
+    Some((outside, children))
+}
+
+/// A document made from arbitrary bytes, for the writer's fuzz target and
+/// property test: every byte chooses something about the next element.
+pub fn document_from_bytes(data: &[u8]) -> (Vec<Element>, BTreeMap<usize, Pt>) {
+    const WORDS: [&str; 12] = [
+        "Rain", " ", "fall", "s.", "\n", "\t", "a&b", "<x>", "it's", "\"q\"", "]]>", "\u{1}",
+    ];
+    let mut elements = Vec::new();
+    let mut spacing = BTreeMap::new();
+    let mut it = data.iter().copied();
+    while let Some(k) = it.next() {
+        let kind = ElementKind::ALL[usize::from(k) % ElementKind::ALL.len()];
+        let mut runs = Vec::new();
+        let n = it.next().unwrap_or(0) % 5;
+        for _ in 0..n {
+            let w = it.next().unwrap_or(0);
+            let style = Style {
+                bold: w & 0x10 != 0,
+                italic: w & 0x20 != 0,
+                underline: w & 0x40 != 0,
+            };
+            let text = WORDS[usize::from(w) % WORDS.len()];
+            runs.push(if kind.is_raw_text() {
+                Run::plain(text)
+            } else if w >> 7 == 1 {
+                Run::Note("n".into())
+            } else {
+                Run::styled(text, style)
+            });
+        }
+        let flags = it.next().unwrap_or(0);
+        let mut e = Element::new(kind, RichText::new(runs));
+        if kind == ElementKind::PageBreak {
+            e = Element::new(kind, "");
+        }
+        if kind == ElementKind::SceneHeading && flags & 1 != 0 {
+            e.scene_number = Some(format!("{}A", flags >> 1));
+        }
+        e.dual = kind == ElementKind::Character && flags & 2 != 0;
+        e.centered = kind == ElementKind::Action && flags & 4 != 0;
+        if kind.is_printing() && flags & 8 != 0 {
+            e.space_before = Some(flags >> 5);
+        }
+        if kind.is_printing() && flags & 16 != 0 {
+            spacing.insert(elements.len(), Pt::points(i32::from(flags >> 4)));
+        }
+        if e.problems().is_empty() {
+            elements.push(e);
+        }
+    }
+    (elements, spacing)
+}
+
+/// Writes a document as a new .fdx file and reads it back: it must read
+/// with no repair and nothing kept, and give the document's .fdx normal
+/// form (docs/specs/fdx.md §16.2) less what the writer listed as lost.
+pub fn write_document(elements: &[Element], spacing: &BTreeMap<usize, Pt>) -> Result<(), String> {
+    let format = PageFormat::default();
+    let blocks: Vec<Blk<'_>> = elements
+        .iter()
+        .enumerate()
+        .map(|(i, element)| Blk {
+            id: i as u64 + 1,
+            element,
+            spacing: spacing.get(&i).copied(),
+        })
+        .collect();
+    let written = crate::write(&Doc {
+        blocks,
+        format: &format,
+        title_lines: &[],
+        kept: None,
+        declare_utf8: false,
+    });
+    let doc = crate::read(written.text.as_bytes())
+        .map_err(|e| format!("cannot read what was written: {e}"))?;
+    if let Some(i) = doc.report.iter().find(|i| {
+        i.is_repair()
+            || (i.class == crate::codes::KEPT && i.code != crate::codes::TRAILING_EMPTY_DROPPED)
+    }) {
+        return Err(format!(
+            "what was written reads with {}: {}",
+            i.code, i.message
+        ));
+    }
+    if doc.format != format {
+        return Err("the default format does not read back as itself".into());
+    }
+    let (want, want_spacing) = normal_form(elements, spacing, &format);
+    if doc.script.elements != want {
+        return Err(format!(
+            "read back {:?}\nexpected {:?}",
+            doc.script.elements, want
+        ));
+    }
+    if doc.overrides != want_spacing {
+        return Err(format!(
+            "spacing read back {:?}, expected {:?}",
+            doc.overrides, want_spacing
+        ));
+    }
+    // Writing what was read gives the same text again.
+    if doc.write_back().text != written.text {
+        return Err("writing what was read back gives other text".into());
+    }
+    Ok(())
+}
+
+fn xml_char(c: char) -> bool {
+    matches!(c, '\t' | '\n' | '\r' | '\u{20}'..='\u{D7FF}' | '\u{E000}'..='\u{FFFD}' | '\u{10000}'..)
+}
+
+/// The .fdx normal form of a document (docs/specs/fdx.md §16.2), with what
+/// §15 lists as lost removed: what reading a new file written from it gives.
+pub fn normal_form(
+    elements: &[Element],
+    spacing: &BTreeMap<usize, Pt>,
+    format: &PageFormat,
+) -> (Vec<Element>, BTreeMap<usize, Pt>) {
+    let body = format.body_height();
+    // Which characters layout pairs as the right side of dual dialogue.
+    let blocks: Vec<Blk<'_>> = elements
+        .iter()
+        .enumerate()
+        .map(|(i, element)| Blk {
+            id: i as u64,
+            element,
+            spacing: None,
+        })
+        .collect();
+    let mut paired = vec![false; elements.len()];
+    let mut i = 0;
+    while i < blocks.len() {
+        let end = crate::write::group_end(&blocks, i);
+        let printing: Vec<usize> = (i..end)
+            .filter(|&k| elements[k].kind.is_printing())
+            .collect();
+        if printing.len() > 1 {
+            for k in printing {
+                paired[k] = elements[k].dual;
+            }
+        }
+        i = end;
+    }
+    let mut out: Vec<Element> = Vec::new();
+    let mut out_spacing = BTreeMap::new();
+    let mut pending_break = false;
+    for (i, e) in elements.iter().enumerate() {
+        match e.kind {
+            ElementKind::PageBreak => {
+                pending_break = true;
+                continue;
+            }
+            k if !k.is_printing() => continue,
+            _ => {}
+        }
+        if pending_break && !out.is_empty() {
+            out.push(Element::new(ElementKind::PageBreak, ""));
+        }
+        pending_break = false;
+        let runs: Vec<Run> = e
+            .text
+            .runs()
+            .iter()
+            .filter_map(|r| match r {
+                Run::Text { text, style } => Some(Run::styled(
+                    text.chars().filter(|&c| xml_char(c)).collect::<String>(),
+                    *style,
+                )),
+                _ => None,
+            })
+            .collect();
+        let mut n = Element::new(e.kind, RichText::new(runs));
+        n.scene_number = e
+            .scene_number
+            .as_ref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        n.centered = e.centered;
+        n.dual = paired[i];
+        let sb = spacing.get(&i).copied().or_else(|| {
+            e.space_before
+                .map(|lines| Pt(format.line_height.0.saturating_mul(i32::from(lines))))
+        });
+        let usual = format.elements.get(e.kind).map(|f| f.space_before);
+        if let Some(sb) = sb
+            && (Pt::ZERO..=body).contains(&sb)
+            && Some(sb) != usual
+        {
+            out_spacing.insert(out.len(), sb);
+        }
+        out.push(n);
+    }
+    // Empty general paragraphs at the end are dropped when read (§6.7),
+    // and a break with nothing after it prints nothing.
+    while let Some(last) = out.last() {
+        if (last.kind == ElementKind::General && last.text.is_empty())
+            || last.kind == ElementKind::PageBreak
+        {
+            out.pop();
+        } else {
+            break;
+        }
+    }
+    let len = out.len();
+    out_spacing.retain(|&k, _| k < len);
+    (out, out_spacing)
+}
 
 /// Reads `data` twice and checks the reader's guarantees: it does not
 /// panic, gives the same result both times, and a document it returns

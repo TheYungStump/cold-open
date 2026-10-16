@@ -12,9 +12,9 @@ Phase 4 makes Cold Open read and write .fdx. A file that came from another app o
 | 2 | Format seam (F18.1): a `Format` trait in core with Fountain behind it, no change in behaviour; the journal header records the format. Its own reviewed commit | done |
 | 3 | Specs before code: `fdx.md` (writer, passthrough, round trip, repair report), `commands.md`, `journal.md` (F18.2–F18.4, hidden files, Recovered versions, cleanup), `editor.md`, `mcp.md`, `layout.md`, `fountain.md` | done |
 | 4 | Model and layout: the document's page format, title lines, paragraph spacing and passthrough store; per-document layout | done, except the store, which comes with the reader (step 5) and core integration (step 8) |
-| 5 | .fdx reader: a lossless XML layer, the passthrough store, resyncing after syntax errors, report classes; our own fixtures, broken ones included | |
-| 6 | .fdx writer: write back what was read byte for byte, generate what was edited; property tests, the hostile-input timing test, fuzz targets for the writer | |
-| 7 | The round-trip gate on the corpus, with its report | |
+| 5 | .fdx reader: a lossless XML layer, the passthrough store, resyncing after syntax errors, report classes; our own fixtures, broken ones included | done |
+| 6 | .fdx writer: write back what was read byte for byte, generate what was edited; property tests, the hostile-input timing test, fuzz targets for the writer | done |
+| 7 | The round-trip gate on the corpus, with its report | done on the nine corpus files here; to run again when the new downloads arrive |
 | 8 | Core: .fdx open, save and conversion, `export.fdx`, `export.fountain`, `file.repair`, damaged originals; the CLI's `repair` and `convert`; MCP tools | |
 | 9 | Recovery copies: hidden on Windows, `recovered.*` commands, clean-up | |
 | 10 | App: one command router, `App::dispatch(request, origin)` (F18.5) | |
@@ -68,4 +68,20 @@ The files are studied only with scripts that print structure (element paths, att
 9. **Fountain from .fdx** (`fountain.md` §11): new losses for a non-default page format, spacing that isn't whole lines, title-line positions (with a written rule for turning lines into keys) and the .fdx store.
 10. **Spacing overrides are keyed by block id in the document** (`Document.spacing`), not by element index as the reader gives them. Layout gets them as indices recomputed on every view refresh (`Document::overrides`), through `Incremental::update_with`, so an edit before an overridden paragraph never moves its spacing to another one. The flow is assembled again on every update anyway, so this adds no layout work.
 11. **The document's page format, title lines and spacing are checked with the rest of a journal header** (`Document::check`): a format layout refuses, a spacing on an id at or above `next_id`, or a space outside the page body makes the header untrusted, as a bad id already did.
+12. **Round-trip results** (2026-10-16, `cargo test -p coldopen-fdx --test roundtrip`): all nine corpus files come back byte for byte (G1), read back as the same document and store (G2), and keep every paragraph but the edited ones under scripted edits (G3). Our own fixtures pass too, the repaired ones as G2.
+
+    | File | Kept paragraphs | Store as JSON | Read and write |
+    | --- | --- | --- | --- |
+    | Big Fish (435 KB) | 361 of 2,770 | 211 KB | 52 ms (debug build) |
+    | Brick & Steel (55 KB) | 20 of 83 | 61 KB | 5 ms |
+    | The Last Birthday Card (109 KB) | 111 of 486 | 100 KB | 12 ms |
+    | rsdoiel samples 1–6 (25–43 KB) | 1 to 4 each | 27–50 KB | 2–3 ms |
+
+    The store is larger than planned. Scene headings with `SceneProperties` and runs with font attributes are kept whole, and settings sections like `Macros` are kept as text. JSON escaping roughly doubles it. A journal header for Big Fish therefore grows by about half. It is written once per save, as the header always was; header sizes are measured again in step 13.
+13. **Values the model rejects stay in the file** (`fdx.md` §9). `invalid_value`, `invalid_format` and `invalid_scene_number` became `info`: the model uses its default, and the file keeps its text. Only XML and encoding repairs are `fixed` or `dropped`. This keeps our stricter validation from overwriting a producer's settings.
+14. **Two new report codes**: `skipped_bytes` (a syntax error the reader skipped past, or text outside the root) and `invalid_char` (control characters XML does not allow, in text or attribute values). Both are `dropped`. The fuzz checks found both cases, along with a leftover second byte-order mark that the parser skipped without counting it in its positions.
+15. **Dual dialogue needs a line on each side** (`fdx.md` §6.6). A speaker with no lines is no longer flagged `dual`, matching layout, which never paired one. Nothing prints differently, and the writer can always write back what the reader flags.
+16. **What an edited paragraph carries** (`fdx.md` §14.4): only between paragraphs of the same shape (a dual-dialogue wrapper's attributes never move onto a speech), and inline layout attributes only when the `Type` is unchanged. A dual block's speeches carry like ordinary paragraphs when the block still has the same shape.
+17. **Spacing outside the page body** is a loss (`spacing_out_of_range`), not written for the reader to drop.
+18. **The fuzz workflow** gains `fdx_roundtrip` and `fdx_write` (eight targets). libFuzzer does not build on this Windows machine, and the targets call the same checks the property tests run on every build. A probe of 200,000 random multi-edit mutations of our fixtures found nothing after the fixes above.
 

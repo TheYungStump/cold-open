@@ -251,7 +251,7 @@ Observed differences: centered action, `StartsNewPage` Yes on action and scene h
 
 Observed: the outer paragraph has `Type` `General`, all eight inline attributes with 12 pt above, the `DualDialogue` element as its first child and one empty `Text` run after it. The nested paragraphs carry only a `Type`. They are always two speakers in a row: `Character`, then `Dialogue`, optionally with one `Parenthetical` before the dialogue.
 
-- The nested paragraphs are emitted in order, as ordinary paragraphs (§6.1 to §6.4), and the second group's character gets `dual = true`. A group is a `Character` followed by any number of parentheticals, dialogue and lyrics.
+- The nested paragraphs are emitted in order, as ordinary paragraphs (§6.1 to §6.4), and the second group's character gets `dual = true`. A group is a `Character` followed by at least one parenthetical, dialogue or lyric (2026-10-16: before, any number, including none; layout never paired a group with no lines, `docs/specs/layout.md` §4.4, so this changes nothing that prints, and the writer can always write back what the reader flags).
 - The outer paragraph's own type, spacing and other inline attributes are ignored. **Resolution:** its `StartsNewPage="Yes"` still inserts a page break before the block.
 - If the nested paragraphs are not exactly two such groups, they are all emitted with no `dual` flag (`dual_dialogue_shape`).
 - **Resolution:** text in the outer paragraph's own runs is emitted as a `general` element after the block, so nothing is lost (`dual_dialogue_text`). Text made only of whitespace is dropped, with the same report.
@@ -294,12 +294,14 @@ Each `Issue` has a stable `code`, a `class`, a message in English that never quo
 
 | Class | Meaning | Written back |
 | --- | --- | --- |
-| `fixed` | Something was wrong and was put right; nothing the writer wrote is lost. | Corrected. The paragraph or section it is in is generated from the model rather than copied (§13.3), so the corrected value reaches the file. |
+| `fixed` | The file's XML or encoding was broken and was put right; nothing the writer wrote is lost. | Corrected. The paragraph or section it is in is written from the repaired tree or generated from the model rather than copied (§13.2), so the repair reaches the file. |
 | `dropped` | Part of the file could not be read at all and is not kept. | Left out. |
 | `kept` | Cold Open does not use it, and keeps it. | Unchanged, in place (§13). |
-| `info` | A fact about the file, or how the model reads something; the file itself is fine. | Unchanged. |
+| `info` | A fact about the file, or how the model reads something, including values the model cannot use (it takes its default instead). | Unchanged: the file keeps its own text. |
 
 A file is **repaired** when its report holds any `fixed` or `dropped` issue. Only a repaired file can differ from what was read when it is written back unedited (§16).
+
+**Resolution (2026-10-16): values the model rejects stay in the file.** A margin that does not parse, a format that fails our validation, an empty scene number: the model uses its default or leaves the value out, and the file keeps what it says. Our validation is stricter than other apps may be (`docs/specs/layout.md` §3.3), and writing our defaults over a producer's settings would change their formatting without their asking. An edited paragraph is generated from the model, so a rejected value in it is not written again (§14.4).
 
 | Code | Class | When | Effect |
 | --- | --- | --- | --- |
@@ -307,7 +309,8 @@ A file is **repaired** when its report holds any `fixed` or `dropped` issue. Onl
 | `encoding_windows_1252` | fixed | not UTF-8, and the declaration names windows-1252 or ISO-8859-1 | decoded as windows-1252; written as UTF-8 with the declaration changed to match, which a save reports as a `reencoded` loss (§15) |
 | `encoding_lossy` | dropped | invalid byte sequences | replaced with U+FFFD |
 | `truncated_xml` | dropped | more than 1,000 syntax errors (§2.2) | the rest of the file is ignored |
-| `skipped_bytes` | dropped | an XML syntax error (§2.2) | the bytes up to the next markup are skipped |
+| `skipped_bytes` | dropped | an XML syntax error, or text outside the root (§2.2) | the bytes up to the next markup are skipped |
+| `invalid_char` | dropped | a character XML 1.0 does not allow in text or an attribute value: a control character other than tab, line feed and carriage return (2026-10-16) | dropped; a character reference to one is `bad_char_ref` |
 | `mismatched_end_tag` | fixed | an end tag closes other open elements first | those elements are closed |
 | `stray_end_tag` | fixed | an end tag with no open element of that name | ignored |
 | `unclosed_element` | fixed | elements still open at the end | closed |
@@ -321,7 +324,7 @@ A file is **repaired** when its report holds any `fixed` or `dropped` issue. Onl
 | `sections_ignored` | kept | top-level elements we don't read | listed once; written back unchanged |
 | `duplicate_section` | kept | a second `Content`, `PageLayout` or other section we read | first read; the second is written back unchanged |
 | `section_missing` | info | `PageLayout`, `MoresAndContinueds`, `SceneNumberOptions` or `HeaderAndFooter` absent | defaults kept; nothing is added on writing |
-| `invalid_value` | fixed | a value that does not parse or is out of range, or an unusable string or column | default kept, or the value cut or clamped to its range (§5.1, §5.3, §7); the model's value is written |
+| `invalid_value` | info | a value that does not parse or is out of range, or an unusable string or column | default kept, or the value cut or clamped to its range (§5.1, §5.3, §7); the file keeps its text |
 | `value_rounded` | info | a value with more precision than a `Pt` | rounded in the model; the file keeps its text |
 | `settings_for_unmodelled_type` | kept | settings for types we don't model | listed once |
 | `duplicate_settings` | kept | a repeated settings `Type` | first read |
@@ -336,10 +339,10 @@ A file is **repaired** when its report holds any `fixed` or `dropped` issue. Onl
 | `starting_page` | kept | `StartingPage` other than 1 | ignored |
 | `header_content_ignored` | kept | header labels or text besides the page number | ignored |
 | `footer_ignored` | kept | a visible footer with content | ignored |
-| `invalid_format` | fixed | the format fails validation | default format used, and written |
+| `invalid_format` | info | the format fails validation | default format used for layout; the file keeps its settings |
 | `no_content` | info | no `Content` element | empty script |
 | `unknown_paragraph_type` ‡ | kept | a type outside §6.1, per type name | read as general; the type name is written back while the block stays general |
-| `invalid_scene_number` | fixed | a scene number that breaks the model rules | dropped |
+| `invalid_scene_number` | info | a scene number that breaks the model rules | dropped from the model; the file keeps it until the paragraph is edited |
 | `scene_number_ignored` | kept | `Number` on a kind other than a scene heading | not read; written back |
 | `scene_properties_ignored` | kept | `SceneProperties` not on a scene heading | not read; written back |
 | `run_all_caps` ‡ | info | runs styled `AllCaps` | upper-cased in the model; the file keeps `AllCaps` and its own case |
@@ -414,7 +417,7 @@ The output depends only on the document, never on the OS, the locale or hash-map
 | --- | --- |
 | **Prolog** | Everything before the root's start tag: the declaration, a doctype, comments and processing instructions, and the whitespace between them, as text. |
 | **Root** | Its start tag as text, and everything after its end tag that is not dropped (whitespace and comments). |
-| **Sections** | Each child of the root other than `Content`, in order, as text, with the whitespace before it. A section in which the reader reported a `fixed` issue is kept as the tree the reader built and written in the file's style (§13.5), so the fix reaches the file. |
+| **Sections** | Each child of the root other than `Content`, in order, as text, with the whitespace before it. A section in which the reader made a structural repair (a `fixed` or `dropped` issue at the XML level) is kept as the tree the reader built and written in the file's style (§13.5), so the repair reaches the file. |
 | **`Content`'s frame** | Its start tag, and the whitespace before its end tag. |
 | **Kept paragraphs** | For each paragraph group the generator does not reproduce exactly (§13.2): its text in the file, with the whitespace before it, and a copy of the blocks it was read into. Stored under the id of the group's first block. |
 | **Loose children** | Anything in `Content` that is not a `Paragraph` (unknown elements, comments, text that is not whitespace), as text, anchored to the paragraph group before it (§13.4). |
@@ -429,7 +432,7 @@ At read time each paragraph group is generated again from its blocks (§14), in 
 
 - **Equal:** nothing is stored. In the corpus about nine paragraphs in ten are like this.
 - **Different:** the group is kept (§13.1). This is how scene properties, run fonts and colors, a full set of inline attributes, `AllCaps` runs, unknown children and any spelling of the markup our generator does not use survive.
-- **A paragraph with a `fixed` issue** (§9) is kept with its text marked *not verbatim*. It is never written as it was; it is always generated, carrying what can be carried (§14.4), so the fix reaches the file.
+- **A paragraph with a structural repair** (§9) is kept with its text marked *not verbatim*. It is never written as it was; it is always generated, carrying what can be carried (§14.4), so the repair reaches the file.
 
 A file written back unedited is therefore the concatenation of pieces each equal to the file's own text, which is why the round trip is byte-identical (§16).
 
@@ -453,7 +456,7 @@ A loose child is anchored to the last block of the paragraph group before it in 
 
 ### 13.5 Settings, the title page and the header
 
-- **Settings sections** (`ElementSettings`, `PageLayout`, `MoresAndContinueds`, `SceneNumberOptions`, `HeaderAndFooter`) are written back as kept while the model's page format equals the format they were read as. Otherwise, each attribute §5 reads whose text no longer parses to the model's value is replaced with the model's value (§14.5), and all other text stays as it was. No phase 4 command changes the page format, so this happens only in repaired files, for example after `invalid_value` or `invalid_format`.
+- **Settings sections** (`ElementSettings`, `PageLayout`, `MoresAndContinueds`, `SceneNumberOptions`, `HeaderAndFooter`) are written back as kept. No phase 4 command changes the page format, and values the model rejects stay as the file has them (§9). A command that edits the page format (a later phase) will rewrite only the attributes whose value it changed.
 - **The title page** is written back as kept while the document's title lines equal the lines read from it. Otherwise its `Content` is generated from the title lines (§14.3), and the rest of the `TitlePage` section (its `HeaderAndFooter` and `TextState`) is kept.
 - **A section kept as a tree** (a `fixed` issue inside it) is written with the file's newline and indent, one element per line, attributes in their source order and quoted with `"`, text escaped as §14.2 says, and empty elements as `<X/>`.
 
@@ -500,7 +503,7 @@ A generated paragraph is written on its own line at the file's indent (two space
 
 When a group with a kept paragraph has changed, it is generated as in §14.1, and carries from the kept text:
 
-- **Paragraph attributes** other than the five §14.1 writes, in their source position. Of those five, `Type` is carried when the block's kind is still the one it was read as and the type name was not one of ours (§6.1), so an act break edited in Cold Open stays an act break. `Alignment`, `SpaceBefore` and `StartsNewPage` are carried unless the model's centered flag, spacing or page break changed. In that case the model's value is written, or the attribute left out.
+- **Paragraph attributes** other than the five §14.1 writes, in their source position. Of those five, `Type` is carried when the block's kind is still the one it was read as and the type name was not one of ours (§6.1), so an act break edited in Cold Open stays an act break. `Alignment`, `SpaceBefore` and `StartsNewPage` are carried unless the model's centered flag, spacing or page break changed. In that case the model's value is written, or the attribute left out. Inline layout attributes (the eight of §6.4) carry only when the paragraph keeps the `Type` it had, since they are measured against that type's settings.
 - **Children** other than `Text` (`SceneProperties`, unknown elements), in the same position relative to the runs: before them, between two of them by run index, or after them. `SceneProperties` stays only while the block is a scene heading, and a nested `DualDialogue` only while the group is still that dual block.
 - **Run attributes** other than `Style` (fonts, sizes, colors, revision marks, unknown attributes), per character. The kept and the new printed text are compared once from the start and once from the end. Characters in the common start and end keep the attributes they had, and text in between takes the attributes of the character before it, or the one after it at the very start, as `text.insert` takes style (`docs/specs/commands.md`). `Style` is always the model's.
 
@@ -563,6 +566,7 @@ Writing .fdx lists these losses, each with the block it concerns. A save refuses
 | `title_page_keys` | Fountain title-page keys | the lines, without their key names (§14.3) |
 | `dual_unpaired` | a dual flag layout would not pair | an ordinary speech |
 | `invalid_xml_char` | characters XML cannot hold | the text without them |
+| `spacing_out_of_range` | space above a paragraph (an override, or blank lines) outside 0 to the page body's height, which the reader would not accept (§6.4) | the paragraph without it |
 | `run_attributes` | run attributes on text that an edit split in a way §14.4 cannot follow (none known; the code is reserved so a gap is reported, not hidden) | the model's runs |
 
 **Decision (2026-10-16, with the project's owner).** No public .fdx sample shows how anchored script notes are stored, so the clean room gives nothing to write notes from. Notes, boneyard, sections and synopses are therefore losses, as a Shot is for Fountain. If a public sample with anchored script notes turns up, notes will be mapped to it.

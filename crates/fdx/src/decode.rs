@@ -1,6 +1,30 @@
 //! Turning the input bytes into text (docs/specs/fdx.md §2.1).
 
+use serde::{Deserialize, Serialize};
+
 use crate::report::{Issue, codes};
+
+/// How the file's bytes held its text, so it can be written back the same
+/// way (docs/specs/fdx.md §12).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextEncoding {
+    pub encoding: Encoding,
+    /// The file started with a byte-order mark.
+    pub bom: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Encoding {
+    #[default]
+    Utf8,
+    Utf16Le,
+    Utf16Be,
+    /// Read as windows-1252, as its declaration said; written as UTF-8.
+    Windows1252,
+    /// Not valid in any encoding we know; invalid bytes were replaced.
+    Lossy,
+}
 
 /// Decodes .fdx bytes into text, with a note for anything unusual.
 ///
@@ -9,9 +33,26 @@ use crate::report::{Issue, codes};
 /// valid, windows-1252 when the XML declaration names it (or ISO-8859-1),
 /// and lossy UTF-8 otherwise.
 pub fn decode_input(bytes: &[u8]) -> (String, Vec<Issue>) {
+    let (text, notes, _) = decode(bytes);
+    (text, notes)
+}
+
+/// [`decode_input`], also saying how the text was stored.
+pub fn decode(bytes: &[u8]) -> (String, Vec<Issue>, TextEncoding) {
+    let (text, notes, encoding, bom) = decode_parts(bytes);
+    (text, notes, TextEncoding { encoding, bom })
+}
+
+fn decode_parts(bytes: &[u8]) -> (String, Vec<Issue>, Encoding, bool) {
     let mut notes = Vec::new();
     if let Some(rest) = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
-        return (utf8(rest, &mut notes), notes);
+        let text = utf8(rest, &mut notes);
+        let enc = if notes.is_empty() {
+            Encoding::Utf8
+        } else {
+            Encoding::Lossy
+        };
+        return (text, notes, enc, true);
     }
     let utf16 = if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
         Some((rest, false))
@@ -25,6 +66,7 @@ pub fn decode_input(bytes: &[u8]) -> (String, Vec<Issue>) {
         None
     };
     if let Some((rest, big_endian)) = utf16 {
+        let bom = rest.len() != bytes.len();
         let order = if big_endian { "big" } else { "little" };
         notes.push(note(
             codes::ENCODING_UTF16,
@@ -37,27 +79,59 @@ pub fn decode_input(bytes: &[u8]) -> (String, Vec<Issue>) {
                 "the UTF-16 text holds invalid sequences; they were replaced with U+FFFD",
             ));
         }
-        return (text, notes);
+        let enc = match (lossy, big_endian) {
+            (true, _) => Encoding::Lossy,
+            (false, true) => Encoding::Utf16Be,
+            (false, false) => Encoding::Utf16Le,
+        };
+        return (text, notes, enc, bom);
     }
     if let Ok(s) = std::str::from_utf8(bytes) {
-        return (s.to_string(), notes);
+        return (s.to_string(), notes, Encoding::Utf8, false);
     }
     if declares_windows_1252(bytes) {
         notes.push(note(
             codes::ENCODING_WINDOWS_1252,
             "the file is not UTF-8; it was decoded as windows-1252, as its declaration says",
         ));
-        return (bytes.iter().map(|&b| windows_1252(b)).collect(), notes);
+        let text = bytes.iter().map(|&b| windows_1252(b)).collect();
+        return (text, notes, Encoding::Windows1252, false);
     }
-    (utf8(bytes, &mut notes), notes)
+    (utf8(bytes, &mut notes), notes, Encoding::Lossy, false)
+}
+
+/// Text as bytes in the file's encoding, for writing it back (§12). Text
+/// read as windows-1252, or with bytes replaced, is written as UTF-8.
+pub fn encode(text: &str, enc: TextEncoding) -> Vec<u8> {
+    match enc.encoding {
+        Encoding::Utf16Le | Encoding::Utf16Be => {
+            let be = enc.encoding == Encoding::Utf16Be;
+            let mut out = Vec::with_capacity(text.len() * 2 + 2);
+            if enc.bom {
+                out.extend_from_slice(if be { &[0xFE, 0xFF] } else { &[0xFF, 0xFE] });
+            }
+            for unit in text.encode_utf16() {
+                out.extend_from_slice(&if be {
+                    unit.to_be_bytes()
+                } else {
+                    unit.to_le_bytes()
+                });
+            }
+            out
+        }
+        Encoding::Utf8 | Encoding::Windows1252 | Encoding::Lossy => {
+            let mut out = Vec::with_capacity(text.len() + 3);
+            if enc.bom && enc.encoding == Encoding::Utf8 {
+                out.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
+            }
+            out.extend_from_slice(text.as_bytes());
+            out
+        }
+    }
 }
 
 fn note(code: &'static str, message: impl Into<String>) -> Issue {
-    Issue {
-        code,
-        message: message.into(),
-        paragraph: None,
-    }
+    Issue::new(code, message, None)
 }
 
 fn utf8(bytes: &[u8], notes: &mut Vec<Issue>) -> String {

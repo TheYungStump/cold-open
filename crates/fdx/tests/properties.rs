@@ -1,6 +1,8 @@
-//! Property tests: random and mutated input through `fuzzing::read`, the
-//! same checks the cargo-fuzz target runs (no panic, the same result twice,
-//! and a document that satisfies the model rules).
+//! Property tests: random and mutated input through `fuzzing::read` and
+//! `fuzzing::roundtrip`, the same checks the cargo-fuzz targets run (no
+//! panic, the same result twice, a document that satisfies the model
+//! rules, and the round trip of docs/specs/fdx.md §16.1); and generated
+//! documents through `fuzzing::write_document` (§16.2).
 
 use std::path::Path;
 use std::sync::OnceLock;
@@ -25,7 +27,8 @@ fn fixtures() -> &'static [Vec<u8>] {
 }
 
 fn check(data: &[u8]) -> Result<(), TestCaseError> {
-    coldopen_fdx::fuzzing::read(data).map_err(TestCaseError::fail)
+    coldopen_fdx::fuzzing::read(data).map_err(TestCaseError::fail)?;
+    coldopen_fdx::fuzzing::roundtrip(data).map_err(TestCaseError::fail)
 }
 
 /// One edit of a byte string: replace, delete, insert, truncate or
@@ -135,11 +138,19 @@ proptest! {
             .collect();
         check(&utf16)?;
     }
+
+    #[test]
+    fn generated_documents_write_and_read_back(data in vec(any::<u8>(), 0..400)) {
+        let (elements, spacing) = coldopen_fdx::fuzzing::document_from_bytes(&data);
+        coldopen_fdx::fuzzing::write_document(&elements, &spacing)
+            .map_err(TestCaseError::fail)?;
+    }
 }
 
 #[test]
 fn every_fixture_passes_the_fuzz_checks() {
     for f in fixtures() {
         coldopen_fdx::fuzzing::read(f).unwrap();
+        coldopen_fdx::fuzzing::roundtrip(f).unwrap();
     }
 }

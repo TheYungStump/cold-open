@@ -63,3 +63,17 @@ path = "fuzz_targets/app_config.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "fdx_roundtrip"
+path = "fuzz_targets/fdx_roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fdx_write"
+path = "fuzz_targets/fdx_write.rs"
+test = false
+doc = false
+bench = false

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
+<FinalDraft DocumentType="Script" Template="No" Version="4">
+
+  <Content>
+    <Paragraph Type="Scene Heading">
+      <Text>INT. WORKSHOP - NIGHT</Text>
+    </Paragraph>
+    <Paragraph Type="Action">
+      <Text>Sparks fly from the grinder.</Text>
+    </Paragraph>
+    <Text>MARA</Text>
+    <Paragraph Type="Dialogue">
+      <Text>Hand me the clamp.</Text>
+    </Paragraph>
+  </Content>
+
+  <Unknown Kind="ours">
+    <Child/>
+  </Unknown>
+</FinalDraft>

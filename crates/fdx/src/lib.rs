@@ -19,10 +19,12 @@ mod content;
 mod decode;
 #[doc(hidden)]
 pub mod fuzzing;
+mod kept;
 mod report;
 mod settings;
 mod title;
 mod values;
+mod write;
 mod xml;
 
 use std::collections::BTreeMap;
@@ -31,8 +33,10 @@ use std::fmt;
 use coldopen_screenplay::{PageFormat, Pt, Script, TitleLine};
 use serde::Serialize;
 
-pub use decode::decode_input;
+pub use decode::{Encoding, TextEncoding, decode, decode_input, encode};
+pub use kept::{Kept, KeptBlock, KeptParagraph, Loose, Section, XmlStyle};
 pub use report::{Issue, codes};
+pub use write::{Blk, Doc, Loss, Written, write};
 
 /// Everything the reader takes from an .fdx file.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -52,6 +56,49 @@ pub struct FdxDoc {
     pub scenes: Vec<SceneProps>,
     /// What the reader could not carry over, in the order of §9.
     pub report: Vec<Issue>,
+    /// Everything the file holds that the script does not, to write it
+    /// back (§13). Block ids in it are 1-based indices into
+    /// `script.elements`.
+    pub kept: Kept,
+    /// How the file's bytes held the text.
+    pub encoding: TextEncoding,
+}
+
+impl FdxDoc {
+    /// True when the reader repaired the file (§9): it holds a `fixed` or
+    /// `dropped` issue.
+    pub fn repaired(&self) -> bool {
+        self.report.iter().any(Issue::is_repair)
+    }
+
+    /// The blocks of the document as read, for [`write`]: ids are 1-based
+    /// element indices, as the store names them.
+    pub fn blocks(&self) -> Vec<Blk<'_>> {
+        self.script
+            .elements
+            .iter()
+            .enumerate()
+            .map(|(i, element)| Blk {
+                id: i as u64 + 1,
+                element,
+                spacing: self.overrides.get(&i).copied(),
+            })
+            .collect()
+    }
+
+    /// The document written back unedited (§16).
+    pub fn write_back(&self) -> Written {
+        write(&Doc {
+            blocks: self.blocks(),
+            format: &self.format,
+            title_lines: &self.title_lines,
+            kept: Some(&self.kept),
+            declare_utf8: matches!(
+                self.encoding.encoding,
+                Encoding::Windows1252 | Encoding::Lossy
+            ),
+        })
+    }
 }
 
 /// The properties an .fdx file records for one scene, kept as written.
@@ -95,12 +142,22 @@ impl std::error::Error for FdxError {}
 /// Reads an .fdx file. Never panics.
 pub fn read(bytes: &[u8]) -> Result<FdxDoc, FdxError> {
     let mut report = report::Report::default();
-    let (text, notes) = decode_input(bytes);
+    let (text, notes, encoding) = decode(bytes);
     report.extend(notes);
-    let root = xml::parse(&text, &mut report)?;
-    let settings = settings::read(&root, &mut report);
-    let content = content::read(&root, &settings, &mut report);
-    let title_lines = title::read(&root, &settings.format, &mut report);
+    let tree = xml::parse(&text, &mut report)?;
+    let root = &tree.root;
+    let settings = settings::read(root, &mut report);
+    let content = content::read(root, &settings, &mut report);
+    let title_lines = title::read(root, &settings.format, &mut report);
+    let kept = kept::build(&kept::Source {
+        text: &text,
+        tree: &tree,
+        elements: &content.script.elements,
+        overrides: &content.overrides,
+        groups: &content.groups,
+        format: &settings.format,
+        title_lines: &title_lines,
+    });
     Ok(FdxDoc {
         script: content.script,
         format: settings.format,
@@ -108,6 +165,8 @@ pub fn read(bytes: &[u8]) -> Result<FdxDoc, FdxError> {
         title_lines,
         scenes: content.scenes,
         report: report.finish(),
+        kept,
+        encoding,
     })
 }
 
