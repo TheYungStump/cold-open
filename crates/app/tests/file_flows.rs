@@ -5,6 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
+use coldopen_app::app::Prompt;
 use coldopen_app::files::{Ask, Dialogs, Dirs};
 use coldopen_app::headless::Headless;
 use coldopen_app::{App, Boot, Message};
@@ -92,6 +93,35 @@ fn closing_with_changes_asks_and_each_answer_does_what_it_says() {
     // The start screen: Mod+N starts a new script there.
     h.shortcut('n', false);
     assert!(h.app.d.session().is_some());
+}
+
+/// The Antigravity review (its finding 4) said that D or N on the lossy
+/// save question ("Save anyway" / "Cancel") closes the script without
+/// saving. It does not: on that question both keys only cancel.
+#[test]
+fn d_or_n_on_the_lossy_save_question_cancels() {
+    let home = tempfile::tempdir().unwrap();
+    let p = script(home.path());
+    let mut h = app(home.path(), Some(&p), None);
+    to_first_action(&mut h);
+    h.shortcut('7', false); // a Shot, which Fountain cannot hold
+    for key in ["d", "n"] {
+        h.shortcut('w', false); // close: "Save changes?"
+        assert!(matches!(h.app.prompt, Some(Prompt::Unsaved(_))));
+        h.named(Named::Enter, Modifiers::empty()); // Save
+        assert!(
+            matches!(h.app.prompt, Some(Prompt::Lossy { .. })),
+            "{:?}",
+            h.app.prompt
+        );
+        press(&mut h, key);
+        assert!(h.app.prompt.is_none());
+        let s = h.app.d.session().expect("the script is still open");
+        assert!(s.dirty);
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), SCRIPT);
+        assert!(coldopen_core::journal::path_for(&p).exists());
+    }
+    h.app.d.discard();
 }
 
 #[test]
