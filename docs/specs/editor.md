@@ -1,12 +1,13 @@
 # The desktop editor
 
 - **Date:** 2026-10-15, updated 2026-10-16
-- **Status:** implemented in `crates/app` (phase 3); the 2026-10-16 changes come from the reviews of phases 1–3
+- **Status:** implemented in `crates/app` (phase 3); the 2026-10-16 changes come from the reviews of phases 1–3. Phase 4 (2026-10-16) adds .fdx files, the repair report, Recovered versions and one command router (§16); they are being implemented.
 - **Sources:**
   - `docs/spec.md`: Writing, Structure and navigation, Comfort, Reliability.
   - The phase 3 brief and its approved decisions (2026-10-15).
   - `docs/specs/commands.md`, `docs/specs/journal.md`, `docs/specs/layout.md`, `docs/specs/mcp.md`.
   - The reviews of phases 1–3 (2026-10-15), listed in `docs/progress/review-fixes.md`.
+  - The phase 4 brief and the decisions taken with the project's owner (2026-10-16, `docs/progress/phase-4.md`), and `docs/specs/fdx.md`.
   - General screenwriting practice as `docs/spec.md` summarizes it: which element usually follows which, and the common extensions, prefixes and times of day.
 - No Final Draft software, manual, help text or screenshots were used. The element flow, the shortcuts and the look are our own choices. A choice where the sources are silent is marked **Resolution**.
 
@@ -191,7 +192,7 @@ Mod+K or Mod+Shift+P opens the palette.
 
 - **What it lists.** Every core command, by its dotted name and a short title, and every app action (§10), with its shortcut. Typing filters the list by subsequence, and the best matches come first.
 - **Commands that use the caret or selection** run directly: element types, styles, `scene.move` for the current scene, undo and redo.
-- **Any other command** opens a small form where its params can be written as JSON, and shows the response. Every command is reachable from the keyboard, including queries such as `doc.get`. The commands that open, create, close, revert or save the script (`doc.open`, `doc.new`, `doc.close`, `doc.revert`, `doc.save`) go through the app's own flows instead (2026-10-16): Open, New and Close ask about unsaved changes and disconnect agents, `doc.save` uses Save or Save as, and `doc.revert` reloads, keeping a copy of unsaved changes. `doc.close` with `discard` still asks; the form never skips a question the menus ask.
+- **Any other command** opens a small form where its params can be written as JSON, and shows the response. Every command is reachable from the keyboard, including queries such as `doc.get`. What the form sends goes through the app's command router like everything else (§16): the commands that open, create, close, revert or save the script, export it, repair a file or restore a copy run the app's own flows, so the form never skips a question the screens ask. `doc.close` with `discard` still asks.
 
 ## 10. Keyboard map
 
@@ -206,6 +207,9 @@ Shortcuts are looked up by **action** name: a core command (`undo`, `doc.save`, 
 | `app.save_as` | Mod+Shift+S |
 | `app.close` (`doc.close` with a prompt) | Mod+W |
 | `app.export_pdf` (`export.pdf` through a dialog) | Mod+Shift+E |
+| `app.export_fdx`, `app.export_fountain` (save a copy as .fdx or Fountain, through a dialog) | — (palette) |
+| `app.repair` (repair an .fdx file into a new one, §11) | — (palette) |
+| `app.recovered` (the Recovered versions screen, §13) | — (palette, start screen, notices) |
 | `app.quit` | Mod+Q |
 | `undo` | Mod+Z |
 | `redo` | Mod+Shift+Z, and Mod+Y on Windows and Linux |
@@ -261,11 +265,14 @@ Esc closes the topmost overlay, or the autocomplete list. Movement and editing k
 
 - **New.** **Resolution:** a new script is created with `doc.new` at `Unsaved/Untitled-<n>.fountain` in the data folder, with `start: "scene_heading"`, so it has a crash journal from its first keystroke and begins clean, on an empty scene heading. A script nobody typed in is never offered as lost work and never asks to be saved. The file itself is written only by "Save as". Mod+S on such a script opens "Save as".
 - **No script open.** After Close, the window shows New, Open and the recent files. Mod+N, Mod+O and the palette work there too.
-- **Open.** A dialog for `.fountain`, `.spmd` and `.txt` files, then `doc.open`. If the result reports a recovery, the recovery dialog opens (§13).
-- **Recent files** are listed in the palette and the open dialog.
+- **Open.** A dialog for `.fountain`, `.spmd`, `.txt` and (2026-10-16) `.fdx` files, then `doc.open`. If the result reports a recovery, the recovery dialog opens (§13). If it reports a repair, the repair dialog does (below).
+- **A repaired file** (2026-10-16). When `doc.open` reports `repaired`, a dialog says "Cold Open repaired this file", gives the counts (fixed, dropped) and the first few issues in plain words, with no script text. **OK** (Enter, Esc or O) continues with the repaired script; nothing has been written yet. **Details** (D) shows the whole report. **Save repaired copy…** (S) runs Save as. The first save over the damaged file keeps a hidden copy of it, listed in Recovered versions, and says so in a banner.
+- **Repair a file…** (`app.repair`, 2026-10-16) asks for an .fdx file, then for where to write the repaired copy, runs `file.repair`, and shows the report in the same dialog. The open script is not touched.
+- **Recent files** are listed in the palette and the open dialog, .fdx files included. A script opened, saved as or restored is added.
 - **Save.** `doc.save` runs off the UI thread (`docs/specs/journal.md`, "Saving off the UI thread"). The status bar shows "Saving…" until it is done. Mod+S during a save saves again when it finishes. If Fountain can't hold something in the script, the app says what and asks "Save anyway" (`allow_lossy`) or Cancel.
 - **Changed by another program** (2026-10-16). If the save fails with `file_changed`, the app says the file was changed by another program and asks: **Save as…** (Enter or A, the default, which keeps both versions), **Overwrite** (O: saves again with `overwrite`), **Reload** (R: `doc.revert`, which keeps a copy of the unsaved changes, and a banner names it), or Cancel (Esc or C). A pending close or quit waits on the answer, as for "Save anyway".
-- **Save as.** A dialog, then `doc.save` with `path`, on the UI thread. PDF export passes `overwrite` the same way. A name typed without an extension gets `.fountain`. Moving an untitled script out of `Unsaved/` also removes its old journal. The system's save dialog asks before replacing a file, so the app passes `overwrite` (2026-10-16), except when it added the extension itself: the dialog asked about the name without it.
+- **Save as.** A dialog, then `doc.save` with `path`, on the UI thread. PDF export passes `overwrite` the same way. The dialog offers Fountain (`.fountain`) and FDX (`.fdx`); the extension of the name chosen decides the format, so Save as converts (`docs/specs/commands.md`), and what the new format cannot hold is asked about first, as "Save anyway" does. A name typed without an extension gets the extension of the script's own format (2026-10-16; before, always `.fountain`).
+- **Export .fdx and Export Fountain** (2026-10-16) save a copy in that format through a dialog (`export.fdx`, `export.fountain`); the open script keeps its own file and format. Losses are asked about as for a save. Moving an untitled script out of `Unsaved/` also removes its old journal. The system's save dialog asks before replacing a file, so the app passes `overwrite` (2026-10-16), except when it added the extension itself: the dialog asked about the name without it.
 - **Close and quit.** With unsaved changes, the app asks: Save, Don't save, or Cancel. Keys: Enter or S saves, D or N doesn't, Esc or C cancels; nothing else runs while it asks. Don't save sends `doc.close` with `discard`. Save finishes the save, including a "Save as" for an untitled script, before closing. The window's close button asks the same question.
 - **Export PDF.** First a small form: scene numbers (Mod+1, off by default), title page (Mod+2, on by default) and a watermark field, which has the keyboard. Enter opens the dialog for the path; then `export.pdf`. A banner gives the page count and the first warning, if any.
 - **Dialogs.** Open, Save as and Export use the operating system's own file dialogs (the XDG desktop portal on Linux, with no GTK). The app's own questions (unsaved changes, recovery, export options) are drawn in the window, and every button in them has a key.
@@ -298,6 +305,9 @@ When an agent attaches to the open script through `coldopen mcp` (`docs/specs/mc
   The number of changes is the number of recovered commands, so a burst of typing counts each key.
 - **A journal from somewhere else** (2026-10-16). When `doc.open` fails with `journal_foreign`, the app asks before anything is recovered: "Unsaved changes from somewhere else", naming the computer and path the journal was written for. **Recover them** (Enter or R) opens with `recover: "apply"`, and the recovery dialog follows as usual, so Discard is still there. **Set them aside** (S) opens with `recover: "discard"`, which keeps a copy. Cancel (Esc or C) leaves the script closed.
 - **Errors.** A command that fails shows a banner with the error's message, and the editor stays usable. Nothing fails silently.
+- **Work set aside** (2026-10-16). When work is set aside (Don't save, Discard in the recovery dialog, Reload, a journal kept aside on open, a damaged original kept on save), the banner says "Your unsaved changes were set aside. Open Recovered versions to restore them." (or, for a damaged original, "The file as it was before the repair was kept. Open Recovered versions to see it.") with a **Recovered versions** button. Banners never show the copy's path; before phase 4 some named it, and Don't save and Discard said nothing.
+- **Recovered versions** (2026-10-16; `app.recovered`, also on the start screen and in those banners). A screen listing the set-aside copies (`docs/specs/journal.md`, "Recovered versions") of the open script, the recent scripts and the untitled scripts in `Unsaved/`, newest first. Each row shows the script's name, what the copy is ("Set aside when you chose Don't save", "Changes that could not all be replayed", "An unreadable crash journal", "The file before Cold Open repaired it") and when it was made. Up and Down choose a row, stopping at the ends; the selected copy is previewed read-only beside the list. **Restore** (R or Enter) opens it as a new untitled script (`recovered.restore` into `Unsaved/`), after the usual question about the open script's unsaved changes; nothing is overwritten. **Delete** (Delete) asks "Delete this copy? It can't be undone." (Enter deletes, Esc cancels), then sends `recovered.delete`. Esc closes the screen. A copy that will be removed at the next start says so ("Removed at next start: older than 30 days").
+- **Clean-up at start-up** (2026-10-16): the app deletes the copies the rule in `docs/specs/journal.md` allows, and records in `recovered.json` the first time each copy was shown in the list.
 - **Esc** closes the nearest thing first: the autocomplete list, the find bar or palette, a selection, then the banners, then the leftover-work offer. "Dismiss messages" in the palette does the last two.
 
 ## 14. Testing the app
@@ -306,6 +316,7 @@ When an agent attaches to the open script through `coldopen mcp` (`docs/specs/mc
 
 - **Typing gate** (`crates/app/tests/typing_gate.rs`). A short scene is typed key by key: smart flow, two autocomplete picks, accented letters from the keyboard and from an input method, a pause and an undo, then Mod+S and its "Save as" dialog. The saved file must equal `tests/fixtures/app/gate-scene.fountain` byte for byte.
 - **File flows** (`crates/app/tests/file_flows.rs`): saving in place, close and quit prompts, save as from `Unsaved/`, the recovery dialog after a crash (Keep and Discard), leftover work at start-up, and PDF export options.
+- **The .fdx gates** (2026-10-16): the typing gate's key sequence is also typed into an .fdx script, which must save and read back with nothing lost; the crash gate also kills the app during .fdx saves and during Save as from Fountain to .fdx.
 - **Crash gate** (`crates/app/tests/crash_gate.rs`). The app runs as its own process (`coldopen-driver`), keys go in one at a time, and the process is killed (TerminateProcess or SIGKILL) at points spread over the sequence. Reopening must give back every acknowledged key. Since 2026-10-16 (review finding F17.4) it also saves every seven keys, so kills land before, during and right after saves, and it kills the app while an agent attached through the real link is inserting lines: every edit the agent was told had succeeded must come back.
 
 ## 15. Not in phase 3
@@ -316,3 +327,18 @@ When an agent attaches to the open script through `coldopen mcp` (`docs/specs/mc
 - A settings screen for shortcuts.
 - Multiple windows, and a native macOS menu bar.
 - Screen readers, and input methods for Chinese, Japanese and Korean (v1.x in `docs/spec.md`).
+
+## 16. One command router
+
+Added 2026-10-16 (phase 4; review finding F18.5). Keys, the palette and its params form, buttons and agents all send what they want done through one function, `App::dispatch(request, origin)`. A request is an app action (§10) or a core command. The origin says who sent it, so it is decided in one place what each source may do and which questions come first:
+
+| Request | From the writer (keys, buttons, palette, params form) | From an agent over the link |
+| --- | --- | --- |
+| Edits, `undo`, `redo` | The dispatcher, as the writer. | The dispatcher, as the agent (`docs/specs/mcp.md` §5.4). |
+| Queries | The dispatcher. | The dispatcher. |
+| `doc.open`, `doc.new`, `doc.close`, `doc.revert`, `recovered.restore` | The app's flows: unsaved changes are asked about, agents are disconnected when the path changes, and recent files are updated. | Refused, `not_allowed_attached`. |
+| `doc.save` | Save in place runs off the UI thread; with a path, Save as. Losses and changed files are asked about. | In place only, as the agent; with a path, refused. |
+| `export.pdf`, `export.fdx`, `export.fountain`, `file.repair` | Through a dialog for the path. With params from the form, as given, still asking before replacing a file. | As given, as the agent. `overwrite` and `allow_lossy` are refused (`writer_only`). |
+| `recovered.delete` | Asks first. | Refused, `not_allowed_attached`. |
+
+Before running anything that opens, closes, reverts or replaces the script, the router waits for a save in flight to finish (before phase 4, opening another script during a background save did not wait). While one of the app's questions is open, only that question's keys reach it; an agent's request that would need a question is refused with `not_allowed_attached` and a message saying the writer is being asked something.

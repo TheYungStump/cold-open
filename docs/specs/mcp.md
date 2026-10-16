@@ -1,7 +1,7 @@
 # MCP server and the agent link
 
 - **Date:** 2026-10-15, updated 2026-10-16
-- **Status:** implemented (phase 3, 2026-10-15): the server in `crates/mcp`, run as `coldopen mcp`; the link's protocol and transport in `crates/link`, shared by the server and the app; the app's end of the link in `crates/app`. The agent gate (`crates/cli/tests/agent_gate.rs`) runs a real `coldopen mcp` process against the app.
+- **Status:** phase 4 (2026-10-16) adds the tools for .fdx export, file repair and recovered copies (§3); they are being implemented. Implemented (phase 3, 2026-10-15): the server in `crates/mcp`, run as `coldopen mcp`; the link's protocol and transport in `crates/link`, shared by the server and the app; the app's end of the link in `crates/app`. The agent gate (`crates/cli/tests/agent_gate.rs`) runs a real `coldopen mcp` process against the app.
 - **Sources:**
   - `docs/spec.md`: Command interface, "Agents edit in the open", License (`coldopen mcp` and connecting any agent are always free).
   - The phase 3 brief and its approved decisions (2026-10-15).
@@ -40,10 +40,12 @@ coldopen mcp [--doc PATH] [--no-attach]
 | Tool | Command | Notes |
 | --- | --- | --- |
 | `doc_new`, `doc_open`, `doc_save`, `doc_close`, `doc_revert` | session | `doc_open` takes an extra `attach` param (§5). When attached, only `doc_open`, `doc_close` and `doc_save` without a path are allowed (§5.4). |
-| `doc_get`, `doc_export`, `scene_list`, `text_find`, `text_complete`, `history_list` | query | |
+| `doc_get`, `doc_export`, `scene_list`, `text_find`, `text_complete`, `history_list`, `recovered_list` | query | `recovered_list` added 2026-10-16. |
 | `block_insert`, `block_set_type`, `block_set_text`, `block_set_attrs`, `block_delete`, `block_split`, `block_join`, `text_insert`, `text_delete`, `text_style`, `text_replace`, `scene_move`, `batch` | edit | Each call is one undo step, labelled `<client name> · <tool>`. |
 | `undo`, `redo` | history | An agent may undo or redo only its own steps (`not_your_step`). |
-| `export_pdf` | output | |
+| `export_pdf`, `export_fdx`, `export_fountain` | output | The last two added 2026-10-16. |
+| `file_repair` | file | Added 2026-10-16: writes a repaired copy of an .fdx file to a new path (`docs/specs/commands.md`, "Files"). |
+| `recovered_restore`, `recovered_delete` | writer-only | Added 2026-10-16. Listed, as every command is, but an agent always gets `writer_only`: the writer's set-aside work is theirs to restore or delete (§6). |
 
 - **Input schemas.** Each tool's input schema is its command's params as JSON Schema, generated from the same Rust types the dispatcher deserializes, so they cannot drift apart. Unknown params are refused, as in the envelope.
 - **Results.**
@@ -135,7 +137,7 @@ After the handshake, each line from the client is a version 1 command envelope (
 
 - **One at a time.** Requests run one at a time, in order, in the app's own event loop, between the writer's keystrokes. A command from an agent and a keystroke can never interleave halfway.
 - **Authors.** Each command runs with the author `{"kind": "agent", "name": <from the handshake>, "tool": <tool>}`. It is journaled and labelled as `docs/specs/commands.md` describes.
-- **Refused commands.** These fail with `not_allowed_attached`: `doc.new`, `doc.open`, `doc.close`, `doc.revert`, and `doc.save` with a `path`. An agent can't replace, close or rename the writer's document. Saving it in place is allowed.
+- **Refused commands.** These fail with `not_allowed_attached`: `doc.new`, `doc.open`, `doc.close`, `doc.revert`, `doc.save` with a `path`, and (2026-10-16) `recovered.restore` and `recovered.delete`. An agent can't replace, close or rename the writer's document. Saving it in place is allowed, and so is exporting a copy to a new path. The app decides this in its command router (`docs/specs/editor.md` §16).
 - **Leaving.** A client that is done sends `{"bye":true}`. The app then sends `closed` and closes the link from its side. (2026-10-15: a client can't close a pipe while its own reading thread still holds it, so it asks.)
 - **Limits.** A line over 8 MiB, or a `batch` of more than 10,000 commands, is refused, and an over-long line closes the link.
 - **Events.** The app also writes these lines to every link:
@@ -165,7 +167,7 @@ Commands still run as the agent, so the undo labels and the `not_your_step` rule
 
 **The writer's recovered work** (2026-10-16). After the app crashes, `coldopen mcp` is often the first to open the script, so it recovers the writer's journal. The agent may read, edit and save that work, or leave it in the journal, but it may never set it aside: while the session holds recovered work that includes any of the writer's entries and has not been saved, `doc_close` with `discard`, `doc_revert`, and `doc_open` with `recover: "discard"` all fail with `not_your_step` (`details.recovered` is true), and nothing changes. Each of these would keep a copy, but the writer would never be shown it. Work the agent recovered from its own entries may be discarded as usual.
 
-**Choices that are the writer's** (2026-10-16). An agent may not pass `allow_lossy` to `doc_save`: what Fountain drops is the writer's call, which their own save asks about ("Save anyway?"). An agent that wants to save a script holding, say, a Shot changes that element itself, as an undoable step. Nor may an agent pass `overwrite` to `doc_save` or `export_pdf` (`writer_only`): replacing a file another program changed, or any file that is not the open document, is the writer's decision, and an agent would simply pass the flag. An agent saves or exports to a new path instead. §7's reasoning about same-user programs does not cover this: an MCP client is often a model following text it read, so the tools themselves are the boundary.
+**Choices that are the writer's** (2026-10-16). An agent may not pass `allow_lossy` to `doc_save`: what Fountain drops is the writer's call, which their own save asks about ("Save anyway?"). An agent that wants to save a script holding, say, a Shot changes that element itself, as an undoable step. Nor may an agent pass `overwrite` to `doc_save` or `export_pdf` (`writer_only`): replacing a file another program changed, or any file that is not the open document, is the writer's decision, and an agent would simply pass the flag. An agent saves or exports to a new path instead. Nor (2026-10-16) may an agent restore or delete a set-aside copy (`writer_only`), since the writer is the one shown those copies. §7's reasoning about same-user programs does not cover this: an MCP client is often a model following text it read, so the tools themselves are the boundary.
 
 ## 7. Security
 

@@ -10,7 +10,7 @@ Phase 4 makes Cold Open read and write .fdx. A file that came from another app o
 | --- | --- | --- |
 | 1 | Branch, and this file | done |
 | 2 | Format seam (F18.1): a `Format` trait in core with Fountain behind it, no change in behaviour; the journal header records the format. Its own reviewed commit | done |
-| 3 | Specs before code: `fdx.md` (writer, passthrough, round trip, repair report), `commands.md`, `journal.md` (F18.2–F18.4, hidden files, Recovered versions, cleanup), `editor.md`, `mcp.md`, `layout.md`, `fountain.md` | |
+| 3 | Specs before code: `fdx.md` (writer, passthrough, round trip, repair report), `commands.md`, `journal.md` (F18.2–F18.4, hidden files, Recovered versions, cleanup), `editor.md`, `mcp.md`, `layout.md`, `fountain.md` | done |
 | 4 | Model and layout: the document's page format, title lines, paragraph spacing and passthrough store; per-document layout | |
 | 5 | .fdx reader: a lossless XML layer, the passthrough store, resyncing after syntax errors, report classes; our own fixtures, broken ones included | |
 | 6 | .fdx writer: write back what was read byte for byte, generate what was edited; property tests, the hostile-input timing test, fuzz targets for the writer | |
@@ -56,3 +56,14 @@ The files are studied only with scripts that print structure (element paths, att
    - a test of a non-Fountain header through `doc.save`.
 
    Not a bug: a recovered journal whose header names another format than its path's. A save then converts, and its loss check reports what the conversion drops.
+5. **Specs written before code** (step 3):
+   - `fdx.md` §12 to §18: the writer, passthrough, generating, losses, round trip and repair. Every report code gains a class (fixed, dropped, kept or info). A file is "repaired" when it has a fixed or dropped issue, and only a repaired file may differ when written back unedited.
+   - `commands.md`: .fdx in open, save and export; conversion on Save as; `export.fdx`, `export.fountain`, `file.repair`, `recovered.list`, `recovered.restore` and `recovered.delete`; a new `file` class.
+   - `journal.md`: the document's new header fields, damaged originals, hidden files, Recovered versions and clean-up, and the decisions for phase 5 (F18.2–F18.4).
+   - `editor.md`: the .fdx flows, the repair dialog, the Recovered versions screen, and the router table (§16).
+   - `mcp.md`, `layout.md` and `fountain.md`: the matching additions.
+6. **Generate and compare** (`fdx.md` §13.2): at read time each paragraph is generated from its blocks and compared with its bytes. Only the paragraphs that differ are kept as text, which makes the unedited round trip byte-identical by construction and keeps the store, and so the journal header, small.
+7. **`Version="1"` for new files**, the lowest version in the samples, and only elements every sample version has. New files use Courier Prime and our own `PageFormat` values (`fdx.md` §14.6).
+8. **No `File ›` wording.** The notices say "Open Recovered versions to restore them." and carry a button (decision 4). A damaged original has its own sentence.
+9. **Fountain from .fdx** (`fountain.md` §11): new losses for a non-default page format, spacing that isn't whole lines, title-line positions (with a written rule for turning lines into keys) and the .fdx store.
+

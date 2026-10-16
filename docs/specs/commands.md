@@ -1,8 +1,8 @@
 # Command schema, version 1
 
 - **Date:** 2026-10-13, updated 2026-10-15 and 2026-10-16
-- **Status:** implemented in `crates/core` (phase 1; `export.pdf`, the `pages` export and scene pages added in phase 2, 2026-10-13). Phase 3 (2026-10-15) adds keystroke editing, undo grouping, authors, `batch`, find, completion, history and `doc.revert`; they are being implemented.
-- **Sources:** `docs/spec.md` (Command interface), `CLAUDE.md` (Commands), the phase 3 brief (2026-10-15), the reviews of phases 1–3 (2026-10-15, listed in `docs/progress/review-fixes.md`). No external material.
+- **Status:** implemented in `crates/core` (phase 1; `export.pdf`, the `pages` export and scene pages added in phase 2, 2026-10-13; phase 3's keystroke editing, undo grouping, authors, `batch`, find, completion, history and `doc.revert`, 2026-10-15). Phase 4 (2026-10-16) adds .fdx to `doc.open`, `doc.new`, `doc.save` and `doc.export`, and the commands `export.fdx`, `export.fountain`, `file.repair`, `recovered.list`, `recovered.restore` and `recovered.delete`; they are being implemented.
+- **Sources:** `docs/spec.md` (Command interface, File formats), `CLAUDE.md` (Commands), the phase 3 brief (2026-10-15), the reviews of phases 1–3 (2026-10-15, listed in `docs/progress/review-fixes.md`), the phase 4 brief and its decisions (2026-10-16, `docs/progress/phase-4.md`), `docs/specs/fdx.md`. No external material.
 
 Every action in Cold Open is a command. The desktop app, the CLI, JSON over stdio and the MCP server all send the same commands to one dispatcher.
 
@@ -114,6 +114,7 @@ Commands fall into these classes:
 | **query** | — | Not journaled |
 | **output** | — | Not journaled; writes one file from the document without changing it |
 | **session** | — | See `docs/specs/journal.md` |
+| **file** (2026-10-16) | — | Not journaled; works on files other than the open document, and needs no open document |
 
 An edit that changes nothing, such as `text.replace` with no matches, succeeds without being journaled or added to the undo history.
 
@@ -126,6 +127,7 @@ An edit that changes nothing, such as `text.replace` with no matches, succeeds w
 | `doc.save` | `path?`, `format?`, `allow_lossy?`, `overwrite?` | `{path, format, bytes, losses}` |
 | `doc.close` | `discard?` | `{warnings}` |
 | `doc.revert` | — | `{path, blocks, scenes, warnings}` |
+| `recovered.restore` | `copy`, `path` | `{path, format, blocks, scenes, warnings}` |
 
 Notes on each command:
 
@@ -137,14 +139,17 @@ Notes on each command:
   - Without a path, the document is held in memory only, and a warning says so.
   - `start` (2026-10-15) is an element type, such as `"scene_heading"`. The document then begins with one empty block of that type, so an editor has a line to type on. The block is part of the new document, not an edit: the document starts clean, with nothing to undo and an empty journal.
 - **`doc.open`**
-  - Reads a `.fountain`, `.spmd` or `.txt` file.
+  - Reads a `.fountain`, `.spmd` or `.txt` file as Fountain, or (2026-10-16) an `.fdx` file (`docs/specs/fdx.md`). The extension decides, ignoring case. `format` in the result says which.
+  - `repaired` (2026-10-16) is null, or, for an .fdx file the reader had to repair (`docs/specs/fdx.md` §9), `{fixed, dropped, issues}`: how many issues of each class, and the report's issues. Repair is automatic; the open goes ahead.
   - `recover` is `"auto"` (the default), `"discard"` or `"apply"`. If a crash journal exists, `auto` recovers it and `discard` sets it aside unread; see the journal spec. A journal written on another computer or for another path (synced or copied with the script) is only offered: `auto` fails with `journal_foreign` and changes nothing, and `apply` recovers it anyway (2026-10-16).
   - `recovered` is null, or `{commands, external_change, last}`. `last` (added 2026-10-15) is when the newest recovered change was made, in milliseconds since the Unix epoch, for the app's recovery dialog.
 - **`doc.save`**
   - Saves atomically.
   - `path` is "save as". A path where another file already is fails with `already_exists` unless `overwrite` is true (2026-10-16): "save as" never replaces a file by accident, and every `.txt` counts as a script. The target's lock is taken, and its crash journal judged, before anything is written (2026-10-16; `docs/specs/journal.md`, "Saving"): a target open in another process fails with `doc_locked`, and one whose journal holds unsaved work fails with `unsaved_changes`. A refused save writes nothing.
-  - `format` is `"fountain"`. It is inferred from the path's extension when omitted. A save in place writes the format the document was opened in or last saved as, which the session remembers, and `doc.open` reports it as `format` (2026-10-16, phase 4).
-  - If Fountain cannot hold something in the document, the save fails with `lossy_format` and lists the losses, unless `allow_lossy` is true. A file read as Windows-1252 and about to be written as UTF-8 counts as a loss too (`reencoded`, 2026-10-16; `docs/specs/journal.md`, "Encoding"). Only a writer may pass `allow_lossy` (2026-10-16); from an agent it fails with `writer_only`.
+  - `format` is `"fountain"` or (2026-10-16) `"fdx"`. It is inferred from the path's extension when omitted. A save in place writes the format the document was opened in or last saved as, which the session remembers, and `doc.open` reports it as `format`. An .fdx file therefore saves back to .fdx.
+  - **Converting** (2026-10-16). "Save as" to a path of another format converts: the document is written in the target's format, and from then on the session is in that format. What the target format cannot hold is listed as losses before anything is written, as below. An explicit `format` that disagrees with a path whose extension names another format fails with `unsupported_format`.
+  - **A repaired .fdx file** (2026-10-16). The first save in place of a document whose `doc.open` reported `repaired` first keeps a copy of the damaged file as it was (`docs/specs/journal.md`, "Damaged originals"), and an `original_kept` warning in the result names it. If the copy cannot be made, the save fails with `io_error` and writes nothing.
+  - If the format cannot hold something in the document (`docs/specs/fountain.md` §9, `docs/specs/fdx.md` §15), the save fails with `lossy_format` and lists the losses, unless `allow_lossy` is true. A file read as Windows-1252 and about to be written as UTF-8 counts as a loss too (`reencoded`, 2026-10-16; `docs/specs/journal.md`, "Encoding"). Only a writer may pass `allow_lossy` (2026-10-16); from an agent it fails with `writer_only`.
   - Saving in place over a file that another program changed since this session last read or wrote it fails with `file_changed` (2026-10-16; `docs/specs/journal.md`, "Saving"). `overwrite: true` replaces it anyway. Only a writer may pass `overwrite`; from an agent it fails with `writer_only`.
   - While a save off the UI thread is being written, `doc.save` fails with `save_in_progress` (2026-10-16; `docs/specs/journal.md`, "One save at a time"). Try again when it has finished.
 - **`doc.close`**
@@ -156,6 +161,12 @@ Notes on each command:
   - The journal is never deleted by a revert: if the document has unsaved changes or the journal holds entries, it is copied aside to `<journal>.discarded-<ms>` first, then started again from the file. (2026-10-16: "unsaved changes" covers a recovered journal header with no entries, `docs/specs/journal.md` recovery step 4.)
   - Fails with `no_path` for an untitled document, and with `io_error` if the file cannot be read; the open document is unchanged in both cases.
   - The desktop app's recovery dialog uses it for Discard.
+
+- **`recovered.restore`** (2026-10-16)
+  - Opens the document a set-aside copy holds (`recovered.list`) as a new, unsaved script, journaled at `path` like `doc.new`, which must be a path with no file and no journal (`already_exists` otherwise). The copy, the script it came from and that script's journal are never touched.
+  - The new journal's header is marked as holding unsaved work, so a crash before the first save recovers it and the app offers it at start-up (`docs/specs/journal.md`, "Recovered versions").
+  - Writer-only: an agent gets `writer_only`, and over the app's agent link `not_allowed_attached`.
+  - A copy that cannot be read fails with `copy_unreadable`.
 
 Opening or creating a document while another is open first closes the open one. If that one has unsaved changes, the request fails with `unsaved_changes`.
 
@@ -171,6 +182,7 @@ Opening or creating a document while another is open first closes the open one. 
 | `text.find` | `find`, `scope?`, `match_case?` | `{matches: [{id, from, to}]}` |
 | `text.complete` | `id`, `at` | `{context, from, to, items: [{text, count}]}` |
 | `history.list` | — | `{undo: [{command, label, by}], redo: [...]}` |
+| `recovered.list` | `path?` | `{copies: [{copy, script, kind, at, unread, readable}]}` |
 
 `rev` (2026-10-15) counts the edits, undos and redos applied since the document was opened, created or reverted. It never goes down while the document stays open, so a client can tell whether anything changed since it last looked.
 
@@ -185,9 +197,14 @@ Opening or creating a document while another is open first closes the open one. 
 - **`history.list`** (2026-10-15)
   - Lists the undo and redo stacks, most recent step first: each step's command name (`batch` or `typing` for a group), label and author.
 
-`doc.export` returns the document as text without saving it. `format` is `"fountain"` (the default), `"json"` (the title page and blocks, pretty-printed) or `"pages"` (the plain-text page view of `docs/specs/layout.md` §11). Losses are listed as for `doc.save`; nothing is refused, since nothing is written.
+`doc.export` returns the document as text without saving it. `format` is `"fountain"` (the default), `"fdx"` (2026-10-16; UTF-8, LF), `"json"` (the title page and blocks, pretty-printed) or `"pages"` (the plain-text page view of `docs/specs/layout.md` §11). Losses are listed as for `doc.save`; nothing is refused, since nothing is written.
 
-Pages come from laying out the document's Fountain normal form with the default page format (US Letter, feature film; `docs/specs/layout.md` §3.2), so they are the same after a save and reload.
+Pages come from laying out the document in its format's form with its page format: for Fountain the normal form with the default page format (US Letter, feature film; `docs/specs/layout.md` §3.2); for .fdx (2026-10-16) the blocks as they are, with the file's page format, title lines and paragraph spacing. Either way they are the same after a save and reload.
+
+- **`recovered.list`** (2026-10-16)
+  - Lists the set-aside copies (`docs/specs/journal.md`, "Recovered versions") of the script at `path`, or of the open document without it, newest first.
+  - `copy` is the copy's path; `script` the script it belongs to; `kind` is `discarded`, `corrupt`, `diverged` or `original` (a damaged .fdx file kept before a repaired save); `at` is when it was made, in milliseconds since the Unix epoch, from its name.
+  - `readable` says whether the copy can be restored. `unread` is reserved for front ends that track which copies a writer has been shown, and is false here.
 
 For `scene.list`:
 
@@ -277,6 +294,8 @@ The keystroke commands below (2026-10-15) are what the desktop editor sends for 
 | Command | Params | Result |
 | --- | --- | --- |
 | `export.pdf` | `path`, `watermark?`, `scene_numbers?`, `title_page?`, `overwrite?` | `{path, pages, bytes, warnings}` |
+| `export.fdx` | `path`, `allow_lossy?`, `overwrite?` | `{path, format, bytes, losses}` |
+| `export.fountain` | `path`, `allow_lossy?`, `overwrite?` | `{path, format, bytes, losses}` |
 
 - **`export.pdf`**
   - Lays out the open document (as `scene.list` does) and writes it as a PDF, atomically, as `docs/specs/layout.md` §12 describes. The same document and options always give the same bytes.
@@ -285,6 +304,27 @@ The keystroke commands below (2026-10-15) are what the desktop editor sends for 
   - `pages` counts the PDF's pages, title page included. It is never 0: a document with nothing to print gives one blank page, with the watermark if one is given (2026-10-14).
   - `warnings` lists `{code, message, chars?, id?}`: characters the bundled font cannot print, in the script or the watermark (`missing_glyph`, `missing_mark`), and layout diagnostics such as `dual_too_tall`, with the block `id` when there is one.
   - It is not undoable, not journaled, and leaves `dirty` as it was. Journal replay never runs it.
+- **`export.fdx`, `export.fountain`** (2026-10-16)
+  - Write a copy of the open document in that format, atomically, without changing the session: its path, format, `dirty` and journal stay as they were ("Save a copy").
+  - `path` must have that format's extension (`unsupported_format`), and may not be the open document or its crash journal (`would_overwrite_document`). A file already there is replaced only with `overwrite` (`already_exists`).
+  - Losses refuse the export with `lossy_format` unless `allow_lossy` is given, as for `doc.save`. Only a writer may pass `overwrite` or `allow_lossy` (`writer_only`).
+  - The copy is written in UTF-8 with LF line ends.
+
+### Files
+
+| Command | Params | Result |
+| --- | --- | --- |
+| `file.repair` | `path`, `out`, `overwrite?` | `{out, bytes, repaired, issues}` |
+| `recovered.delete` | `copy` | `{}` |
+
+- **`file.repair`** (2026-10-16)
+  - Reads the .fdx file at `path`, repairing what it can (`docs/specs/fdx.md` §17), and writes the result to `out`, atomically. `path` is never written.
+  - `out` must be an `.fdx` path. It may not be `path` itself, however it is spelled (`would_overwrite_input`), nor the open document or its journal (`would_overwrite_document`). A file already at `out` is replaced only with `overwrite`, which only a writer may pass.
+  - `repaired` and `issues` are the report (`docs/specs/fdx.md` §9). An input that is not XML, or not a Final Draft document, fails with `unsupported_format`.
+  - It needs no open document and leaves the open one alone.
+- **`recovered.delete`** (2026-10-16)
+  - Deletes one set-aside copy. `copy` must be a path that `recovered.list` would list (`invalid_params` otherwise), so no other file can be deleted this way.
+  - Writer-only, as for `recovered.restore`. It cannot be undone; the desktop app asks first.
 
 ### History
 
@@ -324,7 +364,9 @@ Undo is unlimited. A new edit clears the redo history.
 | `would_overwrite_document` | An output command was asked to write over the open document or its journal. |
 | `save_in_progress` | Another save of the document is being written; nothing changed. Retryable. |
 | `file_changed` | Another program changed the file since the document last read or wrote it; nothing was saved. `overwrite` replaces it. |
-| `writer_only` | An agent passed a choice only the writer may make: `overwrite`, or `allow_lossy`. |
+| `writer_only` | An agent passed a choice only the writer may make (`overwrite`, `allow_lossy`), or sent a command only the writer may send (`recovered.restore`, `recovered.delete`). |
+| `would_overwrite_input` | `file.repair` was asked to write over the file it reads (2026-10-16). |
+| `copy_unreadable` | `recovered.restore` was given a copy whose header cannot be read (2026-10-16). |
 | `invalid_range` | An offset is past the end of the block's text, or `from` is after `to`. |
 | `not_your_step` | An agent tried to undo or redo a step made by someone else, or to set aside a writer's recovered work (`details.recovered`). |
 | `not_allowed_attached` | A command an agent may not send over the app's agent link, such as `doc.open` (`docs/specs/mcp.md`). |

@@ -1,7 +1,7 @@
 # Layout and pagination
 
 - **Date:** 2026-10-13
-- **Status:** being implemented in `crates/layout` (phase 2)
+- **Status:** implemented in `crates/layout` (phase 2; §15 in phase 3). Phase 4 (2026-10-16) lays .fdx documents out with their own format and overrides as they are edited (§4.8, §15.2); being implemented.
 - **Sources:**
   - `docs/spec.md`, "Formatting and pagination rules": the page defaults table and the seven page-break rules. That section summarizes two public format guides, Highland's "Standard Screenplay Format" and the NFI screenplay-format page. Neither guide could be fetched from this build environment, so this document relies only on the spec's summary of them.
   - `docs/specs/fountain.md`: the element model, `space_before`, transparent elements, and dual dialogue.
@@ -133,7 +133,7 @@ Layout first turns a `Script` into a **flow**: a list of blocks, each made of me
 
    A scene heading resets this.
 7. **Empty elements.** A printing element with no visible text takes one blank line. Empty elements at the end of the script are dropped.
-8. **Normal form.** Core lays out `normalize(script)` (`docs/specs/fountain.md` §10), so a document's pages never change when it is saved and read back. Layout itself accepts any script.
+8. **Normal form.** Core lays out a Fountain document as `normalize(script)` (`docs/specs/fountain.md` §10), so its pages never change when it is saved and read back. Layout itself accepts any script. (2026-10-16) An .fdx document is laid out as its blocks stand, with the file's page format, title lines and spacing overrides. The .fdx reader keeps text as it is (`docs/specs/fdx.md` §10), the reference comparison of §13 measured exactly that, and a Fountain normalization would merge and renumber elements under the overrides. Writing and reading back .fdx changes nothing that prints (`docs/specs/fdx.md` §16.2).
 
 ## 5. Measure and wrapping
 
@@ -465,7 +465,7 @@ An incremental layout keeps a laid-out script and accepts edits to it. After eve
 
 ### 15.2 How an edit is applied
 
-The caller gives the whole edited script. The engine keeps the flow and pages of the last layout, and reuses them:
+The caller gives the whole edited script, and (2026-10-16) the spacing overrides as they now stand, since an edit before an overridden element changes its index. The flow is assembled again on every update anyway, so new overrides cost nothing extra. The engine keeps the flow and pages of the last layout, and reuses them:
 
 1. **Measurement is memoized.** An element's measure (cells, wrapped lines and sentence starts: §2, §5, §8) depends only on the element and the page format. It is kept between layouts, keyed by the whole element, so an edit measures only the elements it changed. Measures no longer used are dropped after each layout.
 2. **The flow is reassembled and compared.** The flow (§4) is assembled again from the measured elements: grouping, spacing, page breaks, continued names and dual pairs, all of which are cheap once measuring is done. The new flow is compared with the old one from the front and from the back, allowing for the shift in element numbers after the edit. This finds the blocks that really changed, including effects that reach past the edited element, such as a scene number or a dual pair.
