@@ -1433,6 +1433,43 @@ fn reproduces(recorded: &Value, replayed: &Value) -> bool {
     }
 }
 
+/// What recovery makes of a journal, for the journal fuzz target.
+#[doc(hidden)]
+#[derive(Debug, PartialEq)]
+pub struct RecoveryCheck {
+    /// The replayed document, or `None` when the header cannot be used.
+    pub doc: Option<Document>,
+    /// Where the trusted entries end.
+    pub valid_len: u64,
+    pub problem: Option<String>,
+    pub recover: bool,
+}
+
+/// Runs recovery's own judgement (the one `doc.open` acts on) over journal
+/// bytes, for a script whose file holds `disk`, or has none, without
+/// touching the disk (review finding F17.2: the fuzz target used to run a
+/// copy of replay).
+#[doc(hidden)]
+pub fn recovery_check(contents: &[u8], disk: Option<&[u8]>) -> RecoveryCheck {
+    let bytes = disk.unwrap_or_default();
+    let style = io::decode(bytes).style;
+    let path = Path::new("fuzz.fountain");
+    match Dispatcher::default().assess(path, style, contents, (bytes, disk.is_none())) {
+        Assessment::Unreadable(problem) => RecoveryCheck {
+            doc: None,
+            valid_len: 0,
+            problem: Some(problem),
+            recover: false,
+        },
+        Assessment::Replayed(r) => RecoveryCheck {
+            doc: Some(r.session.doc),
+            valid_len: r.valid_len,
+            problem: r.problem,
+            recover: r.recover,
+        },
+    }
+}
+
 /// Whether opening `path` would recover work from its crash journal,
 /// judged without locking or changing anything, for the app's start-up
 /// offer of leftover work. A journal that cannot be read, for example one
