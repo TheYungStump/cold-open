@@ -37,6 +37,22 @@ pub const APP_ACTIONS: &[ActionInfo] = &[
         title: "Export a PDF",
     },
     ActionInfo {
+        name: "app.export_fdx",
+        title: "Save a copy as .fdx",
+    },
+    ActionInfo {
+        name: "app.export_fountain",
+        title: "Save a copy as Fountain",
+    },
+    ActionInfo {
+        name: "app.repair",
+        title: "Repair an .fdx file",
+    },
+    ActionInfo {
+        name: "app.recovered",
+        title: "Recovered versions",
+    },
+    ActionInfo {
         name: "app.quit",
         title: "Quit",
     },

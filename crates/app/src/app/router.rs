@@ -113,7 +113,7 @@ impl App {
                 None => self.save_with(p.allow_lossy, p.overwrite),
             }),
             Command::RecoveredRestore(p) => {
-                Outcome::task(self.leave(After::Restore(PathBuf::from(p.copy))))
+                Outcome::task(self.leave_for_restore(PathBuf::from(p.copy), PathBuf::from(p.path)))
             }
             Command::RecoveredDelete(p) => Outcome::task(self.ask_delete(PathBuf::from(p.copy))),
             other => {

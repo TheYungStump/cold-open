@@ -18,7 +18,7 @@ Phase 4 makes Cold Open read and write .fdx. A file that came from another app o
 | 8 | Core: .fdx open, save and conversion, `export.fdx`, `export.fountain`, `file.repair`, damaged originals; the CLI's `repair` and `convert`; MCP tools | done |
 | 9 | Recovery copies: hidden on Windows, `recovered.*` commands, clean-up | core done (hidden files, commands, the clean-up rule); the app's clean-up and screen come with step 11 |
 | 10 | App: one command router, `App::dispatch(request, origin)` (F18.5) | done: the refactor (117f45e, app tests unchanged), then restore, delete and waiting for saves in flight (ccf4b0b) |
-| 11 | App: .fdx dialogs, Save As conversion, exports, the repair dialog, the Recovered versions screen, notices without paths | |
+| 11 | App: .fdx dialogs, Save As conversion, exports, the repair dialog, the Recovered versions screen, notices without paths | done: all of these, plus the start-up clean-up and leftover work for restored scripts; screenshots reviewed in three themes |
 | 12 | Gates: crash gate (kills during .fdx saves and Save As conversion), typing gate on .fdx, agent gate; CI on three OSes; measurements; your manual test of the Windows build; the final report | |
 
 ## Decisions made with the user before the phase (2026-10-16)
@@ -98,5 +98,12 @@ The files are studied only with scripts that print structure (element paths, att
 30. **The router lands in two commits.** The first moves keys, buttons, the palette, the params form and agent requests onto `App::dispatch` with no test changed. The second adds the new session commands and the waiting.
 31. **Agents get core's `save_in_progress`**: the router adds no check of its own for an agent's `doc.save` during the writer's save, because core already refuses a second save.
 32. **Revert waits for a save in flight too**, as open, close, quit and restore do. Otherwise it read the file from before the save. Don't save during a save sets the newer changes aside at once, and the step runs when the save is written, whatever its outcome.
-33. **A restored copy is named by the app**: "<script> (restored).<ext>" in `Unsaved/`, numbered when taken. A `path` given in the params form is not used, so the restored script is always untitled and Save as names it.
+33. **Where a restored copy goes**: Recovered versions puts it in `Unsaved/` as "<script> (restored).<ext>", numbered when taken, so it is untitled and Save as names it. A `path` given in the params form is used as given, as the command defines it. (Revised in step 11; step 10 ignored the form's path.)
 34. **Delete asks with Enter as Delete**, since the writer already chose Delete to get there; D also deletes and Esc or C cancels. S does nothing there, unlike the other questions.
+35. **Banners are a small type** with an optional Recovered versions button. It reads as text, so existing code and tests that look at banners did not change.
+36. **Repair issues are not banners**: on open, warnings of class fixed or dropped go to the repair dialog only. Other warnings are still banners, and a set-aside copy is announced only by the path-free notice.
+37. **Save a copy** writes the other format through `export.fdx` or `export.fountain`. What the format can't hold is asked about with the same question as Save as, worded for the target format ("Fountain can't hold…", "An .fdx file can't hold…").
+38. **Recovered versions is a wide dialog**, not a separate window or a page: a list, a read-only preview of up to 400 paragraphs, and Restore, Delete and Close. Opening it marks every listed copy as shown, in `recovered.json`.
+39. **The clean-up runs at start-up before anything opens** and looks only where the list looks (next to the recent scripts, and `Unsaved/`). It deletes through `recovered.delete`, so only names of set-aside copies can go.
+40. **Closing a script no longer shows "no document is open"**: the navigator asked core for scenes after the script closed. Found by the new Don't save test; it predates phase 4.
+41. **Restored scripts are leftover work**: an untitled script whose journal header says unsaved is offered at the next start even with no entries in its journal.

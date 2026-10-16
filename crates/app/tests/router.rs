@@ -175,7 +175,8 @@ fn restoring_opens_unsaved_work_and_touches_nothing() {
     let copy_bytes = std::fs::read(&copy).unwrap();
     let mut h = app(home.path(), None);
 
-    let to = home.path().join("ignored.fountain");
+    // The form names where the restored script goes, as the command does.
+    let to = home.path().join("back.fountain");
     let out = h.app.dispatch(
         cmd("recovered.restore", json!({ "copy": copy, "path": to })),
         Origin::Form,
@@ -184,11 +185,7 @@ fn restoring_opens_unsaved_work_and_touches_nothing() {
     let s = h.app.d.session().expect("the restored script is open");
     assert!(s.dirty);
     let path = s.path.clone().unwrap();
-    assert!(
-        path.starts_with(Dirs::under(home.path()).unsaved()),
-        "{path:?}"
-    );
-    assert!(path.ends_with("old (restored).fountain"), "{path:?}");
+    assert_eq!(path, to);
     assert!(texts(&h).iter().any(|t| t == "Thunder, set aside."));
     assert!(
         h.app.banners.iter().any(|b| b.starts_with("Restored")),
@@ -197,7 +194,6 @@ fn restoring_opens_unsaved_work_and_touches_nothing() {
     );
     // No path is shown; nothing on disk was written.
     assert!(h.app.banners.iter().all(|b| !b.contains(".coldopen")));
-    assert!(!path.exists());
     assert!(!to.exists());
     assert_eq!(std::fs::read(&old).unwrap(), old_bytes);
     assert_eq!(std::fs::read(&copy).unwrap(), copy_bytes);

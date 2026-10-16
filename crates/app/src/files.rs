@@ -190,6 +190,14 @@ pub enum Ask {
     SaveAs(String),
     /// Where to write a PDF; the suggested file name.
     ExportPdf(String),
+    /// Where to write a copy of the script as .fdx; the suggested name.
+    ExportFdx(String),
+    /// Where to write a copy of the script as Fountain; the suggested name.
+    ExportFountain(String),
+    /// An .fdx file to repair.
+    RepairIn,
+    /// Where to write the repaired copy of this file; the suggested name.
+    RepairOut(PathBuf, String),
 }
 
 /// A dialog's answer, when it comes: a path, or `None` for Cancel.
@@ -216,17 +224,51 @@ impl Dialogs {
                 if let Some(dir) = dir {
                     d = d.set_directory(dir);
                 }
+                const FOUNTAIN: &[&str] = &["fountain"];
+                const FDX: &[&str] = &["fdx"];
                 let picked = match ask {
                     Ask::Open => {
                         d.set_title("Open a script")
-                            .add_filter("Screenplays", &["fountain", "spmd", "txt"])
+                            .add_filter("Screenplays", &["fountain", "fdx", "spmd", "txt"])
+                            .add_filter("Fountain", &["fountain", "spmd", "txt"])
+                            .add_filter("FDX", FDX)
                             .pick_file()
                             .await
                     }
                     Ask::SaveAs(name) => {
-                        d.set_title("Save the script")
+                        // The script's own format is listed first.
+                        let d = d.set_title("Save the script");
+                        let d = if name.ends_with(".fdx") {
+                            d.add_filter("FDX", FDX).add_filter("Fountain", FOUNTAIN)
+                        } else {
+                            d.add_filter("Fountain", FOUNTAIN).add_filter("FDX", FDX)
+                        };
+                        d.set_file_name(name).save_file().await
+                    }
+                    Ask::ExportFdx(name) => {
+                        d.set_title("Save a copy as .fdx")
                             .set_file_name(name)
-                            .add_filter("Fountain", &["fountain"])
+                            .add_filter("FDX", FDX)
+                            .save_file()
+                            .await
+                    }
+                    Ask::ExportFountain(name) => {
+                        d.set_title("Save a copy as Fountain")
+                            .set_file_name(name)
+                            .add_filter("Fountain", FOUNTAIN)
+                            .save_file()
+                            .await
+                    }
+                    Ask::RepairIn => {
+                        d.set_title("Repair an .fdx file")
+                            .add_filter("FDX", FDX)
+                            .pick_file()
+                            .await
+                    }
+                    Ask::RepairOut(_, name) => {
+                        d.set_title("Save the repaired copy")
+                            .set_file_name(name)
+                            .add_filter("FDX", FDX)
                             .save_file()
                             .await
                     }
@@ -275,7 +317,10 @@ pub fn next_untitled(dirs: &Dirs) -> PathBuf {
 }
 
 /// Scripts whose journal holds unsaved work from an earlier session: in
-/// `Unsaved/`, and among the recent files (editor.md §11).
+/// `Unsaved/`, and among the recent files (editor.md §11). An untitled
+/// script's journal holds work when it has entries, or when its header
+/// says the script was never saved, as a restored copy's does
+/// (journal.md, "Recovered versions").
 pub fn leftover_work(dirs: &Dirs, recent: &[PathBuf]) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let has_entries =
@@ -288,7 +333,8 @@ pub fn leftover_work(dirs: &Dirs, recent: &[PathBuf]) -> Vec<PathBuf> {
             if let Some(stem) = name
                 .strip_prefix('.')
                 .and_then(|n| n.strip_suffix(".coldopen-journal"))
-                && has_entries(&j)
+                && (has_entries(&j)
+                    || coldopen_core::dispatcher::journal_holds_work(&j.with_file_name(stem)))
             {
                 out.push(j.with_file_name(stem));
             }
@@ -302,6 +348,45 @@ pub fn leftover_work(dirs: &Dirs, recent: &[PathBuf]) -> Vec<PathBuf> {
             out.push(p.clone());
         }
     }
+    out
+}
+
+/// When each set-aside copy was first shown in Recovered versions, by
+/// its path, from `recovered.json` in the data folder (journal.md,
+/// "Recovered versions"). A missing or broken file gives none, so nothing
+/// is cleaned up until copies are shown again.
+pub fn load_offered(dirs: &Dirs) -> std::collections::BTreeMap<String, u64> {
+    #[derive(Deserialize)]
+    struct File {
+        offered: std::collections::BTreeMap<String, u64>,
+    }
+    std::fs::read(dirs.data.join("recovered.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<File>(&b).ok())
+        .map(|f| f.offered)
+        .unwrap_or_default()
+}
+
+pub fn save_offered(
+    dirs: &Dirs,
+    offered: &std::collections::BTreeMap<String, u64>,
+) -> std::io::Result<()> {
+    std::fs::create_dir_all(&dirs.data)?;
+    let text = serde_json::to_string_pretty(&serde_json::json!({ "offered": offered }))
+        .map_err(std::io::Error::other)?;
+    coldopen_core::io::atomic_write(&dirs.data.join("recovered.json"), text.as_bytes())
+}
+
+/// The set-aside copies the app knows where to look for: next to the
+/// recent scripts and in `Unsaved/`, newest first.
+pub fn known_copies(dirs: &Dirs, scripts: &[PathBuf]) -> Vec<coldopen_core::recovered::Copy> {
+    use coldopen_core::recovered;
+    let mut out = recovered::in_folder(&dirs.unsaved());
+    for p in scripts {
+        out.extend(recovered::of_script(p));
+    }
+    out.sort_by(|a, b| b.at.cmp(&a.at).then_with(|| a.copy.cmp(&b.copy)));
+    out.dedup_by(|a, b| a.copy == b.copy);
     out
 }
 

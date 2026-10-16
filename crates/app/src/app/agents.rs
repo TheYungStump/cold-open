@@ -52,7 +52,7 @@ impl App {
                 Err(e) => {
                     self.link_failed = true;
                     self.banners
-                        .push(format!("Agents can't attach to this script: {e}"));
+                        .push(format!("Agents can't attach to this script: {e}").into());
                 }
             }
         }
@@ -69,7 +69,7 @@ impl App {
                 && let Err(e) = link.set_docs(docs)
             {
                 self.banners
-                    .push(format!("The agent link could not be updated: {e}"));
+                    .push(format!("The agent link could not be updated: {e}").into());
             }
         }
         let Some(link) = &self.link else { return };

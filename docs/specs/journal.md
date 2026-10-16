@@ -222,7 +222,7 @@ Added 2026-10-16 (phase 4). Set-aside copies hold work a writer may want back, s
 - it was made more than 30 days ago, by the time in its name;
 - the writer has been shown it in the Recovered versions list at least once.
 
-The app records when it first showed each copy, in `recovered.json` in its data folder. A copy that has never been shown is never deleted, however old it is. A row that the next start would delete says so. The CLI and the MCP server never delete copies.
+The app records when it first showed each copy, in `recovered.json` in its data folder. A copy that has never been shown is never deleted, however old it is. A row that the next start would delete says so. The clean-up looks only where the list looks, next to the recent scripts and in `Unsaved/`, so a copy elsewhere stays until it is listed again. The CLI and the MCP server never delete copies.
 
 ## Decisions for phase 5
 

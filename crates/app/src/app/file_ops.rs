@@ -25,9 +25,12 @@ pub enum After {
     OpenPath(PathBuf),
     Close,
     Quit,
-    /// Restore a set-aside copy as a new script (journal.md, "Recovered
-    /// versions").
-    Restore(PathBuf),
+    /// Restore a set-aside copy as a new unsaved script journaled at
+    /// `path` (journal.md, "Recovered versions").
+    Restore {
+        copy: PathBuf,
+        path: PathBuf,
+    },
     /// Go back to the saved file; unsaved changes are set aside.
     Revert,
 }
@@ -45,6 +48,8 @@ pub enum Prompt {
         /// For a "save as": whether the file dialog asked about replacing
         /// that path.
         overwrite: bool,
+        /// A copy written with Save a copy, not the script saved.
+        export: bool,
     },
     /// Another program changed the file since Cold Open last read or saved
     /// it: overwrite, reload, or save as? With the save's `allow_lossy`.
@@ -276,61 +281,122 @@ impl App {
                 self.d.shutdown();
                 iced::exit()
             }
-            After::Restore(copy) => {
+            After::Restore { copy, path } => {
                 self.close_links();
                 self.d.shutdown();
-                self.restore(&copy);
+                self.restore(&copy, &path);
                 self.after_change(true)
             }
             After::Revert => self.reload(),
         }
     }
 
-    /// Opens a set-aside copy as a new untitled script in `Unsaved/`; the
-    /// copy and its script are never written (journal.md, "Recovered
-    /// versions").
-    pub(super) fn restore(&mut self, copy: &Path) {
-        let Some(info) = coldopen_core::recovered::parse(copy) else {
-            return;
-        };
-        let Some(dir) = self.dirs.as_ref().map(|d| d.unsaved()) else {
-            self.banners
-                .push("Restoring needs the app's data folder, which is not available.".into());
-            return;
-        };
-        let _ = std::fs::create_dir_all(&dir);
-        let stem = info.script.file_stem().map_or_else(
-            || "Restored".to_string(),
-            |s| s.to_string_lossy().into_owned(),
-        );
-        let ext = info.script.extension().map_or_else(
-            || "fountain".to_string(),
-            |e| e.to_string_lossy().into_owned(),
-        );
-        let path = (1..)
-            .map(|n| {
-                let name = if n == 1 {
-                    format!("{stem} (restored).{ext}")
-                } else {
-                    format!("{stem} (restored {n}).{ext}")
-                };
-                dir.join(name)
-            })
-            .find(|p| !p.exists() && !coldopen_core::journal::path_for(p).exists())
-            .unwrap_or_else(|| dir.join(format!("{stem} (restored).{ext}")));
+    /// Opens a set-aside copy as a new unsaved script journaled at
+    /// `path`; the copy and its script are never written (journal.md,
+    /// "Recovered versions").
+    pub(super) fn restore(&mut self, copy: &Path, path: &Path) {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let script = coldopen_core::recovered::parse(copy).map(|c| c.script);
         if self
             .run("recovered.restore", json!({ "copy": copy, "path": path }))
             .is_some()
             && let Some(s) = self.d.session()
         {
             self.editor = self.fresh_editor(&s.doc);
-            self.banners.push(format!(
-                "Restored a recovered version of {} as a new script. Save it to keep it.",
-                info.script
-                    .file_name()
-                    .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
-            ));
+            let name = script
+                .as_deref()
+                .and_then(Path::file_name)
+                .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+            self.banners.push(
+                format!(
+                    "Restored a recovered version of {name} as a new script. Save it to keep it."
+                )
+                .into(),
+            );
         }
+    }
+
+    /// The format the open script is saved in, as an extension.
+    pub(super) fn ext(&self) -> &'static str {
+        self.d
+            .session()
+            .map_or(coldopen_core::FormatId::Fountain, |s| s.format)
+            .name()
+    }
+
+    /// The name a dialog suggests for the script.
+    pub(super) fn suggested(&self) -> String {
+        format!("{}.{}", self.stem(), self.ext())
+    }
+
+    /// Writes a copy of the script in the format `path` names (Save a
+    /// copy); the script itself, its path and its format do not change.
+    pub(super) fn export_copy(
+        &mut self,
+        path: PathBuf,
+        allow_lossy: bool,
+        overwrite: bool,
+    ) -> Task<Message> {
+        let name = match coldopen_core::FormatId::for_path(&path) {
+            Some(coldopen_core::FormatId::Fdx) => "export.fdx",
+            _ => "export.fountain",
+        };
+        let params = json!({ "path": path, "allow_lossy": allow_lossy, "overwrite": overwrite });
+        let cmd = match coldopen_core::Command::from_parts(name, params) {
+            Ok(c) => c,
+            Err(e) => {
+                self.banners.push(e.into());
+                return Task::none();
+            }
+        };
+        match self.d.execute(cmd) {
+            Ok(r) => {
+                self.notices(&r);
+                self.banners
+                    .push(format!("Saved a copy as {}.", super::view::file_name(&path)).into());
+            }
+            Err(e) if e.code == "lossy_format" => {
+                self.prompt = Some(Prompt::Lossy {
+                    message: e.message,
+                    path: Some(path),
+                    overwrite,
+                    export: true,
+                });
+            }
+            Err(e) => self
+                .banners
+                .push(format!("The copy was not written: {}", e.message).into()),
+        }
+        Task::none()
+    }
+
+    /// Shows a command result's warnings as banners. Copies set aside are
+    /// announced without their paths, with a Recovered versions button;
+    /// repairs are the repair dialog's to show. True when work was set
+    /// aside.
+    pub(super) fn notices(&mut self, r: &Value) -> bool {
+        let mut set_aside = false;
+        for w in r["warnings"].as_array().into_iter().flatten() {
+            if matches!(w["class"].as_str(), Some("fixed" | "dropped")) {
+                continue;
+            }
+            if w["details"]["copy"].is_string() {
+                let b = if w["code"] == "original_kept" {
+                    super::Banner::original_kept()
+                } else {
+                    set_aside = true;
+                    super::Banner::set_aside()
+                };
+                if !self.banners.contains(&b) {
+                    self.banners.push(b);
+                }
+            } else if let Some(m) = w["message"].as_str() {
+                self.banners.push(m.into());
+            }
+        }
+        set_aside
     }
 
     /// Asks before deleting a set-aside copy (editor.md §13).
@@ -353,9 +419,20 @@ impl App {
                 self.save(false)
             }
             (Prompt::Unsaved(after), Reply::DontSave) => {
-                self.run("doc.close", json!({ "discard": true }));
+                if let Some(r) = self.run("doc.close", json!({ "discard": true })) {
+                    self.notices(&r);
+                }
                 self.proceed(after)
             }
+            (
+                Prompt::Lossy {
+                    path: Some(p),
+                    overwrite,
+                    export: true,
+                    ..
+                },
+                Reply::Save,
+            ) => self.export_copy(p, true, overwrite),
             (
                 Prompt::Lossy {
                     path: Some(p),
@@ -376,9 +453,7 @@ impl App {
                 self.after_save = None;
                 self.reload()
             }
-            (Prompt::Changed { .. }, Reply::SaveAs) => {
-                self.ask(Ask::SaveAs(format!("{}.fountain", self.stem())))
-            }
+            (Prompt::Changed { .. }, Reply::SaveAs) => self.ask(Ask::SaveAs(self.suggested())),
             (Prompt::Foreign { path, .. }, Reply::Recover) => {
                 self.open_with(&path, "apply");
                 self.after_change(true)
@@ -389,6 +464,7 @@ impl App {
             }
             (Prompt::DeleteCopy(copy), Reply::Save) => {
                 self.run("recovered.delete", json!({ "copy": copy }));
+                self.recovered_refresh();
                 self.after_change(false)
             }
             // A key that answers some other question: this one stays open.
@@ -406,9 +482,9 @@ impl App {
             && let Some(s) = self.d.session()
         {
             self.editor = self.fresh_editor(&s.doc);
-            if let Some(w) = r["warnings"][0]["message"].as_str() {
+            if !self.notices(&r) {
                 self.banners
-                    .push(format!("Reloaded {}. Your {w}.", self.script_name()));
+                    .push(format!("Reloaded {}.", self.script_name()).into());
             }
         }
         self.after_change(true)
@@ -428,7 +504,7 @@ impl App {
             return Task::none();
         }
         if self.untitled() {
-            return self.ask(Ask::SaveAs(format!("{}.fountain", self.stem())));
+            return self.ask(Ask::SaveAs(self.suggested()));
         }
         if self.saving.is_some() {
             self.save_again = true;
@@ -450,6 +526,7 @@ impl App {
                     message: e.message,
                     path: None,
                     overwrite: false,
+                    export: false,
                 });
                 Task::none()
             }
@@ -463,7 +540,7 @@ impl App {
             Err(e) => {
                 self.after_save = None;
                 self.banners
-                    .push(format!("The script was not saved: {}", e.message));
+                    .push(format!("The script was not saved: {}", e.message).into());
                 Task::none()
             }
         }
@@ -484,16 +561,22 @@ impl App {
             self.save_again = false;
             // A save that finished after its script was closed or reopened
             // did save; it just no longer says anything about this script.
-            self.banners.push(if e.code == "save_superseded" {
-                let mut m = e.message;
-                if let Some(first) = m.get_mut(0..1) {
-                    first.make_ascii_uppercase();
+            self.banners.push(
+                if e.code == "save_superseded" {
+                    let mut m = e.message;
+                    if let Some(first) = m.get_mut(0..1) {
+                        first.make_ascii_uppercase();
+                    }
+                    m
+                } else {
+                    format!("The script was not saved: {}", e.message)
                 }
-                m
-            } else {
-                format!("The script was not saved: {}", e.message)
-            });
+                .into(),
+            );
             return waiting.map_or_else(Task::none, |after| self.proceed(after));
+        }
+        if let Ok(r) = &commit {
+            self.notices(r);
         }
         if let Some(after) = waiting {
             self.after_save = None;
@@ -530,12 +613,13 @@ impl App {
         let cmd = match coldopen_core::Command::from_parts("doc.save", params) {
             Ok(c) => c,
             Err(e) => {
-                self.banners.push(e);
+                self.banners.push(e.into());
                 return Task::none();
             }
         };
         match self.d.execute(cmd) {
-            Ok(_) => {
+            Ok(r) => {
+                self.notices(&r);
                 self.settings.add_recent(&path);
                 self.save_settings();
                 match self.after_save.take() {
@@ -548,13 +632,14 @@ impl App {
                     message: e.message,
                     path: Some(path),
                     overwrite,
+                    export: false,
                 });
                 Task::none()
             }
             Err(e) => {
                 self.after_save = None;
                 self.banners
-                    .push(format!("The script was not saved: {}", e.message));
+                    .push(format!("The script was not saved: {}", e.message).into());
                 Task::none()
             }
         }
@@ -573,10 +658,33 @@ impl App {
             Ask::Open => self.leave(After::OpenPath(path)),
             Ask::SaveAs(_) => {
                 // The dialog asked before replacing the path it returned,
-                // not the one an added extension makes.
-                let target = with_extension(path.clone(), "fountain");
+                // not the one an added extension makes. A name typed with
+                // no extension keeps the script's format.
+                let target = with_extension(path.clone(), self.ext());
                 let asked = target == path;
                 self.save_as(target, false, asked)
+            }
+            Ask::ExportFdx(_) | Ask::ExportFountain(_) => {
+                let ext = if matches!(ask, Ask::ExportFdx(_)) {
+                    "fdx"
+                } else {
+                    "fountain"
+                };
+                let target = with_extension(path.clone(), ext);
+                let asked = target == path;
+                self.export_copy(target, false, asked)
+            }
+            Ask::RepairIn => {
+                let name = format!(
+                    "{} (repaired).fdx",
+                    path.file_stem()
+                        .map_or_else(String::new, |s| s.to_string_lossy().into_owned())
+                );
+                self.ask(Ask::RepairOut(path, name))
+            }
+            Ask::RepairOut(input, _) => {
+                self.repair_chosen(input, path);
+                Task::none()
             }
             Ask::ExportPdf(_) => {
                 let target = with_extension(path.clone(), "pdf");
@@ -628,7 +736,7 @@ impl App {
                     r["warnings"][0]["message"].as_str().unwrap_or("")
                 ));
             }
-            self.banners.push(msg);
+            self.banners.push(msg.into());
         }
         Task::none()
     }
@@ -667,12 +775,15 @@ impl App {
         };
         if r.never_saved {
             self.close_links();
-            self.run("doc.close", json!({ "discard": true }));
+            if let Some(r) = self.run("doc.close", json!({ "discard": true })) {
+                self.notices(&r);
+            }
             self.new_script();
-        } else if self.run("doc.revert", json!({})).is_some()
-            && let Some(s) = self.d.session()
-        {
-            self.editor = self.fresh_editor(&s.doc);
+        } else if let Some(r) = self.run("doc.revert", json!({})) {
+            self.notices(&r);
+            if let Some(s) = self.d.session() {
+                self.editor = self.fresh_editor(&s.doc);
+            }
         }
         self.after_change(true)
     }
