@@ -19,11 +19,13 @@ use serde_json::{Value, json};
 mod agents;
 mod bench;
 mod file_ops;
+mod router;
 mod view;
 
 pub use agents::Agent;
 pub use bench::{Bench, BenchKind};
 pub use file_ops::{After, ExportForm, Prompt, Recovery, Reply};
+pub use router::{Origin, Outcome, Request};
 pub use view::eighths;
 
 use crate::actions;
@@ -835,7 +837,7 @@ impl App {
                 self.system_dark = dark;
                 Task::none()
             }
-            Message::Action(a) => self.action(&a),
+            Message::Action(a) => self.dispatch(Request::Action(a), Origin::Button).task,
             Message::Pasted(t) => {
                 if let Some(t) = t {
                     self.editor.paste(&mut self.d, &t);
@@ -1447,8 +1449,14 @@ impl App {
         self.after_change(true)
     }
 
-    /// Runs an action by name (editor.md §10).
+    /// Runs an action by name (editor.md §10), as a shortcut would.
     pub fn action(&mut self, name: &str) -> Task<Message> {
+        self.dispatch(Request::Action(name.to_string()), Origin::Key)
+            .task
+    }
+
+    /// The actions themselves, for [`App::dispatch`].
+    fn action_by(&mut self, name: &str, _origin: &Origin) -> Task<Message> {
         let mut scroll = true;
         match name {
             "app.palette" => {
@@ -1718,54 +1726,39 @@ impl App {
         let action = item.action.clone();
         self.palette = None;
         self.focus = Focus::Page;
-        self.action(&action)
+        self.dispatch(Request::Action(action), Origin::Palette).task
     }
 
-    /// Commands that open, close, revert or save the script, given in the
-    /// palette's params form, go through the app's own flows: they ask
-    /// before losing work, keep recent files and agents in step, and never
-    /// leave an agent attached to a script it was not given (review finding
-    /// F7). `None` for any other command.
-    fn session_command(&mut self, name: &str, params: &Value) -> Option<Task<Message>> {
-        let path = params["path"].as_str().map(PathBuf::from);
-        let flag = |k: &str| params[k].as_bool().unwrap_or(false);
-        Some(match name {
-            "doc.open" => match path {
-                Some(p) => self.leave(After::OpenPath(p)),
-                None => {
-                    self.banners.push("doc.open needs a \"path\".".into());
-                    Task::none()
-                }
-            },
-            "doc.new" if path.is_some() => {
-                self.banners
-                    .push("A new script starts untitled; name it with Save as.".into());
-                Task::none()
-            }
-            "doc.new" => self.leave(After::New),
-            "doc.close" => self.leave(After::Close),
-            "doc.revert" => self.reload(),
-            "doc.save" => match path {
-                Some(p) => self.save_as(p, flag("allow_lossy"), flag("overwrite")),
-                None => self.save_with(flag("allow_lossy"), flag("overwrite")),
-            },
-            _ => return None,
-        })
-    }
-
+    /// Runs the palette's params form through the router (editor.md §9,
+    /// §16): session commands run the app's flows, the rest answer in the
+    /// form.
     fn params_run(&mut self) -> Task<Message> {
         let Some((name, json)) = self.palette.as_ref().and_then(|p| p.params.clone()) else {
             return Task::none();
         };
         let response = match serde_json::from_str::<Value>(&json) {
             Ok(params) => {
-                if let Some(task) = self.session_command(&name, &params) {
-                    self.palette = None;
-                    self.focus = Focus::Page;
-                    return task;
+                let request = json!({ "command": name, "params": params });
+                match Dispatcher::read_request(&request).1 {
+                    Ok(cmd) => {
+                        let out = self.dispatch(Request::Command(cmd), Origin::Form);
+                        match out.response {
+                            None => {
+                                self.palette = None;
+                                self.focus = Focus::Page;
+                                return out.task;
+                            }
+                            Some(r) => {
+                                let r = Dispatcher::response(Value::Null, r);
+                                serde_json::to_string_pretty(&r).unwrap_or_default()
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let r = Dispatcher::response(Value::Null, Err(e));
+                        serde_json::to_string_pretty(&r).unwrap_or_default()
+                    }
                 }
-                let r = self.d.handle(&json!({ "command": name, "params": params }));
-                serde_json::to_string_pretty(&r).unwrap_or_default()
             }
             Err(e) => format!("The params are not JSON: {e}"),
         };
