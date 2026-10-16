@@ -17,7 +17,7 @@ Phase 4 makes Cold Open read and write .fdx. A file that came from another app o
 | 7 | The round-trip gate on the corpus, with its report | done on the nine corpus files here; to run again when the new downloads arrive |
 | 8 | Core: .fdx open, save and conversion, `export.fdx`, `export.fountain`, `file.repair`, damaged originals; the CLI's `repair` and `convert`; MCP tools | done |
 | 9 | Recovery copies: hidden on Windows, `recovered.*` commands, clean-up | core done (hidden files, commands, the clean-up rule); the app's clean-up and screen come with step 11 |
-| 10 | App: one command router, `App::dispatch(request, origin)` (F18.5) | |
+| 10 | App: one command router, `App::dispatch(request, origin)` (F18.5) | done: the refactor (117f45e, app tests unchanged), then restore, delete and waiting for saves in flight (ccf4b0b) |
 | 11 | App: .fdx dialogs, Save As conversion, exports, the repair dialog, the Recovered versions screen, notices without paths | |
 | 12 | Gates: crash gate (kills during .fdx saves and Save As conversion), typing gate on .fdx, agent gate; CI on three OSes; measurements; your manual test of the Windows build; the final report | |
 
@@ -95,4 +95,8 @@ The files are studied only with scripts that print structure (element paths, att
 27. **`unsaved` is a journal header field**, not a document field as first written in `journal.md`. It describes the journal (a restored script with no file), and the first header written for a saved file clears it.
 28. **`recovered.list` and `recovered.delete` are in the new `file` class**: they need no open document. `recovered.restore` is a session command. Restore and delete are writer-only in core and refused over the agent link. A copy is known only by its name pattern, so `recovered.delete` can never delete anything else.
 29. **Set-aside warnings carry `details.copy`** (`journal_discarded`, `journal_unreadable`, `journal_partial`, `original_kept`), so the app can say "set aside" without showing a path. The messages keep the path for the CLI and JSON clients.
-
+30. **The router lands in two commits.** The first moves keys, buttons, the palette, the params form and agent requests onto `App::dispatch` with no test changed. The second adds the new session commands and the waiting.
+31. **Agents get core's `save_in_progress`**: the router adds no check of its own for an agent's `doc.save` during the writer's save, because core already refuses a second save.
+32. **Revert waits for a save in flight too**, as open, close, quit and restore do. Otherwise it read the file from before the save. Don't save during a save sets the newer changes aside at once, and the step runs when the save is written, whatever its outcome.
+33. **A restored copy is named by the app**: "<script> (restored).<ext>" in `Unsaved/`, numbered when taken. A `path` given in the params form is not used, so the restored script is always untitled and Save as names it.
+34. **Delete asks with Enter as Delete**, since the writer already chose Delete to get there; D also deletes and Esc or C cancels. S does nothing there, unlike the other questions.
