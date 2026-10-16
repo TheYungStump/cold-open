@@ -527,3 +527,65 @@ fn f13_saving_or_exporting_over_another_file_needs_overwrite() {
     assert_eq!(fs::read_to_string(&notes).unwrap(), "x\n");
     d.shutdown();
 }
+
+/// Review finding F9: replay applied an entry before comparing its result.
+/// When the result differed, the entry's change stayed in the recovered
+/// document, but the journal was cut before it, so the writer kept working
+/// on a document the journal could not rebuild, and lost it at the next
+/// crash.
+#[test]
+fn f9_a_diverged_entry_leaves_no_trace_in_the_recovered_document() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("s.fountain");
+    fs::write(&p, SCRIPT).unwrap();
+    let w = Author::Writer;
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &w, "doc.open", json!({"path": p}));
+    ok(
+        &mut d,
+        &w,
+        "block.insert",
+        json!({"type": "action", "text": "Line A."}),
+    );
+    ok(
+        &mut d,
+        &w,
+        "block.insert",
+        json!({"type": "action", "text": "Line B."}),
+    );
+    drop(d);
+    // Entry 2 recorded an id replay will not give: a diverged entry.
+    let j = journal::path_for(&p);
+    let text = fs::read_to_string(&j).unwrap();
+    assert_eq!(text.matches(r#""result":{"id":"b_4"}"#).count(), 1);
+    fs::write(
+        &j,
+        text.replace(r#""result":{"id":"b_4"}"#, r#""result":{"id":"b_99"}"#),
+    )
+    .unwrap();
+
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, &w, "doc.open", json!({"path": p}));
+    assert_eq!(r["recovered"]["commands"], 1, "{r}");
+    assert_eq!(r["warnings"][0]["code"], "journal_partial", "{r}");
+    let t = text_of(&mut d);
+    assert!(t.contains("Line A.") && !t.contains("Line B."), "{t}");
+    // What the writer sees is what the journal holds: an edit now, a
+    // crash, and the same document comes back.
+    ok(
+        &mut d,
+        &w,
+        "block.insert",
+        json!({"type": "action", "text": "Line C."}),
+    );
+    let before = text_of(&mut d);
+    drop(d);
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, &w, "doc.open", json!({"path": p}));
+    assert_eq!(r["warnings"], json!([]), "{r}");
+    assert_eq!(text_of(&mut d), before);
+}
+
+fn text_of(d: &mut Dispatcher) -> String {
+    text(d)
+}

@@ -98,6 +98,22 @@ impl Replayed {
     }
 }
 
+/// The state replay reached.
+struct Replay {
+    session: Session,
+    known_disk: Vec<Fingerprint>,
+    /// Entries trusted, markers included, and the bytes they end at.
+    applied: usize,
+    valid_len: u64,
+    commands: usize,
+    last: u64,
+    writer: bool,
+    problem: Option<String>,
+    /// The entry after the trusted ones was applied, then gave a
+    /// different result.
+    diverged: bool,
+}
+
 /// A document written out for saving, before anything touches the disk.
 struct Rendered {
     target: PathBuf,
@@ -497,36 +513,33 @@ impl Dispatcher {
         Ok(result)
     }
 
-    /// Replays a crash journal and judges whether it holds work the file
-    /// does not, without touching the disk. `doc.open` acts on the answer;
-    /// "save as" uses it to refuse a target with unsaved work.
-    fn assess(
+    /// Replays the first `limit` entries of a journal read back, stopping
+    /// at the first that cannot be trusted.
+    fn replay(
         &self,
+        read: &journal::ReadBack,
         path: &Path,
         style: SourceStyle,
-        contents: &[u8],
-        (disk_bytes, missing): (&[u8], bool),
-    ) -> Assessment {
-        let read = match journal::read(contents) {
-            Ok(r) => r,
-            Err(msg) => return Assessment::Unreadable(msg),
+        limit: usize,
+    ) -> Replay {
+        let mut r = Replay {
+            session: self.new_session(read.header.doc.clone(), Some(path.to_path_buf()), style),
+            // Fingerprints the file may legitimately have: the header's, and
+            // those of the saves the journal records.
+            known_disk: read.header.disk.into_iter().collect(),
+            applied: 0,
+            commands: 0,
+            last: 0,
+            writer: false,
+            valid_len: read.header_len(),
+            problem: read.problem.clone(),
+            diverged: false,
         };
-
-        let mut replay = self.new_session(read.header.doc.clone(), Some(path.to_path_buf()), style);
-        // Fingerprints the file may legitimately have: the header's, and
-        // those of the saves the journal records.
-        let mut known_disk: Vec<Fingerprint> = read.header.disk.into_iter().collect();
-        let mut applied = 0usize;
-        let mut commands = 0usize;
-        let mut last = 0u64;
-        let mut writer = false;
-        let mut valid_len = read.header_len();
-        let mut problem = read.problem.clone();
-        for (k, entry) in read.entries.iter().enumerate() {
+        for (k, entry) in read.entries.iter().enumerate().take(limit) {
             if let Some(fp) = entry.saved_disk() {
-                known_disk.push(fp);
-                applied = k + 1;
-                valid_len = read.entry_end(k);
+                r.known_disk.push(fp);
+                r.applied = k + 1;
+                r.valid_len = read.entry_end(k);
                 continue;
             }
             let ex = Exec {
@@ -546,7 +559,7 @@ impl Dispatcher {
                     }
                 })
                 .and_then(|cmd| {
-                    replay
+                    r.session
                         .execute_with(&cmd, &ex)
                         .map_err(|e| format!("entry {} failed on replay: {e}", entry.seq))
                 })
@@ -554,6 +567,7 @@ impl Dispatcher {
                     if reproduces(&entry.result, &result) {
                         Ok(())
                     } else {
+                        r.diverged = true;
                         Err(format!(
                             "entry {} gave a different result on replay",
                             entry.seq
@@ -561,15 +575,51 @@ impl Dispatcher {
                     }
                 });
             if let Err(msg) = outcome {
-                problem = Some(msg);
+                r.problem = Some(msg);
                 break;
             }
-            applied = k + 1;
-            commands += 1;
-            last = entry.t;
-            writer |= ex.by.is_writer();
-            valid_len = read.entry_end(k);
+            r.applied = k + 1;
+            r.commands += 1;
+            r.last = entry.t;
+            r.writer |= ex.by.is_writer();
+            r.valid_len = read.entry_end(k);
         }
+        r
+    }
+
+    /// Replays a crash journal and judges whether it holds work the file
+    /// does not, without touching the disk. `doc.open` acts on the answer;
+    /// "save as" uses it to refuse a target with unsaved work.
+    fn assess(
+        &self,
+        path: &Path,
+        style: SourceStyle,
+        contents: &[u8],
+        (disk_bytes, missing): (&[u8], bool),
+    ) -> Assessment {
+        let read = match journal::read(contents) {
+            Ok(r) => r,
+            Err(msg) => return Assessment::Unreadable(msg),
+        };
+
+        let mut r = self.replay(&read, path, style, read.entries.len());
+        if r.diverged {
+            // The diverged entry was applied before its result was compared.
+            // Replay the trusted prefix again, so the document holds exactly
+            // what the journal will be cut to (review finding F9).
+            r.session = self.replay(&read, path, style, r.applied).session;
+        }
+        let Replay {
+            session: mut replay,
+            known_disk,
+            applied,
+            commands,
+            last,
+            mut writer,
+            valid_len,
+            problem,
+            ..
+        } = r;
 
         // The file already holds the replayed document only if writing it
         // is lossless and gives the same bytes. A lossy write can match the
