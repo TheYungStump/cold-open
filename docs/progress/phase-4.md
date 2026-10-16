@@ -40,6 +40,22 @@ Corpus files stay in the gitignored `corpus/`. On 2026-10-16 it held `fountain-i
 
 The files are studied only with scripts that print structure (element paths, attribute names, counts), never script text, and each is recorded by sha256 in `fdx.md`.
 
+## Measurements (2026-10-16)
+
+Release build on the development machine (Windows 11), median of 11 runs, with `cargo run --release -p coldopen-core --example open_times -- FILE`. "Open" is `doc.open` plus the first layout, which is what the app waits for before drawing. The budget is a 120-page script open in under 200 ms.
+
+| File | Size | Pages | Open + first layout | Save in place | Journal header |
+| --- | --- | --- | --- | --- | --- |
+| Big Fish (.fdx) | 435 KB | 122 | 46 ms (31 + 15) | 6 ms | 491 KB |
+| Big Fish (.fountain) | 146 KB | 125 | 34 ms (17 + 17) | 20 ms | 264 KB |
+| The Last Birthday Card (.fdx) | 109 KB | 20 | 23 ms | 2 ms | 148 KB |
+| Brick & Steel (.fdx) | 55 KB | 4 | 15 ms | 2 ms | 74 KB |
+| rsdoiel samples 1–6 (.fdx) | 25–43 KB | 1–2 | 10–16 ms | 2 ms | 29–58 KB |
+
+- Every open is well inside the 200 ms budget. The .fdx reader costs more than the Fountain one (the lossless XML layer and the generate-and-compare pass), and the layout costs less (the identity layout form skips the normal form).
+- The .fdx journal header is about 1.1 times the file, because it carries the passthrough store. It is written once per save, inside the save's time above; the first edit after a save takes 0.3 ms.
+- Saving .fdx is faster than saving Fountain: kept paragraphs are copied as they are.
+
 ## Decisions made during the phase
 
 1. **The seam** (`crates/core/src/format.rs`). A `Format` trait (`read`, `style`, `write`, `layout_form`, `extensions`) and a `FormatId` enum, which the session and the journal header record. Every place core named the Fountain crate for a file now asks the session's format: open, new, revert, save and save-as, recovery's "already in the file" check, the save-as target check, the start-up journal check, `doc.export`, the views and PDF layout. So does the app's recovery dialog. Fountain as clipboard text (the editor) and as an MCP resource is not a file format and stays as it was.
