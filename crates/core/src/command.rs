@@ -266,6 +266,9 @@ pub enum Recover {
     #[default]
     Auto,
     Discard,
+    /// Recover even a journal written on another computer or for another
+    /// path, which `auto` only offers (docs/specs/journal.md, "Header").
+    Apply,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

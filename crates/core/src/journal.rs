@@ -17,6 +17,10 @@ use crate::ops::Transaction;
 
 pub const FORMAT: &str = "coldopen";
 pub const VERSION: u32 = 1;
+/// What replaying entries means. Bumped whenever a command's replay
+/// changes meaning; a journal with a higher number is kept aside, never
+/// replayed (docs/specs/journal.md, "Header").
+pub const SEMANTICS: u32 = 1;
 /// The command name of a save marker (docs/specs/journal.md).
 pub const SAVED: &str = "doc.saved";
 
@@ -36,6 +40,19 @@ pub struct Header {
     pub app: String,
     pub doc: Document,
     pub disk: Option<Fingerprint>,
+    /// Absent in journals from before 2026-10-16, which mean 1.
+    #[serde(default = "first_semantics")]
+    pub semantics: u32,
+    /// The computer and the script's canonical path the journal was
+    /// written for; absent in older journals.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
+fn first_semantics() -> u32 {
+    1
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -117,6 +134,9 @@ pub struct Journal {
     /// The file's length after the last whole line, where the next one
     /// goes.
     len: u64,
+    /// The computer and script path written into each header.
+    host: Option<String>,
+    doc_path: Option<String>,
     /// Set when the file may end in a fragment that could not be cut off,
     /// or has no whole header: nothing written now could be replayed, so
     /// every write fails until [`Journal::start`] succeeds.
@@ -157,6 +177,8 @@ impl Journal {
                 path: path.to_path_buf(),
                 seq: 0,
                 len: contents.len() as u64,
+                host: None,
+                doc_path: None,
                 broken: None,
                 durability,
                 flusher,
@@ -176,6 +198,13 @@ impl Journal {
         self.file.set_len(len)?;
         self.file.seek(SeekFrom::Start(len))?;
         Ok(())
+    }
+
+    /// Names the computer and the script's canonical path, for the
+    /// headers written from now on.
+    pub fn set_identity(&mut self, host: Option<String>, doc_path: Option<String>) {
+        self.host = host;
+        self.doc_path = doc_path;
     }
 
     /// Whether the journal is broken (see `broken`).
@@ -235,6 +264,9 @@ impl Journal {
             app: env!("CARGO_PKG_VERSION").into(),
             doc: doc.clone(),
             disk,
+            semantics: SEMANTICS,
+            host: self.host.clone(),
+            path: self.doc_path.clone(),
         };
         let mut line = serde_json::to_vec(&header).map_err(io::Error::other)?;
         line.push(b'\n');
@@ -426,6 +458,12 @@ pub fn read(contents: &[u8]) -> Result<ReadBack, String> {
         return Err(format!(
             "unsupported journal format {} v{}",
             header.journal, header.v
+        ));
+    }
+    if header.semantics > SEMANTICS {
+        return Err(format!(
+            "the journal was written by a newer Cold Open (semantics {}; this version knows up to {SEMANTICS})",
+            header.semantics
         ));
     }
     // A damaged or hand-made header must never put two blocks under one id

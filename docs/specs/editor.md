@@ -296,6 +296,7 @@ When an agent attaches to the open script through `coldopen mcp` (`docs/specs/mc
 
   **Keep** (Enter, K or Esc) continues with the recovered script, unsaved. **Discard** (D) sends `doc.revert`, which keeps a copy of the journal. For a script that was never saved there is no file to go back to: Discard closes it with `discard` and starts a new script. That too keeps a copy of the journal (2026-10-16), and the dialog says so.
   The number of changes is the number of recovered commands, so a burst of typing counts each key.
+- **A journal from somewhere else** (2026-10-16). When `doc.open` fails with `journal_foreign`, the app asks before anything is recovered: "Unsaved changes from somewhere else", naming the computer and path the journal was written for. **Recover them** (Enter or R) opens with `recover: "apply"`, and the recovery dialog follows as usual, so Discard is still there. **Set them aside** (S) opens with `recover: "discard"`, which keeps a copy. Cancel (Esc or C) leaves the script closed.
 - **Errors.** A command that fails shows a banner with the error's message, and the editor stays usable. Nothing fails silently.
 - **Esc** closes the nearest thing first: the autocomplete list, the find bar or palette, a selection, then the banners, then the leftover-work offer. "Dismiss messages" in the palette does the last two.
 

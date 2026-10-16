@@ -284,6 +284,53 @@ fn a_save_lost_in_a_power_cut_is_offered_back() {
     h.app.d.shutdown();
 }
 
+/// Review finding F16: a crash journal synced or committed from another
+/// computer was recovered without a word. The app now asks first.
+#[test]
+fn a_journal_from_another_computer_is_offered_first() {
+    for answer in ["s", "r"] {
+        let home = tempfile::tempdir().unwrap();
+        let p = script(home.path());
+        {
+            let mut h = app(home.path(), Some(&p), None);
+            to_first_action(&mut h);
+            h.type_text(" Thunder.");
+            // Dropped without closing: a crash.
+        }
+        let j = coldopen_core::journal::path_for(&p);
+        let text = std::fs::read_to_string(&j).unwrap();
+        let (head, rest) = text.split_once('\n').unwrap();
+        let mut header: serde_json::Value = serde_json::from_str(head).unwrap();
+        header["host"] = serde_json::json!("someone-elses-laptop");
+        std::fs::write(&j, format!("{header}\n{rest}")).unwrap();
+
+        let mut h = app(home.path(), Some(&p), None);
+        assert!(
+            matches!(h.app.prompt, Some(Prompt::Foreign { .. })),
+            "{:?} {:?}",
+            h.app.prompt,
+            h.app.banners
+        );
+        assert!(h.app.recovery.is_none());
+        press(&mut h, answer);
+        assert!(h.app.prompt.is_none());
+        let s = h.app.d.session().expect("the script is open");
+        let line = s.doc.blocks[1].element.text.plain_text();
+        if answer == "s" {
+            assert_eq!(line, "Rain.");
+            let kept = std::fs::read_dir(home.path())
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .any(|e| e.file_name().to_string_lossy().contains(".discarded-"));
+            assert!(kept);
+        } else {
+            assert_eq!(line, "Rain. Thunder.");
+            assert!(h.app.recovery.is_some(), "the recovery dialog follows");
+        }
+        h.app.d.discard();
+    }
+}
+
 #[test]
 fn keep_carries_on_with_the_recovered_script() {
     let home = tempfile::tempdir().unwrap();

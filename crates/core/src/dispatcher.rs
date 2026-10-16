@@ -85,6 +85,9 @@ struct Replayed {
     external_change: bool,
     /// Whether any of the work is a writer's.
     writer: bool,
+    /// Set when the header names another computer or another path: the
+    /// journal was synced or copied here. Details for `journal_foreign`.
+    foreign: Option<Value>,
 }
 
 impl Replayed {
@@ -142,10 +145,34 @@ fn locked(path: &Path) -> CommandError {
 
 fn open_journal(path: &Path, durability: Durability) -> Result<(Journal, Vec<u8>), CommandError> {
     let jpath = journal::path_for(path);
-    Journal::open_locked(&jpath, durability).map_err(|e| match e {
+    let (mut j, contents) = Journal::open_locked(&jpath, durability).map_err(|e| match e {
         OpenError::Locked => locked(path),
         OpenError::Io(e) => CommandError::io(&jpath, &e),
-    })
+    })?;
+    j.set_identity(Some(this_host().to_string()), Some(canonical(path)));
+    Ok((j, contents))
+}
+
+/// This computer's name, as journal headers record it.
+fn this_host() -> &'static str {
+    static HOST: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    HOST.get_or_init(|| gethostname::gethostname().to_string_lossy().into_owned())
+}
+
+/// A script's canonical path, as journal headers record it, also for a
+/// script whose file does not exist yet.
+fn canonical(path: &Path) -> String {
+    fs::canonicalize(path)
+        .or_else(|_| {
+            let parent = path
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or(Path::new("."));
+            fs::canonicalize(parent).map(|d| d.join(path.file_name().unwrap_or_default()))
+        })
+        .unwrap_or_else(|_| path.to_path_buf())
+        .display()
+        .to_string()
 }
 
 impl Dispatcher {
@@ -447,7 +474,7 @@ impl Dispatcher {
                             format!("unsaved changes were set aside in {}", aside.display()),
                         ));
                     }
-                    Recover::Auto => {
+                    Recover::Auto | Recover::Apply => {
                         let jio = |e: std::io::Error, j: &Journal| CommandError::io(j.path(), &e);
                         match self.assess(&path, decoded.style, &contents, (&bytes, missing)) {
                             Assessment::Unreadable(msg) => {
@@ -459,6 +486,14 @@ impl Dispatcher {
                                 ));
                             }
                             Assessment::Replayed(r) => {
+                                // A journal synced or copied from elsewhere
+                                // is offered, never applied on its own.
+                                if r.recover
+                                    && p.recover == Recover::Auto
+                                    && let Some(details) = r.foreign
+                                {
+                                    return Err(foreign_journal(&path, details));
+                                }
                                 if let Some(msg) = &r.problem {
                                     let aside = j
                                         .copy_aside(&contents, Replayed::aside_tag(msg))
@@ -651,7 +686,13 @@ impl Dispatcher {
         // writer's, which is the cautious choice.
         writer |= commands == 0;
         replay.journal = None;
+        let host = read.header.host.as_deref();
+        let at = read.header.path.as_deref();
+        let here = canonical(path);
+        let foreign = (host.is_some_and(|h| h != this_host()) || at.is_some_and(|p| p != here))
+            .then(|| json!({ "host": host, "path": at }));
         Assessment::Replayed(Box::new(Replayed {
+            foreign,
             session: replay,
             valid_len,
             applied: applied as u64,
@@ -1293,6 +1334,19 @@ fn refuse_if_changed(
         ),
     )
     .with_details(json!({ "path": target.display().to_string() })))
+}
+
+fn foreign_journal(path: &Path, details: Value) -> CommandError {
+    let host = details["host"].as_str().unwrap_or("an unknown computer");
+    let at = details["path"].as_str().unwrap_or("an unknown path");
+    CommandError::new(
+        "journal_foreign",
+        format!(
+            "{} has unsaved changes in a crash journal written elsewhere (on {host}, for {at}), perhaps synced or copied here with the script; open it with recover \"apply\" to recover them, or \"discard\" to set them aside",
+            path.display()
+        ),
+    )
+    .with_details(details)
 }
 
 /// One save at a time: while a save prepared off the UI thread is being

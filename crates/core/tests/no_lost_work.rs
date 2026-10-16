@@ -789,3 +789,91 @@ fn f16_journaled_params_carry_their_defaults() {
     assert_eq!(text(&mut d), live);
     d.discard();
 }
+
+/// Rewrites the header of `p`'s journal with `f`.
+fn edit_header(p: &Path, f: impl FnOnce(&mut Value)) {
+    let j = journal::path_for(p);
+    let text_j = fs::read_to_string(&j).unwrap();
+    let (head, rest) = text_j.split_once('\n').unwrap();
+    let mut header: Value = serde_json::from_str(head).unwrap();
+    f(&mut header);
+    fs::write(&j, format!("{header}\n{rest}")).unwrap();
+}
+
+/// Review finding F16, third part: a journal says nothing about where it
+/// was written. Scripts kept in git or a synced folder take their journal
+/// with them, and a co-writer who opened the script on another computer
+/// "recovered" someone else's unsaved edits without being asked. Such a
+/// journal is now offered, never applied on its own.
+#[test]
+fn f16_a_journal_from_another_computer_or_folder_is_offered_not_applied() {
+    let w = Author::Writer;
+    let dir = tempfile::tempdir().unwrap();
+    let p = crashed_with_work(dir.path(), &w);
+    let header = fs::read_to_string(journal::path_for(&p)).unwrap();
+    let header: Value = serde_json::from_str(header.lines().next().unwrap()).unwrap();
+    assert!(
+        header["host"].is_string() && header["path"].is_string(),
+        "{header}"
+    );
+    assert_eq!(header["semantics"], 1, "{header}");
+
+    // Synced from another computer.
+    edit_header(&p, |h| h["host"] = json!("someone-elses-laptop"));
+    let before = fs::read(journal::path_for(&p)).unwrap();
+    let mut d = Dispatcher::new(Options::default());
+    let e = err(&mut d, &w, "doc.open", json!({"path": p}));
+    assert_eq!(e.code, "journal_foreign", "{e}");
+    assert_eq!(e.details.as_ref().unwrap()["host"], "someone-elses-laptop");
+    assert!(d.session().is_none());
+    assert_eq!(fs::read(journal::path_for(&p)).unwrap(), before);
+    // The writer chose to apply it.
+    let r = ok(
+        &mut d,
+        &w,
+        "doc.open",
+        json!({"path": p, "recover": "apply"}),
+    );
+    assert_eq!(r["recovered"]["commands"], 1, "{r}");
+    assert!(text(&mut d).contains(UNSAVED));
+    d.shutdown();
+
+    // Committed with the script, and checked out in another folder.
+    let other = tempfile::tempdir().unwrap();
+    let q = other.path().join("s.fountain");
+    fs::copy(&p, &q).unwrap();
+    fs::copy(journal::path_for(&p), journal::path_for(&q)).unwrap();
+    let mut d = Dispatcher::new(Options::default());
+    let e = err(&mut d, &w, "doc.open", json!({"path": q}));
+    assert_eq!(e.code, "journal_foreign", "{e}");
+    let r = ok(
+        &mut d,
+        &w,
+        "doc.open",
+        json!({"path": q, "recover": "discard"}),
+    );
+    assert_eq!(r["warnings"][0]["code"], "journal_discarded", "{r}");
+    d.discard();
+}
+
+/// A journal written by a newer Cold Open, whose entries may mean things
+/// this version does not know, is kept aside rather than replayed.
+#[test]
+fn f16_a_journal_with_newer_semantics_is_set_aside() {
+    let w = Author::Writer;
+    let dir = tempfile::tempdir().unwrap();
+    let p = crashed_with_work(dir.path(), &w);
+    edit_header(&p, |h| h["semantics"] = json!(2));
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, &w, "doc.open", json!({"path": p}));
+    assert_eq!(r["warnings"][0]["code"], "journal_unreadable", "{r}");
+    assert!(
+        r["warnings"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("newer"),
+        "{r}"
+    );
+    assert_eq!(asides(dir.path(), "corrupt").len(), 1);
+    d.discard();
+}

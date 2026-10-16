@@ -22,6 +22,10 @@
 | --- | --- |
 | `doc` | A full snapshot of the base document, with ids and `next_id`. This makes the journal self-contained: recovery works even if the script file was changed, damaged or deleted. |
 | `disk` | The length and FNV-1a 64-bit hash of the script file as last saved, or null if it has never been saved. It is used only to notice changes made by other programs. |
+| `semantics` | (2026-10-16) What replaying the entries means, now 1. It goes up whenever a command's replay changes meaning, because results alone cannot show that ("What replay compares"). Absent means 1. A journal with a higher number than this version knows is treated like an unreadable header: kept aside, never replayed. |
+| `host`, `path` | (2026-10-16) The computer's name and the script's canonical path when the header was written. Absent in older journals. |
+
+**A journal from somewhere else** (2026-10-16). Writers keep scripts in git and in synced folders, and the journal can travel with the script. A journal whose `host` is not this computer, or whose `path` is not this script's canonical path, holds someone else's work, or work from another copy. `doc.open` never applies it on its own: where it would recover work, the open fails with `journal_foreign`, `details` giving `host` and `path`, and changes nothing. `recover: "apply"` recovers it anyway; `recover: "discard"` sets it aside, as always. A foreign journal with nothing to recover is simply started again. The desktop app asks the writer (`docs/specs/editor.md` §13).
 
 - **Entries.** Each following line is one applied command:
 
@@ -83,6 +87,8 @@ A write call puts the entry in the operating system's cache, which survives the 
 | --- | --- | --- |
 | **Every entry** | The CLI, `serve --stdio`, `coldopen mcp` when it opens the file itself | Each entry is flushed before its result is returned. |
 | **Deferred** | The desktop app | A background thread flushes. No entry stays unflushed for more than **250 ms** after it is written. The thread also flushes at once when a save starts or finishes, when the document closes, and when typing goes idle, meaning 100 ms with no new entry. |
+
+**One file, two handles** (2026-10-16, from Grok's review). The flusher thread flushes a second handle to the journal (a `try_clone` of the one entries are written through). This relies on a flush of any handle reaching the disk with everything written to that file, which holds wherever both handles share one open file in the operating system: Windows, macOS and Linux on local disks. A network file system that buffered writes per handle could keep an entry from the disk longer than 250 ms. No such system is supported for scripts today; if one is, the flusher should own the writing handle instead.
 
 The 250 ms limit is hard in the sense that the app never waits longer before asking the disk to flush. A flush that the disk itself takes longer to finish is reported, never hidden: the status bar shows the journal as protected only when every written entry has been flushed.
 

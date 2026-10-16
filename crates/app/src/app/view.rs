@@ -301,6 +301,30 @@ impl App {
             ]
             .spacing(12)
             .into(),
+            Prompt::Foreign { path, host, at } => column![
+                title(pal, "Unsaved changes from somewhere else"),
+                body(
+                    pal,
+                    format!(
+                        "Cold Open found unsaved changes to {} in a crash journal written on {host}, \
+                         for {at}. It may have come with the script through a sync service or git, \
+                         so it may not be yours.",
+                        file_name(path)
+                    ),
+                ),
+                row![
+                    dialog_button("Recover them", Message::Reply(Reply::Recover), true),
+                    dialog_button("Set them aside", Message::Reply(Reply::SetAside), false),
+                    dialog_button("Cancel", Message::Reply(Reply::Cancel), false),
+                ]
+                .spacing(8),
+                hint(
+                    pal,
+                    "Enter or R: Recover them  ·  S: Set them aside (a copy is kept)  ·  Esc: Cancel"
+                ),
+            ]
+            .spacing(12)
+            .into(),
             Prompt::Changed { .. } => column![
                 title(
                     pal,

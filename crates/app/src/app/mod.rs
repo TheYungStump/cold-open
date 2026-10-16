@@ -7,7 +7,9 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use coldopen_core::{BlockId, Command, Dispatcher, Durability, Options, PreparedSave};
+use coldopen_core::{
+    BlockId, Command, CommandError, Dispatcher, Durability, Options, PreparedSave,
+};
 use coldopen_screenplay::{ElementKind, Pt};
 use iced::keyboard::{self, Key, key::Named};
 use iced::widget::scrollable;
@@ -448,7 +450,39 @@ impl App {
     }
 
     pub fn open(&mut self, path: &Path) {
-        match self.run("doc.open", json!({ "path": path })) {
+        self.open_with(path, "auto");
+    }
+
+    /// Opens a script with `recover` (`auto`, `apply` or `discard`). A crash
+    /// journal written on another computer or for another folder is offered
+    /// first (docs/specs/journal.md, "Header").
+    pub(super) fn open_with(&mut self, path: &Path, recover: &str) {
+        let opened = Command::from_parts("doc.open", json!({ "path": path, "recover": recover }))
+            .map_err(CommandError::invalid_params)
+            .and_then(|cmd| self.d.execute(cmd));
+        let opened = match opened {
+            Err(e) if e.code == "journal_foreign" => {
+                let detail = |k: &str| {
+                    e.details
+                        .as_ref()
+                        .and_then(|d| d[k].as_str())
+                        .unwrap_or("unknown")
+                        .to_string()
+                };
+                self.prompt = Some(Prompt::Foreign {
+                    path: path.to_path_buf(),
+                    host: detail("host"),
+                    at: detail("path"),
+                });
+                return;
+            }
+            Err(e) => {
+                self.banners.push(e.message);
+                None
+            }
+            Ok(r) => Some(r),
+        };
+        match opened {
             Some(r) => {
                 for w in r["warnings"].as_array().into_iter().flatten() {
                     if let Some(m) = w["message"].as_str() {
@@ -1142,6 +1176,17 @@ impl App {
         let cmd = kp.modifiers.command();
         let enter = matches!(kp.key.as_ref(), Key::Named(Named::Enter));
         let esc = matches!(kp.key.as_ref(), Key::Named(Named::Escape));
+        if matches!(self.prompt, Some(Prompt::Foreign { .. })) {
+            return if enter || ch == "r" {
+                self.reply(Reply::Recover)
+            } else if ch == "s" {
+                self.reply(Reply::SetAside)
+            } else if esc || ch == "c" {
+                self.reply(Reply::Cancel)
+            } else {
+                Task::none()
+            };
+        }
         if matches!(self.prompt, Some(Prompt::Changed { .. })) {
             // Enter takes the choice that keeps both versions.
             return if enter || ch == "a" {

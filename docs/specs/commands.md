@@ -137,7 +137,7 @@ Notes on each command:
   - `start` (2026-10-15) is an element type, such as `"scene_heading"`. The document then begins with one empty block of that type, so an editor has a line to type on. The block is part of the new document, not an edit: the document starts clean, with nothing to undo and an empty journal.
 - **`doc.open`**
   - Reads a `.fountain`, `.spmd` or `.txt` file.
-  - `recover` is `"auto"` (the default) or `"discard"`. If a crash journal exists, `auto` recovers it and `discard` sets it aside unread; see the journal spec.
+  - `recover` is `"auto"` (the default), `"discard"` or `"apply"`. If a crash journal exists, `auto` recovers it and `discard` sets it aside unread; see the journal spec. A journal written on another computer or for another path (synced or copied with the script) is only offered: `auto` fails with `journal_foreign` and changes nothing, and `apply` recovers it anyway (2026-10-16).
   - `recovered` is null, or `{commands, external_change, last}`. `last` (added 2026-10-15) is when the newest recovered change was made, in milliseconds since the Unix epoch, for the app's recovery dialog.
 - **`doc.save`**
   - Saves atomically.
@@ -317,6 +317,7 @@ Undo is unlimited. A new edit clears the redo history.
 | `unsupported_format` | The file type is not supported in this version. |
 | `lossy_format` | The format cannot hold the document; `details.losses` lists why. |
 | `doc_locked` | Another process has the document open. |
+| `journal_foreign` | `doc.open` found unsaved work in a crash journal written on another computer or for another path; `details` gives `host` and `path`. Open with `recover` `"apply"` or `"discard"`. |
 | `io_error` | Reading or writing a file failed. |
 | `journal_error` | The crash journal could not be written; the edit was rolled back. |
 | `would_overwrite_document` | An output command was asked to write over the open document or its journal. |

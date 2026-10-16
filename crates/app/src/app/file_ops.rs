@@ -44,6 +44,13 @@ pub enum Prompt {
     /// Another program changed the file since Cold Open last read or saved
     /// it: overwrite, reload, or save as? With the save's `allow_lossy`.
     Changed { message: String, allow_lossy: bool },
+    /// Opening found unsaved changes in a crash journal written on another
+    /// computer or for another folder: recover them, or set them aside?
+    Foreign {
+        path: PathBuf,
+        host: String,
+        at: String,
+    },
 }
 
 /// The writer's answer to a [`Prompt`].
@@ -58,6 +65,10 @@ pub enum Reply {
     Reload,
     /// Changed: save under another name.
     SaveAs,
+    /// Foreign: recover the journal's changes.
+    Recover,
+    /// Foreign: open the file, keeping the journal aside.
+    SetAside,
 }
 
 /// What the recovery dialog shows (editor.md §13).
@@ -296,6 +307,14 @@ impl App {
             }
             (Prompt::Changed { .. }, Reply::SaveAs) => {
                 self.ask(Ask::SaveAs(format!("{}.fountain", self.stem())))
+            }
+            (Prompt::Foreign { path, .. }, Reply::Recover) => {
+                self.open_with(&path, "apply");
+                self.after_change(true)
+            }
+            (Prompt::Foreign { path, .. }, Reply::SetAside) => {
+                self.open_with(&path, "discard");
+                self.after_change(true)
             }
             // A key that answers some other question: this one stays open.
             (prompt, _) => {
