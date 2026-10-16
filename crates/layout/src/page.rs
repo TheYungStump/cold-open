@@ -126,6 +126,10 @@ pub struct Cluster {
     /// Grid cells it covers.
     pub cells: u8,
     pub look: Look,
+    /// Where the cluster starts in its element's plain text (bytes), so an
+    /// editor can map a position on the page back to the text. 0 for text
+    /// that is not from the script, such as page numbers.
+    pub src: u32,
 }
 
 /// A line of text at a position on the page.

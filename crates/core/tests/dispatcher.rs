@@ -83,6 +83,19 @@ fn write_script(dir: &Path) -> PathBuf {
     p
 }
 
+/// The `recovered` report without `last`, which comes from the wall clock;
+/// `last` must be a recent time.
+fn recovered(r: &Value) -> Value {
+    let mut v = r["recovered"].clone();
+    let last = v.as_object_mut().and_then(|o| o.remove("last"));
+    assert!(
+        last.and_then(|l| l.as_u64())
+            .is_some_and(|t| t > 1_600_000_000_000),
+        "{r}"
+    );
+    v
+}
+
 #[test]
 fn envelope_errors() {
     let mut d = Dispatcher::new(Options::default());
@@ -456,7 +469,7 @@ fn recovery_after_a_crash() {
     let mut h2 = Harness::new();
     let r = h2.ok("doc.open", json!({"path": p}));
     assert_eq!(
-        r["recovered"],
+        recovered(&r),
         json!({"commands": 4, "external_change": false})
     );
     assert_eq!(h2.blocks(), before);
@@ -517,7 +530,7 @@ fn discard_and_external_change() {
     let mut h2 = Harness::new();
     let r = h2.ok("doc.open", json!({"path": p}));
     assert_eq!(
-        r["recovered"],
+        recovered(&r),
         json!({"commands": 1, "external_change": true})
     );
     crash(h2);

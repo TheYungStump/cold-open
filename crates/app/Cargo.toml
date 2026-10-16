@@ -1,0 +1,45 @@
+[package]
+name = "coldopen-app"
+description = "The Cold Open desktop app: a page-view screenplay editor built on iced."
+license = "GPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+name = "coldopen_app"
+path = "src/lib.rs"
+
+[[bin]]
+name = "coldopen-app"
+path = "src/main.rs"
+
+[features]
+# Both renderers: tiny-skia on the CPU and wgpu on the GPU, chosen at start
+# from settings.json (docs/progress/phase-3.md, decision on renderers).
+default = ["gpu"]
+gpu = ["iced/wgpu"]
+
+[dependencies]
+coldopen-core.workspace = true
+coldopen-layout.workspace = true
+coldopen-screenplay.workspace = true
+coldopen-fountain.workspace = true
+coldopen-link.workspace = true
+coldopen-fonts = { workspace = true, features = ["ui"] }
+iced.workspace = true
+iced_runtime.workspace = true
+rfd.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+unicode-width.workspace = true
+
+[dev-dependencies]
+iced_test.workspace = true
+coldopen-link.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

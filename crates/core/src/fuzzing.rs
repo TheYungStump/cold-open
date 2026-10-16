@@ -75,6 +75,9 @@ pub fn journal_replay(data: &[u8]) -> Result<(), String> {
     let doc: Document = read.header.doc;
     let mut s = Session::new(doc, None, SourceStyle::default());
     for e in &read.entries {
+        if e.saved_disk().is_some() {
+            continue;
+        }
         let Ok(cmd) = Command::from_parts(&e.command, e.params.clone()) else {
             break;
         };
@@ -85,7 +88,11 @@ pub fn journal_replay(data: &[u8]) -> Result<(), String> {
         ) {
             break;
         }
-        if s.execute(&cmd).is_err() {
+        let ex = crate::session::Exec {
+            by: e.by.clone().unwrap_or_default(),
+            merge: crate::session::Merge::Recorded(e.merge),
+        };
+        if s.execute_with(&cmd, &ex).is_err() {
             break;
         }
     }

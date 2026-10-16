@@ -1,6 +1,6 @@
 [package]
 name = "coldopen-fonts"
-description = "The Courier Prime faces Cold Open bundles for layout and PDF output, under the SIL Open Font License 1.1."
+description = "The fonts Cold Open bundles under the SIL Open Font License 1.1: Courier Prime for layout and PDF output, and Atkinson Hyperlegible Next for the desktop app."
 # The font files are OFL-1.1; the few lines of Rust that expose them are MIT OR Apache-2.0.
 license = "OFL-1.1 AND (MIT OR Apache-2.0)"
 version.workspace = true
@@ -8,6 +8,10 @@ edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 authors.workspace = true
+
+[features]
+# The desktop app's interface font; the CLI and layout leave it out.
+ui = []
 
 [lints]
 workspace = true

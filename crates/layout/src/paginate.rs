@@ -914,6 +914,7 @@ impl Paginator<'_> {
                 end: text.len() as u32,
                 cells: c.width,
                 look: c.look,
+                src: c.src_start,
             });
         }
         let src = match (source, cells.first(), cells.last()) {
@@ -933,27 +934,107 @@ impl Paginator<'_> {
 
     /// A one-line plain string at `x` with baseline `y`.
     pub(crate) fn plain_line(&self, s: &str, x: Pt, y: Pt, kind: LineKind) -> PlacedLine {
-        let t = text::build_plain(s, false, Look::default());
-        let mut text = String::new();
-        let mut clusters = Vec::new();
-        for c in &t.cells {
-            if c.kind == text::CellKind::Newline {
+        plain_line(s, x, y, kind)
+    }
+
+    /// The continuous draft view (layout.md §15.3): every element's lines
+    /// one after another, with the space above each, and no pages. `starts`
+    /// are the cursors where body pages begin; their tops are returned.
+    pub(crate) fn draft(&self, starts: &[Cursor]) -> crate::Draft {
+        let lh = self.line_h();
+        let mut lines = Vec::new();
+        // (cursor of a line's first cell, its top), in flow order.
+        let mut marks: Vec<(Cursor, Pt)> = Vec::new();
+        let mut y = Pt::ZERO;
+        let mut first = true;
+        for (bi, b) in self.flow.blocks.iter().enumerate() {
+            let bi = bi as u32;
+            if let BlockKind::Dual { right } = b.kind {
+                if !first {
+                    y = Pt(y.0 + b.members.first().map_or(0, |m| m.space.0));
+                }
+                let top = y;
+                marks.push((
+                    Cursor {
+                        block: bi,
+                        member: 0,
+                        offset: 0,
+                    },
+                    top,
+                ));
+                for range in [0..right, right..b.members.len()] {
+                    let mut cy = top;
+                    for (k, m) in b.members[range].iter().enumerate() {
+                        if k > 0 {
+                            cy = Pt(cy.0 + m.space.0);
+                        }
+                        for l in &m.lines {
+                            lines.push(self.place(
+                                &m.text,
+                                l,
+                                &m.geom,
+                                cy,
+                                LineKind::Content(m.kind),
+                                m.source,
+                            ));
+                            cy = Pt(cy.0 + lh.0);
+                        }
+                    }
+                }
+                y = Pt(top.0 + lh.0 * b.dual_rows(self.format) as i32);
+                first = false;
                 continue;
             }
-            text.push_str(t.cell_text(c));
-            clusters.push(Cluster {
-                end: text.len() as u32,
-                cells: c.width,
-                look: c.look,
-            });
+            for (mi, m) in b.members.iter().enumerate() {
+                if !first {
+                    y = Pt(y.0 + m.space.0);
+                }
+                first = false;
+                for l in &m.lines {
+                    marks.push((
+                        Cursor {
+                            block: bi,
+                            member: mi as u32,
+                            offset: l.start,
+                        },
+                        y,
+                    ));
+                    lines.push(self.place(
+                        &m.text,
+                        l,
+                        &m.geom,
+                        y,
+                        LineKind::Content(m.kind),
+                        m.source,
+                    ));
+                    if l.first
+                        && let Some(n) = &m.scene_number
+                    {
+                        let baseline = self.baseline_y(y);
+                        for x in [
+                            self.format.scene_number_left,
+                            self.format.scene_number_right,
+                        ] {
+                            lines.push(self.plain_line(n, x, baseline, LineKind::SceneNumber));
+                        }
+                    }
+                    y = Pt(y.0 + lh.0);
+                }
+            }
         }
-        PlacedLine {
-            x,
-            y,
-            kind,
-            source: None,
-            text,
-            clusters,
+        // A page starts in the line holding its cursor: the last line that
+        // starts at or before it.
+        let page_tops = starts
+            .iter()
+            .map(|c| {
+                let k = marks.partition_point(|(m, _)| m <= c);
+                marks.get(k.saturating_sub(1)).map_or(Pt::ZERO, |(_, t)| *t)
+            })
+            .collect();
+        crate::Draft {
+            lines,
+            page_tops,
+            height: y,
         }
     }
 }
@@ -963,4 +1044,31 @@ impl Paginator<'_> {
 fn cand_block(c: &Cand, rows: &[Row]) -> u32 {
     rows.get(c.rows.saturating_sub(1))
         .map_or(c.next.block, |r| r.block)
+}
+
+/// A line of plain text, such as a page number.
+pub(crate) fn plain_line(s: &str, x: Pt, y: Pt, kind: LineKind) -> PlacedLine {
+    let t = text::build_plain(s, false, Look::default());
+    let mut text = String::new();
+    let mut clusters = Vec::new();
+    for c in &t.cells {
+        if c.kind == text::CellKind::Newline {
+            continue;
+        }
+        text.push_str(t.cell_text(c));
+        clusters.push(Cluster {
+            end: text.len() as u32,
+            cells: c.width,
+            look: c.look,
+            src: 0,
+        });
+    }
+    PlacedLine {
+        x,
+        y,
+        kind,
+        source: None,
+        text,
+        clusters,
+    }
 }

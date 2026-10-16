@@ -8,8 +8,13 @@ rust-version.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+# JSON Schema for the types that appear in command params (MCP tool schemas).
+schema = ["dep:schemars"]
+
 [dependencies]
 serde.workspace = true
+schemars = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json.workspace = true

@@ -1,8 +1,14 @@
 # coldopen-fonts
 
-The fonts Cold Open bundles for layout and PDF output: **Courier Prime** in
-four faces. Nothing else lives in this crate, so the layout code that uses the
-fonts stays MIT OR Apache-2.0.
+The fonts Cold Open bundles:
+
+- **Courier Prime** in four faces, for layout and PDF output;
+- **Atkinson Hyperlegible Next**, Regular and Bold, subset to Latin, for the
+  desktop app's menus, navigator and dialogs. Only the `ui` cargo feature
+  includes these, so the CLI and the layout library never carry them.
+
+Nothing else lives in this crate, so the layout code that uses the fonts
+stays MIT OR Apache-2.0.
 
 ## License
 
@@ -18,7 +24,48 @@ Every copy of a program that contains the fonts must carry the license text.
 The Rust source in `src/` is MIT OR Apache-2.0, like the rest of the format
 libraries.
 
-## Source
+## Atkinson Hyperlegible Next (interface font)
+
+Added 2026-10-15 for the desktop app (phase 3).
+
+- **License.** SIL Open Font License 1.1, in
+  [`fonts/OFL-AtkinsonHyperlegibleNext.txt`](fonts/OFL-AtkinsonHyperlegibleNext.txt),
+  next to Courier Prime's. It declares no Reserved Font Name, so the subsets
+  below may keep the name Atkinson Hyperlegible Next.
+- **Source.** `https://github.com/googlefonts/atkinson-hyperlegible-next`,
+  commit `7925f50f649b3813257faf2f4c0b381011f434f1`, files
+  `fonts/ttf/AtkinsonHyperlegibleNext-Regular.ttf`,
+  `fonts/ttf/AtkinsonHyperlegibleNext-Bold.ttf` and `OFL.txt`, downloaded
+  2026-10-15.
+- **Subset.** Each face was subset with fontTools 4.67.0 (Python 3.13):
+
+  ```bash
+  python -m fontTools.subset AtkinsonHyperlegibleNext-Regular.ttf \
+    --unicodes="U+0020-007E,U+00A0-024F,U+02B0-02FF,U+2000-206F,U+20A0-20CF,U+2190-21FF,U+2318,U+2325,U+2326,U+232B,U+23CE" \
+    --layout-features='*' --name-IDs='*' --no-hinting \
+    --output-file=AtkinsonHyperlegibleNext-Regular.ttf
+  ```
+
+  and the same for Bold. That keeps ASCII, Latin-1, Latin Extended-A and -B,
+  spacing modifiers, general punctuation, currency signs and whatever arrows
+  and key symbols the font has (it has none of the arrows or key symbols, so
+  the app spells keys out as text). Characters outside the subset, such as a
+  Greek scene heading in the navigator, fall back to a system font. The page
+  itself is always Courier Prime.
+
+| File | Bytes | SHA-256 |
+| --- | --- | --- |
+| upstream `AtkinsonHyperlegibleNext-Regular.ttf` | 65068 | `88ed5c31a71584c7772963b02d04bef1eb7e3d2e9c8b9cb204339b1f82cf432c` |
+| upstream `AtkinsonHyperlegibleNext-Bold.ttf` | 66792 | `994414047df66bb4998d01c1cb1eeb4a2ddc4622d1aa56bbb8adbeca7645b041` |
+| `AtkinsonHyperlegibleNext-Regular.ttf` (subset) | 36612 | `fc0bc738a162aa3e4901da4df7c696597991acebd31fabd01ee228e7bb2ed77e` |
+| `AtkinsonHyperlegibleNext-Bold.ttf` (subset) | 37128 | `daed73089214e525d0aa38fe52c24d61f2e0db613fd6c216537aeb53bec1d269` |
+| `OFL-AtkinsonHyperlegibleNext.txt` (upstream `OFL.txt`) | 4431 | `aca6a428580965d2297d1b718042dd427c2a9443ece3b0d02d758e161e0c4030` |
+
+Subsetting saves 57 KB: the two subsets add 73,740 bytes to the app, about
+34.5 KB compressed. A unit test (with `--features ui`) checks each subset's
+length and hash.
+
+## Courier Prime source
 
 | File | Bytes | SHA-256 |
 | --- | --- | --- |

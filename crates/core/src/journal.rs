@@ -9,11 +9,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::author::Author;
 use crate::document::Document;
+use crate::flush::{Durability, FlushStatus, Flusher};
 use crate::io::{Fingerprint, open_rw};
 
 pub const FORMAT: &str = "coldopen";
 pub const VERSION: u32 = 1;
+/// The command name of a save marker (docs/specs/journal.md).
+pub const SAVED: &str = "doc.saved";
 
 /// `.script.fountain.coldopen-journal` next to `script.fountain`.
 pub fn path_for(doc: &Path) -> PathBuf {
@@ -40,6 +44,26 @@ pub struct Entry {
     pub command: String,
     pub params: Value,
     pub result: Value,
+    /// Absent for a writer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<Author>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub merge: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+impl Entry {
+    /// The fingerprint a `doc.saved` marker records, or `None` for any
+    /// other entry.
+    pub fn saved_disk(&self) -> Option<Fingerprint> {
+        if self.command != SAVED {
+            return None;
+        }
+        serde_json::from_value(self.params.get("disk")?.clone()).ok()
+    }
 }
 
 pub enum OpenError {
@@ -54,13 +78,19 @@ pub struct Journal {
     file: File,
     path: PathBuf,
     seq: u64,
-    fsync: bool,
+    durability: Durability,
+    /// Present in `Deferred` mode. Declared after `file` but dropped first
+    /// by `delete`, so its final flush never races the file's removal.
+    flusher: Option<Flusher>,
 }
 
 impl Journal {
     /// Opens (creating if needed) and locks the journal at `path`. Returns
     /// it with its current contents, read through the locked handle.
-    pub fn open_locked(path: &Path, fsync: bool) -> Result<(Journal, Vec<u8>), OpenError> {
+    pub fn open_locked(
+        path: &Path,
+        durability: Durability,
+    ) -> Result<(Journal, Vec<u8>), OpenError> {
         let mut file = open_rw(path).map_err(OpenError::Io)?;
         match file.try_lock() {
             Ok(()) => {}
@@ -69,15 +99,47 @@ impl Journal {
         }
         let mut contents = Vec::new();
         file.read_to_end(&mut contents).map_err(OpenError::Io)?;
+        let flusher = match durability {
+            Durability::Deferred { max_delay, idle } => {
+                let handle = file.try_clone().map_err(OpenError::Io)?;
+                Some(Flusher::spawn(handle, max_delay, idle).map_err(OpenError::Io)?)
+            }
+            _ => None,
+        };
         Ok((
             Journal {
                 file,
                 path: path.to_path_buf(),
                 seq: 0,
-                fsync,
+                durability,
+                flusher,
             },
             contents,
         ))
+    }
+
+    /// Makes what was just written durable, as the mode asks.
+    fn written(&mut self) -> io::Result<()> {
+        match (&self.durability, &self.flusher) {
+            (Durability::EveryEntry, _) => self.file.sync_data(),
+            (_, Some(f)) => {
+                f.wrote();
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Asks a deferred journal to flush now, as on a save.
+    pub fn flush_now(&self) {
+        if let Some(f) = &self.flusher {
+            f.flush_now();
+        }
+    }
+
+    /// The deferred flusher's state, or `None` in the other modes.
+    pub fn status(&self) -> Option<FlushStatus> {
+        self.flusher.as_ref().map(Flusher::status)
     }
 
     pub fn path(&self) -> &Path {
@@ -99,8 +161,9 @@ impl Journal {
         self.file.set_len(0)?;
         self.file.seek(SeekFrom::Start(0))?;
         self.file.write_all(&line)?;
-        self.file.sync_data()?;
         self.seq = 0;
+        self.written()?;
+        self.flush_now();
         Ok(())
     }
 
@@ -109,13 +172,21 @@ impl Journal {
     pub fn resume(&mut self, valid_len: u64, seq: u64) -> io::Result<()> {
         self.file.set_len(valid_len)?;
         self.file.seek(SeekFrom::End(0))?;
-        self.file.sync_data()?;
         self.seq = seq;
+        self.written()?;
+        self.flush_now();
         Ok(())
     }
 
     /// Appends one applied command in a single write.
-    pub fn append(&mut self, command: &str, params: Value, result: &Value) -> io::Result<()> {
+    pub fn append(
+        &mut self,
+        command: &str,
+        params: Value,
+        result: &Value,
+        by: &Author,
+        merge: bool,
+    ) -> io::Result<()> {
         let entry = Entry {
             seq: self.seq + 1,
             t: SystemTime::now()
@@ -124,15 +195,56 @@ impl Journal {
             command: command.into(),
             params,
             result: result.clone(),
+            by: (!by.is_writer()).then(|| by.clone()),
+            merge,
         };
-        let mut line = serde_json::to_vec(&entry).map_err(io::Error::other)?;
+        self.write_entry(&entry)
+    }
+
+    /// Appends a `doc.saved` marker for a save of these bytes that is about
+    /// to start.
+    pub fn append_saved(&mut self, disk: Fingerprint) -> io::Result<()> {
+        let entry = Entry {
+            seq: self.seq + 1,
+            t: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as u64),
+            command: SAVED.into(),
+            params: serde_json::json!({ "disk": disk }),
+            result: serde_json::json!({}),
+            by: None,
+            merge: false,
+        };
+        self.write_entry(&entry)
+    }
+
+    /// Entries written since the header.
+    pub fn entries(&self) -> u64 {
+        self.seq
+    }
+
+    /// The journal's bytes, read through the locked handle.
+    pub fn contents(&mut self) -> io::Result<Vec<u8>> {
+        let mut out = Vec::new();
+        self.file.seek(SeekFrom::Start(0))?;
+        let r = self.file.read_to_end(&mut out);
+        self.file.seek(SeekFrom::End(0))?;
+        r.map(|_| out)
+    }
+
+    fn write_entry(&mut self, entry: &Entry) -> io::Result<()> {
+        // A journal whose flushes fail is not protecting anything; refuse
+        // edits until a flush works again (docs/specs/editor.md §13).
+        if let Some(e) = self.flusher.as_ref().and_then(Flusher::error) {
+            return Err(io::Error::other(format!(
+                "the journal could not be flushed to disk: {e}"
+            )));
+        }
+        let mut line = serde_json::to_vec(entry).map_err(io::Error::other)?;
         line.push(b'\n');
         self.file.write_all(&line)?;
-        if self.fsync {
-            self.file.sync_data()?;
-        }
         self.seq += 1;
-        Ok(())
+        self.written()
     }
 
     /// Keeps a copy of the journal's bytes next to it, never deleting
@@ -149,8 +261,11 @@ impl Journal {
     }
 
     /// Releases the lock and removes the journal file.
-    pub fn delete(self) -> io::Result<()> {
+    pub fn delete(mut self) -> io::Result<()> {
         let path = self.path.clone();
+        if let Some(mut f) = self.flusher.take() {
+            f.stop();
+        }
         drop(self);
         match fs::remove_file(&path) {
             Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
@@ -247,13 +362,15 @@ mod tests {
 
     fn sample(dir: &Path) -> (PathBuf, Vec<u8>) {
         let p = dir.join(".x.fountain.coldopen-journal");
-        let (mut j, _) = Journal::open_locked(&p, false).ok().unwrap();
+        let (mut j, _) = Journal::open_locked(&p, Durability::OsOnly).ok().unwrap();
         j.start(&Document::default(), None).unwrap();
         for k in 0..3 {
             j.append(
                 "block.delete",
                 json!({ "id": format!("b_{k}") }),
                 &json!({}),
+                &Author::Writer,
+                false,
             )
             .unwrap();
         }
@@ -307,15 +424,42 @@ mod tests {
     }
 
     #[test]
+    fn authors_merges_and_markers_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(".m.fountain.coldopen-journal");
+        let (mut j, _) = Journal::open_locked(&p, Durability::OsOnly).ok().unwrap();
+        j.start(&Document::default(), None).unwrap();
+        let agent = Author::agent("claude-code", Some("text_insert".into()));
+        j.append("text.insert", json!({}), &json!({}), &agent, false)
+            .unwrap();
+        j.append("text.insert", json!({}), &json!({}), &Author::Writer, true)
+            .unwrap();
+        j.append_saved(Fingerprint::of(b"x")).unwrap();
+        assert_eq!(j.entries(), 3);
+        let bytes = j.contents().unwrap();
+        let text = String::from_utf8(bytes.clone()).unwrap();
+        // A writer's entry carries neither field.
+        assert!(
+            text.contains(r#""by":{"kind":"agent","name":"claude-code","tool":"text_insert"}"#)
+        );
+        assert_eq!(text.matches(r#""merge":true"#).count(), 1);
+        let r = read(&bytes).unwrap();
+        assert_eq!(r.entries[0].by, Some(agent));
+        assert!(r.entries[1].merge);
+        assert_eq!(r.entries[2].saved_disk(), Some(Fingerprint::of(b"x")));
+        assert_eq!(r.entries[0].saved_disk(), None);
+    }
+
+    #[test]
     fn a_second_opener_is_locked_out() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join(".y.coldopen-journal");
-        let (j, _) = Journal::open_locked(&p, false).ok().unwrap();
+        let (j, _) = Journal::open_locked(&p, Durability::OsOnly).ok().unwrap();
         assert!(matches!(
-            Journal::open_locked(&p, false),
+            Journal::open_locked(&p, Durability::OsOnly),
             Err(OpenError::Locked)
         ));
         drop(j);
-        assert!(Journal::open_locked(&p, false).is_ok());
+        assert!(Journal::open_locked(&p, Durability::OsOnly).is_ok());
     }
 }

@@ -20,11 +20,12 @@ Front ends never mutate the document directly. If something can be done in the G
 | `crates/fountain` | MIT OR Apache-2.0 | 1 | Fountain parser and writer over `screenplay` types. |
 | `crates/core` | GPL-3.0-or-later | 1 | Document with stable element ids, `Command` enum, dispatcher, undo/redo, command journal, atomic save, version snapshots. |
 | `crates/cli` | GPL-3.0-or-later | 1 | The `coldopen` binary: subcommands plus `serve --stdio`. |
-| `crates/fonts` | OFL-1.1 AND (MIT OR Apache-2.0) | 2 | The bundled Courier Prime faces and their license, nothing else. |
+| `crates/fonts` | OFL-1.1 AND (MIT OR Apache-2.0) | 2, 3 | The bundled fonts and their licenses, nothing else: Courier Prime for the page, and (phase 3, `ui` feature) Atkinson Hyperlegible Next subset to Latin for the app's interface. |
 | `crates/layout` | MIT OR Apache-2.0 | 2 | Character-grid layout, pagination rules, page view, PDF export. |
 | `crates/fdx` | MIT OR Apache-2.0 | 2, 4 | .fdx reader (phase 2: read-only, for the layout gate), then writer, unknown-element passthrough, repair report (phase 4). |
 | `crates/app` | GPL-3.0-or-later | 3 | iced desktop app with a custom page-view editor widget. |
-| `crates/mcp` | GPL-3.0-or-later | 3 | MCP server built on `rmcp`. |
+| `crates/mcp` | GPL-3.0-or-later | 3 | MCP server built on `rmcp`, run as `coldopen mcp`. |
+| `crates/link` | GPL-3.0-or-later | 3 | The private agent link between the app and `coldopen mcp`: session files, handshake, same-user socket or pipe. Keeps rmcp and tokio out of the app. |
 
 The MIT/Apache crates must never depend on GPL crates.
 
@@ -40,6 +41,11 @@ Each phase starts only after the previous gate passes.
 6. **Alpha release** — builds for all three OSes, user docs, website, tester group. Gate: every size and speed budget in the spec met on all three OSes.
 
 ## Rules
+
+### Files you didn't create (non-negotiable)
+
+- Never delete, move or overwrite a file or folder you didn't create in this session; ask first.
+- This includes untracked files in the repo. A test build downloaded from CI into the repo root may be the user's, and may be running.
 
 ### Clean room (non-negotiable)
 

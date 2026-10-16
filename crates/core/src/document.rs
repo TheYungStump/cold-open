@@ -31,6 +31,21 @@ impl Serialize for BlockId {
     }
 }
 
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for BlockId {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "BlockId".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "description": "A block id, such as \"b_12\".",
+            "type": "string",
+            "pattern": "^b_[0-9]+$"
+        })
+    }
+}
+
 impl<'de> Deserialize<'de> for BlockId {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<BlockId, D::Error> {
         let s = String::deserialize(d)?;

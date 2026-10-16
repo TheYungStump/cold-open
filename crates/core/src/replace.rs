@@ -1,4 +1,5 @@
-//! Find and replace over rich text (the `text.replace` command).
+//! Find and replace over rich text (the `text.find` and `text.replace`
+//! commands).
 
 use coldopen_screenplay::{RichText, Run, Style};
 
@@ -11,20 +12,7 @@ fn chars_equal(a: char, b: char, match_case: bool) -> bool {
     a == b || (!match_case && a.to_lowercase().eq(b.to_lowercase()))
 }
 
-/// Replaces every non-overlapping match of `find` in the printed text.
-/// The replacement takes the style of the first matched character; hidden
-/// runs inside a match move to just after it. Returns `None` when nothing
-/// matches. `find` must not be empty.
-pub fn replace_in(
-    rt: &RichText,
-    find: &str,
-    with: &str,
-    match_case: bool,
-) -> Option<(RichText, usize)> {
-    let pat: Vec<char> = find.chars().collect();
-    if pat.is_empty() {
-        return None;
-    }
+fn cells(rt: &RichText) -> Vec<Cell> {
     let mut cells = Vec::new();
     for r in rt.runs() {
         match r {
@@ -32,21 +20,32 @@ pub fn replace_in(
             h => cells.push(Cell::H(h.clone())),
         }
     }
-    let vis: Vec<(char, Style)> = cells
-        .iter()
-        .filter_map(|c| match c {
-            Cell::C(ch, s) => Some((*ch, *s)),
-            Cell::H(_) => None,
-        })
-        .collect();
+    cells
+}
 
+/// Character offsets where the non-overlapping matches of `find` start in
+/// the printed text, from the left. Empty when `find` is empty.
+pub fn find_in(rt: &RichText, find: &str, match_case: bool) -> Vec<usize> {
+    let pat: Vec<char> = find.chars().collect();
+    if pat.is_empty() {
+        return Vec::new();
+    }
+    let vis: Vec<char> = rt
+        .runs()
+        .iter()
+        .filter_map(|r| match r {
+            Run::Text { text, .. } => Some(text.chars()),
+            _ => None,
+        })
+        .flatten()
+        .collect();
     let mut starts = Vec::new();
     let mut i = 0;
     while i + pat.len() <= vis.len() {
         if vis[i..i + pat.len()]
             .iter()
             .zip(&pat)
-            .all(|(&(c, _), &p)| chars_equal(c, p, match_case))
+            .all(|(&c, &p)| chars_equal(c, p, match_case))
         {
             starts.push(i);
             i += pat.len();
@@ -54,16 +53,19 @@ pub fn replace_in(
             i += 1;
         }
     }
-    if starts.is_empty() {
-        return None;
-    }
+    starts
+}
 
+/// Replaces the matches of length `len` starting at `starts` (sorted, not
+/// overlapping). The replacement takes the style of the first matched
+/// character; hidden runs inside a match move to just after it.
+fn replace_at(rt: &RichText, starts: &[usize], len: usize, with: &str) -> RichText {
     let mut out: Vec<Run> = Vec::new();
     let mut moved: Vec<Run> = Vec::new();
     let mut v = 0usize;
     let mut next = starts.iter().peekable();
     let mut in_match: Option<usize> = None;
-    for cell in cells {
+    for cell in cells(rt) {
         match cell {
             Cell::H(h) => {
                 if in_match.is_some() {
@@ -76,7 +78,7 @@ pub fn replace_in(
                 if in_match.is_none() && next.peek() == Some(&&v) {
                     next.next();
                     out.push(Run::styled(with, style));
-                    in_match = Some(v + pat.len());
+                    in_match = Some(v + len);
                 }
                 match in_match {
                     Some(end) => {
@@ -91,7 +93,38 @@ pub fn replace_in(
             }
         }
     }
-    Some((RichText::new(out), starts.len()))
+    RichText::new(out)
+}
+
+/// Replaces every non-overlapping match of `find` in the printed text.
+/// Returns `None` when nothing matches. `find` must not be empty.
+pub fn replace_in(
+    rt: &RichText,
+    find: &str,
+    with: &str,
+    match_case: bool,
+) -> Option<(RichText, usize)> {
+    let starts = find_in(rt, find, match_case);
+    if starts.is_empty() {
+        return None;
+    }
+    let len = find.chars().count();
+    Some((replace_at(rt, &starts, len, with), starts.len()))
+}
+
+/// Replaces only the match that starts at character offset `from`, if the
+/// matches of `find` include one starting there.
+pub fn replace_one(
+    rt: &RichText,
+    find: &str,
+    with: &str,
+    match_case: bool,
+    from: usize,
+) -> Option<RichText> {
+    if !find_in(rt, find, match_case).contains(&from) {
+        return None;
+    }
+    Some(replace_at(rt, &[from], find.chars().count(), with))
 }
 
 #[cfg(test)]
@@ -131,6 +164,17 @@ mod tests {
                 Run::plain(" b")
             ]
         );
+    }
+
+    #[test]
+    fn finds_and_replaces_one() {
+        let rt = RichText::plain("aXa xa XA");
+        assert_eq!(find_in(&rt, "xa", false), vec![1, 4, 7]);
+        assert_eq!(find_in(&rt, "xa", true), vec![4]);
+        assert!(find_in(&rt, "", true).is_empty());
+        let t = replace_one(&rt, "xa", "yy", false, 4).unwrap();
+        assert_eq!(t.plain_text(), "aXa yy XA");
+        assert!(replace_one(&rt, "xa", "yy", false, 5).is_none());
     }
 
     #[test]

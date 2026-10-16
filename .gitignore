@@ -39,3 +39,10 @@ rustc-ice-*.txt
 
 # Reference data extracted from corpus PDFs (holds script text)
 *.ref.json
+
+# Test builds downloaded from CI into the repo root, unpacked or not:
+# cold-open-windows-x86_64.zip, cold-open-macos-arm64.zip,
+# cold-open-linux-x86_64.tar.gz and the like
+/cold-open-*-*/
+/cold-open-*-*.zip
+/cold-open-*-*.tar.gz

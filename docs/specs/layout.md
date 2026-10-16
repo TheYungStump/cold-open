@@ -453,10 +453,39 @@ Known differences that the gate does not measure:
 - A Big Fish title paragraph that starts with about 35 tab characters prints its text one row lower, at the left margin; we keep it on its row.
 - One Big Fish speech breaks between the two hyphens of a double hyphen; we break before the pair (M1 counts it).
 
-## 15. Not yet supported
+## 15. Incremental layout and draft lines
+
+Added 2026-10-15 for the desktop editor (phase 3). Sources: `docs/spec.md` ("Full repagination, 120 pages: under 50 ms; typical edits repaginate incrementally") and the phase 3 brief. No external material.
+
+**Status:** implemented in `crates/layout` (`Incremental`, `Engine::draft`).
+
+### 15.1 The rule
+
+An incremental layout keeps a laid-out script and accepts edits to it. After every edit its pages, lines, diagnostics, spans and break causes are **exactly** those of laying out the edited script from scratch. Incremental layout is only a faster way to get the same answer. A property test checks the rule against random edit sequences, and the editor's test driver checks it after every keystroke in debug builds.
+
+### 15.2 How an edit is applied
+
+The caller gives the whole edited script. The engine keeps the flow and pages of the last layout, and reuses them:
+
+1. **Measurement is memoized.** An element's measure (cells, wrapped lines and sentence starts: §2, §5, §8) depends only on the element and the page format. It is kept between layouts, keyed by the whole element, so an edit measures only the elements it changed. Measures no longer used are dropped after each layout.
+2. **The flow is reassembled and compared.** The flow (§4) is assembled again from the measured elements: grouping, spacing, page breaks, continued names and dual pairs, all of which are cheap once measuring is done. The new flow is compared with the old one from the front and from the back, allowing for the shift in element numbers after the edit. This finds the blocks that really changed, including effects that reach past the edited element, such as a scene number or a dual pair.
+3. **Pagination restarts one page early.** Pages up to the one before the first page that could see a changed block are kept. A page can look at most three blocks past its last line: the line that does not fit, a heading's two following lines, and a transition after a candidate break. From there, pages are laid out again with `page_from` (§7.1).
+4. **Pagination stops where it agrees.** When a new page ends past the changed blocks at a cursor where an old page started (allowing for the change in block count), every later page is the same as before. They are kept, with their element indices and block cursors shifted, their page numbers rewritten, and the spans and diagnostics of §10 gathered again.
+
+**Measured (2026-10-15).** On the synthetic 119-page script of `layout::synthetic`, release build: a full layout takes 16 ms, and an edit on page 90 takes a median of 0.8 ms and lays out at most 3 pages. On GitHub's Linux runner the same test gives 27 ms and 2.0 ms. The aim for an edit is 2 ms; CI fails above 4 ms, a quarter of a 60 Hz frame.
+
+### 15.3 Draft lines
+
+The editor's continuous "draft" view uses the same wrapping as the pages, without pagination:
+- each printing element's lines, wrapped whole, at the x positions of §5.2;
+- the space above each element as §6 places it when the element is not at the top of a page;
+- no (MORE), no continued names, no page numbers.
+
+The editor also marks where each body page starts, using the spans of §10.
+
+## 16. Not yet supported
 
 - Scene "CONTINUED" headers and footers. The format can hold them, the .fdx reader reports them, and they don't print.
 - Revision marks and colors, and locked or A-pages.
 - Fallback fonts, right-to-left text and complex scripts.
 - Selectable templates (A4, television).
-- Incremental repagination, which arrives with the editor in phase 3.

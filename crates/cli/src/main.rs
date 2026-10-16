@@ -96,6 +96,17 @@ enum Cmd {
         #[arg(long)]
         stdio: bool,
     },
+    /// Serve the Model Context Protocol on standard input and output, so an
+    /// AI agent can read and edit scripts. When the Cold Open app has the
+    /// script open, the agent's edits go into the app, live and undoable.
+    Mcp {
+        /// A script to open, or attach to, before the first request.
+        #[arg(long)]
+        doc: Option<PathBuf>,
+        /// Never attach to the app; always open the file in this process.
+        #[arg(long)]
+        no_attach: bool,
+    },
 }
 
 fn main() -> ExitCode {
@@ -123,6 +134,12 @@ fn main() -> ExitCode {
             save,
             keep_going,
         } => run(&edits, doc.as_deref(), save, keep_going),
+        Cmd::Mcp { doc, no_attach } => coldopen_mcp::run_stdio(coldopen_mcp::McpOptions {
+            doc,
+            no_attach,
+            run_dir: coldopen_link::run_dir(),
+        })
+        .map(|()| ExitCode::SUCCESS),
         Cmd::Serve { stdio } => {
             if stdio {
                 serve_stdio()
@@ -312,8 +329,13 @@ fn licenses() -> Result<ExitCode, String> {
          \n\
          Cold Open bundles the Courier Prime fonts, licensed as follows.\n\
          \n\
+         {}\n\
+         The desktop app also bundles the Atkinson Hyperlegible Next fonts,\n\
+         subset to Latin, licensed as follows.\n\
+         \n\
          {}",
-        coldopen_fonts::LICENSE
+        coldopen_fonts::LICENSE,
+        coldopen_fonts::UI_LICENSE
     );
     out.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
     out.flush().map_err(|e| e.to_string())?;
@@ -438,7 +460,12 @@ fn serve_stdio() -> Result<ExitCode, String> {
         }
         let response = match std::str::from_utf8(&buf) {
             Ok(line) if line.trim().is_empty() => continue,
-            Ok(line) => d.handle_line(line.trim_end_matches(['\r', '\n'])),
+            // Windows PowerShell starts what it pipes with a byte-order
+            // mark; it is not part of the request.
+            Ok(line) => d.handle_line(
+                line.trim_start_matches('\u{feff}')
+                    .trim_end_matches(['\r', '\n']),
+            ),
             Err(_) => json!({
                 "v": 1, "id": null, "ok": false,
                 "error": { "code": "invalid_request", "message": "a request line must be UTF-8" }

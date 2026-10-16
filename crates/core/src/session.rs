@@ -3,26 +3,80 @@
 
 use std::path::PathBuf;
 
-use coldopen_screenplay::{ElementKind, RichText, TextRepr};
+use coldopen_screenplay::{ElementKind, RangeError, RichText, StyleChange, TextRepr};
 use serde_json::{Value, json};
 
+use crate::author::{Author, Clock};
 use crate::command::{
-    BlockDelete, BlockInsert, BlockSetAttrs, BlockSetText, BlockSetType, Class, Command, SceneMove,
-    TextReplace,
+    Batch, BlockDelete, BlockInsert, BlockJoin, BlockSetAttrs, BlockSetText, BlockSetType,
+    BlockSplit, Class, Command, SceneMove, TextDelete, TextInsert, TextReplace, TextStyle,
 };
 use crate::document::{Block, BlockId, Document, word_count};
 use crate::error::CommandError;
 use crate::io::SourceStyle;
 use crate::journal::Journal;
 use crate::ops::{Op, Transaction};
-use crate::replace::replace_in;
+use crate::replace::{find_in, replace_in, replace_one};
+use crate::view::View;
 
-/// One step of history: the command's name and the transaction that
+/// Typing within this many milliseconds of the last keystroke joins the
+/// same undo step (docs/specs/commands.md, "Authors and undo steps").
+pub const GROUP_MS: u64 = 1500;
+
+/// How a command runs: who sent it, and whether it may join the undo step
+/// before it.
+#[derive(Clone, Debug, Default)]
+pub struct Exec {
+    pub by: Author,
+    pub merge: Merge,
+}
+
+impl Exec {
+    pub fn by(by: Author) -> Exec {
+        Exec {
+            by,
+            merge: Merge::Auto,
+        }
+    }
+}
+
+/// Whether a keystroke command joins the typing step before it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Merge {
+    /// Decide by the grouping rules and the clock.
+    #[default]
+    Auto,
+    /// Replaying a journal: do what the entry recorded.
+    Recorded(bool),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GroupKind {
+    Insert,
+    Delete,
+}
+
+/// The open typing group on top of the undo stack.
+#[derive(Clone, Copy, Debug)]
+struct Group {
+    kind: GroupKind,
+    block: BlockId,
+    index: usize,
+    /// Insert: where the next insert must start. Delete: where the last
+    /// delete started.
+    mark: usize,
+    last_ms: u64,
+}
+
+/// One step of history: what it was, who made it, and the transaction that
 /// reverses (for undo) or repeats (for redo) it.
 #[derive(Clone, Debug)]
 struct Step {
-    name: String,
+    command: String,
+    label: String,
+    by: Author,
     tx: Transaction,
+    group: Option<Group>,
 }
 
 #[derive(Debug)]
@@ -33,8 +87,59 @@ pub struct Session {
     pub journal: Option<Journal>,
     /// True when there are changes since the last open or save.
     pub dirty: bool,
+    /// Edits, undos, redos and reverts applied since the document was
+    /// opened or created. Never goes down.
+    pub rev: u64,
+    pub clock: Clock,
     undo: Vec<Step>,
     redo: Vec<Step>,
+    /// The laid-out document, refreshed when `rev` moves on.
+    view: Option<View>,
+}
+
+fn range_error(e: RangeError) -> CommandError {
+    CommandError::new("invalid_range", e.message).with_details(json!({ "len": e.len }))
+}
+
+/// Adds `index` to an error's details, for `batch`.
+fn at_index(mut e: CommandError, index: usize) -> CommandError {
+    match &mut e.details {
+        Some(Value::Object(m)) => {
+            m.insert("index".into(), json!(index));
+        }
+        _ => e.details = Some(json!({ "index": index })),
+    }
+    e
+}
+
+/// A writer's label for a command (docs/specs/commands.md).
+fn writer_label(cmd: &Command) -> String {
+    match cmd {
+        Command::BlockInsert(_) => "Insert block".into(),
+        Command::BlockSetType(_) => "Change element".into(),
+        Command::BlockSetText(_) => "Edit text".into(),
+        Command::BlockSetAttrs(_) => "Change attributes".into(),
+        Command::BlockDelete(_) => "Delete block".into(),
+        Command::TextReplace(_) => "Replace".into(),
+        Command::SceneMove(_) => "Move scene".into(),
+        Command::TextInsert(_) => "Typing".into(),
+        Command::TextDelete(_) => "Delete".into(),
+        Command::TextStyle(_) => "Style".into(),
+        Command::BlockSplit(_) => "Split block".into(),
+        Command::BlockJoin(_) => "Join blocks".into(),
+        Command::Batch(b) => b.label.clone().unwrap_or_else(|| "Batch".into()),
+        other => other.name().into(),
+    }
+}
+
+fn label(cmd: &Command, by: &Author) -> String {
+    match by {
+        Author::Writer => writer_label(cmd),
+        Author::Agent { name, tool } => {
+            let tool = tool.clone().unwrap_or_else(|| cmd.name().replace('.', "_"));
+            format!("{name} · {tool}")
+        }
+    }
 }
 
 impl Session {
@@ -45,17 +150,44 @@ impl Session {
             style,
             journal: None,
             dirty: false,
+            rev: 0,
+            clock: Clock::default(),
             undo: Vec::new(),
             redo: Vec::new(),
+            view: None,
         }
     }
 
-    /// Runs a query, edit or history command.
+    /// The laid-out document, brought up to date first. Only the pages an
+    /// edit can change are laid out again (docs/specs/layout.md §15).
+    pub fn view(&mut self) -> &View {
+        let rev = self.rev;
+        if let Some(v) = &mut self.view
+            && v.rev != rev
+        {
+            v.refresh(&self.doc, rev);
+        }
+        let doc = &self.doc;
+        self.view.get_or_insert_with(|| View::new(doc, rev))
+    }
+
+    /// The laid-out document as last brought up to date, which may be
+    /// behind the document. `Dispatcher::view` refreshes it.
+    pub fn cached_view(&self) -> Option<&View> {
+        self.view.as_ref()
+    }
+
+    /// Runs a query, edit or history command as a writer.
     pub fn execute(&mut self, cmd: &Command) -> Result<Value, CommandError> {
+        self.execute_with(cmd, &Exec::default())
+    }
+
+    /// Runs a query, edit or history command.
+    pub fn execute_with(&mut self, cmd: &Command, ex: &Exec) -> Result<Value, CommandError> {
         match cmd.class() {
             Class::Query => self.query(cmd),
-            Class::Edit => self.edit(cmd),
-            Class::History => self.history(cmd),
+            Class::Edit => self.edit(cmd, ex),
+            Class::History => self.history(cmd, ex),
             Class::Session | Class::Output => Err(CommandError::new(
                 "invalid_request",
                 format!("{} is handled by the dispatcher", cmd.name()),
@@ -63,11 +195,12 @@ impl Session {
         }
     }
 
-    fn query(&self, cmd: &Command) -> Result<Value, CommandError> {
+    fn query(&mut self, cmd: &Command) -> Result<Value, CommandError> {
         match cmd {
             Command::DocGet(_) => Ok(json!({
                 "path": self.path.as_ref().map(|p| p.display().to_string()),
                 "dirty": self.dirty,
+                "rev": self.rev,
                 "title_page": self.doc.title_page,
                 "blocks": self.doc.blocks,
             })),
@@ -88,11 +221,10 @@ impl Session {
                     });
                     let text = serde_json::to_string_pretty(&content)
                         .map_err(|e| CommandError::new("invalid_request", e.to_string()))?;
-                    Ok(json!({ "format": "json", "text": text + "
-", "losses": [] }))
+                    Ok(json!({ "format": "json", "text": text + "\n", "losses": [] }))
                 }
                 "pages" => {
-                    let (layout, _) = self.layout(&coldopen_layout::Options::default());
+                    let layout = self.view().layout();
                     let text = match coldopen_layout::Fonts::new() {
                         Ok(fonts) => layout.page_view(&fonts),
                         Err(_) => layout.page_view(&coldopen_layout::AllGlyphs),
@@ -106,6 +238,50 @@ impl Session {
                     ),
                 )),
             },
+            Command::TextFind(p) => {
+                if p.find.is_empty() {
+                    return Err(CommandError::invalid_params("\"find\" must not be empty"));
+                }
+                let range = self.scope_range(p.scope.as_ref().map(|s| s.scene))?;
+                let len = p.find.chars().count();
+                let mut matches = Vec::new();
+                for b in &self.doc.blocks[range] {
+                    if b.element.kind.is_raw_text() {
+                        continue;
+                    }
+                    for s in find_in(&b.element.text, &p.find, p.match_case) {
+                        matches.push(json!({ "id": b.id, "from": s, "to": s + len }));
+                    }
+                }
+                Ok(json!({ "matches": matches }))
+            }
+            Command::TextComplete(p) => {
+                let index = self.index(p.id)?;
+                let len = self.doc.blocks[index].element.text.char_len();
+                if p.at > len {
+                    return Err(CommandError::new(
+                        "invalid_range",
+                        format!(
+                            "offset {} is past the end of the text ({len} characters)",
+                            p.at
+                        ),
+                    )
+                    .with_details(json!({ "len": len })));
+                }
+                let c = crate::complete::complete(&self.doc, index, p.at);
+                serde_json::to_value(c)
+                    .map_err(|e| CommandError::new("internal_error", e.to_string()))
+            }
+            Command::HistoryList(_) => {
+                let list = |steps: &[Step]| -> Vec<Value> {
+                    steps
+                        .iter()
+                        .rev()
+                        .map(|s| json!({ "command": s.command, "label": s.label, "by": s.by }))
+                        .collect()
+                };
+                Ok(json!({ "undo": list(&self.undo), "redo": list(&self.redo) }))
+            }
             _ => Err(CommandError::new("invalid_request", "not a query")),
         }
     }
@@ -135,8 +311,12 @@ impl Session {
         (layout, map)
     }
 
-    pub fn scene_list(&self) -> Vec<Value> {
-        let (layout, map) = self.layout(&coldopen_layout::Options::default());
+    pub fn scene_list(&mut self) -> Vec<Value> {
+        self.view();
+        let Some(view) = &self.view else {
+            return Vec::new();
+        };
+        let (layout, map) = (view.layout(), &view.map);
         // Laid-out elements whose source block falls in [start, end).
         let elements = |start: usize, end: usize| {
             map.partition_point(|&b| b < start)..map.partition_point(|&b| b < end)
@@ -170,57 +350,222 @@ impl Session {
             .collect()
     }
 
-    fn edit(&mut self, cmd: &Command) -> Result<Value, CommandError> {
+    /// The undo steps, newest first: (command, label, author).
+    pub fn undo_steps(&self) -> impl Iterator<Item = (&str, &str, &Author)> {
+        self.undo
+            .iter()
+            .rev()
+            .map(|s| (s.command.as_str(), s.label.as_str(), &s.by))
+    }
+
+    /// The redo steps, newest first: (command, label, author).
+    pub fn redo_steps(&self) -> impl Iterator<Item = (&str, &str, &Author)> {
+        self.redo
+            .iter()
+            .rev()
+            .map(|s| (s.command.as_str(), s.label.as_str(), &s.by))
+    }
+
+    fn edit(&mut self, cmd: &Command, ex: &Exec) -> Result<Value, CommandError> {
         let next_id = self.doc.next_id;
-        let planned = self.plan(cmd);
-        let (tx, result) = match planned {
-            Ok(p) => p,
+        let (inverse, result) = match self.apply_edit(cmd) {
+            Ok(r) => r,
             Err(e) => {
                 self.doc.next_id = next_id;
                 return Err(e);
             }
         };
-        if tx.is_empty() {
+        let Some(inverse) = inverse else {
             self.doc.next_id = next_id;
             return Ok(result);
-        }
-        let inverse = tx.apply(&mut self.doc);
-        if let Err(e) = self.journal_append(cmd.name(), cmd.params(), &result) {
+        };
+        let now = self.clock.now_ms();
+        let merge = self.should_merge(cmd, ex, now, &inverse);
+        if let Err(e) = self.journal_append(cmd.name(), cmd.params(), &result, &ex.by, merge) {
             inverse.apply(&mut self.doc);
             self.doc.next_id = next_id;
             return Err(e);
         }
-        self.undo.push(Step {
-            name: cmd.name().to_string(),
-            tx: inverse,
-        });
+        let group = if ex.by.is_writer() {
+            self.group_of(cmd, now)
+        } else {
+            None
+        };
+        match self.undo.last_mut() {
+            Some(top) if merge => {
+                // The step already restores the block as it was before the
+                // group started; only the group's end moves.
+                top.group = group;
+                top.command = "typing".into();
+            }
+            _ => self.undo.push(Step {
+                command: cmd.name().to_string(),
+                label: label(cmd, &ex.by),
+                by: ex.by.clone(),
+                tx: inverse,
+                group,
+            }),
+        }
         self.redo.clear();
         self.dirty = true;
+        self.rev += 1;
         Ok(result)
     }
 
-    fn history(&mut self, cmd: &Command) -> Result<Value, CommandError> {
-        let is_undo = matches!(cmd, Command::Undo(_));
-        let popped = if is_undo {
-            self.undo.pop()
+    /// Applies an edit and returns the transaction that reverses it, or
+    /// `None` when nothing changed.
+    fn apply_edit(&mut self, cmd: &Command) -> Result<(Option<Transaction>, Value), CommandError> {
+        if let Command::Batch(b) = cmd {
+            return self.apply_batch(b);
+        }
+        let (tx, result) = self.plan(cmd)?;
+        if tx.is_empty() {
+            Ok((None, result))
         } else {
-            self.redo.pop()
+            Ok((Some(tx.apply(&mut self.doc)), result))
+        }
+    }
+
+    fn apply_batch(&mut self, b: &Batch) -> Result<(Option<Transaction>, Value), CommandError> {
+        let mut cmds = Vec::with_capacity(b.commands.len());
+        for (i, item) in b.commands.iter().enumerate() {
+            let cmd = Command::from_parts(&item.command, item.params.clone()).map_err(|e| {
+                at_index(
+                    CommandError::invalid_params(format!("batch command {i}: {e}")),
+                    i,
+                )
+            })?;
+            if cmd.class() != Class::Edit || matches!(cmd, Command::Batch(_)) {
+                return Err(at_index(
+                    CommandError::invalid_params(format!(
+                        "batch command {i} ({}) is not an edit; a batch holds edits only",
+                        cmd.name()
+                    )),
+                    i,
+                ));
+            }
+            cmds.push(cmd);
+        }
+        let mut inverses: Vec<Transaction> = Vec::new();
+        let mut results = Vec::with_capacity(cmds.len());
+        for (i, cmd) in cmds.iter().enumerate() {
+            match self.plan(cmd) {
+                Ok((tx, r)) => {
+                    if !tx.is_empty() {
+                        inverses.push(tx.apply(&mut self.doc));
+                    }
+                    results.push(r);
+                }
+                Err(e) => {
+                    for inv in inverses.into_iter().rev() {
+                        inv.apply(&mut self.doc);
+                    }
+                    return Err(at_index(e, i));
+                }
+            }
+        }
+        let result = json!({ "results": results });
+        if inverses.is_empty() {
+            return Ok((None, result));
+        }
+        let combined = Transaction(inverses.into_iter().rev().flat_map(|t| t.0).collect());
+        Ok((Some(combined), result))
+    }
+
+    /// The typing group a writer's keystroke command opens or continues.
+    fn group_of(&self, cmd: &Command, now: u64) -> Option<Group> {
+        let (kind, id, mark) = match cmd {
+            Command::TextInsert(p) => (GroupKind::Insert, p.id, p.at + p.text.chars().count()),
+            Command::TextDelete(p) => (GroupKind::Delete, p.id, p.from),
+            _ => return None,
         };
-        let Some(step) = popped else {
+        Some(Group {
+            kind,
+            block: id,
+            index: self.doc.index_of(id)?,
+            mark,
+            last_ms: now,
+        })
+    }
+
+    /// Whether a keystroke command joins the typing step on top of the undo
+    /// stack (docs/specs/commands.md, "Grouping").
+    fn should_merge(&self, cmd: &Command, ex: &Exec, now: u64, inverse: &Transaction) -> bool {
+        if ex.merge == Merge::Recorded(false) || !ex.by.is_writer() {
+            return false;
+        }
+        let Some(top) = self.undo.last() else {
+            return false;
+        };
+        let Some(g) = top.group else {
+            return false;
+        };
+        if !top.by.same_actor(&ex.by) {
+            return false;
+        }
+        let continues = match cmd {
+            Command::TextInsert(p) => {
+                g.kind == GroupKind::Insert && g.block == p.id && g.mark == p.at
+            }
+            Command::TextDelete(p) => {
+                g.kind == GroupKind::Delete
+                    && g.block == p.id
+                    && (p.to == g.mark || p.from == g.mark)
+            }
+            _ => false,
+        };
+        // Grouped steps keep only the first inverse, which is right only
+        // when every command in the group replaces the same block.
+        let same_block =
+            matches!(inverse.0.as_slice(), [Op::Replace { index, .. }] if *index == g.index);
+        let in_time = match ex.merge {
+            Merge::Auto => now.saturating_sub(g.last_ms) < GROUP_MS,
+            Merge::Recorded(_) => true,
+        };
+        continues && same_block && in_time
+    }
+
+    fn history(&mut self, cmd: &Command, ex: &Exec) -> Result<Value, CommandError> {
+        let is_undo = matches!(cmd, Command::Undo(_));
+        let stack = if is_undo { &self.undo } else { &self.redo };
+        let Some(top) = stack.last() else {
             return Err(if is_undo {
                 CommandError::new("nothing_to_undo", "there is nothing to undo")
             } else {
                 CommandError::new("nothing_to_redo", "there is nothing to redo")
             });
         };
+        if !ex.by.is_writer() && !top.by.same_actor(&ex.by) {
+            return Err(CommandError::new(
+                "not_your_step",
+                format!(
+                    "the step to {} (\"{}\") was made by someone else; an agent may only {} its own steps",
+                    if is_undo { "undo" } else { "redo" },
+                    top.label,
+                    if is_undo { "undo" } else { "redo" },
+                ),
+            )
+            .with_details(json!({ "by": top.by, "label": top.label })));
+        }
+        let popped = if is_undo {
+            self.undo.pop()
+        } else {
+            self.redo.pop()
+        };
+        let Some(step) = popped else {
+            return Err(CommandError::new(
+                "internal_error",
+                "history changed underneath",
+            ));
+        };
         let reverse = step.tx.apply(&mut self.doc);
         let key = if is_undo { "undone" } else { "redone" };
-        let result = json!({ key: step.name });
-        if let Err(e) = self.journal_append(cmd.name(), cmd.params(), &result) {
+        let result = json!({ key: step.command, "label": step.label });
+        if let Err(e) = self.journal_append(cmd.name(), cmd.params(), &result, &ex.by, false) {
             let restore = reverse.apply(&mut self.doc);
             let back = Step {
-                name: step.name,
                 tx: restore,
+                ..step
             };
             if is_undo {
                 self.undo.push(back);
@@ -230,15 +575,22 @@ impl Session {
             return Err(e);
         }
         let back = Step {
-            name: step.name,
             tx: reverse,
+            group: None,
+            ..step
         };
         if is_undo {
             self.redo.push(back);
         } else {
             self.undo.push(back);
         }
+        // Undo and redo end any typing group: the next keystroke starts a
+        // new step.
+        if let Some(top) = self.undo.last_mut() {
+            top.group = None;
+        }
         self.dirty = true;
+        self.rev += 1;
         Ok(result)
     }
 
@@ -247,9 +599,11 @@ impl Session {
         name: &str,
         params: Value,
         result: &Value,
+        by: &Author,
+        merge: bool,
     ) -> Result<(), CommandError> {
         if let Some(j) = &mut self.journal {
-            j.append(name, params, result).map_err(|e| {
+            j.append(name, params, result, by, merge).map_err(|e| {
                 CommandError::new(
                     "journal_error",
                     format!(
@@ -265,6 +619,20 @@ impl Session {
         self.doc
             .index_of(id)
             .ok_or(CommandError::block_not_found(id))
+    }
+
+    /// Block indices of a scene, or the whole document.
+    fn scope_range(&self, scene: Option<BlockId>) -> Result<std::ops::Range<usize>, CommandError> {
+        match scene {
+            None => Ok(0..self.doc.blocks.len()),
+            Some(id) => {
+                let s = self
+                    .doc
+                    .scene(id)
+                    .ok_or(CommandError::scene_not_found(id))?;
+                Ok(s.start..s.end)
+            }
+        }
     }
 
     fn check(element: &coldopen_screenplay::Element) -> Result<(), CommandError> {
@@ -288,6 +656,11 @@ impl Session {
             Command::BlockDelete(p) => self.plan_delete(p),
             Command::TextReplace(p) => self.plan_replace(p),
             Command::SceneMove(p) => self.plan_move(p),
+            Command::TextInsert(p) => self.plan_text_insert(p),
+            Command::TextDelete(p) => self.plan_text_delete(p),
+            Command::TextStyle(p) => self.plan_text_style(p),
+            Command::BlockSplit(p) => self.plan_split(p),
+            Command::BlockJoin(p) => self.plan_join(p),
             _ => Err(CommandError::new("invalid_request", "not an edit")),
         }
     }
@@ -383,16 +756,33 @@ impl Session {
         if p.find.is_empty() {
             return Err(CommandError::invalid_params("\"find\" must not be empty"));
         }
-        let range = match &p.scope {
-            None => 0..self.doc.blocks.len(),
-            Some(s) => {
-                let scene = self
-                    .doc
-                    .scene(s.scene)
-                    .ok_or(CommandError::scene_not_found(s.scene))?;
-                scene.start..scene.end
+        if let Some(at) = &p.at {
+            if p.scope.is_some() {
+                return Err(CommandError::invalid_params(
+                    "give \"scope\" or \"at\", not both",
+                ));
             }
-        };
+            let index = self.index(at.id)?;
+            let b = &self.doc.blocks[index];
+            let replaced = if b.element.kind.is_raw_text() {
+                None
+            } else {
+                replace_one(&b.element.text, &p.find, &p.with, p.match_case, at.from)
+            };
+            let Some(text) = replaced else {
+                return Ok((Transaction::default(), json!({ "count": 0, "blocks": [] })));
+            };
+            let mut e = b.element.clone();
+            e.text = text;
+            Self::check(&e)?;
+            let id = b.id;
+            let changed: Vec<BlockId> = if e == b.element { Vec::new() } else { vec![id] };
+            return Ok((
+                self.replace_op(index, e),
+                json!({ "count": 1, "blocks": changed }),
+            ));
+        }
+        let range = self.scope_range(p.scope.as_ref().map(|s| s.scene))?;
         let mut ops = Vec::new();
         let mut changed = Vec::new();
         let mut count = 0;
@@ -460,5 +850,107 @@ impl Session {
             }]),
             json!({}),
         ))
+    }
+
+    fn plan_text_insert(&mut self, p: &TextInsert) -> Result<(Transaction, Value), CommandError> {
+        let index = self.index(p.id)?;
+        let mut e = self.doc.blocks[index].element.clone();
+        if e.kind == ElementKind::PageBreak {
+            return Err(CommandError::new(
+                "invalid_attr",
+                "a page break has no text",
+            ));
+        }
+        if e.kind.is_raw_text() && p.style.is_some_and(|s| s != Default::default()) {
+            return Err(CommandError::new(
+                "invalid_attr",
+                format!("{} text is plain: no styles", e.kind),
+            ));
+        }
+        let len = e.text.char_len();
+        if p.at > len {
+            return Err(range_error(RangeError {
+                len,
+                message: format!(
+                    "offset {} is past the end of the text ({len} characters)",
+                    p.at
+                ),
+            }));
+        }
+        if p.text.is_empty() {
+            return Ok((Transaction::default(), json!({})));
+        }
+        e.text = e
+            .text
+            .insert(p.at, &p.text, p.style.map(Into::into))
+            .map_err(range_error)?;
+        Self::check(&e)?;
+        Ok((self.replace_op(index, e), json!({})))
+    }
+
+    fn plan_text_delete(&mut self, p: &TextDelete) -> Result<(Transaction, Value), CommandError> {
+        let index = self.index(p.id)?;
+        let mut e = self.doc.blocks[index].element.clone();
+        e.text = e.text.delete(p.from, p.to).map_err(range_error)?;
+        Self::check(&e)?;
+        Ok((self.replace_op(index, e), json!({})))
+    }
+
+    fn plan_text_style(&mut self, p: &TextStyle) -> Result<(Transaction, Value), CommandError> {
+        let index = self.index(p.id)?;
+        let mut e = self.doc.blocks[index].element.clone();
+        if e.kind.is_raw_text() {
+            return Err(CommandError::new(
+                "invalid_attr",
+                format!("{} text is plain: no styles", e.kind),
+            ));
+        }
+        let change = StyleChange {
+            bold: p.bold,
+            italic: p.italic,
+            underline: p.underline,
+        };
+        e.text = e.text.restyle(p.from, p.to, change).map_err(range_error)?;
+        Self::check(&e)?;
+        Ok((self.replace_op(index, e), json!({})))
+    }
+
+    fn plan_split(&mut self, p: &BlockSplit) -> Result<(Transaction, Value), CommandError> {
+        let index = self.index(p.id)?;
+        let original = &self.doc.blocks[index].element;
+        let (head, rest) = original.text.split_at(p.at).map_err(range_error)?;
+        let mut first = original.clone();
+        first.text = head;
+        let second = coldopen_screenplay::Element::new(p.kind.unwrap_or(original.kind), rest);
+        Self::check(&first)?;
+        Self::check(&second)?;
+        let mut ops = self.replace_op(index, first).0;
+        let id = self.doc.allocate_id();
+        ops.push(Op::Insert {
+            index: index + 1,
+            block: Block {
+                id,
+                element: second,
+            },
+        });
+        Ok((Transaction(ops), json!({ "id": id })))
+    }
+
+    fn plan_join(&mut self, p: &BlockJoin) -> Result<(Transaction, Value), CommandError> {
+        let index = self.index(p.id)?;
+        if index == 0 {
+            return Err(CommandError::invalid_params(
+                "the first block has no block before it to join",
+            ));
+        }
+        let prev = &self.doc.blocks[index - 1];
+        let at = prev.element.text.char_len();
+        let mut merged = prev.element.clone();
+        merged.text = merged.text.concat(&self.doc.blocks[index].element.text);
+        Self::check(&merged)?;
+        let prev_id = prev.id;
+        let mut ops = self.replace_op(index - 1, merged).0;
+        ops.push(Op::Remove { index });
+        Ok((Transaction(ops), json!({ "id": prev_id, "at": at })))
     }
 }

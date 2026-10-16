@@ -26,7 +26,7 @@ impl Style {
 ///
 /// `Note` and `Boneyard` runs are hidden: they never print and take no width,
 /// but they keep their position in the text so they survive a round trip.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Run {
     Text { text: String, style: Style },
     Note(String),
@@ -55,7 +55,7 @@ impl Run {
 
 /// Rich text, always kept in normal form: no empty text runs, and no two
 /// neighbouring text runs with the same style.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct RichText {
     runs: Vec<Run>,
 }
@@ -203,6 +203,29 @@ impl Serialize for Run {
             },
         };
         repr.serialize(s)
+    }
+}
+
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for Run {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Run".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "description": "A run of text with its style, or a hidden note or boneyard run. Exactly one of text, note and boneyard.",
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "bold": {"type": "boolean"},
+                "italic": {"type": "boolean"},
+                "underline": {"type": "boolean"},
+                "note": {"type": "string"},
+                "boneyard": {"type": "string"}
+            },
+            "additionalProperties": false
+        })
     }
 }
 

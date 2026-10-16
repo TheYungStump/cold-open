@@ -88,13 +88,32 @@ fn cells(line: &[Run]) -> Vec<Cell> {
 }
 
 fn uncells(cells: Vec<Cell>) -> RLine {
-    let runs = cells
-        .into_iter()
-        .map(|c| match c {
-            Cell::C(ch, s) => Run::styled(ch.to_string(), s),
-            Cell::H(r) => r,
-        })
-        .collect();
+    // Runs of one style are gathered here rather than one run per
+    // character, which made normalizing a feature script take tens of
+    // milliseconds.
+    let mut runs = Vec::new();
+    let mut text = String::new();
+    let mut style = Style::default();
+    for c in cells {
+        match c {
+            Cell::C(ch, s) => {
+                if s != style && !text.is_empty() {
+                    runs.push(Run::styled(std::mem::take(&mut text), style));
+                }
+                style = s;
+                text.push(ch);
+            }
+            Cell::H(r) => {
+                if !text.is_empty() {
+                    runs.push(Run::styled(std::mem::take(&mut text), style));
+                }
+                runs.push(r);
+            }
+        }
+    }
+    if !text.is_empty() {
+        runs.push(Run::styled(text, style));
+    }
     RichText::new(runs).into_runs()
 }
 
@@ -104,11 +123,37 @@ fn with_cells(line: &[Run], f: impl FnOnce(&mut Vec<Cell>)) -> RLine {
     uncells(c)
 }
 
+/// The line as it is, in normal form: what the cell rewrites return when
+/// they find nothing to change.
+fn unchanged(line: &[Run]) -> RLine {
+    RichText::new(line.to_vec()).into_runs()
+}
+
+/// The first and last printed characters of a line.
+fn edge_chars(line: &[Run]) -> (Option<char>, Option<char>) {
+    let mut first = None;
+    let mut last = None;
+    for r in line {
+        if let Run::Text { text, .. } = r {
+            if first.is_none() {
+                first = text.chars().next();
+            }
+            if let Some(c) = text.chars().next_back() {
+                last = Some(c);
+            }
+        }
+    }
+    (first, last)
+}
+
 fn is_ws_cell(c: &Cell) -> bool {
     matches!(c, Cell::C(ch, _) if ch.is_whitespace())
 }
 
 pub(crate) fn trim_start(line: &[Run]) -> RLine {
+    if !edge_chars(line).0.is_some_and(char::is_whitespace) {
+        return unchanged(line);
+    }
     with_cells(line, |c| {
         let first = c
             .iter()
@@ -124,6 +169,9 @@ pub(crate) fn trim_start(line: &[Run]) -> RLine {
 }
 
 pub(crate) fn trim_end(line: &[Run]) -> RLine {
+    if !edge_chars(line).1.is_some_and(char::is_whitespace) {
+        return unchanged(line);
+    }
     with_cells(line, |c| {
         let last = c
             .iter()
@@ -157,6 +205,12 @@ fn expand_tabs(line: &[Run]) -> RLine {
 /// written (emphasis needs a non-space next to each marker) and cannot be
 /// seen, so they are dropped. Underline is visible and left alone.
 fn drop_edge_ws_styles(line: &[Run]) -> RLine {
+    let styled = line.iter().any(|r| {
+        matches!(r, Run::Text { text, style } if (style.bold || style.italic) && text.contains(char::is_whitespace))
+    });
+    if !styled {
+        return unchanged(line);
+    }
     with_cells(line, |c| {
         for flag in [0u8, 1] {
             let get = |s: &Style| if flag == 0 { s.bold } else { s.italic };

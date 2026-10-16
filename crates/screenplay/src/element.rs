@@ -7,6 +7,7 @@ use crate::text::{RichText, Run, TextRepr};
 /// The kind of a script element. The serde names are part of the public
 /// command API and must never change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ElementKind {
     SceneHeading,
@@ -122,7 +123,7 @@ impl std::fmt::Display for ElementKind {
 ///
 /// Attributes only mean something for some kinds; [`Element::problems`]
 /// lists violations and [`Element::clear_inapplicable`] drops them.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Element {
     pub kind: ElementKind,
     pub text: RichText,

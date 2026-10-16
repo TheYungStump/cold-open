@@ -1,6 +1,6 @@
 # Screenwriting App — Product Spec v0.1
 
-Oct 13, 2026 · @Brandon WIlde
+Oct 13, 2026 · Brandon Wilde
 
 ## Overview
 

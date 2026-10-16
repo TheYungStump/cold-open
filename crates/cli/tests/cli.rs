@@ -165,6 +165,7 @@ fn licenses_include_the_font_license() {
     assert!(text.contains("GNU General Public License"));
     assert!(text.contains("SIL OPEN FONT LICENSE Version 1.1"));
     assert!(text.contains("Courier Prime"));
+    assert!(text.contains("Atkinson Hyperlegible Next Project Authors"));
 }
 
 #[test]
@@ -269,6 +270,11 @@ fn serve_stdio_round_trip() {
     let dir = tempfile::tempdir().unwrap();
     let p = script(dir.path());
     let mut srv = Server::start();
+    // Windows PowerShell begins what it pipes with a byte-order mark.
+    srv.send("\u{feff}{\"id\": 0, \"command\": \"scene.list\"}");
+    let r = srv.recv().unwrap();
+    assert_eq!(r["id"], 0);
+    assert_eq!(r["error"]["code"], "no_document", "{r}");
     srv.send("this is not json");
     let r = srv.recv().unwrap();
     assert_eq!(
