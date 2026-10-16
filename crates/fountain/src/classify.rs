@@ -245,6 +245,12 @@ impl Builder {
     }
 
     fn printing(&mut self, mut e: Element) {
+        // A line holding only notes or boneyard joins the line before it,
+        // as in the normal form (spec §10), so the parse is already normal
+        // (found by the round-trip property test, 2026-10-16).
+        if !e.kind.is_raw_text() && e.kind != ElementKind::PageBreak {
+            e.text = crate::norm::join(crate::norm::merge_hidden_only(crate::norm::split(&e.text)));
+        }
         if self.prev.is_some() && self.gap != default_gap(self.prev, e.kind) {
             e.space_before = Some(self.gap.min(u32::from(u8::MAX)) as u8);
         }

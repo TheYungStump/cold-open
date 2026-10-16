@@ -253,7 +253,7 @@ fn drop_edge_ws_styles(line: &[Run]) -> RLine {
 
 /// Joins hidden-only lines to the previous line (or the next, if first), as
 /// the reader does (spec §5).
-fn merge_hidden_only(lines: Vec<RLine>) -> Vec<RLine> {
+pub(crate) fn merge_hidden_only(lines: Vec<RLine>) -> Vec<RLine> {
     if lines.iter().all(|l| !is_hidden_only(l)) || lines.iter().all(|l| is_hidden_only(l)) {
         return lines;
     }

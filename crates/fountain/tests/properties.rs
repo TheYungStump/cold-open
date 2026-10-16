@@ -429,3 +429,15 @@ proptest! {
         prop_assert_eq!(coldopen_fountain::fuzzing::round_trip_bytes(&data), Ok(()));
     }
 }
+
+/// Found by `fuzz_round_trip_check` in CI (2026-10-16): an empty lyric line
+/// followed by a note spanning lines left a line holding only the note,
+/// which the normal form joins to the line before it, so the parse was not
+/// in normal form.
+#[test]
+fn a_lyric_ending_in_a_note_parses_to_its_normal_form() {
+    assert_eq!(
+        coldopen_fountain::fuzzing::round_trip("~la la\n~\n[[open\n[[note]]~"),
+        Ok(())
+    );
+}

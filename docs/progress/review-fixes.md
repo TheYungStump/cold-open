@@ -32,6 +32,10 @@ Each finding gets a test made from the reviewer's reproduction. The test is run 
 | 4 | C5: a failed `doc_open` in `coldopen mcp` drops the open document | to do | | |
 | 4 | F12: `doc.revert` reuses block ids | to do | | |
 | 4 | F20 / C8: unbounded link queues | to do | | |
+| 5 | P1 (found by CI, 2026-10-16): the reader's output was not always in normal form | fixed. Before: `fuzz_round_trip_check` failed on CI's minimum-Rust job with `"~la la
+~
+[[open
+[[note]]~"`: "parser output is not in normal form". Present on `main`; the Fountain crate is untouched by the other fixes | `fountain/tests/properties.rs` `a_lyric_ending_in_a_note_parses_to_its_normal_form` | "The Fountain reader joins hidden-only lines, as the normal form does" |
 | 5 | F6: UTF-16 Fountain files | to do | | |
 | 5 | F15: quadratic time in the Fountain reader and writer | to do | | |
 | 6 | F17.1: the reference gate passes while comparing nothing | to do | | |

@@ -1,7 +1,7 @@
 # Fountain: how Cold Open reads and writes it
 
 - **Date:** 2026-10-13
-- **Updated:** 2026-10-13 (phase 2): reversed scene heading prefixes (§4, §6.2, §9). 2026-10-15 (phase 3): the normal form's source map (§10).
+- **Updated:** 2026-10-13 (phase 2): reversed scene heading prefixes (§4, §6.2, §9). 2026-10-15 (phase 3): the normal form's source map (§10). 2026-10-16: hidden-only lines inside an element (§5).
 - **Status:** implemented in `crates/fountain` (phase 1)
 - **Sources:**
   - The public Fountain syntax page, <https://fountain.io/syntax>, read 2026-10-13.
@@ -75,6 +75,7 @@ For this rule, a *run* is the lines between blank lines; hold lines belong to th
 
 - If its run has no content lines at all, each of its pieces becomes a **Note** or **Boneyard element** of its own. This matches the syntax page: a note on its own line does not leave empty lines behind.
 - Otherwise its pieces join the nearest content line in the same run, as inline runs. They join the end of the previous content line if there is one, otherwise the start of the next. The hidden-only line itself disappears, so no visible empty line is created.
+- **Resolution** (2026-10-16): the same holds for a line that becomes hidden-only inside an element after its markers are removed, such as an empty lyric line `~` followed by a note that spans lines. The reader joins it to the line before, as the normal form does (§10), so what it reads is always in normal form. The round-trip property test found this case.
 
 ## 6. Classifying paragraphs
 
