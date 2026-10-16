@@ -10,8 +10,8 @@ Each finding gets a test made from the reviewer's reproduction. The test is run 
 
 | Group | Finding | Outcome | Test | Commit |
 | --- | --- | --- | --- | --- |
-| 1 | F4: an agent's `doc_close {discard}` deletes recovered work | in progress | | |
-| 1 | F1: `coldopen run --doc` deletes a recovered journal | to do | | |
+| 1 | F4: an agent's `doc_close {discard}` deletes recovered work | fixed. Before: the agent's discard returned `{}` and the journal was gone | `core/tests/no_lost_work.rs` `f4_*`; `cli/tests/agent_gate.rs` `an_agent_cannot_discard_the_writers_recovered_work` (real `coldopen mcp`) | "Keep a copy of discarded work; agents can't discard the writer's" |
+| 1 | F1: `coldopen run --doc` deletes a recovered journal | in progress | | |
 | 1 | F5 / C3: `doc.new` truncates an existing journal | to do | | |
 | 1 | F2 / C2: save-as writes before it locks the target | to do | | |
 | 1 | F14: an entry-less journal that disagrees with the file is thrown away | to do | | |

@@ -195,10 +195,10 @@ impl Dispatcher {
     pub fn execute_as(&mut self, cmd: Command, by: &Author) -> Result<Value, CommandError> {
         match cmd {
             Command::DocNew(p) => self.doc_new(p),
-            Command::DocOpen(p) => self.doc_open(p),
+            Command::DocOpen(p) => self.doc_open(p, by),
             Command::DocSave(p) => self.doc_save(p),
-            Command::DocClose(p) => self.doc_close(p),
-            Command::DocRevert(_) => self.doc_revert(),
+            Command::DocClose(p) => self.doc_close(p, by),
+            Command::DocRevert(_) => self.doc_revert(by),
             Command::ExportPdf(p) => self.export_pdf(p),
             other => self
                 .session
@@ -219,13 +219,42 @@ impl Dispatcher {
         }
     }
 
-    /// Ends the session, throwing away unsaved changes and the journal.
-    pub fn discard(&mut self) {
-        if let Some(s) = self.session.take()
-            && let Some(j) = s.journal
-        {
-            let _ = j.delete();
+    /// Ends the session, throwing away unsaved changes. A journal that
+    /// holds any is copied aside first, and the copy's path is returned
+    /// (docs/specs/journal.md, "Closing"). If no copy can be made, the
+    /// journal is left in place, as after a crash.
+    pub fn discard(&mut self) -> Option<PathBuf> {
+        match self.keep_copy() {
+            Ok(kept) => {
+                if let Some(s) = self.session.take()
+                    && let Some(j) = s.journal
+                {
+                    let _ = j.delete();
+                }
+                kept
+            }
+            Err(_) => {
+                self.session = None;
+                None
+            }
         }
+    }
+
+    /// Copies the journal to `<journal>.discarded-<ms>` when the session
+    /// holds unsaved work.
+    fn keep_copy(&mut self) -> std::io::Result<Option<PathBuf>> {
+        let Some(s) = &mut self.session else {
+            return Ok(None);
+        };
+        let dirty = s.dirty;
+        let Some(j) = &mut s.journal else {
+            return Ok(None);
+        };
+        if !dirty && j.entries() == 0 {
+            return Ok(None);
+        }
+        let contents = j.contents()?;
+        j.copy_aside(&contents, "discarded").map(Some)
     }
 
     /// Closes a clean session before opening another one.
@@ -289,7 +318,7 @@ impl Dispatcher {
         Ok(json!({ "path": path, "warnings": warnings }))
     }
 
-    fn doc_open(&mut self, p: DocOpen) -> Result<Value, CommandError> {
+    fn doc_open(&mut self, p: DocOpen, by: &Author) -> Result<Value, CommandError> {
         self.close_for_switch()?;
         let path = PathBuf::from(&p.path);
         if !is_fountain(&path) {
@@ -331,6 +360,14 @@ impl Dispatcher {
             if !contents.is_empty() {
                 match p.recover {
                     Recover::Discard => {
+                        if !by.is_writer()
+                            && let Assessment::Replayed(r) =
+                                self.assess(&path, decoded.style, &contents, (&bytes, missing))
+                            && r.recover
+                            && r.writer
+                        {
+                            return Err(writers_work("set aside"));
+                        }
                         let aside = j
                             .copy_aside(&contents, "discarded")
                             .map_err(|e| CommandError::io(j.path(), &e))?;
@@ -770,7 +807,7 @@ impl Dispatcher {
         }))
     }
 
-    fn doc_close(&mut self, p: DocClose) -> Result<Value, CommandError> {
+    fn doc_close(&mut self, p: DocClose, by: &Author) -> Result<Value, CommandError> {
         let session = self
             .session
             .as_ref()
@@ -781,18 +818,42 @@ impl Dispatcher {
                 "the document has unsaved changes; save it or close with discard",
             ));
         }
-        self.discard();
-        Ok(json!({}))
+        if session.dirty && holds_writers_work(session, by) {
+            return Err(writers_work("discard"));
+        }
+        let jpath = session.journal.as_ref().map(|j| j.path().to_path_buf());
+        // Nothing is deleted unless its copy was made.
+        let kept = self
+            .keep_copy()
+            .map_err(|e| CommandError::io(jpath.as_deref().unwrap_or(Path::new("journal")), &e))?;
+        if let Some(s) = self.session.take()
+            && let Some(j) = s.journal
+        {
+            let _ = j.delete();
+        }
+        let warnings: Vec<Value> = kept
+            .iter()
+            .map(|k| {
+                warning(
+                    "journal_discarded",
+                    format!("unsaved changes were set aside in {}", k.display()),
+                )
+            })
+            .collect();
+        Ok(json!({ "warnings": warnings }))
     }
 
     /// Reads the file again, dropping unsaved changes and undo history. The
     /// journal is copied aside first when it holds entries.
-    fn doc_revert(&mut self) -> Result<Value, CommandError> {
+    fn doc_revert(&mut self, by: &Author) -> Result<Value, CommandError> {
         let clock = self.clock.clone();
         let session = self
             .session
             .as_mut()
             .ok_or_else(CommandError::no_document)?;
+        if session.dirty && holds_writers_work(session, by) {
+            return Err(writers_work("revert"));
+        }
         let Some(path) = session.path.clone() else {
             return Err(CommandError::new(
                 "no_path",
@@ -972,6 +1033,22 @@ fn unsupported(path: &Path) -> CommandError {
             path.display()
         ),
     )
+}
+
+/// Whether `by` is an agent and the session holds a writer's recovered,
+/// unsaved work, which an agent may not set aside (docs/specs/mcp.md §7).
+fn holds_writers_work(session: &Session, by: &Author) -> bool {
+    !by.is_writer() && session.recovered.is_some_and(|r| r.writer)
+}
+
+fn writers_work(what: &str) -> CommandError {
+    CommandError::new(
+        "not_your_step",
+        format!(
+            "the document holds the writer's unsaved work, recovered after a crash; an agent may not {what} it. Save it, or leave it for the writer"
+        ),
+    )
+    .with_details(json!({ "recovered": true }))
 }
 
 fn same_path(a: &Path, b: &Path) -> bool {

@@ -1,8 +1,8 @@
 # Command schema, version 1
 
-- **Date:** 2026-10-13, updated 2026-10-15
+- **Date:** 2026-10-13, updated 2026-10-15 and 2026-10-16
 - **Status:** implemented in `crates/core` (phase 1; `export.pdf`, the `pages` export and scene pages added in phase 2, 2026-10-13). Phase 3 (2026-10-15) adds keystroke editing, undo grouping, authors, `batch`, find, completion, history and `doc.revert`; they are being implemented.
-- **Sources:** `docs/spec.md` (Command interface), `CLAUDE.md` (Commands), the phase 3 brief (2026-10-15). No external material.
+- **Sources:** `docs/spec.md` (Command interface), `CLAUDE.md` (Commands), the phase 3 brief (2026-10-15), the reviews of phases 1–3 (2026-10-15, listed in `docs/progress/review-fixes.md`). No external material.
 
 Every action in Cold Open is a command. The desktop app, the CLI, JSON over stdio and the MCP server all send the same commands to one dispatcher.
 
@@ -123,7 +123,7 @@ An edit that changes nothing, such as `text.replace` with no matches, succeeds w
 | `doc.new` | `path?`, `start?` | `{path, warnings}` |
 | `doc.open` | `path`, `recover?` | `{path, format, blocks, scenes, warnings, recovered}` |
 | `doc.save` | `path?`, `format?`, `allow_lossy?` | `{path, format, bytes, losses}` |
-| `doc.close` | `discard?` | `{}` |
+| `doc.close` | `discard?` | `{warnings}` |
 | `doc.revert` | — | `{path, blocks, scenes, warnings}` |
 
 Notes on each command:
@@ -144,6 +144,8 @@ Notes on each command:
   - If Fountain cannot hold something in the document, the save fails with `lossy_format` and lists the losses, unless `allow_lossy` is true.
 - **`doc.close`**
   - Refuses with `unsaved_changes` unless `discard` is true.
+  - With `discard`, unsaved changes are kept in a copy of the journal, which a `journal_discarded` warning names (2026-10-16; `docs/specs/journal.md`, "Closing").
+  - An agent's `discard` fails with `not_your_step` when the document holds a writer's recovered work (2026-10-16; `docs/specs/mcp.md` §6). The same holds for an agent's `doc.revert`, and for its `doc.open` with `recover: "discard"`.
 - **`doc.revert`** (2026-10-15)
   - Throws away unsaved changes and the undo history, and reads the document's file again.
   - The journal is never deleted by a revert: if it holds entries, it is copied aside to `<journal>.discarded-<ms>` first, then started again from the file.
@@ -315,6 +317,6 @@ Undo is unlimited. A new edit clears the redo history.
 | `journal_error` | The crash journal could not be written; the edit was rolled back. |
 | `would_overwrite_document` | An output command was asked to write over the open document or its journal. |
 | `invalid_range` | An offset is past the end of the block's text, or `from` is after `to`. |
-| `not_your_step` | An agent tried to undo or redo a step made by someone else. |
+| `not_your_step` | An agent tried to undo or redo a step made by someone else, or to set aside a writer's recovered work (`details.recovered`). |
 | `not_allowed_attached` | A command an agent may not send over the app's agent link, such as `doc.open` (`docs/specs/mcp.md`). |
 | `internal_error` | Something that should never happen, such as damaged bundled fonts. |

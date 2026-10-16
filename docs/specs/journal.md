@@ -1,10 +1,12 @@
 # Crash journal and atomic saves
 
-- **Date:** 2026-10-13, updated 2026-10-15
+- **Date:** 2026-10-13, updated 2026-10-15 and 2026-10-16
 - **Status:** implemented in `crates/core` (phase 1). The phase 3 changes (2026-10-15: authors and grouping in entries, the `doc.saved` marker, deferred flushing for the desktop app, saving off the UI thread, recovering never-saved documents) are being implemented.
-- **Sources:** `docs/spec.md` (Reliability features), `CLAUDE.md` (Reliability), the phase 3 brief and its approved decisions (2026-10-15). No external material.
+- **Sources:** `docs/spec.md` (Reliability features), `CLAUDE.md` (Reliability), the phase 3 brief and its approved decisions (2026-10-15), the reviews of phases 1–3 (2026-10-15, listed in `docs/progress/review-fixes.md`). No external material.
 
 **Promise:** a crash never costs more than the edits that had not yet been acknowledged. In the desktop app, an edit is acknowledged when it appears on screen. "Durability" below says exactly what each kind of crash can lose.
+
+**The rule behind every section below** (2026-10-16): nothing that holds a writer's unsaved work, whether a journal or a script, is deleted, truncated or overwritten unless it is copied aside first, and nothing is written before the checks that could refuse it.
 
 ## Journal file
 
@@ -98,7 +100,8 @@ Every crash point is safe. The journal always holds the last saved base plus eve
 
 - A clean close with no unsaved changes deletes the journal.
 - Closing with unsaved changes (for example, the stdio server reaching end of input) keeps the journal, so the work is recovered the next time the file is opened.
-- `doc.close` with `discard: true` deletes the journal.
+- `doc.close` with `discard: true` throws the unsaved changes away, but keeps them (2026-10-16): when the session has any, the journal is first copied to `<journal>.discarded-<ms>`, then deleted, and a `journal_discarded` warning names the copy. If the copy cannot be made, the close fails with `io_error` and nothing changes. A clean session has nothing to keep and leaves no copy.
+- An agent may not discard a writer's recovered work (`docs/specs/mcp.md` §6).
 
 ## Recovery on open
 

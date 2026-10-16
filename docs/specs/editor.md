@@ -1,11 +1,12 @@
 # The desktop editor
 
-- **Date:** 2026-10-15
-- **Status:** being implemented in `crates/app` (phase 3)
+- **Date:** 2026-10-15, updated 2026-10-16
+- **Status:** implemented in `crates/app` (phase 3); the 2026-10-16 changes come from the reviews of phases 1–3
 - **Sources:**
   - `docs/spec.md`: Writing, Structure and navigation, Comfort, Reliability.
   - The phase 3 brief and its approved decisions (2026-10-15).
   - `docs/specs/commands.md`, `docs/specs/journal.md`, `docs/specs/layout.md`, `docs/specs/mcp.md`.
+  - The reviews of phases 1–3 (2026-10-15), listed in `docs/progress/review-fixes.md`.
   - General screenwriting practice as `docs/spec.md` summarizes it: which element usually follows which, and the common extensions, prefixes and times of day.
 - No Final Draft software, manual, help text or screenshots were used. The element flow, the shortcuts and the look are our own choices. A choice where the sources are silent is marked **Resolution**.
 
@@ -292,7 +293,7 @@ When an agent attaches to the open script through `coldopen mcp` (`docs/specs/mc
   - the scenes they touched, found by comparing blocks by id with the file on disk;
   - when `external_change` is true, a warning that the file was changed by another program and that saving will replace that version.
 
-  **Keep** (Enter, K or Esc) continues with the recovered script, unsaved. **Discard** (D) sends `doc.revert`, which keeps a copy of the journal. For a script that was never saved there is no file to go back to: Discard closes it with `discard` and starts a new script, and the dialog says that the recovered work will be deleted.
+  **Keep** (Enter, K or Esc) continues with the recovered script, unsaved. **Discard** (D) sends `doc.revert`, which keeps a copy of the journal. For a script that was never saved there is no file to go back to: Discard closes it with `discard` and starts a new script. That too keeps a copy of the journal (2026-10-16), and the dialog says so.
   The number of changes is the number of recovered commands, so a burst of typing counts each key.
 - **Errors.** A command that fails shows a banner with the error's message, and the editor stays usable. Nothing fails silently.
 - **Esc** closes the nearest thing first: the autocomplete list, the find bar or palette, a selection, then the banners, then the leftover-work offer. "Dismiss messages" in the palette does the last two.

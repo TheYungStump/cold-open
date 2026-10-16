@@ -1,6 +1,6 @@
 # MCP server and the agent link
 
-- **Date:** 2026-10-15
+- **Date:** 2026-10-15, updated 2026-10-16
 - **Status:** implemented (phase 3, 2026-10-15): the server in `crates/mcp`, run as `coldopen mcp`; the link's protocol and transport in `crates/link`, shared by the server and the app; the app's end of the link in `crates/app`. The agent gate (`crates/cli/tests/agent_gate.rs`) runs a real `coldopen mcp` process against the app.
 - **Sources:**
   - `docs/spec.md`: Command interface, "Agents edit in the open", License (`coldopen mcp` and connecting any agent are always free).
@@ -8,6 +8,7 @@
   - `docs/specs/commands.md`, `docs/specs/journal.md`, `docs/specs/editor.md`.
   - The Model Context Protocol specification, <https://modelcontextprotocol.io/specification/latest>, read 2026-10-15 (revision 2026-07-28): tools, resources, tool-name characters, tool results, error reporting.
   - Anthropic's tool-name rule for the Claude API (letters, digits, `_` and `-` only, at most 64 characters), which shapes the tool names below.
+  - The reviews of phases 1–3 (2026-10-15), listed in `docs/progress/review-fixes.md`.
 - No Final Draft material. A choice where the sources are silent is marked **Resolution**.
 
 ## 1. Goals
@@ -159,6 +160,8 @@ When the script isn't open in the app, `coldopen mcp` opens it with its own disp
 - it keeps unsaved work in the journal when the client goes away.
 
 Commands still run as the agent, so the undo labels and the `not_your_step` rule are the same as when attached.
+
+**The writer's recovered work** (2026-10-16). After the app crashes, `coldopen mcp` is often the first to open the script, so it recovers the writer's journal. The agent may read, edit and save that work, or leave it in the journal, but it may never set it aside: while the session holds recovered work that includes any of the writer's entries and has not been saved, `doc_close` with `discard`, `doc_revert`, and `doc_open` with `recover: "discard"` all fail with `not_your_step` (`details.recovered` is true), and nothing changes. Each of these would keep a copy, but the writer would never be shown it. Work the agent recovered from its own entries may be discarded as usual.
 
 ## 7. Security
 
