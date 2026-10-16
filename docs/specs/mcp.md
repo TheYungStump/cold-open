@@ -106,7 +106,7 @@ When the desktop app has a script open and agent access is on (`docs/specs/edito
 
 ### 5.3 Handshake
 
-The client's first line, sent within 5 seconds of connecting:
+The client's first line, sent within 5 seconds of connecting (a hello that arrives a moment after the connection is still read; until 2026-10-16 the app on Windows refused one that the client had not written by the server's first read):
 
 ```json
 {"hello": {"v": 1, "token": "9f2e…", "client": {"name": "claude-code", "version": "2.1"}, "doc": "C:\\Scripts\\lighthouse.fountain"}}
@@ -176,7 +176,7 @@ Commands still run as the agent, so the undo labels and the `not_your_step` rule
 | Another user pretending to be the app | On Unix only the user can create files in the run folder. On Windows the app creates the first instance of a random pipe name, and no one else may create another instance. |
 | A stale session file after a crash, or a reused process id | Connecting fails or the token is wrong; the server then opens the file itself. |
 | A program run by the same user | It can already read and change the user's files, so the link gives it nothing new. That's why agent access is on by default, with a visible indicator, one-click disconnect and an off switch (`docs/specs/editor.md` §12). |
-| Flooding | At most 4 links, a 5-second handshake deadline, and the size limits of §5.4. The writer's own input is never queued behind more than one agent command at a time. A connect waits at most 2 seconds for a busy endpoint, so nothing hangs on a pipe whose instances are all in use. |
+| Flooding | At most 4 links, a 5-second handshake deadline, and the size limits of §5.4. The writer's own input is never queued behind more than one agent command at a time. A connect waits at most 2 seconds for a busy endpoint, so nothing hangs on a pipe whose instances are all in use. Enforced since 2026-10-16 (review findings F20 and C8): each link has at most one request waiting for the app, because its next line is read only once the app has answered, so a client that sends without waiting fills its own socket instead of the app's queue; `changed` events to a client that stops reading coalesce into one; and at most 8 connections may be in their handshake at once, so more are turned away at once with `too_many_links`. |
 
 Tokens never appear in logs, errors or the journal.
 

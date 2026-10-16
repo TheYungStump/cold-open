@@ -9,7 +9,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -37,13 +37,32 @@ pub enum LinkEvent {
 
 enum Out {
     Line(String),
-    Changed(u64),
+    /// The newest rev is in the writer's `changed`.
+    Changed,
     Close,
 }
 
+/// Connections still in their handshake, each holding a thread for up to
+/// [`HELLO_DEADLINE`]; more are turned away at once (review findings F20,
+/// C8).
+const MAX_HANDSHAKES: usize = 8;
+
+/// What a link's outbound queue can hold: one answer (a link has one
+/// request at a time), one `changed` wake-up and a close.
+const OUT_QUEUE: usize = 4;
+
 /// Sends lines to one link. Dropping every copy closes the link quietly.
 #[derive(Clone)]
-pub struct LinkWriter(mpsc::Sender<Out>);
+pub struct LinkWriter {
+    out: mpsc::SyncSender<Out>,
+    /// Tells the link's reader that its request was answered, so it may
+    /// read the next one.
+    answered: mpsc::SyncSender<()>,
+    /// The newest `changed` rev not yet written, and whether a wake-up for
+    /// it is queued: a client that stops reading costs one queued event,
+    /// however many edits are made.
+    changed: Arc<(AtomicU64, AtomicBool)>,
+}
 
 impl std::fmt::Debug for LinkWriter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -52,18 +71,24 @@ impl std::fmt::Debug for LinkWriter {
 }
 
 impl LinkWriter {
+    /// Sends the answer to the link's request, and lets its reader read
+    /// the next one.
     pub fn send(&self, line: String) {
-        let _ = self.0.send(Out::Line(line));
+        let _ = self.out.try_send(Out::Line(line));
+        let _ = self.answered.try_send(());
     }
 
     /// A `changed` event; bursts are sent at most every 50 ms.
     pub fn changed(&self, rev: u64) {
-        let _ = self.0.send(Out::Changed(rev));
+        self.changed.0.fetch_max(rev, Ordering::SeqCst);
+        if !self.changed.1.swap(true, Ordering::SeqCst) {
+            let _ = self.out.try_send(Out::Changed);
+        }
     }
 
     /// Sends `{"event": "closed"}` and closes the link.
     pub fn close(&self) {
-        let _ = self.0.send(Out::Close);
+        let _ = self.out.try_send(Out::Close);
     }
 }
 
@@ -241,6 +266,7 @@ fn accept_loop(
 ) {
     let server = Arc::new(server);
     let next = AtomicU64::new(1);
+    let handshakes = Arc::new(AtomicUsize::new(0));
     loop {
         let conn = server.accept();
         if stop.load(Ordering::SeqCst) {
@@ -253,11 +279,23 @@ fn accept_loop(
         if !server.same_user(&conn) {
             continue;
         }
+        if handshakes.fetch_add(1, Ordering::SeqCst) >= MAX_HANDSHAKES {
+            handshakes.fetch_sub(1, Ordering::SeqCst);
+            let mut conn = conn;
+            let _ = writeln!(
+                conn,
+                "{}",
+                coldopen_link::reply_err(HelloError::TooManyLinks)
+            );
+            let _ = conn.flush();
+            continue;
+        }
         let link = next.fetch_add(1, Ordering::Relaxed);
         let (token, shared, tx) = (token.clone(), shared.clone(), tx.clone());
+        let hs = handshakes.clone();
         let _ = std::thread::Builder::new()
             .name(format!("agent-link-{link}"))
-            .spawn(move || serve_link(link, conn, &token, &shared, &tx));
+            .spawn(move || serve_link(link, conn, &token, &shared, &tx, &hs));
     }
 }
 
@@ -276,6 +314,12 @@ fn read_hello(conn: &mut Conn) -> Option<String> {
             break None;
         }
         match conn.read(&mut chunk) {
+            // A Windows named pipe in non-blocking mode reads nothing, not
+            // `WouldBlock`, while the client has not written yet; a client
+            // that has gone away fails the read instead. So a hello that
+            // arrives a moment late is still read (found while testing
+            // review finding F20).
+            Ok(0) if cfg!(windows) => std::thread::sleep(Duration::from_millis(5)),
             Ok(0) => break None,
             Ok(n) => buf.extend_from_slice(&chunk[..n]),
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
@@ -315,8 +359,11 @@ fn serve_link(
     token: &str,
     shared: &Mutex<Shared>,
     tx: &UnboundedSender<LinkEvent>,
+    handshakes: &AtomicUsize,
 ) {
-    let Some(line) = read_hello(&mut conn) else {
+    let hello = read_hello(&mut conn);
+    handshakes.fetch_sub(1, Ordering::SeqCst);
+    let Some(line) = hello else {
         let _ = writeln!(conn, "{}", coldopen_link::reply_err(HelloError::BadHello));
         return;
     };
@@ -338,11 +385,17 @@ fn serve_link(
         return;
     }
     let (recv, send) = conn.split();
-    let (out_tx, out_rx) = mpsc::channel();
-    let writer = LinkWriter(out_tx);
+    let (out_tx, out_rx) = mpsc::sync_channel(OUT_QUEUE);
+    let (answered_tx, answered_rx) = mpsc::sync_channel(1);
+    let changed = Arc::new((AtomicU64::new(0), AtomicBool::new(false)));
+    let writer = LinkWriter {
+        out: out_tx,
+        answered: answered_tx,
+        changed: changed.clone(),
+    };
     let _ = std::thread::Builder::new()
         .name(format!("agent-link-{link}-out"))
-        .spawn(move || write_loop(send, out_rx));
+        .spawn(move || write_loop(send, out_rx, &changed));
     let _ = tx.unbounded_send(LinkEvent::Opened { link, name, writer });
     let mut reader = LineReader::new(recv);
     while let Ok(Some(line)) = reader.read_line(LINE_LIMIT) {
@@ -351,6 +404,14 @@ fn serve_link(
                 .unbounded_send(LinkEvent::Request { link, line })
                 .is_err()
         {
+            break;
+        }
+        // One request at a time: the next line is read only once the app
+        // has answered this one, so a client that sends without waiting
+        // queues at most one request in front of the writer, and the rest
+        // wait in its own socket (review findings F20, C8). The app drops
+        // the link's writer when it closes the link, which ends the wait.
+        if answered_rx.recv().is_err() {
             break;
         }
     }
@@ -364,7 +425,7 @@ fn release(shared: &Mutex<Shared>) {
     }
 }
 
-fn write_loop(mut send: impl Write, rx: mpsc::Receiver<Out>) {
+fn write_loop(mut send: impl Write, rx: mpsc::Receiver<Out>, changed: &(AtomicU64, AtomicBool)) {
     let mut pending: Option<u64> = None;
     let mut last: Option<Instant> = None;
     loop {
@@ -387,7 +448,9 @@ fn write_loop(mut send: impl Write, rx: mpsc::Receiver<Out>) {
         };
         let ok = match msg {
             Some(Out::Line(s)) => writeln!(send, "{s}").and_then(|()| send.flush()).is_ok(),
-            Some(Out::Changed(r)) => {
+            Some(Out::Changed) => {
+                changed.1.store(false, Ordering::SeqCst);
+                let r = changed.0.load(Ordering::SeqCst);
                 pending = Some(pending.map_or(r, |p| p.max(r)));
                 true
             }
@@ -421,5 +484,33 @@ fn write_loop(mut send: impl Write, rx: mpsc::Receiver<Out>) {
             pending = None;
             last = Some(Instant::now());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Antigravity's finding 10: a client that stops reading made every
+    /// `changed` event wait in an unbounded queue. They coalesce now: one
+    /// wake-up waits, carrying the newest rev.
+    #[test]
+    fn changed_events_coalesce_while_the_client_is_not_reading() {
+        let (out, rx) = mpsc::sync_channel(OUT_QUEUE);
+        let (answered, _answered_rx) = mpsc::sync_channel(1);
+        let changed = Arc::new((AtomicU64::new(0), AtomicBool::new(false)));
+        let w = LinkWriter {
+            out,
+            answered,
+            changed: changed.clone(),
+        };
+        for rev in 1..=1000 {
+            w.changed(rev);
+        }
+        w.send("answer".into());
+        let queued: Vec<Out> = rx.try_iter().collect();
+        assert_eq!(queued.len(), 2);
+        assert!(matches!(queued[0], Out::Changed));
+        assert_eq!(changed.0.load(Ordering::SeqCst), 1000);
     }
 }

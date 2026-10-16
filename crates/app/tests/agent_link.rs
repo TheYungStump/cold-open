@@ -338,3 +338,122 @@ fn closing_from_the_palette_asks_like_close_does() {
     assert!(h.app.d.session().unwrap().dirty);
     h.app.d.discard();
 }
+
+/// Review findings F20 and C8 (and Antigravity's 10): each link's reader
+/// passed every request line to the app as it arrived, so a client that
+/// sent 100 requests without waiting queued all 100 in front of the
+/// writer's own input. Now a link has at most one request waiting.
+#[test]
+fn a_link_has_at_most_one_request_waiting_for_the_app() {
+    use coldopen_app::link::{LinkEvent, LinkServer};
+    let home = tempfile::tempdir().unwrap();
+    let run = Dirs::under(home.path()).run;
+    std::fs::create_dir_all(&run).unwrap();
+    let script = home.path().join("lab.fountain");
+    std::fs::write(&script, SCRIPT).unwrap();
+    let server = LinkServer::start(&run, vec![coldopen_link::canonical(&script)], 0).unwrap();
+    let s = SessionFile::read(&server.session_file()).unwrap();
+    let l = std::sync::Arc::new(LinkClient::attach(&s, &client("flood"), &script).unwrap());
+    // On its own thread: once the server stops reading, the client's writes
+    // block in its own socket, which is the point.
+    let sender = l.clone();
+    std::thread::spawn(move || {
+        let mut answers = Vec::new();
+        for _ in 0..100 {
+            match sender.request("doc.get", json!({}), None) {
+                Ok(rx) => answers.push(rx),
+                Err(_) => break,
+            }
+        }
+    });
+    // Nobody runs the app: whatever the link passes on stays in the inbox.
+    std::thread::sleep(Duration::from_millis(500));
+    let requests = server
+        .key
+        .inbox
+        .drain()
+        .into_iter()
+        .filter(|e| matches!(e, LinkEvent::Request { .. }))
+        .count();
+    assert_eq!(requests, 1);
+}
+
+/// Review finding F20: every connection got a thread before its handshake,
+/// held for up to five seconds, with no cap until after the hello. Now a
+/// connection beyond the cap is turned away at once.
+#[test]
+fn connections_still_in_their_handshake_are_capped() {
+    use coldopen_app::link::LinkServer;
+    use std::io::Read;
+    let home = tempfile::tempdir().unwrap();
+    let run = Dirs::under(home.path()).run;
+    std::fs::create_dir_all(&run).unwrap();
+    let script = home.path().join("lab.fountain");
+    std::fs::write(&script, SCRIPT).unwrap();
+    let server = LinkServer::start(&run, vec![coldopen_link::canonical(&script)], 0).unwrap();
+    let endpoint = server.endpoint.clone();
+    let _idle: Vec<coldopen_link::Conn> = (0..8)
+        .map(|_| coldopen_link::Conn::connect(&endpoint).unwrap())
+        .collect();
+    std::thread::sleep(Duration::from_millis(300));
+    let mut extra = coldopen_link::Conn::connect(&endpoint).unwrap();
+    // Without the cap, the server would wait five seconds for a hello.
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut got = Vec::new();
+        let mut buf = [0u8; 256];
+        while !got.contains(&b'\n') {
+            match extra.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => got.extend_from_slice(&buf[..n]),
+            }
+        }
+        let _ = tx.send(got);
+    });
+    let got = rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("an answer at once, not after the hello deadline");
+    let reply = String::from_utf8_lossy(&got);
+    assert!(reply.contains("too_many_links"), "{reply:?}");
+}
+
+/// Found while testing F20 (2026-10-16): on Windows, a non-blocking read of
+/// a pipe with nothing in it yet fails with ERROR_NO_DATA, which Rust calls
+/// `BrokenPipe`, so the server refused any client whose hello arrived a
+/// moment after it first looked. A busy machine could turn agents away.
+#[test]
+fn a_hello_that_arrives_a_moment_late_is_still_read() {
+    use coldopen_app::link::LinkServer;
+    use std::io::{Read, Write};
+    let home = tempfile::tempdir().unwrap();
+    let run = Dirs::under(home.path()).run;
+    std::fs::create_dir_all(&run).unwrap();
+    let script = home.path().join("lab.fountain");
+    std::fs::write(&script, SCRIPT).unwrap();
+    let server = LinkServer::start(&run, vec![coldopen_link::canonical(&script)], 0).unwrap();
+    let s = SessionFile::read(&server.session_file()).unwrap();
+    let mut conn = coldopen_link::Conn::connect(&s.endpoint).unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    writeln!(
+        conn,
+        "{}",
+        coldopen_link::hello_line(&s.token, &client("slow"), &script)
+    )
+    .unwrap();
+    conn.flush().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut got = Vec::new();
+        let mut buf = [0u8; 512];
+        while !got.contains(&b'\n') {
+            match conn.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => got.extend_from_slice(&buf[..n]),
+            }
+        }
+        let _ = tx.send(got);
+    });
+    let got = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    let reply = String::from_utf8_lossy(&got);
+    assert!(reply.contains(r#""ok":true"#), "{reply:?}");
+}
