@@ -183,4 +183,6 @@ Every save, on every OS, follows these steps:
 ## Encoding
 
 - **Reading.** A UTF-8 byte-order mark is removed. Bytes that are not valid UTF-8 are decoded as Windows-1252, with a warning, rather than replaced.
-- **Writing.** The writer produces UTF-8 with LF line endings. `doc.save` restores the byte-order mark and CRLF line endings if the opened file mostly used them. This depends only on the input file, never on the operating system.
+- **UTF-16** (2026-10-16, review finding F6). Windows PowerShell 5.1's `>` and Notepad's old "Unicode" option write UTF-16. It is recognized by its byte-order mark (`FF FE` little-endian, `FE FF` big-endian) or, without one, by a zero byte next to the first character, which UTF-8 text never has. It is decoded as UTF-16, with a `utf16` warning, and saved as UTF-16 again, in the same byte order and with the mark if it had one. Sequences that are not UTF-16 become U+FFFD, with a `utf16_damaged` warning.
+- **Writing.** The writer produces UTF-8 with LF line endings. `doc.save` restores the byte-order mark and CRLF line endings if the opened file mostly used them, and UTF-16 if it was UTF-16. This depends only on the input file, never on the operating system.
+- **A Windows-1252 file** (2026-10-16) is saved as UTF-8, which programs that still read it as Windows-1252 show wrongly. So that save reports a `reencoded` loss and, like any lossy save, fails with `lossy_format` unless `allow_lossy` is given (the app asks "Save anyway"). Once saved, the file is UTF-8 and later saves ask nothing.

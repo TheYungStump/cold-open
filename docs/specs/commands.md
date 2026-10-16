@@ -144,7 +144,7 @@ Notes on each command:
   - Saves atomically.
   - `path` is "save as". A path where another file already is fails with `already_exists` unless `overwrite` is true (2026-10-16): "save as" never replaces a file by accident, and every `.txt` counts as a script. The target's lock is taken, and its crash journal judged, before anything is written (2026-10-16; `docs/specs/journal.md`, "Saving"): a target open in another process fails with `doc_locked`, and one whose journal holds unsaved work fails with `unsaved_changes`. A refused save writes nothing.
   - `format` is `"fountain"`. It is inferred from the path when omitted.
-  - If Fountain cannot hold something in the document, the save fails with `lossy_format` and lists the losses, unless `allow_lossy` is true. Only a writer may pass `allow_lossy` (2026-10-16); from an agent it fails with `writer_only`.
+  - If Fountain cannot hold something in the document, the save fails with `lossy_format` and lists the losses, unless `allow_lossy` is true. A file read as Windows-1252 and about to be written as UTF-8 counts as a loss too (`reencoded`, 2026-10-16; `docs/specs/journal.md`, "Encoding"). Only a writer may pass `allow_lossy` (2026-10-16); from an agent it fails with `writer_only`.
   - Saving in place over a file that another program changed since this session last read or wrote it fails with `file_changed` (2026-10-16; `docs/specs/journal.md`, "Saving"). `overwrite: true` replaces it anyway. Only a writer may pass `overwrite`; from an agent it fails with `writer_only`.
   - While a save off the UI thread is being written, `doc.save` fails with `save_in_progress` (2026-10-16; `docs/specs/journal.md`, "One save at a time"). Try again when it has finished.
 - **`doc.close`**

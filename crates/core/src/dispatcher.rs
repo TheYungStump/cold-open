@@ -438,12 +438,7 @@ impl Dispatcher {
         let decoded = io::decode(&bytes);
         let parsed = coldopen_fountain::parse(&decoded.text);
         let mut warnings: Vec<Value> = Vec::new();
-        if decoded.not_utf8 {
-            warnings.push(warning(
-                "not_utf8",
-                "the file is not UTF-8; it was read as Windows-1252 and will be saved as UTF-8",
-            ));
-        }
+        warnings.extend(encoding_warnings(&decoded));
         for d in &parsed.diagnostics {
             warnings.push(json!({ "code": d.code, "message": d.message, "line": d.line }));
         }
@@ -731,7 +726,16 @@ impl Dispatcher {
         }
 
         let written = coldopen_fountain::write(&session.doc.to_script());
-        let losses = session.losses_json(&written.losses);
+        let mut losses = session.losses_json(&written.losses);
+        // The file is written as UTF-8, which other programs show wrongly
+        // if they still read it as Windows-1252 (review finding F6).
+        if session.style.encoding == io::Encoding::Windows1252 {
+            losses.push(json!({
+                "id": null,
+                "code": "reencoded",
+                "message": "the file was not UTF-8 and was read as Windows-1252; it will be saved as UTF-8",
+            }));
+        }
         if !losses.is_empty() && !p.allow_lossy {
             return Err(CommandError::new(
                 "lossy_format",
@@ -817,6 +821,7 @@ impl Dispatcher {
         session.dirty = false;
         session.recovered = None;
         session.disk = Some(fingerprint);
+        session.style = saved_style(session.style);
         Ok(json!({
             "path": target.display().to_string(),
             "format": format,
@@ -962,6 +967,7 @@ impl Dispatcher {
         written.map_err(|e| CommandError::io(&prepared.target, &e))?;
         // The file now holds these bytes, whether or not edits came since.
         session.disk = Some(prepared.fingerprint);
+        session.style = saved_style(session.style);
         let current = session.rev == prepared.rev;
         if current {
             if let Some(j) = &mut session.journal {
@@ -1128,12 +1134,7 @@ impl Dispatcher {
         let decoded = io::decode(&bytes);
         let parsed = coldopen_fountain::parse(&decoded.text);
         let mut warnings: Vec<Value> = Vec::new();
-        if decoded.not_utf8 {
-            warnings.push(warning(
-                "not_utf8",
-                "the file is not UTF-8; it was read as Windows-1252 and will be saved as UTF-8",
-            ));
-        }
+        warnings.extend(encoding_warnings(&decoded));
         for d in &parsed.diagnostics {
             warnings.push(json!({ "code": d.code, "message": d.message, "line": d.line }));
         }
@@ -1357,6 +1358,41 @@ fn foreign_journal(path: &Path, details: Value) -> CommandError {
         ),
     )
     .with_details(details)
+}
+
+/// The style a file has once saved: a Windows-1252 file becomes UTF-8.
+fn saved_style(style: SourceStyle) -> SourceStyle {
+    match style.encoding {
+        io::Encoding::Windows1252 => SourceStyle {
+            encoding: io::Encoding::Utf8,
+            ..style
+        },
+        _ => style,
+    }
+}
+
+/// Warnings about how a file's bytes were read, for `doc.open` and
+/// `doc.revert`.
+fn encoding_warnings(decoded: &io::Decoded) -> Vec<Value> {
+    let mut out = Vec::new();
+    match decoded.style.encoding {
+        io::Encoding::Windows1252 => out.push(warning(
+            "not_utf8",
+            "the file is not UTF-8; it was read as Windows-1252, and saving it writes UTF-8",
+        )),
+        io::Encoding::Utf16Le | io::Encoding::Utf16Be => out.push(warning(
+            "utf16",
+            "the file is UTF-16; it is saved as UTF-16 again",
+        )),
+        io::Encoding::Utf8 => {}
+    }
+    if decoded.replaced {
+        out.push(warning(
+            "utf16_damaged",
+            "the UTF-16 text held invalid sequences; they were replaced with U+FFFD",
+        ));
+    }
+    out
 }
 
 /// One save at a time: while a save prepared off the UI thread is being
