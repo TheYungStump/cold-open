@@ -1,7 +1,7 @@
 # Fountain: how Cold Open reads and writes it
 
 - **Date:** 2026-10-13
-- **Updated:** 2026-10-13 (phase 2): reversed scene heading prefixes (§4, §6.2, §9). 2026-10-15 (phase 3): the normal form's source map (§10). 2026-10-16: hidden-only lines inside an element (§5).
+- **Updated:** 2026-10-13 (phase 2): reversed scene heading prefixes (§4, §6.2, §9). 2026-10-15 (phase 3): the normal form's source map (§10). 2026-10-16: hidden-only lines inside an element (§5); time in proportion to the input (§1).
 - **Status:** implemented in `crates/fountain` (phase 1)
 - **Sources:**
   - The public Fountain syntax page, <https://fountain.io/syntax>, read 2026-10-13.
@@ -14,6 +14,7 @@
 1. **Never fail.** Any input string produces a script. Anything the parser cannot classify becomes Action, and problems are reported as diagnostics, never as panics.
 2. **Round trip by meaning.** `parse(write(parse(x))) == parse(x)` for every input `x`. Writing produces one canonical text, so writing twice gives the same bytes.
 3. **Report loss.** When the model holds something Fountain cannot express, the writer says so (§9) instead of dropping it silently.
+4. **Time in proportion to the input** (2026-10-16, review finding F15). Reading and writing take time roughly proportional to the text's length, even for hostile input, because the app opens files on its interface thread and a slow file looks like a hang. Two places were quadratic: a speech's parentheticals (each line starting with `(` searched the rest of the speech for a `)`), and emphasis (the delimiter stack shifted on every removal, and each matched pair restyled every token inside it). `crates/fountain/tests/hostile_time.rs` checks that four times the input takes about four times as long, and the fuzz runs fail any input over two seconds.
 
 ## 2. Model produced
 

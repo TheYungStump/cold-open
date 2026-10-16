@@ -29,9 +29,12 @@ jobs:
         with:
           workspaces: fuzz
       - run: cargo install cargo-fuzz --locked
+      # `-timeout=2`: any input that takes over two seconds is reported as a
+      # failure, so slow inputs are found, not only crashes (libFuzzer's own
+      # limit is twenty minutes; review finding F15).
       - name: Fuzz ${{ matrix.target }} for ten minutes
         working-directory: fuzz
-        run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=600
+        run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=600 -timeout=2
       - name: Keep any crash input
         if: failure()
         uses: actions/upload-artifact@v4

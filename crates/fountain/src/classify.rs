@@ -559,6 +559,25 @@ fn character_group(entries: &[Entry], mut i: usize, mut first: Line, b: &mut Bui
     b.printing(c);
     i += 1;
 
+    // For each line of the speech, the first line at or after it, before
+    // any hold, whose visible text ends in ")": one backward pass, instead
+    // of a scan to the end of the speech from every "(" line, which made a
+    // speech of unclosed parentheticals quadratic (review finding F15).
+    let start = i;
+    let end = (i..entries.len())
+        .find(|&k| matches!(entries[k], Entry::Blank | Entry::Standalone(_)))
+        .unwrap_or(entries.len());
+    let mut closes = vec![None; end - start];
+    let mut next = None;
+    for k in (start..end).rev() {
+        next = match &entries[k] {
+            Entry::Content(l) if visible(l).trim_end().ends_with(')') => Some(k),
+            Entry::Content(_) => next,
+            _ => None,
+        };
+        closes[k - start] = next;
+    }
+
     let mut cur = Pending::None;
     loop {
         match entries.get(i) {
@@ -576,12 +595,7 @@ fn character_group(entries: &[Entry], mut i: usize, mut first: Line, b: &mut Bui
             Some(Entry::Content(l)) => {
                 let t = vis_trim_start(l);
                 if t.starts_with('(') {
-                    let close = (i..entries.len())
-                        .take_while(|&k| matches!(entries[k], Entry::Content(_)))
-                        .find(|&k| {
-                            content_at(entries, k)
-                                .is_some_and(|l| visible(l).trim_end().ends_with(')'))
-                        });
+                    let close = closes.get(i - start).copied().flatten();
                     if let Some(k) = close {
                         cur.flush(b);
                         let lines: Vec<Line> = (i..=k)
