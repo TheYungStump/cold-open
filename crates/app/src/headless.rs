@@ -259,6 +259,26 @@ impl Headless {
         self.key(Key::Character(s.as_str().into()), m, None);
     }
 
+    /// Moves the caret to the start of the script with this OS's keys
+    /// (editor.md §4): Cmd+Up on macOS, Ctrl+Home elsewhere.
+    pub fn doc_start(&mut self) {
+        if crate::keymap::MAC {
+            self.named(Named::ArrowUp, Modifiers::LOGO);
+        } else {
+            self.named(Named::Home, Modifiers::CTRL);
+        }
+    }
+
+    /// Moves the caret to the end of the script with this OS's keys
+    /// (editor.md §4): Cmd+Down on macOS, Ctrl+End elsewhere.
+    pub fn doc_end(&mut self) {
+        if crate::keymap::MAC {
+            self.named(Named::ArrowDown, Modifiers::LOGO);
+        } else {
+            self.named(Named::End, Modifiers::CTRL);
+        }
+    }
+
     /// Types text one key at a time, as a keyboard does. Each character is
     /// one key press that carries the character as its text, which is how
     /// accented letters arrive from a keyboard layout or dead keys.

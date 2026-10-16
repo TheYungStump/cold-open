@@ -324,10 +324,6 @@ fn caret_text(h: &Headless) -> String {
         .plain_text()
 }
 
-fn ctrl() -> Modifiers {
-    coldopen_app::headless::command_modifier()
-}
-
 // 5. Down past the end of the palette (or Up past the top) built up a
 // hidden count, so the selection only moved back after as many presses the
 // other way. Every list stops at its ends, and the first press back moves
@@ -378,7 +374,7 @@ fn list_selection_stops_at_the_ends() {
     assert_eq!(h.app.palette_selection(), None);
 
     // The autocomplete list.
-    h.named(Named::End, ctrl());
+    h.doc_end();
     h.type_text("\nM");
     let n = h
         .app
@@ -409,7 +405,7 @@ fn list_selection_stops_at_the_ends() {
     h.named(Named::Backspace, none());
 
     // The navigator: Up and Down move between scenes and stop at the ends.
-    h.named(Named::Home, ctrl());
+    h.doc_start();
     h.named(Named::F6, none());
     for _ in 0..3 {
         h.named(Named::ArrowUp, none());
@@ -528,13 +524,13 @@ fn clicks_outside_a_popup_only_close_it() {
     let file = three_scenes(home.path());
     let mut h = open(home.path(), Some(file));
     h.frame(1.0);
-    h.named(Named::End, ctrl());
+    h.doc_end();
     let end = caret(&h);
     let script = blocks(&h);
     // With nothing open, that click moves the caret.
     h.click(ON_PAGE);
     assert_ne!(caret(&h), end, "the click lands on the script");
-    h.named(Named::End, ctrl());
+    h.doc_end();
 
     // The palette: a click inside its card keeps it, one outside closes it.
     h.shortcut('k', false);
