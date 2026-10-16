@@ -1517,6 +1517,75 @@ fn ref_status_says_when_reference_data_is_missing_or_stale() {
     assert_eq!(ref_status(&pair), Ok(()));
 }
 
+/// The banner for a run that compared fewer than the three reference
+/// scripts, or `None` when the gate ran in full (review finding F17.1: a
+/// skipped gate used to pass looking exactly like a real one).
+fn not_run_summary(dir: &Path, compared: usize, not_ready: &[String]) -> Option<String> {
+    if compared >= 3 && not_ready.is_empty() {
+        return None;
+    }
+    let mut out = String::new();
+    let rule = "=".repeat(72);
+    let _ = writeln!(out, "{rule}");
+    let _ = writeln!(
+        out,
+        "REFERENCE GATE NOT RUN: {compared} of the 3 reference scripts compared"
+    );
+    let _ = writeln!(out, "{rule}");
+    if not_ready.is_empty() {
+        let _ = writeln!(
+            out,
+            "No reference pairs with current data under {}.",
+            dir.display()
+        );
+    } else {
+        for msg in not_ready {
+            let _ = writeln!(out, "- {msg}");
+        }
+    }
+    let _ = writeln!(
+        out,
+        "This test passed without checking the layout against the references. Extract the \
+         reference data as above, then run with COLDOPEN_REQUIRE_CORPUS=1, which fails \
+         instead of skipping."
+    );
+    let _ = writeln!(out, "{rule}");
+    Some(out)
+}
+
+/// Shows the banner whatever the test harness captures: it captures only
+/// what the `print!` macros write, not writes to the stream itself. In
+/// GitHub Actions it is also a warning on the run's page.
+fn announce(summary: &str) {
+    use std::io::Write as _;
+    let _ = std::io::stderr().write_all(summary.as_bytes());
+    if std::env::var_os("CI").is_some() {
+        let first = summary.lines().nth(1).unwrap_or("REFERENCE GATE NOT RUN");
+        let _ = writeln!(
+            std::io::stdout(),
+            "::warning title=Reference gate not run::{first}"
+        );
+    }
+}
+
+#[test]
+fn a_skipped_reference_gate_says_so() {
+    let dir = Path::new("corpus");
+    let s = not_run_summary(dir, 0, &[]).unwrap();
+    assert!(s.contains("REFERENCE GATE NOT RUN: 0 of the 3"), "{s}");
+    let s = not_run_summary(
+        dir,
+        1,
+        &["reference/x: ref.json missing; run refpdf".into()],
+    )
+    .unwrap();
+    assert!(
+        s.contains("1 of the 3") && s.contains("- reference/x"),
+        "{s}"
+    );
+    assert_eq!(not_run_summary(dir, 3, &[]), None);
+}
+
 #[test]
 fn reference_comparison() {
     let dir = corpus_dir();
@@ -1547,6 +1616,9 @@ fn reference_comparison() {
         );
     }
     let gate: Vec<&Pair> = pairs.iter().filter(|p| p.set == "reference").collect();
+    if let Some(summary) = not_run_summary(&dir, gate.len(), &not_ready) {
+        announce(&summary);
+    }
     if require {
         assert!(
             gate.len() >= 3,
