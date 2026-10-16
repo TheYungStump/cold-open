@@ -263,3 +263,78 @@ fn an_agent_cannot_answer_the_writers_lossy_save_question() {
     assert!(h.app.d.session().unwrap().dirty);
     h.app.d.discard();
 }
+
+/// Runs a command from the palette's params form, as a writer would.
+fn palette_params(h: &mut Headless, command: &str, params: Value) {
+    h.run(vec![
+        Message::Action(command.into()),
+        Message::ParamsInput(params.to_string()),
+        Message::ParamsRun,
+    ]);
+}
+
+/// Review finding F7: the palette's params form sent `doc.open` straight to
+/// the dispatcher, past the app's own Open flow, so an attached agent stayed
+/// attached and its next edit landed in the other script, which the writer
+/// never shared.
+#[test]
+fn opening_another_script_from_the_palette_disconnects_agents() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut h, script) = app(home.path());
+    let b = home.path().join("b.fountain");
+    std::fs::write(&b, "INT. B - NIGHT\n\nScript B.\n").unwrap();
+    let s = session(home.path()).unwrap();
+    let l = LinkClient::attach(&s, &client("claude-code"), &script).unwrap();
+    let r = call(&mut h, &l, "scene.list", json!({}), "scene_list");
+    assert_eq!(r["ok"], true, "{r}");
+
+    palette_params(&mut h, "doc.open", json!({"path": b}));
+    assert_eq!(
+        h.app.d.session().unwrap().path.as_deref(),
+        Some(b.as_path())
+    );
+    assert!(
+        h.app.agents.is_empty(),
+        "the agent was attached to the other script"
+    );
+    let start = Instant::now();
+    while !l.is_closed() {
+        h.pump();
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "the link stayed open"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        l.request(
+            "block.insert",
+            json!({"type": "action", "text": "AGENT TEXT MEANT FOR A."}),
+            None
+        )
+        .is_err()
+    );
+    assert!(!texts(&h).iter().any(|t| t.contains("AGENT TEXT")));
+    h.app.d.discard();
+}
+
+/// The params form's `doc.close {"discard": true}` closed the script with
+/// no question; now it goes through the app's Close, which asks.
+#[test]
+fn closing_from_the_palette_asks_like_close_does() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut h, _script) = app(home.path());
+    h.named(
+        iced::keyboard::key::Named::ArrowDown,
+        iced::keyboard::Modifiers::empty(),
+    );
+    h.type_text(" Wind.");
+    palette_params(&mut h, "doc.close", json!({"discard": true}));
+    assert!(
+        matches!(h.app.prompt, Some(coldopen_app::app::Prompt::Unsaved(_))),
+        "{:?}",
+        h.app.prompt
+    );
+    assert!(h.app.d.session().unwrap().dirty);
+    h.app.d.discard();
+}

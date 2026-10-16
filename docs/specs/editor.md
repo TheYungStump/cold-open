@@ -191,7 +191,7 @@ Mod+K or Mod+Shift+P opens the palette.
 
 - **What it lists.** Every core command, by its dotted name and a short title, and every app action (§10), with its shortcut. Typing filters the list by subsequence, and the best matches come first.
 - **Commands that use the caret or selection** run directly: element types, styles, `scene.move` for the current scene, undo and redo.
-- **Any other command** opens a small form where its params can be written as JSON, and shows the response. Every command is reachable from the keyboard, including queries such as `doc.get`.
+- **Any other command** opens a small form where its params can be written as JSON, and shows the response. Every command is reachable from the keyboard, including queries such as `doc.get`. The commands that open, create, close, revert or save the script (`doc.open`, `doc.new`, `doc.close`, `doc.revert`, `doc.save`) go through the app's own flows instead (2026-10-16): Open, New and Close ask about unsaved changes and disconnect agents, `doc.save` uses Save or Save as, and `doc.revert` reloads, keeping a copy of unsaved changes. `doc.close` with `discard` still asks; the form never skips a question the menus ask.
 
 ## 10. Keyboard map
 

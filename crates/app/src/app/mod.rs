@@ -1721,12 +1721,49 @@ impl App {
         self.action(&action)
     }
 
+    /// Commands that open, close, revert or save the script, given in the
+    /// palette's params form, go through the app's own flows: they ask
+    /// before losing work, keep recent files and agents in step, and never
+    /// leave an agent attached to a script it was not given (review finding
+    /// F7). `None` for any other command.
+    fn session_command(&mut self, name: &str, params: &Value) -> Option<Task<Message>> {
+        let path = params["path"].as_str().map(PathBuf::from);
+        let flag = |k: &str| params[k].as_bool().unwrap_or(false);
+        Some(match name {
+            "doc.open" => match path {
+                Some(p) => self.leave(After::OpenPath(p)),
+                None => {
+                    self.banners.push("doc.open needs a \"path\".".into());
+                    Task::none()
+                }
+            },
+            "doc.new" if path.is_some() => {
+                self.banners
+                    .push("A new script starts untitled; name it with Save as.".into());
+                Task::none()
+            }
+            "doc.new" => self.leave(After::New),
+            "doc.close" => self.leave(After::Close),
+            "doc.revert" => self.reload(),
+            "doc.save" => match path {
+                Some(p) => self.save_as(p, flag("allow_lossy"), flag("overwrite")),
+                None => self.save_with(flag("allow_lossy"), flag("overwrite")),
+            },
+            _ => return None,
+        })
+    }
+
     fn params_run(&mut self) -> Task<Message> {
         let Some((name, json)) = self.palette.as_ref().and_then(|p| p.params.clone()) else {
             return Task::none();
         };
         let response = match serde_json::from_str::<Value>(&json) {
             Ok(params) => {
+                if let Some(task) = self.session_command(&name, &params) {
+                    self.palette = None;
+                    self.focus = Focus::Page;
+                    return task;
+                }
                 let r = self.d.handle(&json!({ "command": name, "params": params }));
                 serde_json::to_string_pretty(&r).unwrap_or_default()
             }

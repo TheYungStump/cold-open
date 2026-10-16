@@ -150,6 +150,7 @@ Steps an agent made stay in the history after it disconnects.
 - **Attaching.** `doc_open`'s result then reads `{path, attached: true, rev, scenes, warnings: [], recovered: null}`.
 - **Detaching.** `doc_close` sends `{"bye":true}`, returns `{detached: true}`, and leaves the writer's document alone. `doc_open` of a different script detaches first.
 - **When the app closes the script.** If the link closes from the app's side, later tools fail with `no_document`, and the message explains that the app closed the script.
+- **A link belongs to one script** (2026-10-16). A link is bound to the script it attached to. When the app's open script changes path, by opening another script, starting a new one or "Save as" under another name, every link is closed (agents get `closed`), and a request that still arrives for the old script closes its link instead of running. An agent never edits a script the writer did not attach it to.
 - **Resource updates** come from the app's `changed` events.
 
 ## 6. Without the app

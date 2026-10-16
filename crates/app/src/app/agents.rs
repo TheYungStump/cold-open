@@ -3,6 +3,7 @@
 //! access setting, and running each agent request as a labelled step.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use coldopen_core::command::Class;
 use coldopen_core::{Author, BlockId, Command, CommandError, Dispatcher};
@@ -21,6 +22,9 @@ pub struct Agent {
     writer: LinkWriter,
     /// Edits it made, for the status bar.
     pub edits: u64,
+    /// The script it attached to. A request after the writer has moved to
+    /// another script closes the link instead (review finding F7).
+    doc: Option<PathBuf>,
 }
 
 impl App {
@@ -55,15 +59,23 @@ impl App {
                 }
             }
         }
-        let Some(link) = &self.link else { return };
+        if self.link.is_none() {
+            return;
+        }
         if self.link_path != path {
+            // An agent attached to one script never follows the writer to
+            // another (review finding F7).
+            self.close_links();
             self.link_path = path.clone();
             let docs = path.iter().map(|p| coldopen_link::canonical(p)).collect();
-            if let Err(e) = link.set_docs(docs) {
+            if let Some(link) = &self.link
+                && let Err(e) = link.set_docs(docs)
+            {
                 self.banners
                     .push(format!("The agent link could not be updated: {e}"));
             }
         }
+        let Some(link) = &self.link else { return };
         let rev = self.d.session().map(|s| s.rev);
         if rev != self.sent_rev {
             self.sent_rev = rev;
@@ -101,12 +113,14 @@ impl App {
                 if self.link.is_none() || self.d.session().is_none() {
                     writer.close();
                 } else {
+                    let doc = self.d.session().and_then(|s| s.path.clone());
                     self.agents.insert(
                         link,
                         Agent {
                             name,
                             writer,
                             edits: 0,
+                            doc,
                         },
                     );
                 }
@@ -123,6 +137,13 @@ impl App {
                 let Some(name) = self.agents.get(&link).map(|a| a.name.clone()) else {
                     return Task::none();
                 };
+                let open = self.d.session().and_then(|s| s.path.clone());
+                if self.agents.get(&link).is_some_and(|a| a.doc != open) {
+                    if let Some(a) = self.agents.remove(&link) {
+                        a.writer.close();
+                    }
+                    return Task::none();
+                }
                 let (response, edited) = self.agent_request(&name, &line);
                 if let Some(a) = self.agents.get_mut(&link) {
                     if edited {

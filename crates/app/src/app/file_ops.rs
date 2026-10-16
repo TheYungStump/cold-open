@@ -326,7 +326,7 @@ impl App {
 
     /// Reads the file again after another program changed it. The unsaved
     /// changes are kept in a copy of the journal (doc.revert).
-    fn reload(&mut self) -> Task<Message> {
+    pub(super) fn reload(&mut self) -> Task<Message> {
         if let Some(r) = self.run("doc.revert", json!({}))
             && let Some(s) = self.d.session()
         {
@@ -348,7 +348,7 @@ impl App {
 
     /// [`App::save`], with `overwrite` once the writer chose to replace
     /// another program's changes.
-    fn save_with(&mut self, allow_lossy: bool, overwrite: bool) -> Task<Message> {
+    pub(super) fn save_with(&mut self, allow_lossy: bool, overwrite: bool) -> Task<Message> {
         if self.d.session().is_none() {
             return Task::none();
         }
