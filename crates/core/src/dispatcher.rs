@@ -646,7 +646,7 @@ impl Dispatcher {
         let durability = self.durability();
         let session = self
             .session
-            .as_mut()
+            .as_ref()
             .ok_or_else(CommandError::no_document)?;
         let Rendered {
             target,
@@ -654,26 +654,40 @@ impl Dispatcher {
             bytes,
             losses,
         } = Self::render(session, &p)?;
-        io::atomic_write(&target, &bytes).map_err(|e| CommandError::io(&target, &e))?;
-        let fingerprint = Fingerprint::of(&bytes);
-
         let same_file = session
             .path
             .as_ref()
             .is_some_and(|old| same_path(old, &target));
-        if opts.journal {
-            if same_file {
-                if let Some(j) = &mut session.journal {
-                    j.start(&session.doc, Some(fingerprint))
-                        .map_err(|e| CommandError::io(j.path(), &e))?;
-                }
-            } else {
-                let (mut j, _) = open_journal(&target, durability)?;
+        // Save as: the target's lock is taken, and its journal judged,
+        // before anything is written (docs/specs/journal.md, "Saving").
+        let claimed = if opts.journal && !same_file {
+            Some(self.claim_target(&target, durability)?)
+        } else {
+            None
+        };
+        if let Err(e) = io::atomic_write(&target, &bytes) {
+            if let Some((j, true)) = claimed {
+                // The empty journal this save made is not needed.
+                let _ = j.delete();
+            }
+            return Err(CommandError::io(&target, &e));
+        }
+        let fingerprint = Fingerprint::of(&bytes);
+
+        let session = self
+            .session
+            .as_mut()
+            .ok_or_else(CommandError::no_document)?;
+        if same_file {
+            if let Some(j) = &mut session.journal {
                 j.start(&session.doc, Some(fingerprint))
                     .map_err(|e| CommandError::io(j.path(), &e))?;
-                if let Some(old) = session.journal.replace(j) {
-                    let _ = old.delete();
-                }
+            }
+        } else if let Some((mut j, _)) = claimed {
+            j.start(&session.doc, Some(fingerprint))
+                .map_err(|e| CommandError::io(j.path(), &e))?;
+            if let Some(old) = session.journal.replace(j) {
+                let _ = old.delete();
             }
         }
         session.path = Some(target.clone());
@@ -685,6 +699,54 @@ impl Dispatcher {
             "bytes": bytes.len(),
             "losses": losses,
         }))
+    }
+
+    /// Locks the journal of a "save as" target and judges what it holds
+    /// exactly as opening the target would. Where the open would recover
+    /// work, the save is refused; where it would copy the journal aside,
+    /// so does this. Returns the locked journal, and whether it was empty.
+    fn claim_target(
+        &self,
+        target: &Path,
+        durability: Durability,
+    ) -> Result<(Journal, bool), CommandError> {
+        let (j, contents) = open_journal(target, durability)?;
+        if contents.is_empty() {
+            return Ok((j, true));
+        }
+        let jio = |e: std::io::Error| CommandError::io(j.path(), &e);
+        let (disk, missing) = match fs::read(target) {
+            Ok(b) => (b, false),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), true),
+            Err(e) => return Err(CommandError::io(target, &e)),
+        };
+        let style = io::decode(&disk).style;
+        match self.assess(target, style, &contents, (&disk, missing)) {
+            Assessment::Unreadable(_) => {
+                j.copy_aside(&contents, "corrupt").map_err(jio)?;
+            }
+            Assessment::Replayed(r) if r.recover => {
+                return Err(CommandError::new(
+                    "unsaved_changes",
+                    format!(
+                        "{} has unsaved changes from a session that ended without saving; \
+                         open it to recover them, or save under another name",
+                        target.display()
+                    ),
+                )
+                .with_details(json!({
+                    "path": target.display().to_string(),
+                    "journal": j.path().display().to_string(),
+                })));
+            }
+            Assessment::Replayed(r) => {
+                if let Some(msg) = &r.problem {
+                    j.copy_aside(&contents, Replayed::aside_tag(msg))
+                        .map_err(jio)?;
+                }
+            }
+        }
+        Ok((j, false))
     }
 
     /// Step 1 of a save in place off the UI thread: writes the document out

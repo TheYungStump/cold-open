@@ -243,3 +243,91 @@ fn f5_a_refused_doc_new_leaves_the_open_document_alone() {
     );
     assert!(journal::path_for(&a).exists());
 }
+
+/// Opens `other.fountain` with a line of its own, ready to save as
+/// another path.
+fn other_document(dir: &Path) -> Dispatcher {
+    let q = dir.join("other.fountain");
+    fs::write(&q, "EXT. ELSEWHERE - NIGHT\n").unwrap();
+    let w = Author::Writer;
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &w, "doc.open", json!({"path": q}));
+    ok(
+        &mut d,
+        &w,
+        "block.insert",
+        json!({"type": "action", "text": "Agent draft."}),
+    );
+    d
+}
+
+/// Review findings F2 and C2: "save as" onto a script another process has
+/// open wrote the file, then failed to lock the journal and reported
+/// `doc_locked`, so the caller believed nothing had happened.
+#[test]
+fn f2_save_as_onto_a_locked_script_writes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("s.fountain");
+    fs::write(&p, SCRIPT).unwrap();
+    let w = Author::Writer;
+    let mut a = Dispatcher::new(Options::default());
+    ok(&mut a, &w, "doc.open", json!({"path": p}));
+
+    let mut b = other_document(dir.path());
+    let e = err(&mut b, &w, "doc.save", json!({"path": p}));
+    assert_eq!(e.code, "doc_locked", "{e}");
+    assert_eq!(fs::read_to_string(&p).unwrap(), SCRIPT);
+    // B still has its own document, unsaved; A is untouched.
+    let doc = ok(&mut b, &w, "doc.get", json!({}));
+    assert!(doc["path"].as_str().unwrap().ends_with("other.fountain"));
+    assert_eq!(doc["dirty"], true);
+    assert_eq!(ok(&mut a, &w, "doc.get", json!({}))["dirty"], false);
+}
+
+/// When nobody holds the target but its last session crashed, "save as"
+/// replaced the file and truncated the crashed session's journal.
+#[test]
+fn f2_save_as_onto_a_script_with_unsaved_work_writes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = crashed_with_work(dir.path(), &Author::Writer);
+    let j = journal::path_for(&p);
+    let before = fs::read(&j).unwrap();
+    let w = Author::Writer;
+    let mut b = other_document(dir.path());
+    let e = err(&mut b, &w, "doc.save", json!({"path": p}));
+    assert_eq!(e.code, "unsaved_changes", "{e}");
+    assert_eq!(e.details.as_ref().unwrap()["path"], p.display().to_string());
+    assert_eq!(fs::read_to_string(&p).unwrap(), SCRIPT);
+    assert_eq!(fs::read(&j).unwrap(), before);
+    drop(b);
+    // The crashed session's work is still there to recover.
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &w, "doc.open", json!({"path": p}));
+    assert!(text(&mut d).contains(UNSAVED));
+}
+
+/// A journal left by a crash with nothing unsaved holds only what the file
+/// already holds, so it does not stand in the way of "save as".
+#[test]
+fn f2_save_as_onto_a_script_with_nothing_unsaved_goes_ahead() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("s.fountain");
+    fs::write(&p, SCRIPT).unwrap();
+    let w = Author::Writer;
+    let mut a = Dispatcher::new(Options::default());
+    ok(&mut a, &w, "doc.open", json!({"path": p}));
+    drop(a); // a crash with nothing unsaved
+    assert!(journal::path_for(&p).exists());
+
+    let mut b = other_document(dir.path());
+    ok(&mut b, &w, "doc.save", json!({"path": p}));
+    assert!(fs::read_to_string(&p).unwrap().contains("Agent draft."));
+    assert!(asides(dir.path(), "corrupt").is_empty());
+
+    // An unreadable journal is copied aside, as opening would.
+    let r = dir.path().join("r.fountain");
+    fs::write(&r, SCRIPT).unwrap();
+    fs::write(journal::path_for(&r), "not a journal\n").unwrap();
+    ok(&mut b, &w, "doc.save", json!({"path": r}));
+    assert_eq!(asides(dir.path(), "corrupt").len(), 1);
+}

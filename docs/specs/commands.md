@@ -141,7 +141,7 @@ Notes on each command:
   - `recovered` is null, or `{commands, external_change, last}`. `last` (added 2026-10-15) is when the newest recovered change was made, in milliseconds since the Unix epoch, for the app's recovery dialog.
 - **`doc.save`**
   - Saves atomically.
-  - `path` is "save as".
+  - `path` is "save as". The target's lock is taken, and its crash journal judged, before anything is written (2026-10-16; `docs/specs/journal.md`, "Saving"): a target open in another process fails with `doc_locked`, and one whose journal holds unsaved work fails with `unsaved_changes`. A refused save writes nothing.
   - `format` is `"fountain"`. It is inferred from the path when omitted.
   - If Fountain cannot hold something in the document, the save fails with `lossy_format` and lists the losses, unless `allow_lossy` is true.
 - **`doc.close`**
@@ -309,7 +309,7 @@ Undo is unlimited. A new edit clears the redo history.
 | `scene_not_found` | The id is not a scene heading (or section, for `before`). |
 | `invalid_attr` | The block would break a model rule; `details.problems` lists them. |
 | `nothing_to_undo`, `nothing_to_redo` | The history is empty in that direction. |
-| `unsaved_changes` | The document has unsaved changes. |
+| `unsaved_changes` | The document has unsaved changes; or a "save as" target has unsaved work in its crash journal (`details.path`). |
 | `already_exists` | `doc.new` was given an existing file, the open document's path, or a path whose crash journal holds anything (`details.journal`). |
 | `no_path` | `doc.save` has no path to save to. |
 | `unsupported_format` | The file type is not supported in this version. |

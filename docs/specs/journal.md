@@ -96,6 +96,14 @@ The two possible crash points are both safe:
 
 Every crash point is safe. The journal always holds the last saved base plus every later edit, so replay reaches the latest acknowledged state. The file is either the old version or the new one, each named by the header or a marker. "Save as" to a new path is done in one step, as before, because a file dialog has just paused the writer anyway.
 
+**"Save as" to another path** (2026-10-16). The target may be open in another Cold Open process, or its last session may have crashed and left unsaved work in its journal. So before anything is written:
+
+1. The target's journal is locked. If another process holds it, the save fails with `doc_locked`.
+2. Whatever the target's journal holds is judged exactly as opening the target would judge it ("Recovery on open"). Where the open would recover work, the save fails with `unsaved_changes`, with `details.path` naming the target. Where the open would copy the journal aside (unreadable, or replay stopped early), the save copies it aside too.
+3. Only then is the file written, the target's journal started from the saved document, and the old path's journal deleted.
+
+A refused save writes nothing: the target's file and journal are exactly as they were.
+
 ## Closing
 
 - A clean close with no unsaved changes deletes the journal.
