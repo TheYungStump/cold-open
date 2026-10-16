@@ -286,7 +286,7 @@ When an agent attaches to the open script through `coldopen mcp` (`docs/specs/mc
   - "Protected": every journal entry is flushed.
   - "Saving…": a save is running.
   - "Protecting…": entries have waited more than 250 ms for the disk.
-  - "Not protected": the journal failed. The reason is shown, and edits are refused until it is fixed.
+  - "Not protected": the journal failed. The reason is shown, and edits are refused until it is fixed: a flush succeeds again, or, for a journal a failed write left broken, a save starts it again (`docs/specs/journal.md`, "Writing").
 - **Recovery dialog.** When `doc.open` recovers unsaved work, a dialog shows:
   - the number of changes recovered or, when only the journal's header was (`commands` is 0; `docs/specs/journal.md`, recovery step 4), that the file on disk is not the version Cold Open last saved or opened, and that version is back in the script;
   - the time of the last one;

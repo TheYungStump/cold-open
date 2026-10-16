@@ -72,16 +72,37 @@ pub enum OpenError {
     Io(io::Error),
 }
 
+/// Write failures to inject, for tests: no OS fails a write on demand.
+#[cfg(test)]
+#[derive(Debug, Default)]
+pub(crate) struct Faults {
+    /// The next line written stops after this many bytes, then fails.
+    pub short_write: Option<usize>,
+    /// The next flush after a write fails.
+    pub fail_sync: bool,
+    /// The next cut back to an earlier length fails.
+    pub fail_truncate: bool,
+}
+
 /// An open, locked journal.
 #[derive(Debug)]
 pub struct Journal {
     file: File,
     path: PathBuf,
     seq: u64,
+    /// The file's length after the last whole line, where the next one
+    /// goes.
+    len: u64,
+    /// Set when the file may end in a fragment that could not be cut off,
+    /// or has no whole header: nothing written now could be replayed, so
+    /// every write fails until [`Journal::start`] succeeds.
+    broken: Option<String>,
     durability: Durability,
     /// Present in `Deferred` mode. Declared after `file` but dropped first
     /// by `delete`, so its final flush never races the file's removal.
     flusher: Option<Flusher>,
+    #[cfg(test)]
+    pub(crate) faults: Faults,
 }
 
 impl Journal {
@@ -111,11 +132,46 @@ impl Journal {
                 file,
                 path: path.to_path_buf(),
                 seq: 0,
+                len: contents.len() as u64,
+                broken: None,
                 durability,
                 flusher,
+                #[cfg(test)]
+                faults: Faults::default(),
             },
             contents,
         ))
+    }
+
+    /// Cuts the file back to `len`, the end of its last whole line.
+    fn cut_back(&mut self, len: u64) -> io::Result<()> {
+        #[cfg(test)]
+        if std::mem::take(&mut self.faults.fail_truncate) {
+            return Err(io::Error::other("injected truncate failure"));
+        }
+        self.file.set_len(len)?;
+        self.file.seek(SeekFrom::Start(len))?;
+        Ok(())
+    }
+
+    /// Whether the journal is broken (see `broken`).
+    pub fn is_broken(&self) -> bool {
+        self.broken.is_some()
+    }
+
+    /// Writes one line and makes it durable as the mode asks.
+    fn write_line(&mut self, line: &[u8]) -> io::Result<()> {
+        #[cfg(test)]
+        if let Some(n) = self.faults.short_write.take() {
+            self.file.write_all(&line[..n.min(line.len())])?;
+            return Err(io::Error::other("injected short write"));
+        }
+        self.file.write_all(line)?;
+        #[cfg(test)]
+        if std::mem::take(&mut self.faults.fail_sync) {
+            return Err(io::Error::other("injected flush failure"));
+        }
+        self.written()
     }
 
     /// Makes what was just written durable, as the mode asks.
@@ -158,11 +214,20 @@ impl Journal {
         };
         let mut line = serde_json::to_vec(&header).map_err(io::Error::other)?;
         line.push(b'\n');
+        // If this fails, the old journal is still whole.
         self.file.set_len(0)?;
-        self.file.seek(SeekFrom::Start(0))?;
-        self.file.write_all(&line)?;
         self.seq = 0;
-        self.written()?;
+        self.len = 0;
+        let written = self
+            .file
+            .seek(SeekFrom::Start(0))
+            .and_then(|_| self.write_line(&line));
+        if let Err(e) = written {
+            self.broken = Some(format!("its header could not be written: {e}"));
+            return Err(e);
+        }
+        self.len = line.len() as u64;
+        self.broken = None;
         self.flush_now();
         Ok(())
     }
@@ -173,6 +238,7 @@ impl Journal {
         self.file.set_len(valid_len)?;
         self.file.seek(SeekFrom::End(0))?;
         self.seq = seq;
+        self.len = valid_len;
         self.written()?;
         self.flush_now();
         Ok(())
@@ -233,6 +299,11 @@ impl Journal {
     }
 
     fn write_entry(&mut self, entry: &Entry) -> io::Result<()> {
+        if let Some(why) = &self.broken {
+            return Err(io::Error::other(format!(
+                "the journal is damaged ({why}); save the script to start it again"
+            )));
+        }
         // A journal whose flushes fail is not protecting anything; refuse
         // edits until a flush works again (docs/specs/editor.md §13).
         if let Some(e) = self.flusher.as_ref().and_then(Flusher::error) {
@@ -242,9 +313,19 @@ impl Journal {
         }
         let mut line = serde_json::to_vec(entry).map_err(io::Error::other)?;
         line.push(b'\n');
-        self.file.write_all(&line)?;
+        let before = self.len;
+        if let Err(e) = self.write_line(&line) {
+            // The caller rolls the edit back, so its entry goes too, and
+            // the next entry follows a whole line (docs/specs/journal.md,
+            // "Writing").
+            if let Err(cut) = self.cut_back(before) {
+                self.broken = Some(format!("a failed write could not be undone: {cut}"));
+            }
+            return Err(e);
+        }
+        self.len += line.len() as u64;
         self.seq += 1;
-        self.written()
+        Ok(())
     }
 
     /// Keeps a copy of the journal's bytes next to it, never deleting
@@ -448,6 +529,81 @@ mod tests {
         assert!(r.entries[1].merge);
         assert_eq!(r.entries[2].saved_disk(), Some(Fingerprint::of(b"x")));
         assert_eq!(r.entries[0].saved_disk(), None);
+    }
+
+    fn delete(j: &mut Journal, k: usize) -> io::Result<()> {
+        j.append(
+            "block.delete",
+            json!({ "id": format!("b_{k}") }),
+            &json!({}),
+            &Author::Writer,
+            false,
+        )
+    }
+
+    /// Review finding F10: a write that fails part-way (a full disk) left
+    /// its fragment in the journal. The next entry was appended to it, so
+    /// that entry and every later one could never be replayed.
+    #[test]
+    fn a_failed_write_leaves_nothing_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(".f.fountain.coldopen-journal");
+        let (mut j, _) = Journal::open_locked(&p, Durability::OsOnly).ok().unwrap();
+        j.start(&Document::default(), None).unwrap();
+        delete(&mut j, 1).unwrap();
+        j.faults.short_write = Some(30);
+        assert!(delete(&mut j, 2).is_err());
+        delete(&mut j, 3).unwrap();
+        delete(&mut j, 4).unwrap();
+        let r = read(&j.contents().unwrap()).unwrap();
+        assert_eq!(r.problem, None);
+        let ids: Vec<&Value> = r.entries.iter().map(|e| &e.params["id"]).collect();
+        assert_eq!(ids, [&json!("b_1"), &json!("b_3"), &json!("b_4")]);
+
+        // A flush that fails after a whole line was written: the edit is
+        // rolled back, so its entry must go too.
+        j.faults.fail_sync = true;
+        assert!(delete(&mut j, 5).is_err());
+        delete(&mut j, 6).unwrap();
+        let r = read(&j.contents().unwrap()).unwrap();
+        assert_eq!(r.problem, None);
+        let ids: Vec<&Value> = r.entries.iter().map(|e| &e.params["id"]).collect();
+        assert_eq!(
+            ids,
+            [&json!("b_1"), &json!("b_3"), &json!("b_4"), &json!("b_6")]
+        );
+        assert_eq!(j.entries(), 4);
+    }
+
+    /// If a failed write cannot be cut back either, the journal can no
+    /// longer protect anything: every later write fails until a save
+    /// starts it again.
+    #[test]
+    fn a_journal_that_cannot_be_repaired_refuses_writes_until_restarted() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(".g.fountain.coldopen-journal");
+        let (mut j, _) = Journal::open_locked(&p, Durability::OsOnly).ok().unwrap();
+        j.start(&Document::default(), None).unwrap();
+        j.faults.short_write = Some(10);
+        j.faults.fail_truncate = true;
+        assert!(delete(&mut j, 1).is_err());
+        assert!(j.is_broken());
+        assert!(delete(&mut j, 2).is_err());
+        j.start(&Document::default(), None).unwrap();
+        assert!(!j.is_broken());
+        delete(&mut j, 3).unwrap();
+        let r = read(&j.contents().unwrap()).unwrap();
+        assert_eq!(r.problem, None);
+        assert_eq!(r.entries.len(), 1);
+
+        // A header that fails to write leaves the journal broken too.
+        j.faults.short_write = Some(10);
+        assert!(j.start(&Document::default(), None).is_err());
+        assert!(j.is_broken());
+        assert!(delete(&mut j, 4).is_err());
+        j.start(&Document::default(), None).unwrap();
+        delete(&mut j, 5).unwrap();
+        assert_eq!(read(&j.contents().unwrap()).unwrap().entries.len(), 1);
     }
 
     #[test]

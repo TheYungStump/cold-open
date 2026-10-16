@@ -781,7 +781,11 @@ impl Dispatcher {
         }
         let r = Self::render(session, p)?;
         let fingerprint = Fingerprint::of(&r.bytes);
-        if let Some(j) = &mut session.journal {
+        // A broken journal protects nothing, so it gets no marker; the
+        // commit starts it again, which is the only way out of that state.
+        if let Some(j) = &mut session.journal
+            && !j.is_broken()
+        {
             j.append_saved(fingerprint).map_err(|e| {
                 CommandError::new(
                     "journal_error",
@@ -1200,5 +1204,59 @@ fn same_path(a: &Path, b: &Path) -> bool {
     match (fs::canonicalize(a), fs::canonicalize(b)) {
         (Ok(x), Ok(y)) => x == y,
         _ => a == b,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run(d: &mut Dispatcher, command: &str, params: Value) -> Result<Value, CommandError> {
+        d.execute(Command::from_parts(command, params).unwrap())
+    }
+
+    fn faults(d: &mut Dispatcher) -> &mut crate::journal::Faults {
+        &mut d.session.as_mut().unwrap().journal.as_mut().unwrap().faults
+    }
+
+    /// Review finding F10, through the dispatcher: a journal that a failed
+    /// write left broken refuses every edit, and a save, in place or off
+    /// the UI thread, starts it again.
+    #[test]
+    fn a_broken_journal_refuses_edits_until_a_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("s.fountain");
+        fs::write(&p, "INT. HOUSE - DAY\n\nRain.\n").unwrap();
+        for off_the_ui_thread in [false, true] {
+            let mut d = Dispatcher::new(Options::default());
+            run(&mut d, "doc.open", json!({"path": p})).unwrap();
+            let f = faults(&mut d);
+            f.short_write = Some(10);
+            f.fail_truncate = true;
+            let insert = |text: &str| json!({"type": "action", "text": text});
+            let e = run(&mut d, "block.insert", insert("Lost.")).unwrap_err();
+            assert_eq!(e.code, "journal_error", "{e}");
+            let e = run(&mut d, "block.insert", insert("Refused.")).unwrap_err();
+            assert_eq!(e.code, "journal_error", "{e}");
+            assert!(e.message.contains("save"), "{e}");
+            if off_the_ui_thread {
+                let prepared = d.save_prepare(&DocSave::default()).unwrap();
+                let written = io::atomic_write(&prepared.target, &prepared.bytes);
+                d.save_commit(prepared, written).unwrap();
+            } else {
+                run(&mut d, "doc.save", json!({})).unwrap();
+            }
+            run(&mut d, "block.insert", insert("Protected.")).unwrap();
+            drop(d); // a crash
+
+            let mut d = Dispatcher::new(Options::default());
+            let r = run(&mut d, "doc.open", json!({"path": p})).unwrap();
+            assert_eq!(r["recovered"]["commands"], 1, "{r}");
+            assert_eq!(r["warnings"], json!([]), "{r}");
+            let text = run(&mut d, "doc.export", json!({})).unwrap()["text"].clone();
+            assert!(text.as_str().unwrap().ends_with("Protected.\n"), "{text}");
+            assert!(!text.as_str().unwrap().contains("Lost."), "{text}");
+            d.discard();
+        }
     }
 }

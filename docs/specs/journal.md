@@ -56,6 +56,8 @@ Replay runs nothing for a marker. It only remembers the fingerprint, for `extern
 2. Its entry is written to the journal in one write call, on the thread that applied the edit.
 3. Only then is the result returned and, in the desktop app, shown on screen. If the write fails, the edit is rolled back and the request fails with `journal_error`.
 
+**A failed write leaves nothing behind** (2026-10-16). A write can stop part-way, as on a full disk, or the flush after a whole line can fail. Either way the edit is rolled back, so its entry must go too: the journal is cut back to the end of its last whole line, and the next entry follows that line. If the cut fails as well, the journal is marked broken. Every later edit then fails with `journal_error`, saying that a save starts the journal again, and the first save that writes a new header does. A save off the UI thread writes no `doc.saved` marker into a broken journal, since it protects nothing. A save whose new header cannot be written leaves the journal broken in the same way.
+
 While a session is open, it holds an exclusive lock on the journal (`File::lock`). A second process gets `doc_locked`. The operating system releases the lock if the process dies.
 
 ## Durability

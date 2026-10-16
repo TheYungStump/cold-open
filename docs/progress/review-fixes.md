@@ -16,7 +16,7 @@ Each finding gets a test made from the reviewer's reproduction. The test is run 
 | 1 | F2 / C2: save-as writes before it locks the target | fixed. Before: `doc_locked` came back after the target was already overwritten, and a crashed target's journal was truncated | `core/tests/no_lost_work.rs` `f2_*` | "Save as: lock and judge the target before writing it" |
 | 1 | F14: an entry-less journal that disagrees with the file is thrown away | fixed. Before: `recovered: null`, no warning, and the header holding "SAVED WORK." was overwritten | `core/tests/no_lost_work.rs` `f14_*`; `app/tests/file_flows.rs` `a_save_lost_in_a_power_cut_is_offered_back` | "Recover a journal header the file disagrees with" |
 | 1 | A2: after F14, Discard (`doc.revert`) of a recovered header kept no copy, and the start-up scan missed such journals | fixed with F14, before it was committed. Before: no `journal_discarded` warning and no copy; the scan returned `[]` | `core/tests/no_lost_work.rs` `f14_discarding_a_recovered_header_keeps_a_copy`; `app/src/files.rs` `a_recent_script_with_a_lost_save_is_leftover_work` | same commit as F14 |
-| 1 | F10: a failed journal write leaves a fragment | in progress | | |
+| 1 | F10 / A3: a failed journal write leaves a fragment | fixed. Before: "entry 2 is unreadable" after a short write, so later entries were lost; a failed flush left a complete entry for an edit that was rolled back; and the background save could not run on a broken journal, so nothing could repair it | `core/src/journal.rs` `a_failed_write_leaves_nothing_behind`, `a_journal_that_cannot_be_repaired_refuses_writes_until_restarted`; `core/src/dispatcher.rs` `a_broken_journal_refuses_edits_until_a_save` | "Journal: a failed write leaves nothing behind" |
 | 2 | F3 / C4: a synchronous save races the background save | to do | | |
 | 2 | A6.2: a background save commits into the document opened after it | to do (reproduced 2026-10-16, see below); fixed by the same save generation as F3 | | |
 | 2 | F11: saving overwrites another program's changes | to do | | |
@@ -54,6 +54,7 @@ Each finding gets a test made from the reviewer's reproduction. The test is run 
 7. **F14.** With no entries, a file that matches the header's (or a marker's) fingerprint, or holds the header's document, is nothing to recover; anything else recovers the header's document with `commands: 0` and `external_change: true`. The fingerprint is checked first, so a file not in Cold Open's normal form is not mistaken for a change. The app's recovery dialog has its own sentence for this case.
 
 8. **A2.** `doc.revert` keeps a copy whenever the document has unsaved changes, not only when the journal has entries. The app's start-up scan judges a recent script's journal as opening it would (`coldopen_core::dispatcher::journal_holds_work`). It still counts lines in `Unsaved/`, where a journal without entries is a script nobody typed in.
+9. **F10.** The fault injection is a `#[cfg(test)]` hook in `Journal` (a short write, a failed flush, a failed truncate), the only way to make a write fail on all three OSes. A failed flush also cuts the entry back, because the session rolls that edit back. A journal that can't be cut back is "broken" until a header is written; `save_prepare` skips its marker then, or the app could never save its way out.
 
 ## The Antigravity review (added 2026-10-16)
 
