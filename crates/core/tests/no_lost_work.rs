@@ -186,3 +186,60 @@ fn f4_dispatcher_discard_keeps_a_copy_too() {
     assert_eq!(kept, asides(dir.path(), "discarded").pop());
     assert!(!journal::path_for(&p).exists());
 }
+
+/// Review findings F5 and C3: a document made with `doc.new` and never
+/// saved exists only in its journal, and a second `doc.new` at the same
+/// path truncated that journal.
+#[test]
+fn f5_doc_new_never_truncates_an_existing_journal() {
+    const NEVER_SAVED: &str = "A WHOLE NEW SCENE NEVER SAVED";
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("Untitled-1.fountain");
+    let w = Author::Writer;
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &w, "doc.new", json!({"path": p, "start": "action"}));
+    ok(
+        &mut d,
+        &w,
+        "text.insert",
+        json!({"id": "b_1", "at": 0, "text": NEVER_SAVED}),
+    );
+    drop(d); // a crash
+    let j = journal::path_for(&p);
+    let before = fs::read(&j).unwrap();
+
+    let mut d = Dispatcher::new(Options::default());
+    let e = err(&mut d, &w, "doc.new", json!({"path": p}));
+    assert_eq!(e.code, "already_exists", "{e}");
+    assert!(d.session().is_none());
+    assert_eq!(fs::read(&j).unwrap(), before);
+    let r = ok(&mut d, &w, "doc.open", json!({"path": p}));
+    assert_eq!(r["recovered"]["commands"], 1, "{r}");
+    assert!(text(&mut d).contains(NEVER_SAVED));
+}
+
+/// `doc.new` checks everything before it closes the open document, so a
+/// refused `doc.new` leaves that document open.
+#[test]
+fn f5_a_refused_doc_new_leaves_the_open_document_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a.fountain");
+    fs::write(&a, SCRIPT).unwrap();
+    let w = Author::Writer;
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &w, "doc.open", json!({"path": a}));
+    let e = err(&mut d, &w, "doc.new", json!({"path": a}));
+    assert_eq!(e.code, "already_exists", "{e}");
+    let e = err(
+        &mut d,
+        &w,
+        "doc.new",
+        json!({"path": dir.path().join("notes.pdf")}),
+    );
+    assert_eq!(e.code, "unsupported_format", "{e}");
+    assert_eq!(
+        ok(&mut d, &w, "doc.get", json!({}))["path"],
+        a.display().to_string()
+    );
+    assert!(journal::path_for(&a).exists());
+}

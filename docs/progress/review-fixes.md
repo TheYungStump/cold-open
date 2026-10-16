@@ -12,8 +12,8 @@ Each finding gets a test made from the reviewer's reproduction. The test is run 
 | --- | --- | --- | --- | --- |
 | 1 | F4: an agent's `doc_close {discard}` deletes recovered work | fixed. Before: the agent's discard returned `{}` and the journal was gone | `core/tests/no_lost_work.rs` `f4_*`; `cli/tests/agent_gate.rs` `an_agent_cannot_discard_the_writers_recovered_work` (real `coldopen mcp`) | "Keep a copy of discarded work; agents can't discard the writer's" |
 | 1 | F1: `coldopen run --doc` deletes a recovered journal | fixed. Before: `run` printed "unsaved changes were discarded" and the journal was gone (after F4, it was only copied aside) | `cli/tests/cli.rs` `run_never_discards_recovered_work`, `run_keeps_a_copy_when_it_edits_recovered_work` | "coldopen run: never throw away recovered work" |
-| 1 | F5 / C3: `doc.new` truncates an existing journal | in progress | | |
-| 1 | F2 / C2: save-as writes before it locks the target | to do | | |
+| 1 | F5 / C3: `doc.new` truncates an existing journal | fixed. Before: the second `doc.new` succeeded with no warning and the journal was truncated | `core/tests/no_lost_work.rs` `f5_*` | "doc.new: never start over on a crash journal" |
+| 1 | F2 / C2: save-as writes before it locks the target | in progress | | |
 | 1 | F14: an entry-less journal that disagrees with the file is thrown away | to do | | |
 | 1 | F10: a failed journal write leaves a fragment | to do | | |
 | 2 | F3 / C4: a synchronous save races the background save | to do | | |
@@ -46,7 +46,7 @@ Each finding gets a test made from the reviewer's reproduction. The test is run 
 2. **F4.** `Dispatcher::discard` keeps a copy of the journal (`<journal>.discarded-<ms>`) whenever the session holds unsaved work, and `doc.close` reports the copy in a `journal_discarded` warning. As a result the app's "Don't save", and Discard on a never-saved script, now leave a copy too, and the dialog says so.
 3. **F4.** An agent may not set aside a writer's unsaved work by any route: `doc.close {discard: true}`, `doc.revert` and `doc.open {recover: "discard"}` all fail with `not_your_step` when the work at stake includes a writer's entries. Each of these keeps a copy, but the writer would never be shown that copy.
 4. **F1.** `coldopen run` keeps recovered work in the journal when the batch did not touch it. If the batch edited on top of recovered work, it keeps a copy and names it. A batch's own edits, which can be made again by rerunning it, are still deleted with no copy (`Dispatcher::discard_rerunnable`).
-5. **F5.** `doc.new` refuses any non-empty journal at its path with `already_exists`, without analysing it. `doc.open` is the way to recover it or set it aside.
+5. **F5.** `doc.new` refuses any non-empty journal at its path with `already_exists`, without analysing it. `doc.open` is the way to recover it or set it aside. `doc.new` also runs all its checks before it closes the open document, so a refusal leaves that document open.
 6. **F2.** Save-as judges the target's journal exactly as opening the target would. Where the open would recover, the save fails with `unsaved_changes` (the existing code, with `details.path` naming the target) and writes nothing.
 
 ## Not now: F18, architecture before phase 4

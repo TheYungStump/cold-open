@@ -131,6 +131,8 @@ Notes on each command:
 - **`doc.new`**
   - Starts an empty document.
   - With `path`, the document is journaled next to that path. The file must not already exist (`already_exists`).
+  - Nor may a crash journal for that path hold anything (2026-10-16): a document made with `doc.new` and never saved exists only in its journal, so `doc.new` fails with `already_exists`, with `details.journal` naming the journal, and leaves it untouched. `doc.open` recovers it, or sets it aside with `recover: "discard"`.
+  - Every check runs before the open document is closed (2026-10-16), so a refused `doc.new` leaves it open.
   - Without a path, the document is held in memory only, and a warning says so.
   - `start` (2026-10-15) is an element type, such as `"scene_heading"`. The document then begins with one empty block of that type, so an editor has a line to type on. The block is part of the new document, not an edit: the document starts clean, with nothing to undo and an empty journal.
 - **`doc.open`**
@@ -308,7 +310,7 @@ Undo is unlimited. A new edit clears the redo history.
 | `invalid_attr` | The block would break a model rule; `details.problems` lists them. |
 | `nothing_to_undo`, `nothing_to_redo` | The history is empty in that direction. |
 | `unsaved_changes` | The document has unsaved changes. |
-| `already_exists` | `doc.new` was given an existing file. |
+| `already_exists` | `doc.new` was given an existing file, the open document's path, or a path whose crash journal holds anything (`details.journal`). |
 | `no_path` | `doc.save` has no path to save to. |
 | `unsupported_format` | The file type is not supported in this version. |
 | `lossy_format` | The format cannot hold the document; `details.losses` lists why. |

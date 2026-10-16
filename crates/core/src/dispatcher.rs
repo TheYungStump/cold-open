@@ -276,18 +276,69 @@ impl Dispatcher {
 
     /// Closes a clean session before opening another one.
     fn close_for_switch(&mut self) -> Result<(), CommandError> {
+        self.refuse_if_dirty()?;
+        self.shutdown();
+        Ok(())
+    }
+
+    fn refuse_if_dirty(&self) -> Result<(), CommandError> {
         if self.session.as_ref().is_some_and(|s| s.dirty) {
             return Err(CommandError::new(
                 "unsaved_changes",
                 "the open document has unsaved changes; save it or close it with discard",
             ));
         }
-        self.shutdown();
         Ok(())
     }
 
     fn doc_new(&mut self, p: DocNew) -> Result<Value, CommandError> {
-        self.close_for_switch()?;
+        // Every check runs before the open document is closed or anything
+        // is written (docs/specs/journal.md).
+        self.refuse_if_dirty()?;
+        let path = p.path.as_ref().map(PathBuf::from);
+        let mut journal = None;
+        if let Some(path) = &path {
+            if path.exists() {
+                return Err(CommandError::new(
+                    "already_exists",
+                    format!("{} already exists; open it instead", path.display()),
+                ));
+            }
+            if !is_fountain(path) {
+                return Err(unsupported(path));
+            }
+            if let Some(own) = self.session.as_ref().and_then(|s| s.path.as_deref())
+                && same_path(own, path)
+            {
+                return Err(CommandError::new(
+                    "already_exists",
+                    format!("{} is already open", path.display()),
+                ));
+            }
+            if self.opts.journal {
+                // A document made with doc.new and never saved lives only
+                // in its journal; never start over on top of one.
+                let (j, contents) = open_journal(path, self.durability())?;
+                if !contents.is_empty() {
+                    return Err(CommandError::new(
+                        "already_exists",
+                        format!(
+                            "{} has a crash journal, which may hold work that was never saved; \
+                             open it with doc.open to recover that work, or with recover \"discard\" \
+                             to set it aside",
+                            path.display()
+                        ),
+                    )
+                    .with_details(json!({
+                        "path": path.display().to_string(),
+                        "journal": j.path().display().to_string(),
+                    })));
+                }
+                journal = Some(j);
+            }
+        }
+
+        self.shutdown();
         let mut doc = Document {
             next_id: 1,
             ..Default::default()
@@ -300,32 +351,14 @@ impl Dispatcher {
             });
         }
         let mut warnings = Vec::new();
-        let mut session = match &p.path {
-            Some(path) => {
-                let path = PathBuf::from(path);
-                if path.exists() {
-                    return Err(CommandError::new(
-                        "already_exists",
-                        format!("{} already exists; open it instead", path.display()),
-                    ));
-                }
-                if !is_fountain(&path) {
-                    return Err(unsupported(&path));
-                }
-                self.new_session(doc, Some(path), SourceStyle::default())
-            }
-            None => {
-                warnings.push(warning(
-                    "unjournaled",
-                    "an untitled document is not protected by a crash journal until it is saved",
-                ));
-                self.new_session(doc, None, SourceStyle::default())
-            }
-        };
-        if self.opts.journal
-            && let Some(path) = session.path.clone()
-        {
-            let (mut j, _) = open_journal(&path, self.durability())?;
+        if path.is_none() {
+            warnings.push(warning(
+                "unjournaled",
+                "an untitled document is not protected by a crash journal until it is saved",
+            ));
+        }
+        let mut session = self.new_session(doc, path, SourceStyle::default());
+        if let Some(mut j) = journal {
             j.start(&session.doc, None)
                 .map_err(|e| CommandError::io(j.path(), &e))?;
             session.journal = Some(j);

@@ -126,6 +126,8 @@ When `doc.open` finds a journal for the file:
 
 Without a journal, a missing file fails with `io_error` as before.
 
+Because such a journal is the only copy of the work, `doc.new` never starts over on top of it (2026-10-16): `doc.new` at a path whose journal holds anything fails with `already_exists` and leaves the journal untouched.
+
 ## Atomic save
 
 Every save, on every OS, follows these steps:
