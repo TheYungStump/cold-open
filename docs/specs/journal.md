@@ -33,7 +33,7 @@
 | --- | --- |
 | `seq` | Counts from 1. |
 | `t` | Milliseconds since the Unix epoch. Informational only. |
-| `command`, `params` | The command exactly as applied. |
+| `command`, `params` | The command exactly as applied, with the defaults that depend on the document filled in (2026-10-16): the `style` a `text.insert` took from the text around it, and the `type` a `block.split` kept, inside a `batch` too. A later change to such a default therefore never changes what an old entry replays to. Static defaults, such as `text.replace`'s `match_case`, are always written already. |
 | `result` | The command's result, including assigned ids, so replay can confirm it reached the same state. Replay compares only part of it ("What replay compares", below). |
 | `by` | Optional (2026-10-15). The command's author, as in `docs/specs/commands.md` ("Authors and undo steps"). Absent means a writer. |
 | `merge` | Optional (2026-10-15). `true` when the command joined the undo step before it. Absent means false. |

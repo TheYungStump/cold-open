@@ -9,8 +9,9 @@ use serde_json::{Value, json};
 
 use crate::author::{Author, Clock};
 use crate::command::{
-    Batch, BlockDelete, BlockInsert, BlockJoin, BlockSetAttrs, BlockSetText, BlockSetType,
-    BlockSplit, Class, Command, SceneMove, TextDelete, TextInsert, TextReplace, TextStyle,
+    Batch, BatchItem, BlockDelete, BlockInsert, BlockJoin, BlockSetAttrs, BlockSetText,
+    BlockSetType, BlockSplit, Class, Command, SceneMove, TextDelete, TextInsert, TextReplace,
+    TextStyle,
 };
 use crate::document::{Block, BlockId, Document, word_count};
 use crate::error::CommandError;
@@ -426,7 +427,7 @@ impl Session {
 
     fn edit(&mut self, cmd: &Command, ex: &Exec) -> Result<Value, CommandError> {
         let next_id = self.doc.next_id;
-        let (inverse, result) = match self.apply_edit(cmd) {
+        let (inverse, result, resolved) = match self.apply_edit(cmd) {
             Ok(r) => r,
             Err(e) => {
                 self.doc.next_id = next_id;
@@ -439,8 +440,16 @@ impl Session {
         };
         let now = self.clock.now_ms();
         let merge = self.should_merge(cmd, ex, now, &inverse);
-        if let Err(e) = self.journal_append(cmd.name(), cmd.params(), &result, &ex.by, merge, None)
-        {
+        // The journal records what was done, defaults filled in, so a
+        // later change to a default never changes what an old entry means.
+        if let Err(e) = self.journal_append(
+            resolved.name(),
+            resolved.params(),
+            &result,
+            &ex.by,
+            merge,
+            None,
+        ) {
             inverse.apply(&mut self.doc);
             self.doc.next_id = next_id;
             return Err(e);
@@ -474,20 +483,49 @@ impl Session {
     }
 
     /// Applies an edit and returns the transaction that reverses it, or
-    /// `None` when nothing changed.
-    fn apply_edit(&mut self, cmd: &Command) -> Result<(Option<Transaction>, Value), CommandError> {
+    /// `None` when nothing changed, its result, and the command as done:
+    /// with the defaults it took filled in.
+    fn apply_edit(
+        &mut self,
+        cmd: &Command,
+    ) -> Result<(Option<Transaction>, Value, Command), CommandError> {
         if let Command::Batch(b) = cmd {
             return self.apply_batch(b);
         }
-        let (tx, result) = self.plan(cmd)?;
+        let cmd = self.resolve(cmd);
+        let (tx, result) = self.plan(&cmd)?;
         if tx.is_empty() {
-            Ok((None, result))
+            Ok((None, result, cmd))
         } else {
-            Ok((Some(tx.apply(&mut self.doc)), result))
+            Ok((Some(tx.apply(&mut self.doc)), result, cmd))
         }
     }
 
-    fn apply_batch(&mut self, b: &Batch) -> Result<(Option<Transaction>, Value), CommandError> {
+    /// The command with the defaults that depend on the document filled
+    /// in (docs/specs/journal.md, "Entries"): the style `text.insert` takes
+    /// from the text around it, and the type `block.split` keeps.
+    fn resolve(&self, cmd: &Command) -> Command {
+        match cmd {
+            Command::TextInsert(p) if p.style.is_none() => {
+                let style = self
+                    .doc
+                    .get(p.id)
+                    .filter(|b| p.at <= b.element.text.char_len())
+                    .map(|b| b.element.text.style_at(p.at).into());
+                Command::TextInsert(TextInsert { style, ..p.clone() })
+            }
+            Command::BlockSplit(p) if p.kind.is_none() => Command::BlockSplit(BlockSplit {
+                kind: self.doc.get(p.id).map(|b| b.element.kind),
+                ..p.clone()
+            }),
+            other => other.clone(),
+        }
+    }
+
+    fn apply_batch(
+        &mut self,
+        b: &Batch,
+    ) -> Result<(Option<Transaction>, Value, Command), CommandError> {
         let mut cmds = Vec::with_capacity(b.commands.len());
         for (i, item) in b.commands.iter().enumerate() {
             let cmd = Command::from_parts(&item.command, item.params.clone()).map_err(|e| {
@@ -509,13 +547,18 @@ impl Session {
         }
         let mut inverses: Vec<Transaction> = Vec::new();
         let mut results = Vec::with_capacity(cmds.len());
+        let mut resolved = Vec::with_capacity(cmds.len());
         for (i, cmd) in cmds.iter().enumerate() {
-            match self.plan(cmd) {
+            // Each edit's defaults depend on the document the edits before
+            // it left.
+            let cmd = self.resolve(cmd);
+            match self.plan(&cmd) {
                 Ok((tx, r)) => {
                     if !tx.is_empty() {
                         inverses.push(tx.apply(&mut self.doc));
                     }
                     results.push(r);
+                    resolved.push(BatchItem::of(&cmd));
                 }
                 Err(e) => {
                     for inv in inverses.into_iter().rev() {
@@ -526,11 +569,15 @@ impl Session {
             }
         }
         let result = json!({ "results": results });
+        let done = Command::Batch(Batch {
+            commands: resolved,
+            label: b.label.clone(),
+        });
         if inverses.is_empty() {
-            return Ok((None, result));
+            return Ok((None, result, done));
         }
         let combined = Transaction(inverses.into_iter().rev().flat_map(|t| t.0).collect());
-        Ok((Some(combined), result))
+        Ok((Some(combined), result, done))
     }
 
     /// The typing group a writer's keystroke command opens or continues.

@@ -697,8 +697,18 @@ fn f16_an_undo_of_a_different_step_is_caught() {
     let w = Author::Writer;
     let mut d = Dispatcher::new(Options::default());
     ok(&mut d, &w, "doc.open", json!({"path": p}));
-    ok(&mut d, &w, "block.insert", json!({"type": "action", "text": "Line A."}));
-    ok(&mut d, &w, "block.insert", json!({"type": "action", "text": "Line B."}));
+    ok(
+        &mut d,
+        &w,
+        "block.insert",
+        json!({"type": "action", "text": "Line A."}),
+    );
+    ok(
+        &mut d,
+        &w,
+        "block.insert",
+        json!({"type": "action", "text": "Line B."}),
+    );
     ok(&mut d, &w, "undo", json!({}));
     drop(d);
     let j = journal::path_for(&p);
@@ -710,8 +720,72 @@ fn f16_an_undo_of_a_different_step_is_caught() {
     let r = ok(&mut d, &w, "doc.open", json!({"path": p}));
     assert_eq!(r["recovered"]["commands"], 2, "{r}");
     let warning = r["warnings"][0]["message"].as_str().unwrap();
-    assert!(warning.contains("different step") && warning.contains(".diverged-"), "{warning}");
+    assert!(
+        warning.contains("different step") && warning.contains(".diverged-"),
+        "{warning}"
+    );
     let t = text(&mut d);
     assert!(t.contains("Line A.") && t.contains("Line B."), "{t}");
+    d.discard();
+}
+
+/// Review finding F16, second part: params were journaled as sent, with
+/// defaults left out. `text.insert` without `style` takes the style around
+/// it, and `block.split` without `type` keeps the block's type; if either
+/// default ever changed, old entries would replay differently with the
+/// same `{}` result, and nothing would notice. Entries now carry the
+/// values that were used.
+#[test]
+fn f16_journaled_params_carry_their_defaults() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("s.fountain");
+    fs::write(&p, SCRIPT).unwrap();
+    let w = Author::Writer;
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &w, "doc.open", json!({"path": p}));
+    ok(
+        &mut d,
+        &w,
+        "text.style",
+        json!({"id": "b_2", "from": 0, "to": 5, "italic": true}),
+    );
+    ok(
+        &mut d,
+        &w,
+        "text.insert",
+        json!({"id": "b_2", "at": 2, "text": "ai"}),
+    );
+    ok(&mut d, &w, "block.split", json!({"id": "b_2", "at": 3}));
+    ok(
+        &mut d,
+        &w,
+        "batch",
+        json!({"commands": [{"command": "text.insert", "params": {"id": "b_1", "at": 0, "text": "X"}}]}),
+    );
+    let live = text(&mut d);
+    drop(d);
+    let journal_text = fs::read_to_string(journal::path_for(&p)).unwrap();
+    let entries: Vec<Value> = journal_text
+        .lines()
+        .skip(1)
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(
+        entries[1]["params"]["style"],
+        json!({"italic": true}),
+        "{}",
+        entries[1]
+    );
+    assert_eq!(entries[2]["params"]["type"], "action", "{}", entries[2]);
+    assert_eq!(
+        entries[3]["params"]["commands"][0]["params"]["style"],
+        json!({}),
+        "{}",
+        entries[3]
+    );
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, &w, "doc.open", json!({"path": p}));
+    assert_eq!(r["warnings"], json!([]), "{r}");
+    assert_eq!(text(&mut d), live);
     d.discard();
 }
