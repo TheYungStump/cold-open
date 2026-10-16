@@ -49,8 +49,10 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       # The layout and PDF goldens are compared byte for byte here, so the
       # same files passing on all three OSes is the cross-platform check.
+      # --no-fail-fast runs every test binary even after one fails, so one
+      # failure never hides another; the step still fails at the end.
       - name: Test
-        run: cargo test --workspace --locked
+        run: cargo test --workspace --locked --no-fail-fast
       - name: Layout goldens and timing in a release build
         run: cargo test --release --locked -p coldopen-layout -- --nocapture
       - name: Tests left the tree clean
