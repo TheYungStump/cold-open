@@ -200,6 +200,9 @@ pub struct App {
     save_again: bool,
     /// What to do once the script is saved.
     after_save: Option<After>,
+    /// What waits for the save in flight to finish before it runs: opening,
+    /// closing or leaving a script never overlaps a save (editor.md §16).
+    waiting: Option<After>,
     pub prompt: Option<Prompt>,
     pub recovery: Option<Recovery>,
     pub export: Option<ExportForm>,
@@ -305,6 +308,7 @@ impl App {
             saving: None,
             save_again: false,
             after_save: None,
+            waiting: None,
             prompt: None,
             recovery: None,
             export: None,
@@ -1197,6 +1201,15 @@ impl App {
                 self.reply(Reply::Overwrite)
             } else if ch == "r" {
                 self.reply(Reply::Reload)
+            } else if esc || ch == "c" {
+                self.reply(Reply::Cancel)
+            } else {
+                Task::none()
+            };
+        }
+        if matches!(self.prompt, Some(Prompt::DeleteCopy(_))) {
+            return if enter || ch == "d" {
+                self.reply(Reply::Save)
             } else if esc || ch == "c" {
                 self.reply(Reply::Cancel)
             } else {

@@ -107,11 +107,15 @@ impl App {
             }
             Command::DocNew(_) => Outcome::task(self.leave(After::New)),
             Command::DocClose(_) => Outcome::task(self.leave(After::Close)),
-            Command::DocRevert(_) => Outcome::task(self.reload()),
+            Command::DocRevert(_) => Outcome::task(self.proceed(After::Revert)),
             Command::DocSave(p) => Outcome::task(match p.path {
                 Some(path) => self.save_as(PathBuf::from(path), p.allow_lossy, p.overwrite),
                 None => self.save_with(p.allow_lossy, p.overwrite),
             }),
+            Command::RecoveredRestore(p) => {
+                Outcome::task(self.leave(After::Restore(PathBuf::from(p.copy))))
+            }
+            Command::RecoveredDelete(p) => Outcome::task(self.ask_delete(PathBuf::from(p.copy))),
             other => {
                 let edits = matches!(other.class(), Class::Edit | Class::History);
                 let r = self.d.execute(other);

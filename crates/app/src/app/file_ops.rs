@@ -25,6 +25,11 @@ pub enum After {
     OpenPath(PathBuf),
     Close,
     Quit,
+    /// Restore a set-aside copy as a new script (journal.md, "Recovered
+    /// versions").
+    Restore(PathBuf),
+    /// Go back to the saved file; unsaved changes are set aside.
+    Revert,
 }
 
 /// A question the app asks inside its window.
@@ -51,6 +56,8 @@ pub enum Prompt {
         host: String,
         at: String,
     },
+    /// Delete this set-aside copy? It cannot be undone.
+    DeleteCopy(PathBuf),
 }
 
 /// The writer's answer to a [`Prompt`].
@@ -237,8 +244,13 @@ impl App {
         self.proceed(after)
     }
 
-    /// Does `after` now that the script is saved, clean or given up.
-    fn proceed(&mut self, after: After) -> Task<Message> {
+    /// Does `after` now that the script is saved, clean or given up. While
+    /// a save is being written it waits for it (editor.md §16).
+    pub(super) fn proceed(&mut self, after: After) -> Task<Message> {
+        if self.saving.is_some() && after != After::Open {
+            self.waiting = Some(after);
+            return Task::none();
+        }
         match after {
             After::New => {
                 self.close_links();
@@ -264,7 +276,67 @@ impl App {
                 self.d.shutdown();
                 iced::exit()
             }
+            After::Restore(copy) => {
+                self.close_links();
+                self.d.shutdown();
+                self.restore(&copy);
+                self.after_change(true)
+            }
+            After::Revert => self.reload(),
         }
+    }
+
+    /// Opens a set-aside copy as a new untitled script in `Unsaved/`; the
+    /// copy and its script are never written (journal.md, "Recovered
+    /// versions").
+    pub(super) fn restore(&mut self, copy: &Path) {
+        let Some(info) = coldopen_core::recovered::parse(copy) else {
+            return;
+        };
+        let Some(dir) = self.dirs.as_ref().map(|d| d.unsaved()) else {
+            self.banners
+                .push("Restoring needs the app's data folder, which is not available.".into());
+            return;
+        };
+        let _ = std::fs::create_dir_all(&dir);
+        let stem = info.script.file_stem().map_or_else(
+            || "Restored".to_string(),
+            |s| s.to_string_lossy().into_owned(),
+        );
+        let ext = info.script.extension().map_or_else(
+            || "fountain".to_string(),
+            |e| e.to_string_lossy().into_owned(),
+        );
+        let path = (1..)
+            .map(|n| {
+                let name = if n == 1 {
+                    format!("{stem} (restored).{ext}")
+                } else {
+                    format!("{stem} (restored {n}).{ext}")
+                };
+                dir.join(name)
+            })
+            .find(|p| !p.exists() && !coldopen_core::journal::path_for(p).exists())
+            .unwrap_or_else(|| dir.join(format!("{stem} (restored).{ext}")));
+        if self
+            .run("recovered.restore", json!({ "copy": copy, "path": path }))
+            .is_some()
+            && let Some(s) = self.d.session()
+        {
+            self.editor = self.fresh_editor(&s.doc);
+            self.banners.push(format!(
+                "Restored a recovered version of {} as a new script. Save it to keep it.",
+                info.script
+                    .file_name()
+                    .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+            ));
+        }
+    }
+
+    /// Asks before deleting a set-aside copy (editor.md §13).
+    pub(super) fn ask_delete(&mut self, copy: PathBuf) -> Task<Message> {
+        self.prompt = Some(Prompt::DeleteCopy(copy));
+        Task::none()
     }
 
     pub(super) fn reply(&mut self, reply: Reply) -> Task<Message> {
@@ -314,6 +386,10 @@ impl App {
             (Prompt::Foreign { path, .. }, Reply::SetAside) => {
                 self.open_with(&path, "discard");
                 self.after_change(true)
+            }
+            (Prompt::DeleteCopy(copy), Reply::Save) => {
+                self.run("recovered.delete", json!({ "copy": copy }));
+                self.after_change(false)
             }
             // A key that answers some other question: this one stays open.
             (prompt, _) => {
@@ -398,10 +474,12 @@ impl App {
         let Some(prepared) = self.saving.take() else {
             return Task::none();
         };
-        if let Err(e) = self
+        let commit = self
             .d
-            .save_commit(prepared, written.map_err(std::io::Error::other))
-        {
+            .save_commit(prepared, written.map_err(std::io::Error::other));
+        // Whatever the save's outcome, what waited for it runs now.
+        let waiting = self.waiting.take();
+        if let Err(e) = commit {
             self.after_save = None;
             self.save_again = false;
             // A save that finished after its script was closed or reopened
@@ -415,7 +493,12 @@ impl App {
             } else {
                 format!("The script was not saved: {}", e.message)
             });
-            return Task::none();
+            return waiting.map_or_else(Task::none, |after| self.proceed(after));
+        }
+        if let Some(after) = waiting {
+            self.after_save = None;
+            self.save_again = false;
+            return self.proceed(after);
         }
         // Edits made while the file was written are still unsaved.
         let again = std::mem::take(&mut self.save_again) || self.after_save.is_some();

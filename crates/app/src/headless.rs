@@ -186,9 +186,25 @@ impl Headless {
     /// Runs messages through `update`, and the tasks they return, until
     /// nothing is left.
     pub fn run(&mut self, messages: Vec<Message>) {
-        let mut queue: VecDeque<Message> = messages.into();
-        while let Some(m) = queue.pop_front() {
-            let task = self.app.update(m);
+        self.drain(iced::Task::none(), messages.into());
+    }
+
+    /// Runs a task the test held back, and every message it causes: a save
+    /// still being written, say, finishes when the test chooses.
+    pub fn run_task(&mut self, task: iced::Task<Message>) {
+        self.drain(task, VecDeque::new());
+    }
+
+    fn drain(&mut self, first: iced::Task<Message>, mut queue: VecDeque<Message>) {
+        let mut next = Some(first);
+        loop {
+            let task = match next.take() {
+                Some(t) => t,
+                None => match queue.pop_front() {
+                    Some(m) => self.app.update(m),
+                    None => break,
+                },
+            };
             let Some(mut stream) = task::into_stream(task) else {
                 continue;
             };

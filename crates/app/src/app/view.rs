@@ -325,6 +325,18 @@ impl App {
             ]
             .spacing(12)
             .into(),
+            Prompt::DeleteCopy(_) => column![
+                title(pal, "Delete this copy?"),
+                body(pal, "It can't be undone."),
+                row![
+                    dialog_button("Delete", Message::Reply(Reply::Save), true),
+                    dialog_button("Cancel", Message::Reply(Reply::Cancel), false),
+                ]
+                .spacing(8),
+                hint(pal, "Enter: Delete  ·  Esc: Cancel"),
+            ]
+            .spacing(12)
+            .into(),
             Prompt::Changed { .. } => column![
                 title(
                     pal,
