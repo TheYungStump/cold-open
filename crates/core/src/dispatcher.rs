@@ -240,6 +240,23 @@ impl Dispatcher {
         }
     }
 
+    /// Ends the session, throwing away unsaved changes that the caller can
+    /// make again, such as a `coldopen run` batch, without keeping a copy.
+    /// A session that holds recovered work is discarded as by
+    /// [`Dispatcher::discard`], with a copy, because that work was never
+    /// the caller's.
+    pub fn discard_rerunnable(&mut self) -> Option<PathBuf> {
+        if self.session.as_ref().is_some_and(|s| s.recovered.is_some()) {
+            return self.discard();
+        }
+        if let Some(s) = self.session.take()
+            && let Some(j) = s.journal
+        {
+            let _ = j.delete();
+        }
+        None
+    }
+
     /// Copies the journal to `<journal>.discarded-<ms>` when the session
     /// holds unsaved work.
     fn keep_copy(&mut self) -> std::io::Result<Option<PathBuf>> {

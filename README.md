@@ -118,6 +118,7 @@ coldopen run edits.json --doc draft.fountain --save
 - It stops at the first failure unless you add `--keep-going`.
 - It exits with status 1 if any command failed.
 - Without `--save` (or a `doc.save` in the batch), changes are discarded when the batch ends.
+- Unsaved work recovered from a crash journal is never thrown away. If the batch leaves it untouched, it stays in the journal for the next open; if the batch changed it, a copy of the journal is kept, and `run` says where.
 
 ### Serve commands over stdio
 

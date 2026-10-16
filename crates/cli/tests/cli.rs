@@ -321,6 +321,91 @@ fn serve_keeps_unsaved_work_for_recovery() {
     assert_eq!(r["result"]["recovered"]["commands"], 1);
 }
 
+/// Leaves `s.fountain` with a crash journal holding one unsaved line, as
+/// the app or `serve --stdio` would after a crash.
+fn unsaved_in_journal(dir: &Path, line: &str) -> PathBuf {
+    let p = dir.join("s.fountain");
+    fs::write(&p, "INT. HOUSE - DAY\n\nRain.\n").unwrap();
+    let mut srv = Server::start();
+    srv.call("doc.open", json!({"path": s(&p)}));
+    srv.call("block.insert", json!({"type": "action", "text": line}));
+    drop(srv.stdin.take());
+    assert!(srv.child.wait().unwrap().success());
+    assert!(coldopen_core::journal::path_for(&p).exists());
+    p
+}
+
+fn recovered_text(p: &Path) -> String {
+    let mut d = Dispatcher::new(Options::default());
+    let r = d.handle(&json!({"command": "doc.open", "params": {"path": s(p)}}));
+    assert_eq!(r["ok"], true, "{r}");
+    let t = d.handle(&json!({"command": "doc.export"}))["result"]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    d.shutdown();
+    t
+}
+
+/// Review finding F1: a read-only batch on a script with a crash journal
+/// recovered the journal, then deleted it as "unsaved changes".
+#[test]
+fn run_never_discards_recovered_work() {
+    const WORK: &str = "HOURS OF UNSAVED WORK.";
+    let dir = tempfile::tempdir().unwrap();
+    let p = unsaved_in_journal(dir.path(), WORK);
+    let q = dir.path().join("q.json");
+
+    // A query.
+    fs::write(&q, r#"{"id":"q","command":"scene.list"}"#).unwrap();
+    let o = coldopen(&["run", s(&q), "--doc", s(&p)]);
+    assert!(o.status.success());
+    assert!(
+        String::from_utf8_lossy(&o.stdout).contains(r#""recovered":{"commands":1"#),
+        "{}",
+        String::from_utf8_lossy(&o.stdout)
+    );
+    assert!(
+        String::from_utf8_lossy(&o.stderr).contains("crash journal"),
+        "{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    assert!(coldopen_core::journal::path_for(&p).exists());
+
+    // A batch whose first command fails.
+    fs::write(&q, r#"{"command":"block.delete","params":{"id":"b_999"}}"#).unwrap();
+    let o = coldopen(&["run", s(&q), "--doc", s(&p)]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(coldopen_core::journal::path_for(&p).exists());
+    assert!(recovered_text(&p).contains(WORK));
+}
+
+/// A batch that edits on top of recovered work cannot keep its own edits,
+/// so the whole journal is kept aside, and the copy is named.
+#[test]
+fn run_keeps_a_copy_when_it_edits_recovered_work() {
+    const WORK: &str = "HOURS OF UNSAVED WORK.";
+    let dir = tempfile::tempdir().unwrap();
+    let p = unsaved_in_journal(dir.path(), WORK);
+    let q = dir.path().join("q.json");
+    fs::write(
+        &q,
+        r#"{"command":"block.insert","params":{"type":"action","text":"From the batch."}}"#,
+    )
+    .unwrap();
+    let o = coldopen(&["run", s(&q), "--doc", s(&p)]);
+    assert!(o.status.success());
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(err.contains(".discarded-"), "{err}");
+    let kept: Vec<PathBuf> = fs::read_dir(dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.to_string_lossy().contains(".discarded-"))
+        .collect();
+    assert_eq!(kept.len(), 1);
+    assert!(fs::read_to_string(&kept[0]).unwrap().contains(WORK));
+}
+
 const EDITS: usize = 500;
 
 fn edit(k: usize) -> Value {

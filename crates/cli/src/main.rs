@@ -428,14 +428,38 @@ fn run(source: &str, doc: Option<&Path>, save: bool, keep_going: bool) -> Result
     }
     out.flush().map_err(|e| e.to_string())?;
 
-    // A batch can be rerun from its file, so unsaved changes are not kept.
-    if d.session().is_some_and(|s| s.dirty) {
-        eprintln!(
-            "coldopen: unsaved changes were discarded; use --save or end the batch with doc.save"
-        );
-        d.discard();
-    } else {
-        d.shutdown();
+    // A batch can be rerun from its file, so its own unsaved changes are
+    // not kept. Work recovered from a crash journal was never the batch's
+    // to throw away (docs/specs/journal.md, "Closing").
+    let (dirty, recovered) = d.session().map_or((false, None), |s| {
+        (s.dirty, s.recovered.map(|r| r.rev == s.rev))
+    });
+    match (dirty, recovered) {
+        (true, Some(true)) => {
+            eprintln!(
+                "coldopen: the document holds unsaved changes recovered from its crash journal; \
+                 they were left in the journal, so opening the file recovers them again"
+            );
+            d.shutdown();
+        }
+        (true, Some(false)) => match d.discard() {
+            Some(kept) => eprintln!(
+                "coldopen: the batch's unsaved changes were discarded, with the unsaved changes \
+                 recovered from the crash journal; both were kept in {}",
+                kept.display()
+            ),
+            None => eprintln!(
+                "coldopen: the batch's unsaved changes could not be set aside, so the crash \
+                 journal was left in place; opening the file recovers them"
+            ),
+        },
+        (true, None) => {
+            eprintln!(
+                "coldopen: unsaved changes were discarded; use --save or end the batch with doc.save"
+            );
+            d.discard_rerunnable();
+        }
+        (false, _) => d.shutdown(),
     }
     Ok(if failed {
         ExitCode::FAILURE

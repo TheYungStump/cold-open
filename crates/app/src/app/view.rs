@@ -435,7 +435,8 @@ impl App {
         col = col.push(hint(
             pal,
             if r.never_saved {
-                "Discard starts a new script, because this one was never saved. A copy of                  the recovered work is kept."
+                "Discard starts a new script, because this one was never saved. A copy of \
+                 the recovered work is kept."
             } else {
                 "Discard goes back to the saved file. A copy of the recovered work is kept \
                  next to the script."

@@ -102,6 +102,7 @@ Every crash point is safe. The journal always holds the last saved base plus eve
 - Closing with unsaved changes (for example, the stdio server reaching end of input) keeps the journal, so the work is recovered the next time the file is opened.
 - `doc.close` with `discard: true` throws the unsaved changes away, but keeps them (2026-10-16): when the session has any, the journal is first copied to `<journal>.discarded-<ms>`, then deleted, and a `journal_discarded` warning names the copy. If the copy cannot be made, the close fails with `io_error` and nothing changes. A clean session has nothing to keep and leaves no copy.
 - An agent may not discard a writer's recovered work (`docs/specs/mcp.md` §6).
+- `coldopen run` without `--save` (2026-10-16). A batch can be rerun from its file, so its own unsaved changes are deleted with no copy. Recovered work is never the batch's to delete: if the batch left it untouched, the journal stays as it is, for the next open; if the batch changed it, the journal is copied aside as for `discard`, and `run` names the copy.
 
 ## Recovery on open
 
