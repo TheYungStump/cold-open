@@ -17,6 +17,7 @@ pub mod dispatcher;
 pub mod document;
 pub mod error;
 pub mod flush;
+pub mod format;
 #[doc(hidden)]
 pub mod fuzzing;
 pub mod io;
@@ -32,5 +33,6 @@ pub use dispatcher::{Dispatcher, Options, PreparedSave, to_line};
 pub use document::{Block, BlockId, Document};
 pub use error::CommandError;
 pub use flush::{Durability, FlushStatus};
+pub use format::FormatId;
 pub use session::{Exec, Merge, Recovered};
 pub use view::View;

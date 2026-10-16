@@ -9,7 +9,7 @@ Phase 4 makes Cold Open read and write .fdx. A file that came from another app o
 | Step | What | State |
 | --- | --- | --- |
 | 1 | Branch, and this file | done |
-| 2 | Format seam (F18.1): a `Format` trait in core with Fountain behind it, no change in behaviour; the journal header records the format. Its own reviewed commit | next |
+| 2 | Format seam (F18.1): a `Format` trait in core with Fountain behind it, no change in behaviour; the journal header records the format. Its own reviewed commit | done |
 | 3 | Specs before code: `fdx.md` (writer, passthrough, round trip, repair report), `commands.md`, `journal.md` (F18.2–F18.4, hidden files, Recovered versions, cleanup), `editor.md`, `mcp.md`, `layout.md`, `fountain.md` | |
 | 4 | Model and layout: the document's page format, title lines, paragraph spacing and passthrough store; per-document layout | |
 | 5 | .fdx reader: a lossless XML layer, the passthrough store, resyncing after syntax errors, report classes; our own fixtures, broken ones included | |
@@ -42,4 +42,17 @@ The files are studied only with scripts that print structure (element paths, att
 
 ## Decisions made during the phase
 
-(None yet.)
+1. **The seam** (`crates/core/src/format.rs`). A `Format` trait (`read`, `style`, `write`, `layout_form`, `extensions`) and a `FormatId` enum, which the session and the journal header record. Every place core named the Fountain crate for a file now asks the session's format: open, new, revert, save and save-as, recovery's "already in the file" check, the save-as target check, the start-up journal check, `doc.export`, the views and PDF layout. So does the app's recovery dialog. Fountain as clipboard text (the editor) and as an MCP resource is not a file format and stays as it was.
+2. **The header's `format` is left out for Fountain** (absent means Fountain, like `semantics`), so Fountain journals are byte for byte what they were. A format this version doesn't know makes the header unreadable, so the journal is kept aside rather than replayed as the wrong format.
+3. **The `reencoded` loss stays in the save path**, not in Fountain's `write`, because it is about the file's bytes; `doc.export` returns text and never reported it.
+4. **Evidence of no change in behaviour:** all 392 tests pass, and no existing test was changed; the only test edits are new tests for the seam. The review of the seam commit (`/code-review`, high) found seven things. Fixed:
+   - an explicit `format` in `doc.save` that disagrees with the target's extension is now refused;
+   - `Session::new` takes the format, so no constructor can forget it;
+   - `doc.export` looks the format up once.
+
+   Left for the .fdx steps, where they can be tested:
+   - the recovery dialog's document when a file can't be read;
+   - PDF layout building a source map it doesn't need;
+   - a test of a non-Fountain header through `doc.save`.
+
+   Not a bug: a recovered journal whose header names another format than its path's. A save then converts, and its loss check reports what the conversion drops.

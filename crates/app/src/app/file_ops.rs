@@ -120,13 +120,12 @@ pub fn ago(ms: u64) -> String {
 /// The document as the file on disk holds it, with the ids a fresh open
 /// gives, or an empty one when there is no file.
 fn disk_document(path: &Path) -> Document {
-    match std::fs::read(path) {
-        Ok(bytes) => {
-            let text = coldopen_core::io::decode(&bytes).text;
-            Document::from_script(coldopen_fountain::parse(&text).script)
-        }
-        Err(_) => Document::default(),
-    }
+    let format = coldopen_core::FormatId::for_path(path).unwrap_or_default();
+    std::fs::read(path)
+        .ok()
+        .and_then(|bytes| format.get().read(&bytes).ok())
+        .map(|read| read.doc)
+        .unwrap_or_default()
 }
 
 /// The heading of the scene each block is in, or a name for the part
