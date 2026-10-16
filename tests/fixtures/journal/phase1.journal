@@ -1,0 +1,13 @@
+{"journal":"coldopen","v":1,"app":"0.1.0","doc":{"title_page":{"fields":[{"key":"Title","values":[{"text":"The Keeper's Log"}]},{"key":"Author","values":[{"text":"Cold Open tests"}]}]},"blocks":[{"id":"b_1","type":"scene_heading","text":"INT. LIGHTHOUSE - NIGHT"},{"id":"b_2","type":"action","text":"The lamp turns. Rain against the glass."},{"id":"b_3","type":"character","text":"MARA"},{"id":"b_4","type":"parenthetical","text":"(to herself)"},{"id":"b_5","type":"dialogue","text":"Three ships tonight."},{"id":"b_6","type":"scene_heading","text":"EXT. CLIFF PATH - DAWN"},{"id":"b_7","type":"action","text":"Gulls wheel over the rocks."},{"id":"b_8","type":"character","text":"TOMAS"},{"id":"b_9","type":"dialogue","text":"She kept the light on."}],"next_id":10},"disk":{"len":237,"fnv64":"8290f0868d70dc09"}}
+{"seq":1,"t":1792134571052,"command":"block.insert","params":{"after":"b_2","text":"A bell rings below.","type":"action"},"result":{"id":"b_10"}}
+{"seq":2,"t":1792134571053,"command":"block.set_text","params":{"id":"b_7","text":"Gulls wheel over the black rocks."},"result":{}}
+{"seq":3,"t":1792134571053,"command":"text.replace","params":{"find":"ships","match_case":true,"with":"boats"},"result":{"blocks":["b_5"],"count":1}}
+{"seq":4,"t":1792134571053,"command":"undo","params":{},"result":{"undone":"text.replace"}}
+{"seq":5,"t":1792134571054,"command":"block.insert","params":{"before":"b_6","text":"CUT TO:","type":"transition"},"result":{"id":"b_11"}}
+{"seq":6,"t":1792134571054,"command":"undo","params":{},"result":{"undone":"block.insert"}}
+{"seq":7,"t":1792134571054,"command":"redo","params":{},"result":{"redone":"block.insert"}}
+{"seq":8,"t":1792134571055,"command":"block.set_attrs","params":{"id":"b_1","scene_number":"1"},"result":{}}
+{"seq":9,"t":1792134571055,"command":"scene.move","params":{"before":"b_1","id":"b_6"},"result":{}}
+{"seq":10,"t":1792134571056,"command":"block.delete","params":{"id":"b_4"},"result":{}}
+{"seq":11,"t":1792134571056,"command":"undo","params":{},"result":{"undone":"block.delete"}}
+{"seq":12,"t":1792134571056,"command":"block.set_type","params":{"id":"b_10","type":"lyric"},"result":{}}

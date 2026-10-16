@@ -54,6 +54,67 @@ pub struct PreparedSave {
     losses: Vec<Value>,
     rev: u64,
     fingerprint: Fingerprint,
+    /// The session it was prepared for, and its number among that
+    /// session's saves: only that session's outstanding save may commit.
+    session: u64,
+    number: u64,
+}
+
+/// What opening a document would make of its crash journal, worked out
+/// without touching the disk (docs/specs/journal.md, "Recovery on open").
+enum Assessment {
+    /// The header cannot be read.
+    Unreadable(String),
+    Replayed(Box<Replayed>),
+}
+
+/// A crash journal replayed as far as it can be trusted.
+struct Replayed {
+    session: Session,
+    /// Bytes and entries up to the last trusted entry.
+    valid_len: u64,
+    applied: u64,
+    /// Commands replayed; markers are not counted.
+    commands: usize,
+    /// The newest replayed entry's time.
+    last: u64,
+    /// Why replay stopped early, if it did.
+    problem: Option<String>,
+    /// True when the journal holds work the file does not.
+    recover: bool,
+    external_change: bool,
+    /// Whether any of the work is a writer's.
+    writer: bool,
+    /// Set when the header names another computer or another path: the
+    /// journal was synced or copied here. Details for `journal_foreign`.
+    foreign: Option<Value>,
+}
+
+impl Replayed {
+    /// What a copy of a journal that replay stopped early is called.
+    fn aside_tag(msg: &str) -> &'static str {
+        if msg.contains("different result") || msg.contains("different step") {
+            "diverged"
+        } else {
+            "corrupt"
+        }
+    }
+}
+
+/// The state replay reached.
+struct Replay {
+    session: Session,
+    known_disk: Vec<Fingerprint>,
+    /// Entries trusted, markers included, and the bytes they end at.
+    applied: usize,
+    valid_len: u64,
+    commands: usize,
+    last: u64,
+    writer: bool,
+    problem: Option<String>,
+    /// The entry after the trusted ones was applied, then gave a
+    /// different result.
+    diverged: bool,
 }
 
 /// A document written out for saving, before anything touches the disk.
@@ -84,10 +145,34 @@ fn locked(path: &Path) -> CommandError {
 
 fn open_journal(path: &Path, durability: Durability) -> Result<(Journal, Vec<u8>), CommandError> {
     let jpath = journal::path_for(path);
-    Journal::open_locked(&jpath, durability).map_err(|e| match e {
+    let (mut j, contents) = Journal::open_locked(&jpath, durability).map_err(|e| match e {
         OpenError::Locked => locked(path),
         OpenError::Io(e) => CommandError::io(&jpath, &e),
-    })
+    })?;
+    j.set_identity(Some(this_host().to_string()), Some(canonical(path)));
+    Ok((j, contents))
+}
+
+/// This computer's name, as journal headers record it.
+fn this_host() -> &'static str {
+    static HOST: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    HOST.get_or_init(|| gethostname::gethostname().to_string_lossy().into_owned())
+}
+
+/// A script's canonical path, as journal headers record it, also for a
+/// script whose file does not exist yet.
+fn canonical(path: &Path) -> String {
+    fs::canonicalize(path)
+        .or_else(|_| {
+            let parent = path
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or(Path::new("."));
+            fs::canonicalize(parent).map(|d| d.join(path.file_name().unwrap_or_default()))
+        })
+        .unwrap_or_else(|_| path.to_path_buf())
+        .display()
+        .to_string()
 }
 
 impl Dispatcher {
@@ -157,11 +242,11 @@ impl Dispatcher {
     pub fn execute_as(&mut self, cmd: Command, by: &Author) -> Result<Value, CommandError> {
         match cmd {
             Command::DocNew(p) => self.doc_new(p),
-            Command::DocOpen(p) => self.doc_open(p),
-            Command::DocSave(p) => self.doc_save(p),
-            Command::DocClose(p) => self.doc_close(p),
-            Command::DocRevert(_) => self.doc_revert(),
-            Command::ExportPdf(p) => self.export_pdf(p),
+            Command::DocOpen(p) => self.doc_open(p, by),
+            Command::DocSave(p) => self.doc_save(p, by),
+            Command::DocClose(p) => self.doc_close(p, by),
+            Command::DocRevert(_) => self.doc_revert(by),
+            Command::ExportPdf(p) => self.export_pdf(p, by),
             other => self
                 .session
                 .as_mut()
@@ -181,67 +266,147 @@ impl Dispatcher {
         }
     }
 
-    /// Ends the session, throwing away unsaved changes and the journal.
-    pub fn discard(&mut self) {
+    /// Ends the session, throwing away unsaved changes. A journal that
+    /// holds any is copied aside first, and the copy's path is returned
+    /// (docs/specs/journal.md, "Closing"). If no copy can be made, the
+    /// journal is left in place, as after a crash.
+    pub fn discard(&mut self) -> Option<PathBuf> {
+        match self.keep_copy() {
+            Ok(kept) => {
+                if let Some(s) = self.session.take()
+                    && let Some(j) = s.journal
+                {
+                    let _ = j.delete();
+                }
+                kept
+            }
+            Err(_) => {
+                self.session = None;
+                None
+            }
+        }
+    }
+
+    /// Ends the session, throwing away unsaved changes that the caller can
+    /// make again, such as a `coldopen run` batch, without keeping a copy.
+    /// A session that holds recovered work is discarded as by
+    /// [`Dispatcher::discard`], with a copy, because that work was never
+    /// the caller's.
+    pub fn discard_rerunnable(&mut self) -> Option<PathBuf> {
+        if self.session.as_ref().is_some_and(|s| s.recovered.is_some()) {
+            return self.discard();
+        }
         if let Some(s) = self.session.take()
             && let Some(j) = s.journal
         {
             let _ = j.delete();
         }
+        None
+    }
+
+    /// Copies the journal to `<journal>.discarded-<ms>` when the session
+    /// holds unsaved work.
+    fn keep_copy(&mut self) -> std::io::Result<Option<PathBuf>> {
+        let Some(s) = &mut self.session else {
+            return Ok(None);
+        };
+        let dirty = s.dirty;
+        let Some(j) = &mut s.journal else {
+            return Ok(None);
+        };
+        if !dirty && j.entries() == 0 {
+            return Ok(None);
+        }
+        let contents = j.contents()?;
+        j.copy_aside(&contents, "discarded").map(Some)
     }
 
     /// Closes a clean session before opening another one.
     fn close_for_switch(&mut self) -> Result<(), CommandError> {
+        self.refuse_if_dirty()?;
+        self.shutdown();
+        Ok(())
+    }
+
+    fn refuse_if_dirty(&self) -> Result<(), CommandError> {
         if self.session.as_ref().is_some_and(|s| s.dirty) {
             return Err(CommandError::new(
                 "unsaved_changes",
                 "the open document has unsaved changes; save it or close it with discard",
             ));
         }
-        self.shutdown();
         Ok(())
     }
 
     fn doc_new(&mut self, p: DocNew) -> Result<Value, CommandError> {
-        self.close_for_switch()?;
+        // Every check runs before the open document is closed or anything
+        // is written (docs/specs/journal.md).
+        self.refuse_if_dirty()?;
+        let path = p.path.as_ref().map(PathBuf::from);
+        let mut journal = None;
+        if let Some(path) = &path {
+            if path.exists() {
+                return Err(CommandError::new(
+                    "already_exists",
+                    format!("{} already exists; open it instead", path.display()),
+                ));
+            }
+            if !is_fountain(path) {
+                return Err(unsupported(path));
+            }
+            if let Some(own) = self.session.as_ref().and_then(|s| s.path.as_deref())
+                && same_path(own, path)
+            {
+                return Err(CommandError::new(
+                    "already_exists",
+                    format!("{} is already open", path.display()),
+                ));
+            }
+            if self.opts.journal {
+                // A document made with doc.new and never saved lives only
+                // in its journal; never start over on top of one.
+                let (j, contents) = open_journal(path, self.durability())?;
+                if !contents.is_empty() {
+                    return Err(CommandError::new(
+                        "already_exists",
+                        format!(
+                            "{} has a crash journal, which may hold work that was never saved; \
+                             open it with doc.open to recover that work, or with recover \"discard\" \
+                             to set it aside",
+                            path.display()
+                        ),
+                    )
+                    .with_details(json!({
+                        "path": path.display().to_string(),
+                        "journal": j.path().display().to_string(),
+                    })));
+                }
+                journal = Some(j);
+            }
+        }
+
+        self.shutdown();
         let mut doc = Document {
             next_id: 1,
             ..Default::default()
         };
-        if let Some(kind) = p.start {
-            let id = doc.allocate_id();
+        if let Some(kind) = p.start
+            && let Some(id) = doc.allocate_id()
+        {
             doc.blocks.push(crate::document::Block {
                 id,
                 element: coldopen_screenplay::Element::new(kind, ""),
             });
         }
         let mut warnings = Vec::new();
-        let mut session = match &p.path {
-            Some(path) => {
-                let path = PathBuf::from(path);
-                if path.exists() {
-                    return Err(CommandError::new(
-                        "already_exists",
-                        format!("{} already exists; open it instead", path.display()),
-                    ));
-                }
-                if !is_fountain(&path) {
-                    return Err(unsupported(&path));
-                }
-                self.new_session(doc, Some(path), SourceStyle::default())
-            }
-            None => {
-                warnings.push(warning(
-                    "unjournaled",
-                    "an untitled document is not protected by a crash journal until it is saved",
-                ));
-                self.new_session(doc, None, SourceStyle::default())
-            }
-        };
-        if self.opts.journal
-            && let Some(path) = session.path.clone()
-        {
-            let (mut j, _) = open_journal(&path, self.durability())?;
+        if path.is_none() {
+            warnings.push(warning(
+                "unjournaled",
+                "an untitled document is not protected by a crash journal until it is saved",
+            ));
+        }
+        let mut session = self.new_session(doc, path, SourceStyle::default());
+        if let Some(mut j) = journal {
             j.start(&session.doc, None)
                 .map_err(|e| CommandError::io(j.path(), &e))?;
             session.journal = Some(j);
@@ -251,7 +416,7 @@ impl Dispatcher {
         Ok(json!({ "path": path, "warnings": warnings }))
     }
 
-    fn doc_open(&mut self, p: DocOpen) -> Result<Value, CommandError> {
+    fn doc_open(&mut self, p: DocOpen, by: &Author) -> Result<Value, CommandError> {
         self.close_for_switch()?;
         let path = PathBuf::from(&p.path);
         if !is_fountain(&path) {
@@ -273,12 +438,7 @@ impl Dispatcher {
         let decoded = io::decode(&bytes);
         let parsed = coldopen_fountain::parse(&decoded.text);
         let mut warnings: Vec<Value> = Vec::new();
-        if decoded.not_utf8 {
-            warnings.push(warning(
-                "not_utf8",
-                "the file is not UTF-8; it was read as Windows-1252 and will be saved as UTF-8",
-            ));
-        }
+        warnings.extend(encoding_warnings(&decoded));
         for d in &parsed.diagnostics {
             warnings.push(json!({ "code": d.code, "message": d.message, "line": d.line }));
         }
@@ -293,6 +453,14 @@ impl Dispatcher {
             if !contents.is_empty() {
                 match p.recover {
                     Recover::Discard => {
+                        if !by.is_writer()
+                            && let Assessment::Replayed(r) =
+                                self.assess(&path, decoded.style, &contents, (&bytes, missing))
+                            && r.recover
+                            && r.writer
+                        {
+                            return Err(writers_work("set aside"));
+                        }
                         let aside = j
                             .copy_aside(&contents, "discarded")
                             .map_err(|e| CommandError::io(j.path(), &e))?;
@@ -301,15 +469,57 @@ impl Dispatcher {
                             format!("unsaved changes were set aside in {}", aside.display()),
                         ));
                     }
-                    Recover::Auto => {
-                        resumed = self.recover(
-                            &mut session,
-                            &mut j,
-                            &contents,
-                            (&bytes, missing),
-                            &mut warnings,
-                            &mut recovered,
-                        )?;
+                    Recover::Auto | Recover::Apply => {
+                        let jio = |e: std::io::Error, j: &Journal| CommandError::io(j.path(), &e);
+                        match self.assess(&path, decoded.style, &contents, (&bytes, missing)) {
+                            Assessment::Unreadable(msg) => {
+                                let aside =
+                                    j.copy_aside(&contents, "corrupt").map_err(|e| jio(e, &j))?;
+                                warnings.push(warning(
+                                    "journal_unreadable",
+                                    format!("{msg}; it was kept in {}", aside.display()),
+                                ));
+                            }
+                            Assessment::Replayed(r) => {
+                                // A journal synced or copied from elsewhere
+                                // is offered, never applied on its own.
+                                if r.recover
+                                    && p.recover == Recover::Auto
+                                    && let Some(details) = r.foreign
+                                {
+                                    return Err(foreign_journal(&path, details));
+                                }
+                                if let Some(msg) = &r.problem {
+                                    let aside = j
+                                        .copy_aside(&contents, Replayed::aside_tag(msg))
+                                        .map_err(|e| jio(e, &j))?;
+                                    warnings.push(warning(
+                                        "journal_partial",
+                                        format!(
+                                            "recovered {} of the journal's changes; {msg}; the journal was kept in {}",
+                                            r.commands,
+                                            aside.display()
+                                        ),
+                                    ));
+                                }
+                                if r.recover {
+                                    j.resume(r.valid_len, r.applied).map_err(|e| jio(e, &j))?;
+                                    recovered = json!({
+                                        "commands": r.commands,
+                                        "external_change": r.external_change,
+                                        "last": r.last,
+                                    });
+                                    let mut replay = r.session;
+                                    replay.dirty = true;
+                                    replay.recovered = Some(crate::session::Recovered {
+                                        rev: replay.rev,
+                                        writer: r.writer,
+                                    });
+                                    session = replay;
+                                    resumed = true;
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -321,6 +531,7 @@ impl Dispatcher {
             session.journal = Some(j);
         }
 
+        session.disk = (!missing).then(|| Fingerprint::of(&bytes));
         let result = json!({
             "path": path.display().to_string(),
             "format": "fountain",
@@ -333,51 +544,40 @@ impl Dispatcher {
         Ok(result)
     }
 
-    /// Replays a crash journal into `session`. Returns true when the session
-    /// now holds recovered, unsaved work and the journal continues.
-    #[allow(clippy::too_many_arguments)]
-    fn recover(
+    /// Replays the first `limit` entries of a journal read back, stopping
+    /// at the first that cannot be trusted.
+    fn replay(
         &self,
-        session: &mut Session,
-        j: &mut Journal,
-        contents: &[u8],
-        (disk_bytes, missing): (&[u8], bool),
-        warnings: &mut Vec<Value>,
-        recovered: &mut Value,
-    ) -> Result<bool, CommandError> {
-        let jio = |e: std::io::Error, j: &Journal| CommandError::io(j.path(), &e);
-        let read = match journal::read(contents) {
-            Ok(r) => r,
-            Err(msg) => {
-                let aside = j.copy_aside(contents, "corrupt").map_err(|e| jio(e, j))?;
-                warnings.push(warning(
-                    "journal_unreadable",
-                    format!("{msg}; it was kept in {}", aside.display()),
-                ));
-                return Ok(false);
-            }
+        read: &journal::ReadBack,
+        path: &Path,
+        style: SourceStyle,
+        limit: usize,
+    ) -> Replay {
+        let mut r = Replay {
+            session: self.new_session(read.header.doc.clone(), Some(path.to_path_buf()), style),
+            // Fingerprints the file may legitimately have: the header's, and
+            // those of the saves the journal records.
+            known_disk: read.header.disk.into_iter().collect(),
+            applied: 0,
+            commands: 0,
+            last: 0,
+            writer: false,
+            valid_len: read.header_len(),
+            problem: read.problem.clone(),
+            diverged: false,
         };
-
-        let mut replay =
-            self.new_session(read.header.doc.clone(), session.path.clone(), session.style);
-        // Fingerprints the file may legitimately have: the header's, and
-        // those of the saves the journal records.
-        let mut known_disk: Vec<Fingerprint> = read.header.disk.into_iter().collect();
-        let mut applied = 0usize;
-        let mut commands = 0usize;
-        let mut last = 0u64;
-        let mut valid_len = read.header_len();
-        let mut problem = read.problem.clone();
-        for (k, entry) in read.entries.iter().enumerate() {
+        for (k, entry) in read.entries.iter().enumerate().take(limit) {
             if let Some(fp) = entry.saved_disk() {
-                known_disk.push(fp);
-                applied = k + 1;
-                valid_len = read.entry_end(k);
+                r.known_disk.push(fp);
+                r.applied = k + 1;
+                r.valid_len = read.entry_end(k);
                 continue;
             }
             let ex = Exec {
                 by: entry.by.clone().unwrap_or_default(),
                 merge: Merge::Recorded(entry.merge),
+                seq: Some(entry.seq),
+                step: entry.step.clone(),
             };
             let outcome = Command::from_parts(&entry.command, entry.params.clone())
                 .map_err(|e| format!("entry {} cannot be read as a command: {e}", entry.seq))
@@ -392,14 +592,15 @@ impl Dispatcher {
                     }
                 })
                 .and_then(|cmd| {
-                    replay
+                    r.session
                         .execute_with(&cmd, &ex)
                         .map_err(|e| format!("entry {} failed on replay: {e}", entry.seq))
                 })
                 .and_then(|result| {
-                    if result == entry.result {
+                    if reproduces(&entry.result, &result) {
                         Ok(())
                     } else {
+                        r.diverged = true;
                         Err(format!(
                             "entry {} gave a different result on replay",
                             entry.seq
@@ -407,58 +608,96 @@ impl Dispatcher {
                     }
                 });
             if let Err(msg) = outcome {
-                problem = Some(msg);
+                r.problem = Some(msg);
                 break;
             }
-            applied = k + 1;
-            commands += 1;
-            last = entry.t;
-            valid_len = read.entry_end(k);
+            r.applied = k + 1;
+            r.commands += 1;
+            r.last = entry.t;
+            r.writer |= ex.by.is_writer();
+            r.valid_len = read.entry_end(k);
         }
-        if let Some(msg) = &problem {
-            let tag = if msg.contains("different result") {
-                "diverged"
-            } else {
-                "corrupt"
-            };
-            let aside = j.copy_aside(contents, tag).map_err(|e| jio(e, j))?;
-            warnings.push(warning(
-                "journal_partial",
-                format!(
-                    "recovered {commands} of the journal's changes; {msg}; the journal was kept in {}",
-                    aside.display()
-                ),
-            ));
+        r
+    }
+
+    /// Replays a crash journal and judges whether it holds work the file
+    /// does not, without touching the disk. `doc.open` acts on the answer;
+    /// "save as" uses it to refuse a target with unsaved work.
+    fn assess(
+        &self,
+        path: &Path,
+        style: SourceStyle,
+        contents: &[u8],
+        (disk_bytes, missing): (&[u8], bool),
+    ) -> Assessment {
+        let read = match journal::read(contents) {
+            Ok(r) => r,
+            Err(msg) => return Assessment::Unreadable(msg),
+        };
+
+        let mut r = self.replay(&read, path, style, read.entries.len());
+        if r.diverged {
+            // The diverged entry was applied before its result was compared.
+            // Replay the trusted prefix again, so the document holds exactly
+            // what the journal will be cut to (review finding F9).
+            r.session = self.replay(&read, path, style, r.applied).session;
         }
-        if commands == 0 && !missing {
-            return Ok(false);
-        }
+        let Replay {
+            session: mut replay,
+            known_disk,
+            applied,
+            commands,
+            last,
+            mut writer,
+            valid_len,
+            problem,
+            ..
+        } = r;
 
         // The file already holds the replayed document only if writing it
         // is lossless and gives the same bytes. A lossy write can match the
         // file's text while the document differs, so it always recovers.
-        if !missing {
-            let written = coldopen_fountain::write(&replay.doc.to_script());
-            if written.losses.is_empty() && io::encode(&written.text, session.style) == disk_bytes {
-                return Ok(false);
-            }
-        }
-
+        let in_file = |doc: &Document| {
+            let written = coldopen_fountain::write(&doc.to_script());
+            written.losses.is_empty() && io::encode(&written.text, style) == disk_bytes
+        };
         let external_change = if missing {
             !known_disk.is_empty()
         } else {
             !known_disk.contains(&Fingerprint::of(disk_bytes))
         };
-        j.resume(valid_len, applied as u64).map_err(|e| jio(e, j))?;
-        replay.dirty = true;
+        let recover = if missing {
+            true
+        } else if commands == 0 {
+            // With no entries, the header's document is in the file when the
+            // file is the version the header or a marker names, or holds the
+            // same document. Otherwise the header is the only copy of the
+            // last save (a rename lost in a power cut), so it is recovered.
+            external_change && !in_file(&replay.doc)
+        } else {
+            !in_file(&replay.doc)
+        };
+        // Work in the header alone has no author; it is treated as the
+        // writer's, which is the cautious choice.
+        writer |= commands == 0;
         replay.journal = None;
-        *session = replay;
-        *recovered = json!({
-            "commands": commands,
-            "external_change": external_change,
-            "last": last,
-        });
-        Ok(true)
+        let host = read.header.host.as_deref();
+        let at = read.header.path.as_deref();
+        let here = canonical(path);
+        let foreign = (host.is_some_and(|h| h != this_host()) || at.is_some_and(|p| p != here))
+            .then(|| json!({ "host": host, "path": at }));
+        Assessment::Replayed(Box::new(Replayed {
+            foreign,
+            session: replay,
+            valid_len,
+            applied: applied as u64,
+            commands,
+            last,
+            problem,
+            recover,
+            external_change,
+            writer,
+        }))
     }
 
     /// Writes the document out for saving and checks it can be saved, without
@@ -487,7 +726,16 @@ impl Dispatcher {
         }
 
         let written = coldopen_fountain::write(&session.doc.to_script());
-        let losses = session.losses_json(&written.losses);
+        let mut losses = session.losses_json(&written.losses);
+        // The file is written as UTF-8, which other programs show wrongly
+        // if they still read it as Windows-1252 (review finding F6).
+        if session.style.encoding == io::Encoding::Windows1252 {
+            losses.push(json!({
+                "id": null,
+                "code": "reencoded",
+                "message": "the file was not UTF-8 and was read as Windows-1252; it will be saved as UTF-8",
+            }));
+        }
         if !losses.is_empty() && !p.allow_lossy {
             return Err(CommandError::new(
                 "lossy_format",
@@ -503,49 +751,131 @@ impl Dispatcher {
         })
     }
 
-    fn doc_save(&mut self, p: DocSave) -> Result<Value, CommandError> {
+    fn doc_save(&mut self, p: DocSave, by: &Author) -> Result<Value, CommandError> {
+        if p.overwrite && !by.is_writer() {
+            return Err(writer_only(
+                "replace a file that is not the open document, or that another program changed",
+            ));
+        }
+        if p.allow_lossy && !by.is_writer() {
+            // What Fountain drops is the writer's call: their own save asks
+            // "Save anyway?" (docs/specs/editor.md §11).
+            return Err(writer_only("save with losses (allow_lossy)"));
+        }
         let opts = self.opts;
         let durability = self.durability();
         let session = self
             .session
-            .as_mut()
+            .as_ref()
             .ok_or_else(CommandError::no_document)?;
+        refuse_while_saving(session)?;
         let Rendered {
             target,
             format,
             bytes,
             losses,
         } = Self::render(session, &p)?;
-        io::atomic_write(&target, &bytes).map_err(|e| CommandError::io(&target, &e))?;
-        let fingerprint = Fingerprint::of(&bytes);
-
         let same_file = session
             .path
             .as_ref()
             .is_some_and(|old| same_path(old, &target));
-        if opts.journal {
-            if same_file {
-                if let Some(j) = &mut session.journal {
-                    j.start(&session.doc, Some(fingerprint))
-                        .map_err(|e| CommandError::io(j.path(), &e))?;
-                }
-            } else {
-                let (mut j, _) = open_journal(&target, durability)?;
+        if same_file {
+            refuse_if_changed(session, &target, p.overwrite)?;
+        } else if !p.overwrite && target.exists() {
+            return Err(exists(&target));
+        }
+        // Save as: the target's lock is taken, and its journal judged,
+        // before anything is written (docs/specs/journal.md, "Saving").
+        let claimed = if opts.journal && !same_file {
+            Some(self.claim_target(&target, durability)?)
+        } else {
+            None
+        };
+        if let Err(e) = io::atomic_write(&target, &bytes) {
+            if let Some((j, true)) = claimed {
+                // The empty journal this save made is not needed.
+                let _ = j.delete();
+            }
+            return Err(CommandError::io(&target, &e));
+        }
+        let fingerprint = Fingerprint::of(&bytes);
+
+        let session = self
+            .session
+            .as_mut()
+            .ok_or_else(CommandError::no_document)?;
+        if same_file {
+            if let Some(j) = &mut session.journal {
                 j.start(&session.doc, Some(fingerprint))
                     .map_err(|e| CommandError::io(j.path(), &e))?;
-                if let Some(old) = session.journal.replace(j) {
-                    let _ = old.delete();
-                }
+            }
+        } else if let Some((mut j, _)) = claimed {
+            j.start(&session.doc, Some(fingerprint))
+                .map_err(|e| CommandError::io(j.path(), &e))?;
+            if let Some(old) = session.journal.replace(j) {
+                let _ = old.delete();
             }
         }
+        session.journal_restarted();
         session.path = Some(target.clone());
         session.dirty = false;
+        session.recovered = None;
+        session.disk = Some(fingerprint);
+        session.style = saved_style(session.style);
         Ok(json!({
             "path": target.display().to_string(),
             "format": format,
             "bytes": bytes.len(),
             "losses": losses,
         }))
+    }
+
+    /// Locks the journal of a "save as" target and judges what it holds
+    /// exactly as opening the target would. Where the open would recover
+    /// work, the save is refused; where it would copy the journal aside,
+    /// so does this. Returns the locked journal, and whether it was empty.
+    fn claim_target(
+        &self,
+        target: &Path,
+        durability: Durability,
+    ) -> Result<(Journal, bool), CommandError> {
+        let (j, contents) = open_journal(target, durability)?;
+        if contents.is_empty() {
+            return Ok((j, true));
+        }
+        let jio = |e: std::io::Error| CommandError::io(j.path(), &e);
+        let (disk, missing) = match fs::read(target) {
+            Ok(b) => (b, false),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), true),
+            Err(e) => return Err(CommandError::io(target, &e)),
+        };
+        let style = io::decode(&disk).style;
+        match self.assess(target, style, &contents, (&disk, missing)) {
+            Assessment::Unreadable(_) => {
+                j.copy_aside(&contents, "corrupt").map_err(jio)?;
+            }
+            Assessment::Replayed(r) if r.recover => {
+                return Err(CommandError::new(
+                    "unsaved_changes",
+                    format!(
+                        "{} has unsaved changes from a session that ended without saving; \
+                         open it to recover them, or save under another name",
+                        target.display()
+                    ),
+                )
+                .with_details(json!({
+                    "path": target.display().to_string(),
+                    "journal": j.path().display().to_string(),
+                })));
+            }
+            Assessment::Replayed(r) => {
+                if let Some(msg) = &r.problem {
+                    j.copy_aside(&contents, Replayed::aside_tag(msg))
+                        .map_err(jio)?;
+                }
+            }
+        }
+        Ok((j, false))
     }
 
     /// Step 1 of a save in place off the UI thread: writes the document out
@@ -571,9 +901,15 @@ impl Dispatcher {
                 "this document has no file yet; give a path",
             ));
         }
+        refuse_while_saving(session)?;
         let r = Self::render(session, p)?;
+        refuse_if_changed(session, &r.target, p.overwrite)?;
         let fingerprint = Fingerprint::of(&r.bytes);
-        if let Some(j) = &mut session.journal {
+        // A broken journal protects nothing, so it gets no marker; the
+        // commit starts it again, which is the only way out of that state.
+        if let Some(j) = &mut session.journal
+            && !j.is_broken()
+        {
             j.append_saved(fingerprint).map_err(|e| {
                 CommandError::new(
                     "journal_error",
@@ -582,6 +918,8 @@ impl Dispatcher {
             })?;
             j.flush_now();
         }
+        session.saves += 1;
+        session.saving = Some(session.saves);
         Ok(PreparedSave {
             target: r.target,
             bytes: r.bytes,
@@ -589,40 +927,56 @@ impl Dispatcher {
             losses: r.losses,
             rev: session.rev,
             fingerprint,
+            session: session.id(),
+            number: session.saves,
         })
     }
 
-    /// Step 3 of a save in place: records how the write went. If nothing
-    /// was edited since [`Dispatcher::save_prepare`], the journal starts
-    /// again from the saved document; otherwise it keeps every edit and the
-    /// document stays unsaved.
+    /// Step 3 of a save in place: records how the write went, which ends
+    /// the save. If nothing was edited since [`Dispatcher::save_prepare`],
+    /// the journal starts again from the saved document; otherwise it keeps
+    /// every edit and the document stays unsaved. A save prepared for a
+    /// session that has since been closed, reopened or reverted commits
+    /// nothing (`save_superseded`).
     pub fn save_commit(
         &mut self,
         prepared: PreparedSave,
         written: std::io::Result<()>,
     ) -> Result<Value, CommandError> {
-        written.map_err(|e| CommandError::io(&prepared.target, &e))?;
         let session = self
             .session
             .as_mut()
-            .ok_or_else(CommandError::no_document)?;
-        let same = session
-            .path
-            .as_ref()
-            .is_some_and(|own| same_path(own, &prepared.target));
-        if !same {
-            return Err(CommandError::new(
-                "no_document",
-                "the document was closed or renamed while it was being saved; the file was written",
-            ));
-        }
+            .filter(|s| s.id() == prepared.session && s.saving == Some(prepared.number));
+        let Some(session) = session else {
+            let name = prepared.target.file_name().map_or_else(
+                || prepared.target.display().to_string(),
+                |n| n.to_string_lossy().into_owned(),
+            );
+            return Err(match written {
+                Ok(()) => CommandError::new(
+                    "save_superseded",
+                    format!(
+                        "a save of {name} started before the script was closed or reopened has finished; the file holds the version saved then"
+                    ),
+                ),
+                Err(e) => CommandError::io(&prepared.target, &e),
+            }
+            .with_details(json!({ "path": prepared.target.display().to_string() })));
+        };
+        session.saving = None;
+        written.map_err(|e| CommandError::io(&prepared.target, &e))?;
+        // The file now holds these bytes, whether or not edits came since.
+        session.disk = Some(prepared.fingerprint);
+        session.style = saved_style(session.style);
         let current = session.rev == prepared.rev;
         if current {
             if let Some(j) = &mut session.journal {
                 j.start(&session.doc, Some(prepared.fingerprint))
                     .map_err(|e| CommandError::io(j.path(), &e))?;
             }
+            session.journal_restarted();
             session.dirty = false;
+            session.recovered = None;
         } else if let Some(j) = &session.journal {
             j.flush_now();
         }
@@ -637,7 +991,10 @@ impl Dispatcher {
 
     /// Lays out the open document and writes it as a PDF. The document and
     /// its journal are untouched (docs/specs/commands.md, "Output").
-    fn export_pdf(&mut self, p: ExportPdf) -> Result<Value, CommandError> {
+    fn export_pdf(&mut self, p: ExportPdf, by: &Author) -> Result<Value, CommandError> {
+        if p.overwrite && !by.is_writer() {
+            return Err(writer_only("replace an existing file"));
+        }
         let session = self
             .session
             .as_ref()
@@ -664,6 +1021,9 @@ impl Dispatcher {
                 ),
             )
             .with_details(json!({ "path": target.display().to_string() })));
+        }
+        if !p.overwrite && target.exists() {
+            return Err(exists(&target));
         }
         let options = coldopen_layout::Options {
             scene_numbers: p.scene_numbers,
@@ -717,7 +1077,7 @@ impl Dispatcher {
         }))
     }
 
-    fn doc_close(&mut self, p: DocClose) -> Result<Value, CommandError> {
+    fn doc_close(&mut self, p: DocClose, by: &Author) -> Result<Value, CommandError> {
         let session = self
             .session
             .as_ref()
@@ -728,18 +1088,42 @@ impl Dispatcher {
                 "the document has unsaved changes; save it or close with discard",
             ));
         }
-        self.discard();
-        Ok(json!({}))
+        if session.dirty && holds_writers_work(session, by) {
+            return Err(writers_work("discard"));
+        }
+        let jpath = session.journal.as_ref().map(|j| j.path().to_path_buf());
+        // Nothing is deleted unless its copy was made.
+        let kept = self
+            .keep_copy()
+            .map_err(|e| CommandError::io(jpath.as_deref().unwrap_or(Path::new("journal")), &e))?;
+        if let Some(s) = self.session.take()
+            && let Some(j) = s.journal
+        {
+            let _ = j.delete();
+        }
+        let warnings: Vec<Value> = kept
+            .iter()
+            .map(|k| {
+                warning(
+                    "journal_discarded",
+                    format!("unsaved changes were set aside in {}", k.display()),
+                )
+            })
+            .collect();
+        Ok(json!({ "warnings": warnings }))
     }
 
     /// Reads the file again, dropping unsaved changes and undo history. The
     /// journal is copied aside first when it holds entries.
-    fn doc_revert(&mut self) -> Result<Value, CommandError> {
+    fn doc_revert(&mut self, by: &Author) -> Result<Value, CommandError> {
         let clock = self.clock.clone();
         let session = self
             .session
             .as_mut()
             .ok_or_else(CommandError::no_document)?;
+        if session.dirty && holds_writers_work(session, by) {
+            return Err(writers_work("revert"));
+        }
         let Some(path) = session.path.clone() else {
             return Err(CommandError::new(
                 "no_path",
@@ -750,19 +1134,27 @@ impl Dispatcher {
         let decoded = io::decode(&bytes);
         let parsed = coldopen_fountain::parse(&decoded.text);
         let mut warnings: Vec<Value> = Vec::new();
-        if decoded.not_utf8 {
-            warnings.push(warning(
-                "not_utf8",
-                "the file is not UTF-8; it was read as Windows-1252 and will be saved as UTF-8",
-            ));
-        }
+        warnings.extend(encoding_warnings(&decoded));
         for d in &parsed.diagnostics {
             warnings.push(json!({ "code": d.code, "message": d.message, "line": d.line }));
         }
-        let doc = Document::from_script(parsed.script);
+        // Ids are never reused within an open document, and agents may still
+        // hold old ones: the file's blocks get fresh ids, so an old id fails
+        // rather than naming another block (review finding F12).
+        let doc = Document::from_script(parsed.script)
+            .renumbered_from(session.doc.next_id)
+            .ok_or_else(|| {
+                CommandError::new(
+                    "internal_error",
+                    "this document has used every block id; close it and open it again",
+                )
+            })?;
+        // A recovered header alone holds unsaved work with no entries, so
+        // being dirty is enough to keep a copy (docs/specs/journal.md).
+        let dirty = session.dirty;
         if let Some(j) = &mut session.journal {
             let mut restart = || -> std::io::Result<()> {
-                if j.entries() > 0 {
+                if dirty || j.entries() > 0 {
                     let contents = j.contents()?;
                     let aside = j.copy_aside(&contents, "discarded")?;
                     warnings.push(warning(
@@ -778,6 +1170,7 @@ impl Dispatcher {
         fresh.clock = clock;
         fresh.journal = session.journal.take();
         fresh.rev = session.rev + 1;
+        fresh.disk = Some(Fingerprint::of(&bytes));
         let result = json!({
             "path": path.display().to_string(),
             "blocks": fresh.doc.blocks.len(),
@@ -921,9 +1314,315 @@ fn unsupported(path: &Path) -> CommandError {
     )
 }
 
+/// A save in place refuses when the file is no longer what this session
+/// last read or wrote, unless the writer chose to overwrite it
+/// (docs/specs/journal.md, "Saving"). A file that has gone is simply put
+/// back.
+fn refuse_if_changed(
+    session: &Session,
+    target: &Path,
+    overwrite: bool,
+) -> Result<(), CommandError> {
+    if overwrite {
+        return Ok(());
+    }
+    let now = match fs::read(target) {
+        Ok(b) => Fingerprint::of(&b),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(CommandError::io(target, &e)),
+    };
+    if session.disk == Some(now) {
+        return Ok(());
+    }
+    let name = target.file_name().map_or_else(
+        || target.display().to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    );
+    Err(CommandError::new(
+        "file_changed",
+        format!(
+            "{name} was changed by another program since Cold Open last read or saved it; saving now would replace those changes. Reload it, save it under another name, or save with overwrite"
+        ),
+    )
+    .with_details(json!({ "path": target.display().to_string() })))
+}
+
+fn foreign_journal(path: &Path, details: Value) -> CommandError {
+    let host = details["host"].as_str().unwrap_or("an unknown computer");
+    let at = details["path"].as_str().unwrap_or("an unknown path");
+    CommandError::new(
+        "journal_foreign",
+        format!(
+            "{} has unsaved changes in a crash journal written elsewhere (on {host}, for {at}), perhaps synced or copied here with the script; open it with recover \"apply\" to recover them, or \"discard\" to set them aside",
+            path.display()
+        ),
+    )
+    .with_details(details)
+}
+
+/// The style a file has once saved: a Windows-1252 file becomes UTF-8.
+fn saved_style(style: SourceStyle) -> SourceStyle {
+    match style.encoding {
+        io::Encoding::Windows1252 => SourceStyle {
+            encoding: io::Encoding::Utf8,
+            ..style
+        },
+        _ => style,
+    }
+}
+
+/// Warnings about how a file's bytes were read, for `doc.open` and
+/// `doc.revert`.
+fn encoding_warnings(decoded: &io::Decoded) -> Vec<Value> {
+    let mut out = Vec::new();
+    match decoded.style.encoding {
+        io::Encoding::Windows1252 => out.push(warning(
+            "not_utf8",
+            "the file is not UTF-8; it was read as Windows-1252, and saving it writes UTF-8",
+        )),
+        io::Encoding::Utf16Le | io::Encoding::Utf16Be => out.push(warning(
+            "utf16",
+            "the file is UTF-16; it is saved as UTF-16 again",
+        )),
+        io::Encoding::Utf8 => {}
+    }
+    if decoded.replaced {
+        out.push(warning(
+            "utf16_damaged",
+            "the UTF-16 text held invalid sequences; they were replaced with U+FFFD",
+        ));
+    }
+    out
+}
+
+/// One save at a time: while a save prepared off the UI thread is being
+/// written, every other save fails, so an older write can never land after
+/// a newer one (docs/specs/journal.md, "Saving off the UI thread").
+fn refuse_while_saving(session: &Session) -> Result<(), CommandError> {
+    if session.saving.is_some() {
+        return Err(CommandError::new(
+            "save_in_progress",
+            "the script is being saved; try again when that save has finished",
+        ));
+    }
+    Ok(())
+}
+
+/// Whether a replayed result reproduces what later entries depend on
+/// (docs/specs/journal.md, "What replay compares"): the ids a command
+/// assigned, and which step an undo or redo reversed. Nothing else is
+/// compared, because newer versions add result fields and labels are
+/// reworded or translated; a field the recorded result lacks is never
+/// asked for.
+fn reproduces(recorded: &Value, replayed: &Value) -> bool {
+    let same = |r: &Value, q: &Value, key: &str| r.get(key).is_none_or(|v| q.get(key) == Some(v));
+    if !["id", "undone", "redone"]
+        .iter()
+        .all(|k| same(recorded, replayed, k))
+    {
+        return false;
+    }
+    match recorded.get("results").and_then(Value::as_array) {
+        None => true,
+        Some(rs) => replayed
+            .get("results")
+            .and_then(Value::as_array)
+            .is_some_and(|qs| {
+                rs.len() == qs.len() && rs.iter().zip(qs).all(|(r, q)| same(r, q, "id"))
+            }),
+    }
+}
+
+/// What recovery makes of a journal, for the journal fuzz target.
+#[doc(hidden)]
+#[derive(Debug, PartialEq)]
+pub struct RecoveryCheck {
+    /// The replayed document, or `None` when the header cannot be used.
+    pub doc: Option<Document>,
+    /// Where the trusted entries end.
+    pub valid_len: u64,
+    pub problem: Option<String>,
+    pub recover: bool,
+}
+
+/// Runs recovery's own judgement (the one `doc.open` acts on) over journal
+/// bytes, for a script whose file holds `disk`, or has none, without
+/// touching the disk (review finding F17.2: the fuzz target used to run a
+/// copy of replay).
+#[doc(hidden)]
+pub fn recovery_check(contents: &[u8], disk: Option<&[u8]>) -> RecoveryCheck {
+    let bytes = disk.unwrap_or_default();
+    let style = io::decode(bytes).style;
+    let path = Path::new("fuzz.fountain");
+    match Dispatcher::default().assess(path, style, contents, (bytes, disk.is_none())) {
+        Assessment::Unreadable(problem) => RecoveryCheck {
+            doc: None,
+            valid_len: 0,
+            problem: Some(problem),
+            recover: false,
+        },
+        Assessment::Replayed(r) => RecoveryCheck {
+            doc: Some(r.session.doc),
+            valid_len: r.valid_len,
+            problem: r.problem,
+            recover: r.recover,
+        },
+    }
+}
+
+/// Whether opening `path` would recover work from its crash journal,
+/// judged without locking or changing anything, for the app's start-up
+/// offer of leftover work. A journal that cannot be read, for example one
+/// another process holds on Windows, counts as holding nothing.
+pub fn journal_holds_work(path: &Path) -> bool {
+    let Ok(contents) = fs::read(journal::path_for(path)) else {
+        return false;
+    };
+    if contents.is_empty() {
+        return false;
+    }
+    let (disk, missing) = match fs::read(path) {
+        Ok(b) => (b, false),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), true),
+        Err(_) => return false,
+    };
+    let style = io::decode(&disk).style;
+    match Dispatcher::default().assess(path, style, &contents, (&disk, missing)) {
+        Assessment::Unreadable(_) => false,
+        Assessment::Replayed(r) => r.recover,
+    }
+}
+
+/// Whether `by` is an agent and the session holds a writer's recovered,
+/// unsaved work, which an agent may not set aside (docs/specs/mcp.md §7).
+fn holds_writers_work(session: &Session, by: &Author) -> bool {
+    !by.is_writer() && session.recovered.is_some_and(|r| r.writer)
+}
+
+/// A save or export to a path where some other file already is
+/// (docs/specs/commands.md): it is replaced only with `overwrite`.
+fn exists(target: &Path) -> CommandError {
+    CommandError::new(
+        "already_exists",
+        format!(
+            "{} already exists; choose another path, or pass overwrite to replace it",
+            target.display()
+        ),
+    )
+    .with_details(json!({ "path": target.display().to_string() }))
+}
+
+/// Some choices are the writer's to make, never an agent's: an agent would
+/// simply pass the flag.
+fn writer_only(what: &str) -> CommandError {
+    CommandError::new(
+        "writer_only",
+        format!("only the writer can choose to {what}; an agent may not"),
+    )
+}
+
+fn writers_work(what: &str) -> CommandError {
+    CommandError::new(
+        "not_your_step",
+        format!(
+            "the document holds the writer's unsaved work, recovered after a crash; an agent may not {what} it. Save it, or leave it for the writer"
+        ),
+    )
+    .with_details(json!({ "recovered": true }))
+}
+
 fn same_path(a: &Path, b: &Path) -> bool {
     match (fs::canonicalize(a), fs::canonicalize(b)) {
         (Ok(x), Ok(y)) => x == y,
         _ => a == b,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run(d: &mut Dispatcher, command: &str, params: Value) -> Result<Value, CommandError> {
+        d.execute(Command::from_parts(command, params).unwrap())
+    }
+
+    fn faults(d: &mut Dispatcher) -> &mut crate::journal::Faults {
+        &mut d.session.as_mut().unwrap().journal.as_mut().unwrap().faults
+    }
+
+    /// Review findings F8 and C6: replay compared results byte for byte, so
+    /// a field added later (phase 3's undo `label`) stopped every older
+    /// journal at its first undo. Only ids and undo targets count now.
+    #[test]
+    fn replay_compares_only_ids_and_undo_targets() {
+        let r = |v: Value, w: Value| reproduces(&v, &w);
+        assert!(r(
+            json!({"undone": "block.insert"}),
+            json!({"undone": "block.insert", "label": "Insert block"})
+        ));
+        assert!(r(
+            json!({"undone": "typing", "label": "Typing"}),
+            json!({"undone": "typing", "label": "Saisie"})
+        ));
+        assert!(!r(json!({"undone": "typing"}), json!({"undone": "batch"})));
+        assert!(r(
+            json!({"id": "b_3"}),
+            json!({"id": "b_3", "new_field": 1})
+        ));
+        assert!(!r(json!({"id": "b_3"}), json!({"id": "b_4"})));
+        assert!(r(
+            json!({"count": 2, "blocks": ["b_1"]}),
+            json!({"count": 3, "blocks": []})
+        ));
+        assert!(r(
+            json!({"results": [{"id": "b_5"}, {}]}),
+            json!({"results": [{"id": "b_5"}, {"x": 1}]})
+        ));
+        assert!(!r(
+            json!({"results": [{"id": "b_5"}]}),
+            json!({"results": [{"id": "b_6"}]})
+        ));
+        assert!(!r(json!({"results": [{}]}), json!({"results": []})));
+    }
+
+    /// Review finding F10, through the dispatcher: a journal that a failed
+    /// write left broken refuses every edit, and a save, in place or off
+    /// the UI thread, starts it again.
+    #[test]
+    fn a_broken_journal_refuses_edits_until_a_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("s.fountain");
+        fs::write(&p, "INT. HOUSE - DAY\n\nRain.\n").unwrap();
+        for off_the_ui_thread in [false, true] {
+            let mut d = Dispatcher::new(Options::default());
+            run(&mut d, "doc.open", json!({"path": p})).unwrap();
+            let f = faults(&mut d);
+            f.short_write = Some(10);
+            f.fail_truncate = true;
+            let insert = |text: &str| json!({"type": "action", "text": text});
+            let e = run(&mut d, "block.insert", insert("Lost.")).unwrap_err();
+            assert_eq!(e.code, "journal_error", "{e}");
+            let e = run(&mut d, "block.insert", insert("Refused.")).unwrap_err();
+            assert_eq!(e.code, "journal_error", "{e}");
+            assert!(e.message.contains("save"), "{e}");
+            if off_the_ui_thread {
+                let prepared = d.save_prepare(&DocSave::default()).unwrap();
+                let written = io::atomic_write(&prepared.target, &prepared.bytes);
+                d.save_commit(prepared, written).unwrap();
+            } else {
+                run(&mut d, "doc.save", json!({})).unwrap();
+            }
+            run(&mut d, "block.insert", insert("Protected.")).unwrap();
+            drop(d); // a crash
+
+            let mut d = Dispatcher::new(Options::default());
+            let r = run(&mut d, "doc.open", json!({"path": p})).unwrap();
+            assert_eq!(r["recovered"]["commands"], 1, "{r}");
+            assert_eq!(r["warnings"], json!([]), "{r}");
+            let text = run(&mut d, "doc.export", json!({})).unwrap()["text"].clone();
+            assert!(text.as_str().unwrap().ends_with("Protected.\n"), "{text}");
+            assert!(!text.as_str().unwrap().contains("Lost."), "{text}");
+            d.discard();
+        }
     }
 }

@@ -699,6 +699,7 @@ dependencies = [
  "coldopen-fountain",
  "coldopen-layout",
  "coldopen-screenplay",
+ "gethostname",
  "proptest",
  "schemars",
  "serde",

@@ -3,10 +3,14 @@
 //! built from those inverses.
 
 use coldopen_screenplay::Element;
+use serde::{Deserialize, Serialize};
 
 use crate::document::{Block, Document};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Serialized, as in a journal entry that carries a step from before the
+/// journal's header (docs/specs/journal.md, "Undo and redo entries").
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Op {
     Insert {
         index: usize,
@@ -70,7 +74,7 @@ impl Op {
 }
 
 /// A group of operations applied as one undoable step.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Transaction(pub Vec<Op>);
 
 impl Transaction {

@@ -1,6 +1,6 @@
 # MCP server and the agent link
 
-- **Date:** 2026-10-15
+- **Date:** 2026-10-15, updated 2026-10-16
 - **Status:** implemented (phase 3, 2026-10-15): the server in `crates/mcp`, run as `coldopen mcp`; the link's protocol and transport in `crates/link`, shared by the server and the app; the app's end of the link in `crates/app`. The agent gate (`crates/cli/tests/agent_gate.rs`) runs a real `coldopen mcp` process against the app.
 - **Sources:**
   - `docs/spec.md`: Command interface, "Agents edit in the open", License (`coldopen mcp` and connecting any agent are always free).
@@ -8,6 +8,7 @@
   - `docs/specs/commands.md`, `docs/specs/journal.md`, `docs/specs/editor.md`.
   - The Model Context Protocol specification, <https://modelcontextprotocol.io/specification/latest>, read 2026-10-15 (revision 2026-07-28): tools, resources, tool-name characters, tool results, error reporting.
   - Anthropic's tool-name rule for the Claude API (letters, digits, `_` and `-` only, at most 64 characters), which shapes the tool names below.
+  - The reviews of phases 1–3 (2026-10-15), listed in `docs/progress/review-fixes.md`.
 - No Final Draft material. A choice where the sources are silent is marked **Resolution**.
 
 ## 1. Goals
@@ -105,7 +106,7 @@ When the desktop app has a script open and agent access is on (`docs/specs/edito
 
 ### 5.3 Handshake
 
-The client's first line, sent within 5 seconds of connecting:
+The client's first line, sent within 5 seconds of connecting (a hello that arrives a moment after the connection is still read; until 2026-10-16 the app on Windows refused one that the client had not written by the server's first read):
 
 ```json
 {"hello": {"v": 1, "token": "9f2e…", "client": {"name": "claude-code", "version": "2.1"}, "doc": "C:\\Scripts\\lighthouse.fountain"}}
@@ -147,8 +148,9 @@ Steps an agent made stay in the history after it disconnects.
 
 - **Forwarding.** While attached, every tool call except `doc_open` and `doc_close` becomes one request on the link. The response becomes the tool result.
 - **Attaching.** `doc_open`'s result then reads `{path, attached: true, rev, scenes, warnings: [], recovered: null}`.
-- **Detaching.** `doc_close` sends `{"bye":true}`, returns `{detached: true}`, and leaves the writer's document alone. `doc_open` of a different script detaches first.
+- **Detaching.** `doc_close` sends `{"bye":true}`, returns `{detached: true}`, and leaves the writer's document alone. `doc_open` of a different script detaches once the new script is open (2026-10-16); if it cannot be opened, the agent stays attached.
 - **When the app closes the script.** If the link closes from the app's side, later tools fail with `no_document`, and the message explains that the app closed the script.
+- **A link belongs to one script** (2026-10-16). A link is bound to the script it attached to. When the app's open script changes path, by opening another script, starting a new one or "Save as" under another name, every link is closed (agents get `closed`), and a request that still arrives for the old script closes its link instead of running. An agent never edits a script the writer did not attach it to.
 - **Resource updates** come from the app's `changed` events.
 
 ## 6. Without the app
@@ -156,9 +158,14 @@ Steps an agent made stay in the history after it disconnects.
 When the script isn't open in the app, `coldopen mcp` opens it with its own dispatcher, exactly as `coldopen serve --stdio` does:
 - it takes the journal lock, so the app then can't open the file (`doc_locked`);
 - it flushes every journal entry (`docs/specs/journal.md`, Every-entry mode);
-- it keeps unsaved work in the journal when the client goes away.
+- it keeps unsaved work in the journal when the client goes away;
+- `doc_open` keeps the open script until the new one is open (2026-10-16). It is refused with `unsaved_changes` while the open script has unsaved changes, as `doc.open` is everywhere, and a script that cannot be opened (a missing file, say) leaves the open one exactly as it was.
 
 Commands still run as the agent, so the undo labels and the `not_your_step` rule are the same as when attached.
+
+**The writer's recovered work** (2026-10-16). After the app crashes, `coldopen mcp` is often the first to open the script, so it recovers the writer's journal. The agent may read, edit and save that work, or leave it in the journal, but it may never set it aside: while the session holds recovered work that includes any of the writer's entries and has not been saved, `doc_close` with `discard`, `doc_revert`, and `doc_open` with `recover: "discard"` all fail with `not_your_step` (`details.recovered` is true), and nothing changes. Each of these would keep a copy, but the writer would never be shown it. Work the agent recovered from its own entries may be discarded as usual.
+
+**Choices that are the writer's** (2026-10-16). An agent may not pass `allow_lossy` to `doc_save`: what Fountain drops is the writer's call, which their own save asks about ("Save anyway?"). An agent that wants to save a script holding, say, a Shot changes that element itself, as an undoable step. Nor may an agent pass `overwrite` to `doc_save` or `export_pdf` (`writer_only`): replacing a file another program changed, or any file that is not the open document, is the writer's decision, and an agent would simply pass the flag. An agent saves or exports to a new path instead. §7's reasoning about same-user programs does not cover this: an MCP client is often a model following text it read, so the tools themselves are the boundary.
 
 ## 7. Security
 
@@ -169,7 +176,7 @@ Commands still run as the agent, so the undo labels and the `not_your_step` rule
 | Another user pretending to be the app | On Unix only the user can create files in the run folder. On Windows the app creates the first instance of a random pipe name, and no one else may create another instance. |
 | A stale session file after a crash, or a reused process id | Connecting fails or the token is wrong; the server then opens the file itself. |
 | A program run by the same user | It can already read and change the user's files, so the link gives it nothing new. That's why agent access is on by default, with a visible indicator, one-click disconnect and an off switch (`docs/specs/editor.md` §12). |
-| Flooding | At most 4 links, a 5-second handshake deadline, and the size limits of §5.4. The writer's own input is never queued behind more than one agent command at a time. A connect waits at most 2 seconds for a busy endpoint, so nothing hangs on a pipe whose instances are all in use. |
+| Flooding | At most 4 links, a 5-second handshake deadline, and the size limits of §5.4. The writer's own input is never queued behind more than one agent command at a time. A connect waits at most 2 seconds for a busy endpoint, so nothing hangs on a pipe whose instances are all in use. Enforced since 2026-10-16 (review findings F20 and C8): each link has at most one request waiting for the app, because its next line is read only once the app has answered, so a client that sends without waiting fills its own socket instead of the app's queue; `changed` events to a client that stops reading coalesce into one; and at most 8 connections may be in their handshake at once, so more are turned away at once with `too_many_links`. |
 
 Tokens never appear in logs, errors or the journal.
 

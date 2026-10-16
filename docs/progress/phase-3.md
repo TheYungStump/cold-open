@@ -24,7 +24,7 @@ only in one person's (or one agent's) notes.
 | 14 | CI: app builds and artifacts on three OSes, budgets job, fuzz targets | done |
 | 15 | Measurements: Windows locally (Big Fish, both renderers at 4K) and all three OSes in CI | done |
 | 16 | README, the PR, the final report | done: TheYungStump/cold-open#1 (moved from the private repo's #3) |
-| 17 | Your manual test of the CI Windows build, the gate's last part | first test: 4 bugs, fixed; retest: those held, 3 more, fixed; next retest to do |
+| 17 | Your manual test of the CI Windows build, the gate's last part | first test: 4 bugs, fixed; retest: those held, 3 more, fixed; final retest passed, merged to `main` as ce171cb (2026-10-15) |
 
 ## Measured so far (Windows 11, release build)
 

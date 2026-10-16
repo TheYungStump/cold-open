@@ -13,6 +13,19 @@ use serde::{Deserialize, Serialize};
 pub struct SourceStyle {
     pub bom: bool,
     pub crlf: bool,
+    pub encoding: Encoding,
+}
+
+/// The encoding a script was read in (docs/specs/journal.md, "Encoding").
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Encoding {
+    #[default]
+    Utf8,
+    Utf16Le,
+    Utf16Be,
+    /// Not UTF-8, so read as Windows-1252; saved as UTF-8, which a save
+    /// reports as a loss.
+    Windows1252,
 }
 
 pub struct Decoded {
@@ -20,6 +33,9 @@ pub struct Decoded {
     pub style: SourceStyle,
     /// Set when the bytes were not UTF-8 and were read as Windows-1252.
     pub not_utf8: bool,
+    /// Set when UTF-16 text held sequences that are not UTF-16; they were
+    /// replaced with U+FFFD.
+    pub replaced: bool,
 }
 
 const BOM: &[u8] = b"\xEF\xBB\xBF";
@@ -42,40 +58,107 @@ fn windows_1252(bytes: &[u8]) -> String {
         .collect()
 }
 
-/// Decodes file bytes: strips a UTF-8 BOM and falls back to Windows-1252
-/// for bytes that are not UTF-8, rather than replacing them.
+/// UTF-16 text, and whether anything had to be replaced with U+FFFD.
+fn utf16(bytes: &[u8], big_endian: bool) -> (String, bool) {
+    let units = bytes.as_chunks::<2>().0.iter().map(|&pair| {
+        if big_endian {
+            u16::from_be_bytes(pair)
+        } else {
+            u16::from_le_bytes(pair)
+        }
+    });
+    let mut replaced = bytes.len() % 2 == 1;
+    let mut text: String = char::decode_utf16(units)
+        .map(|c| {
+            c.unwrap_or_else(|_| {
+                replaced = true;
+                char::REPLACEMENT_CHARACTER
+            })
+        })
+        .collect();
+    if bytes.len() % 2 == 1 {
+        text.push(char::REPLACEMENT_CHARACTER);
+    }
+    (text, replaced)
+}
+
+/// Decodes file bytes. UTF-16 is recognized by its byte-order mark, or,
+/// without one, by a zero byte next to the first character, which UTF-8
+/// text never has (review finding F6). Otherwise a UTF-8 BOM is stripped,
+/// and bytes that are not UTF-8 are read as Windows-1252 rather than
+/// replaced.
 pub fn decode(bytes: &[u8]) -> Decoded {
-    let bom = bytes.starts_with(BOM);
-    let body = if bom { &bytes[BOM.len()..] } else { bytes };
-    let (text, not_utf8) = match std::str::from_utf8(body) {
-        Ok(s) => (s.to_string(), false),
-        Err(_) => (windows_1252(body), true),
+    let (text, bom, encoding, replaced) = if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
+        let (t, r) = utf16(rest, false);
+        (t, true, Encoding::Utf16Le, r)
+    } else if let Some(rest) = bytes.strip_prefix(&[0xFE, 0xFF]) {
+        let (t, r) = utf16(rest, true);
+        (t, true, Encoding::Utf16Be, r)
+    } else if let [a, 0, ..] = bytes
+        && *a != 0
+    {
+        let (t, r) = utf16(bytes, false);
+        (t, false, Encoding::Utf16Le, r)
+    } else if let [0, b, ..] = bytes
+        && *b != 0
+    {
+        let (t, r) = utf16(bytes, true);
+        (t, false, Encoding::Utf16Be, r)
+    } else {
+        let bom = bytes.starts_with(BOM);
+        let body = if bom { &bytes[BOM.len()..] } else { bytes };
+        match std::str::from_utf8(body) {
+            Ok(s) => (s.to_string(), bom, Encoding::Utf8, false),
+            Err(_) => (windows_1252(body), bom, Encoding::Windows1252, false),
+        }
     };
-    let lf = body.iter().filter(|&&b| b == b'\n').count();
-    let crlf = body.windows(2).filter(|w| w == b"\r\n").count();
+    let lf = text.matches('\n').count();
+    let crlf = text.matches("\r\n").count();
     Decoded {
-        text,
+        not_utf8: encoding == Encoding::Windows1252,
         style: SourceStyle {
             bom,
             crlf: lf > 0 && crlf * 2 > lf,
+            encoding,
         },
-        not_utf8,
+        text,
+        replaced,
     }
 }
 
-/// Encodes LF text for saving in the source file's style.
+/// Encodes LF text for saving in the source file's style: UTF-16 stays
+/// UTF-16 in the same byte order; everything else is written as UTF-8.
 pub fn encode(text: &str, style: SourceStyle) -> Vec<u8> {
     let body = if style.crlf {
         text.replace('\n', "\r\n")
     } else {
         text.to_string()
     };
-    let mut out = Vec::with_capacity(body.len() + 3);
-    if style.bom {
-        out.extend_from_slice(BOM);
+    match style.encoding {
+        Encoding::Utf16Le | Encoding::Utf16Be => {
+            let be = style.encoding == Encoding::Utf16Be;
+            let mut out = Vec::with_capacity(body.len() * 2 + 2);
+            if style.bom {
+                out.extend_from_slice(if be { &[0xFE, 0xFF] } else { &[0xFF, 0xFE] });
+            }
+            for unit in body.encode_utf16() {
+                out.extend_from_slice(&if be {
+                    unit.to_be_bytes()
+                } else {
+                    unit.to_le_bytes()
+                });
+            }
+            out
+        }
+        Encoding::Utf8 | Encoding::Windows1252 => {
+            let mut out = Vec::with_capacity(body.len() + 3);
+            if style.bom {
+                out.extend_from_slice(BOM);
+            }
+            out.extend_from_slice(body.as_bytes());
+            out
+        }
     }
-    out.extend_from_slice(body.as_bytes());
-    out
 }
 
 /// Length and FNV-1a 64-bit hash of a file's bytes. Used only to notice
@@ -263,7 +346,8 @@ mod tests {
             d.style,
             SourceStyle {
                 bom: true,
-                crlf: true
+                crlf: true,
+                encoding: Encoding::Utf8,
             }
         );
         assert!(!d.not_utf8);
@@ -281,6 +365,7 @@ mod tests {
         let s = SourceStyle {
             bom: true,
             crlf: true,
+            encoding: Encoding::Utf8,
         };
         assert_eq!(encode("a\nb\n", s), b"\xEF\xBB\xBFa\r\nb\r\n");
     }

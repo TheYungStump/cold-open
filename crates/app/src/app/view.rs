@@ -251,7 +251,7 @@ impl App {
     }
 
     /// The script's file name, or "this script" when it has none yet.
-    fn script_name(&self) -> String {
+    pub(super) fn script_name(&self) -> String {
         if self.untitled() {
             return "this script".into();
         }
@@ -298,6 +298,55 @@ impl App {
                 ]
                 .spacing(8),
                 hint(pal, "Enter: Save anyway  ·  Esc: Cancel"),
+            ]
+            .spacing(12)
+            .into(),
+            Prompt::Foreign { path, host, at } => column![
+                title(pal, "Unsaved changes from somewhere else"),
+                body(
+                    pal,
+                    format!(
+                        "Cold Open found unsaved changes to {} in a crash journal written on {host}, \
+                         for {at}. It may have come with the script through a sync service or git, \
+                         so it may not be yours.",
+                        file_name(path)
+                    ),
+                ),
+                row![
+                    dialog_button("Recover them", Message::Reply(Reply::Recover), true),
+                    dialog_button("Set them aside", Message::Reply(Reply::SetAside), false),
+                    dialog_button("Cancel", Message::Reply(Reply::Cancel), false),
+                ]
+                .spacing(8),
+                hint(
+                    pal,
+                    "Enter or R: Recover them  ·  S: Set them aside (a copy is kept)  ·  Esc: Cancel"
+                ),
+            ]
+            .spacing(12)
+            .into(),
+            Prompt::Changed { .. } => column![
+                title(
+                    pal,
+                    format!("{} was changed by another program", self.script_name())
+                ),
+                body(
+                    pal,
+                    "Since Cold Open last opened or saved it, another program wrote to the \
+                     file. Saving now would replace that version. Reload reads the file \
+                     again and keeps a copy of your unsaved changes.",
+                ),
+                row![
+                    dialog_button("Save as…", Message::Reply(Reply::SaveAs), true),
+                    dialog_button("Overwrite", Message::Reply(Reply::Overwrite), false),
+                    dialog_button("Reload", Message::Reply(Reply::Reload), false),
+                    dialog_button("Cancel", Message::Reply(Reply::Cancel), false),
+                ]
+                .spacing(8),
+                hint(
+                    pal,
+                    "Enter or A: Save as  ·  O: Overwrite  ·  R: Reload  ·  Esc: Cancel"
+                ),
             ]
             .spacing(12)
             .into(),
@@ -394,19 +443,24 @@ impl App {
             .last
             .map_or_else(String::new, |t| format!(", the last one {}", ago(t)));
         let changes = if r.commands == 1 { "change" } else { "changes" };
-        let mut col = column![
-            title(pal, "Unsaved work was recovered"),
-            body(
-                pal,
-                format!(
-                    "Cold Open found {} {changes} to {} that were not saved{when}. \
-                     They are back in the script.",
-                    r.commands,
-                    self.script_name()
-                )
-            ),
-        ]
-        .spacing(10);
+        let found = if r.commands == 0 {
+            // Only the journal's header: the file is not the version Cold
+            // Open last saved or opened (docs/specs/journal.md, step 4).
+            format!(
+                "{} on disk is not the version Cold Open last saved or opened. That \
+                 version is back in the script, unsaved.",
+                self.script_name()
+            )
+        } else {
+            format!(
+                "Cold Open found {} {changes} to {} that were not saved{when}. \
+                 They are back in the script.",
+                r.commands,
+                self.script_name()
+            )
+        };
+        let mut col =
+            column![title(pal, "Unsaved work was recovered"), body(pal, found),].spacing(10);
         if !r.scenes.is_empty() {
             let mut list = r
                 .scenes
@@ -435,7 +489,8 @@ impl App {
         col = col.push(hint(
             pal,
             if r.never_saved {
-                "Discard deletes the recovered work, because this script was never saved."
+                "Discard starts a new script, because this one was never saved. A copy of \
+                 the recovered work is kept."
             } else {
                 "Discard goes back to the saved file. A copy of the recovered work is kept \
                  next to the script."

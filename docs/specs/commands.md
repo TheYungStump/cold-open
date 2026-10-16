@@ -1,8 +1,8 @@
 # Command schema, version 1
 
-- **Date:** 2026-10-13, updated 2026-10-15
+- **Date:** 2026-10-13, updated 2026-10-15 and 2026-10-16
 - **Status:** implemented in `crates/core` (phase 1; `export.pdf`, the `pages` export and scene pages added in phase 2, 2026-10-13). Phase 3 (2026-10-15) adds keystroke editing, undo grouping, authors, `batch`, find, completion, history and `doc.revert`; they are being implemented.
-- **Sources:** `docs/spec.md` (Command interface), `CLAUDE.md` (Commands), the phase 3 brief (2026-10-15). No external material.
+- **Sources:** `docs/spec.md` (Command interface), `CLAUDE.md` (Commands), the phase 3 brief (2026-10-15), the reviews of phases 1–3 (2026-10-15, listed in `docs/progress/review-fixes.md`). No external material.
 
 Every action in Cold Open is a command. The desktop app, the CLI, JSON over stdio and the MCP server all send the same commands to one dispatcher.
 
@@ -32,13 +32,14 @@ Responses echo `v` and `id`:
 
 ### How the schema evolves
 
-New commands, new optional params and new result fields are added without changing `v`. Clients must ignore result fields they do not know. A breaking change needs `v: 2`. A command name never changes meaning, because crash journals replay commands by name.
+New commands, new optional params and new result fields are added without changing `v`. Clients must ignore result fields they do not know. A breaking change needs `v: 2`. A command name never changes meaning, because crash journals replay commands by name. Result fields are never removed or renamed. Crash journal replay compares only the ids a result assigned and the step an undo or redo reversed (2026-10-16; `docs/specs/journal.md`, "What replay compares"), so new result fields never stop recovery.
 
 ## Ids
 
 - **Block ids** are opaque strings, currently `b_<n>`.
 - Within an open document they are never reused. A deleted id stays invalid, and undoing the delete brings the same id back.
 - Opening a Fountain file numbers its blocks in order, because Fountain has no place to store ids.
+- `doc.revert` reads the file into the same open document, so its blocks get fresh ids, continuing from the document's next id (2026-10-16). An id from before the revert then fails with `block_not_found` instead of naming another block, which matters to agents that remember ids between calls.
 - **A scene's id** is the id of its scene-heading block. A scene runs from its heading up to the next scene heading or section.
 
 ## Blocks in JSON
@@ -93,7 +94,7 @@ Each undo step has a **label** for menus and history:
 
 1. That step holds only `text.insert` commands by the same writer, in the same block.
 2. The new text starts exactly where the step's last insert ended.
-3. No other command has been applied, undone or redone in between.
+3. No other command has been applied, undone or redone in between, and the document has not been saved in between (2026-10-16).
 4. Less than 1.5 s passed since that last insert, by the dispatcher's monotonic clock.
 
 A `text.delete` joins a step of `text.delete` commands by the same writer in the same block in the same way, when it continues a backspace run (its `to` is the last delete's `from`) or a forward-delete run (its `from` is the last delete's `from`).
@@ -122,8 +123,8 @@ An edit that changes nothing, such as `text.replace` with no matches, succeeds w
 | --- | --- | --- |
 | `doc.new` | `path?`, `start?` | `{path, warnings}` |
 | `doc.open` | `path`, `recover?` | `{path, format, blocks, scenes, warnings, recovered}` |
-| `doc.save` | `path?`, `format?`, `allow_lossy?` | `{path, format, bytes, losses}` |
-| `doc.close` | `discard?` | `{}` |
+| `doc.save` | `path?`, `format?`, `allow_lossy?`, `overwrite?` | `{path, format, bytes, losses}` |
+| `doc.close` | `discard?` | `{warnings}` |
 | `doc.revert` | — | `{path, blocks, scenes, warnings}` |
 
 Notes on each command:
@@ -131,22 +132,28 @@ Notes on each command:
 - **`doc.new`**
   - Starts an empty document.
   - With `path`, the document is journaled next to that path. The file must not already exist (`already_exists`).
+  - Nor may a crash journal for that path hold anything (2026-10-16): a document made with `doc.new` and never saved exists only in its journal, so `doc.new` fails with `already_exists`, with `details.journal` naming the journal, and leaves it untouched. `doc.open` recovers it, or sets it aside with `recover: "discard"`.
+  - Every check runs before the open document is closed (2026-10-16), so a refused `doc.new` leaves it open.
   - Without a path, the document is held in memory only, and a warning says so.
   - `start` (2026-10-15) is an element type, such as `"scene_heading"`. The document then begins with one empty block of that type, so an editor has a line to type on. The block is part of the new document, not an edit: the document starts clean, with nothing to undo and an empty journal.
 - **`doc.open`**
   - Reads a `.fountain`, `.spmd` or `.txt` file.
-  - `recover` is `"auto"` (the default) or `"discard"`. If a crash journal exists, `auto` recovers it and `discard` sets it aside unread; see the journal spec.
+  - `recover` is `"auto"` (the default), `"discard"` or `"apply"`. If a crash journal exists, `auto` recovers it and `discard` sets it aside unread; see the journal spec. A journal written on another computer or for another path (synced or copied with the script) is only offered: `auto` fails with `journal_foreign` and changes nothing, and `apply` recovers it anyway (2026-10-16).
   - `recovered` is null, or `{commands, external_change, last}`. `last` (added 2026-10-15) is when the newest recovered change was made, in milliseconds since the Unix epoch, for the app's recovery dialog.
 - **`doc.save`**
   - Saves atomically.
-  - `path` is "save as".
+  - `path` is "save as". A path where another file already is fails with `already_exists` unless `overwrite` is true (2026-10-16): "save as" never replaces a file by accident, and every `.txt` counts as a script. The target's lock is taken, and its crash journal judged, before anything is written (2026-10-16; `docs/specs/journal.md`, "Saving"): a target open in another process fails with `doc_locked`, and one whose journal holds unsaved work fails with `unsaved_changes`. A refused save writes nothing.
   - `format` is `"fountain"`. It is inferred from the path when omitted.
-  - If Fountain cannot hold something in the document, the save fails with `lossy_format` and lists the losses, unless `allow_lossy` is true.
+  - If Fountain cannot hold something in the document, the save fails with `lossy_format` and lists the losses, unless `allow_lossy` is true. A file read as Windows-1252 and about to be written as UTF-8 counts as a loss too (`reencoded`, 2026-10-16; `docs/specs/journal.md`, "Encoding"). Only a writer may pass `allow_lossy` (2026-10-16); from an agent it fails with `writer_only`.
+  - Saving in place over a file that another program changed since this session last read or wrote it fails with `file_changed` (2026-10-16; `docs/specs/journal.md`, "Saving"). `overwrite: true` replaces it anyway. Only a writer may pass `overwrite`; from an agent it fails with `writer_only`.
+  - While a save off the UI thread is being written, `doc.save` fails with `save_in_progress` (2026-10-16; `docs/specs/journal.md`, "One save at a time"). Try again when it has finished.
 - **`doc.close`**
   - Refuses with `unsaved_changes` unless `discard` is true.
+  - With `discard`, unsaved changes are kept in a copy of the journal, which a `journal_discarded` warning names (2026-10-16; `docs/specs/journal.md`, "Closing").
+  - An agent's `discard` fails with `not_your_step` when the document holds a writer's recovered work (2026-10-16; `docs/specs/mcp.md` §6). The same holds for an agent's `doc.revert`, and for its `doc.open` with `recover: "discard"`.
 - **`doc.revert`** (2026-10-15)
-  - Throws away unsaved changes and the undo history, and reads the document's file again.
-  - The journal is never deleted by a revert: if it holds entries, it is copied aside to `<journal>.discarded-<ms>` first, then started again from the file.
+  - Throws away unsaved changes and the undo history, and reads the document's file again. The blocks read get fresh ids ("Ids" above).
+  - The journal is never deleted by a revert: if the document has unsaved changes or the journal holds entries, it is copied aside to `<journal>.discarded-<ms>` first, then started again from the file. (2026-10-16: "unsaved changes" covers a recovered journal header with no entries, `docs/specs/journal.md` recovery step 4.)
   - Fails with `no_path` for an untitled document, and with `io_error` if the file cannot be read; the open document is unchanged in both cases.
   - The desktop app's recovery dialog uses it for Discard.
 
@@ -269,11 +276,11 @@ The keystroke commands below (2026-10-15) are what the desktop editor sends for 
 
 | Command | Params | Result |
 | --- | --- | --- |
-| `export.pdf` | `path`, `watermark?`, `scene_numbers?`, `title_page?` | `{path, pages, bytes, warnings}` |
+| `export.pdf` | `path`, `watermark?`, `scene_numbers?`, `title_page?`, `overwrite?` | `{path, pages, bytes, warnings}` |
 
 - **`export.pdf`**
   - Lays out the open document (as `scene.list` does) and writes it as a PDF, atomically, as `docs/specs/layout.md` §12 describes. The same document and options always give the same bytes.
-  - `path` must end in `.pdf`, otherwise `unsupported_format`. It may never be the open document or its crash journal (`would_overwrite_document`).
+  - `path` must end in `.pdf`, otherwise `unsupported_format`. It may never be the open document or its crash journal (`would_overwrite_document`). A file already there is replaced only with `overwrite: true`, otherwise `already_exists` (2026-10-16). Only a writer may pass `overwrite` (`writer_only`). The CLI's `export` subcommand passes it, since its output is named on the command line, as `convert` replaces its output.
   - `watermark` is text printed diagonally under every page. `scene_numbers` (default false) prints scene numbers beside headings. `title_page` (default true) includes the title page when the script has one.
   - `pages` counts the PDF's pages, title page included. It is never 0: a document with nothing to print gives one blank page, with the watermark if one is given (2026-10-14).
   - `warnings` lists `{code, message, chars?, id?}`: characters the bundled font cannot print, in the script or the watermark (`missing_glyph`, `missing_mark`), and layout diagnostics such as `dual_too_tall`, with the block `id` when there is one.
@@ -305,16 +312,20 @@ Undo is unlimited. A new edit clears the redo history.
 | `scene_not_found` | The id is not a scene heading (or section, for `before`). |
 | `invalid_attr` | The block would break a model rule; `details.problems` lists them. |
 | `nothing_to_undo`, `nothing_to_redo` | The history is empty in that direction. |
-| `unsaved_changes` | The document has unsaved changes. |
-| `already_exists` | `doc.new` was given an existing file. |
+| `unsaved_changes` | The document has unsaved changes; or a "save as" target has unsaved work in its crash journal (`details.path`). |
+| `already_exists` | `doc.new` was given an existing file, the open document's path, or a path whose crash journal holds anything (`details.journal`); or "save as" or `export.pdf` was given an existing file without `overwrite`. |
 | `no_path` | `doc.save` has no path to save to. |
 | `unsupported_format` | The file type is not supported in this version. |
 | `lossy_format` | The format cannot hold the document; `details.losses` lists why. |
 | `doc_locked` | Another process has the document open. |
+| `journal_foreign` | `doc.open` found unsaved work in a crash journal written on another computer or for another path; `details` gives `host` and `path`. Open with `recover` `"apply"` or `"discard"`. |
 | `io_error` | Reading or writing a file failed. |
 | `journal_error` | The crash journal could not be written; the edit was rolled back. |
 | `would_overwrite_document` | An output command was asked to write over the open document or its journal. |
+| `save_in_progress` | Another save of the document is being written; nothing changed. Retryable. |
+| `file_changed` | Another program changed the file since the document last read or wrote it; nothing was saved. `overwrite` replaces it. |
+| `writer_only` | An agent passed a choice only the writer may make: `overwrite`, or `allow_lossy`. |
 | `invalid_range` | An offset is past the end of the block's text, or `from` is after `to`. |
-| `not_your_step` | An agent tried to undo or redo a step made by someone else. |
+| `not_your_step` | An agent tried to undo or redo a step made by someone else, or to set aside a writer's recovered work (`details.recovered`). |
 | `not_allowed_attached` | A command an agent may not send over the app's agent link, such as `doc.open` (`docs/specs/mcp.md`). |
 | `internal_error` | Something that should never happen, such as damaged bundled fonts. |

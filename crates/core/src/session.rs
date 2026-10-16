@@ -2,19 +2,21 @@
 //! undo/redo run here; opening and saving live in the dispatcher.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use coldopen_screenplay::{ElementKind, RangeError, RichText, StyleChange, TextRepr};
 use serde_json::{Value, json};
 
 use crate::author::{Author, Clock};
 use crate::command::{
-    Batch, BlockDelete, BlockInsert, BlockJoin, BlockSetAttrs, BlockSetText, BlockSetType,
-    BlockSplit, Class, Command, SceneMove, TextDelete, TextInsert, TextReplace, TextStyle,
+    Batch, BatchItem, BlockDelete, BlockInsert, BlockJoin, BlockSetAttrs, BlockSetText,
+    BlockSetType, BlockSplit, Class, Command, SceneMove, TextDelete, TextInsert, TextReplace,
+    TextStyle,
 };
 use crate::document::{Block, BlockId, Document, word_count};
 use crate::error::CommandError;
-use crate::io::SourceStyle;
-use crate::journal::Journal;
+use crate::io::{Fingerprint, SourceStyle};
+use crate::journal::{Journal, StepRef};
 use crate::ops::{Op, Transaction};
 use crate::replace::{find_in, replace_in, replace_one};
 use crate::view::View;
@@ -29,13 +31,18 @@ pub const GROUP_MS: u64 = 1500;
 pub struct Exec {
     pub by: Author,
     pub merge: Merge,
+    /// Replaying a journal: the entry's `seq`, which names the step it
+    /// makes.
+    pub seq: Option<u64>,
+    /// Replaying an `undo` or `redo`: the step the entry says it reversed.
+    pub step: Option<StepRef>,
 }
 
 impl Exec {
     pub fn by(by: Author) -> Exec {
         Exec {
             by,
-            merge: Merge::Auto,
+            ..Exec::default()
         }
     }
 }
@@ -77,6 +84,24 @@ struct Step {
     by: Author,
     tx: Transaction,
     group: Option<Group>,
+    /// The seq of the journal entry that made the step, while that entry
+    /// is in the journal; `None` for a step made before the journal last
+    /// started again (docs/specs/journal.md, "Undo and redo entries").
+    origin: Option<u64>,
+}
+
+/// Hands out session ids, unique in the process.
+static SESSIONS: AtomicU64 = AtomicU64::new(1);
+
+/// Unsaved work that `doc.open` brought back from a crash journal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Recovered {
+    /// The session's `rev` when recovery finished, so equal to `rev` for as
+    /// long as nothing has changed since.
+    pub rev: u64,
+    /// Whether any of it is a writer's work, which an agent may not set
+    /// aside (docs/specs/mcp.md §7).
+    pub writer: bool,
 }
 
 #[derive(Debug)]
@@ -87,6 +112,22 @@ pub struct Session {
     pub journal: Option<Journal>,
     /// True when there are changes since the last open or save.
     pub dirty: bool,
+    /// Set while the document holds work recovered from a crash journal
+    /// that has not been saved since.
+    pub recovered: Option<Recovered>,
+    /// The file as this session last read or wrote it, or `None` if it
+    /// had no file then. A save in place that finds anything else there
+    /// refuses with `file_changed`.
+    pub disk: Option<Fingerprint>,
+    /// Unique in the process, so a save prepared for one session can tell
+    /// it is not committing into another (docs/specs/journal.md, "Saving
+    /// off the UI thread").
+    id: u64,
+    /// Saves prepared so far; each prepared save carries its number.
+    pub(crate) saves: u64,
+    /// The number of the prepared save being written, if one is. While it
+    /// is set, no other save may start.
+    pub(crate) saving: Option<u64>,
     /// Edits, undos, redos and reverts applied since the document was
     /// opened or created. Never goes down.
     pub rev: u64,
@@ -95,6 +136,14 @@ pub struct Session {
     redo: Vec<Step>,
     /// The laid-out document, refreshed when `rev` moves on.
     view: Option<View>,
+}
+
+/// Every block id has been handed out (only a damaged document gets here).
+fn ids_used_up() -> CommandError {
+    CommandError::new(
+        "internal_error",
+        "this document has used every block id; save it and open it again",
+    )
 }
 
 fn range_error(e: RangeError) -> CommandError {
@@ -150,12 +199,22 @@ impl Session {
             style,
             journal: None,
             dirty: false,
+            recovered: None,
+            disk: None,
+            id: SESSIONS.fetch_add(1, Ordering::Relaxed),
+            saves: 0,
+            saving: None,
             rev: 0,
             clock: Clock::default(),
             undo: Vec::new(),
             redo: Vec::new(),
             view: None,
         }
+    }
+
+    /// This session's id, unique in the process.
+    pub fn id(&self) -> u64 {
+        self.id
     }
 
     /// The laid-out document, brought up to date first. Only the pages an
@@ -368,7 +427,7 @@ impl Session {
 
     fn edit(&mut self, cmd: &Command, ex: &Exec) -> Result<Value, CommandError> {
         let next_id = self.doc.next_id;
-        let (inverse, result) = match self.apply_edit(cmd) {
+        let (inverse, result, resolved) = match self.apply_edit(cmd) {
             Ok(r) => r,
             Err(e) => {
                 self.doc.next_id = next_id;
@@ -381,7 +440,16 @@ impl Session {
         };
         let now = self.clock.now_ms();
         let merge = self.should_merge(cmd, ex, now, &inverse);
-        if let Err(e) = self.journal_append(cmd.name(), cmd.params(), &result, &ex.by, merge) {
+        // The journal records what was done, defaults filled in, so a
+        // later change to a default never changes what an old entry means.
+        if let Err(e) = self.journal_append(
+            resolved.name(),
+            resolved.params(),
+            &result,
+            &ex.by,
+            merge,
+            None,
+        ) {
             inverse.apply(&mut self.doc);
             self.doc.next_id = next_id;
             return Err(e);
@@ -391,6 +459,7 @@ impl Session {
         } else {
             None
         };
+        let origin = self.journaled_seq().or(ex.seq);
         match self.undo.last_mut() {
             Some(top) if merge => {
                 // The step already restores the block as it was before the
@@ -404,6 +473,7 @@ impl Session {
                 by: ex.by.clone(),
                 tx: inverse,
                 group,
+                origin,
             }),
         }
         self.redo.clear();
@@ -413,20 +483,49 @@ impl Session {
     }
 
     /// Applies an edit and returns the transaction that reverses it, or
-    /// `None` when nothing changed.
-    fn apply_edit(&mut self, cmd: &Command) -> Result<(Option<Transaction>, Value), CommandError> {
+    /// `None` when nothing changed, its result, and the command as done:
+    /// with the defaults it took filled in.
+    fn apply_edit(
+        &mut self,
+        cmd: &Command,
+    ) -> Result<(Option<Transaction>, Value, Command), CommandError> {
         if let Command::Batch(b) = cmd {
             return self.apply_batch(b);
         }
-        let (tx, result) = self.plan(cmd)?;
+        let cmd = self.resolve(cmd);
+        let (tx, result) = self.plan(&cmd)?;
         if tx.is_empty() {
-            Ok((None, result))
+            Ok((None, result, cmd))
         } else {
-            Ok((Some(tx.apply(&mut self.doc)), result))
+            Ok((Some(tx.apply(&mut self.doc)), result, cmd))
         }
     }
 
-    fn apply_batch(&mut self, b: &Batch) -> Result<(Option<Transaction>, Value), CommandError> {
+    /// The command with the defaults that depend on the document filled
+    /// in (docs/specs/journal.md, "Entries"): the style `text.insert` takes
+    /// from the text around it, and the type `block.split` keeps.
+    fn resolve(&self, cmd: &Command) -> Command {
+        match cmd {
+            Command::TextInsert(p) if p.style.is_none() => {
+                let style = self
+                    .doc
+                    .get(p.id)
+                    .filter(|b| p.at <= b.element.text.char_len())
+                    .map(|b| b.element.text.style_at(p.at).into());
+                Command::TextInsert(TextInsert { style, ..p.clone() })
+            }
+            Command::BlockSplit(p) if p.kind.is_none() => Command::BlockSplit(BlockSplit {
+                kind: self.doc.get(p.id).map(|b| b.element.kind),
+                ..p.clone()
+            }),
+            other => other.clone(),
+        }
+    }
+
+    fn apply_batch(
+        &mut self,
+        b: &Batch,
+    ) -> Result<(Option<Transaction>, Value, Command), CommandError> {
         let mut cmds = Vec::with_capacity(b.commands.len());
         for (i, item) in b.commands.iter().enumerate() {
             let cmd = Command::from_parts(&item.command, item.params.clone()).map_err(|e| {
@@ -448,13 +547,18 @@ impl Session {
         }
         let mut inverses: Vec<Transaction> = Vec::new();
         let mut results = Vec::with_capacity(cmds.len());
+        let mut resolved = Vec::with_capacity(cmds.len());
         for (i, cmd) in cmds.iter().enumerate() {
-            match self.plan(cmd) {
+            // Each edit's defaults depend on the document the edits before
+            // it left.
+            let cmd = self.resolve(cmd);
+            match self.plan(&cmd) {
                 Ok((tx, r)) => {
                     if !tx.is_empty() {
                         inverses.push(tx.apply(&mut self.doc));
                     }
                     results.push(r);
+                    resolved.push(BatchItem::of(&cmd));
                 }
                 Err(e) => {
                     for inv in inverses.into_iter().rev() {
@@ -465,11 +569,15 @@ impl Session {
             }
         }
         let result = json!({ "results": results });
+        let done = Command::Batch(Batch {
+            commands: resolved,
+            label: b.label.clone(),
+        });
         if inverses.is_empty() {
-            return Ok((None, result));
+            return Ok((None, result, done));
         }
         let combined = Transaction(inverses.into_iter().rev().flat_map(|t| t.0).collect());
-        Ok((Some(combined), result))
+        Ok((Some(combined), result, done))
     }
 
     /// The typing group a writer's keystroke command opens or continues.
@@ -527,6 +635,31 @@ impl Session {
 
     fn history(&mut self, cmd: &Command, ex: &Exec) -> Result<Value, CommandError> {
         let is_undo = matches!(cmd, Command::Undo(_));
+        let key = if is_undo { "undone" } else { "redone" };
+        // Replaying an undo or redo of a step made before the journal's
+        // header: the rebuilt history cannot hold that step, so the entry
+        // carries it (review finding C1).
+        if let Some(StepRef::Before {
+            tx,
+            command,
+            label,
+            by,
+        }) = &ex.step
+        {
+            let reverse = tx.clone().apply(&mut self.doc);
+            self.push_reversed(
+                is_undo,
+                Step {
+                    command: command.clone(),
+                    label: label.clone(),
+                    by: by.clone().unwrap_or_default(),
+                    tx: reverse,
+                    group: None,
+                    origin: ex.seq,
+                },
+            );
+            return Ok(json!({ key: command, "label": label }));
+        }
         let stack = if is_undo { &self.undo } else { &self.redo };
         let Some(top) = stack.last() else {
             return Err(if is_undo {
@@ -535,6 +668,14 @@ impl Session {
                 CommandError::new("nothing_to_redo", "there is nothing to redo")
             });
         };
+        if let Some(StepRef::Seq(seq)) = &ex.step
+            && top.origin != Some(*seq)
+        {
+            return Err(CommandError::new(
+                "diverged",
+                format!("replay reached a different step than the one entry {seq} made"),
+            ));
+        }
         if !ex.by.is_writer() && !top.by.same_actor(&ex.by) {
             return Err(CommandError::new(
                 "not_your_step",
@@ -558,14 +699,39 @@ impl Session {
                 "history changed underneath",
             ));
         };
-        let reverse = step.tx.apply(&mut self.doc);
-        let key = if is_undo { "undone" } else { "redone" };
-        let result = json!({ key: step.command, "label": step.label });
-        if let Err(e) = self.journal_append(cmd.name(), cmd.params(), &result, &ex.by, false) {
+        // The entry names the step, or carries it when it was made before
+        // the journal last started again (docs/specs/journal.md, "Undo and
+        // redo entries").
+        let step_ref = match step.origin {
+            Some(seq) => Some(StepRef::Seq(seq)),
+            None => self.journal.is_some().then(|| StepRef::Before {
+                tx: step.tx.clone(),
+                command: step.command.clone(),
+                label: step.label.clone(),
+                by: (!step.by.is_writer()).then(|| step.by.clone()),
+            }),
+        };
+        let Step {
+            command,
+            label,
+            by,
+            tx,
+            group,
+            origin,
+        } = step;
+        let reverse = tx.apply(&mut self.doc);
+        let result = json!({ key: command, "label": label });
+        if let Err(e) =
+            self.journal_append(cmd.name(), cmd.params(), &result, &ex.by, false, step_ref)
+        {
             let restore = reverse.apply(&mut self.doc);
             let back = Step {
+                command,
+                label,
+                by,
                 tx: restore,
-                ..step
+                group,
+                origin,
             };
             if is_undo {
                 self.undo.push(back);
@@ -574,15 +740,29 @@ impl Session {
             }
             return Err(e);
         }
-        let back = Step {
-            tx: reverse,
-            group: None,
-            ..step
-        };
+        // A step from before the header enters the journal at this entry.
+        let origin = origin.or_else(|| self.journaled_seq()).or(ex.seq);
+        self.push_reversed(
+            is_undo,
+            Step {
+                command,
+                label,
+                by,
+                tx: reverse,
+                group: None,
+                origin,
+            },
+        );
+        Ok(result)
+    }
+
+    /// Puts a step that was just undone on the redo stack, or a redone one
+    /// on the undo stack.
+    fn push_reversed(&mut self, is_undo: bool, step: Step) {
         if is_undo {
-            self.redo.push(back);
+            self.redo.push(step);
         } else {
-            self.undo.push(back);
+            self.undo.push(step);
         }
         // Undo and redo end any typing group: the next keystroke starts a
         // new step.
@@ -591,7 +771,27 @@ impl Session {
         }
         self.dirty = true;
         self.rev += 1;
-        Ok(result)
+    }
+
+    /// The seq of the entry last written to the journal, if there is one.
+    fn journaled_seq(&self) -> Option<u64> {
+        self.journal
+            .as_ref()
+            .map(Journal::entries)
+            .filter(|&n| n > 0)
+    }
+
+    /// Called when the journal starts again from the current document
+    /// (after a save): the entries that made the steps in the history are
+    /// gone, so an undo or redo of one must carry the step itself, and a
+    /// typing burst never joins a step across the restart.
+    pub fn journal_restarted(&mut self) {
+        for s in self.undo.iter_mut().chain(self.redo.iter_mut()) {
+            s.origin = None;
+        }
+        if let Some(top) = self.undo.last_mut() {
+            top.group = None;
+        }
     }
 
     fn journal_append(
@@ -601,16 +801,18 @@ impl Session {
         result: &Value,
         by: &Author,
         merge: bool,
+        step: Option<StepRef>,
     ) -> Result<(), CommandError> {
         if let Some(j) = &mut self.journal {
-            j.append(name, params, result, by, merge).map_err(|e| {
-                CommandError::new(
-                    "journal_error",
-                    format!(
-                        "the crash journal could not be written, so the change was undone: {e}"
-                    ),
-                )
-            })?;
+            j.append(name, params, result, by, merge, step)
+                .map_err(|e| {
+                    CommandError::new(
+                        "journal_error",
+                        format!(
+                            "the crash journal could not be written, so the change was undone: {e}"
+                        ),
+                    )
+                })?;
         }
         Ok(())
     }
@@ -681,7 +883,7 @@ impl Session {
             (None, Some(b)) => self.index(b)?,
             (None, None) => self.doc.blocks.len(),
         };
-        let id = self.doc.allocate_id();
+        let id = self.doc.allocate_id().ok_or_else(ids_used_up)?;
         Ok((
             Transaction(vec![Op::Insert {
                 index,
@@ -925,7 +1127,7 @@ impl Session {
         Self::check(&first)?;
         Self::check(&second)?;
         let mut ops = self.replace_op(index, first).0;
-        let id = self.doc.allocate_id();
+        let id = self.doc.allocate_id().ok_or_else(ids_used_up)?;
         ops.push(Op::Insert {
             index: index + 1,
             block: Block {

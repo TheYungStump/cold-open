@@ -1,7 +1,7 @@
 # Fountain: how Cold Open reads and writes it
 
 - **Date:** 2026-10-13
-- **Updated:** 2026-10-13 (phase 2): reversed scene heading prefixes (§4, §6.2, §9). 2026-10-15 (phase 3): the normal form's source map (§10).
+- **Updated:** 2026-10-13 (phase 2): reversed scene heading prefixes (§4, §6.2, §9). 2026-10-15 (phase 3): the normal form's source map (§10). 2026-10-16: hidden-only lines inside an element (§5); time in proportion to the input (§1).
 - **Status:** implemented in `crates/fountain` (phase 1)
 - **Sources:**
   - The public Fountain syntax page, <https://fountain.io/syntax>, read 2026-10-13.
@@ -14,6 +14,7 @@
 1. **Never fail.** Any input string produces a script. Anything the parser cannot classify becomes Action, and problems are reported as diagnostics, never as panics.
 2. **Round trip by meaning.** `parse(write(parse(x))) == parse(x)` for every input `x`. Writing produces one canonical text, so writing twice gives the same bytes.
 3. **Report loss.** When the model holds something Fountain cannot express, the writer says so (§9) instead of dropping it silently.
+4. **Time in proportion to the input** (2026-10-16, review finding F15). Reading and writing take time roughly proportional to the text's length, even for hostile input, because the app opens files on its interface thread and a slow file looks like a hang. Two places were quadratic: a speech's parentheticals (each line starting with `(` searched the rest of the speech for a `)`), and emphasis (the delimiter stack shifted on every removal, and each matched pair restyled every token inside it). `crates/fountain/tests/hostile_time.rs` checks that four times the input takes about four times as long, and the fuzz runs fail any input over two seconds.
 
 ## 2. Model produced
 
@@ -75,6 +76,7 @@ For this rule, a *run* is the lines between blank lines; hold lines belong to th
 
 - If its run has no content lines at all, each of its pieces becomes a **Note** or **Boneyard element** of its own. This matches the syntax page: a note on its own line does not leave empty lines behind.
 - Otherwise its pieces join the nearest content line in the same run, as inline runs. They join the end of the previous content line if there is one, otherwise the start of the next. The hidden-only line itself disappears, so no visible empty line is created.
+- **Resolution** (2026-10-16): the same holds for a line that becomes hidden-only inside an element after its markers are removed, such as an empty lyric line `~` followed by a note that spans lines. The reader joins it to the line before, as the normal form does (§10), so what it reads is always in normal form. The round-trip property test found this case.
 
 ## 6. Classifying paragraphs
 
@@ -246,6 +248,17 @@ The writer's output for a script `s` reads back as `s` exactly when `s` is in **
 - No two adjacent elements that the reader would merge, such as two dialogue elements with no gap, or two non-centered action elements with gap 0.
 
 Every script the parser produces is in normal form. The property tests generate only normal-form scripts.
+
+**Normalisation is not reported as a loss** (noted 2026-10-16, review finding F21 and Antigravity's 12; for phase 5). A document held in memory need not be in normal form: commands can put text in it that the normal form changes. Writing it then changes the document without listing a loss, because none of these changes what prints:
+- leading and trailing spaces on dialogue and other non-action lines, and trailing spaces on action lines;
+- an action holding only spaces, which becomes empty;
+- an action beginning with blank lines, which lose them, and one with several blank lines inside, which splits into elements with `space_before`;
+- two adjacent dialogue elements, which join into one;
+- a dialogue line `=== ` that keeps only `===`;
+- a note at the start of an action line, followed by a line break, which loses the break;
+- trailing blank lines in the last action of the script, which are dropped (in any other action they become the next element's `space_before`).
+
+It matters more in phase 5, where script diff and tracked changes compare documents block by block: "one block became two" or "a trailing space vanished" would show as a change nobody made. Phase 5 should either report these as a `normalized` loss class that never blocks a save, or have the `block.*` and `text.*` commands normalise as they apply, so the document never holds what the file cannot. Until then the recovery check ("Nothing to recover?" in `docs/specs/journal.md`) relies on the file's fingerprint first, so a file outside normal form is not taken for a change.
 
 **Source map** (2026-10-15, for the desktop editor). Layout runs on the normal form (`docs/specs/layout.md` §4.8), but the editor places its caret in the document's own elements, so it needs to know where each piece of normal-form text came from. `normalize_with_source_map` returns the normal form and, for each of its elements:
 - the index of the source element it starts in;

@@ -266,6 +266,9 @@ pub enum Recover {
     #[default]
     Auto,
     Discard,
+    /// Recover even a journal written on another computer or for another
+    /// path, which `auto` only offers (docs/specs/journal.md, "Header").
+    Apply,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -287,6 +290,11 @@ pub struct DocSave {
     pub format: Option<String>,
     #[serde(default)]
     pub allow_lossy: bool,
+    /// Replace the target even though it is a file other than the open
+    /// document, or another program changed it since Cold Open last read
+    /// or saved it (docs/specs/commands.md). Writers only.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub overwrite: bool,
 }
 
 fn fountain() -> String {
@@ -486,6 +494,9 @@ pub struct ExportPdf {
     pub scene_numbers: bool,
     #[serde(default = "yes")]
     pub title_page: bool,
+    /// Replace a file already at `path`. Writers only.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub overwrite: bool,
 }
 
 /// A style given in full, for `text.insert`.

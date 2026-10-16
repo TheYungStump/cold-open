@@ -201,7 +201,21 @@ impl Backend {
         let Some(path) = params["path"].as_str().map(PathBuf::from) else {
             return failure("invalid_params", "doc_open needs a \"path\"");
         };
-        self.leave();
+        let by = Author::agent(client, Some("doc_open".to_string()));
+        let cmd = match Command::from_parts("doc.open", params) {
+            Ok(c) => c,
+            Err(e) => return failure("invalid_params", e),
+        };
+        // Nothing is closed until the new script is open, and unsaved work
+        // is never dropped to open another (review finding C5).
+        if let Mode::Local(d) = &self.mode
+            && d.session().is_some_and(|s| s.dirty)
+        {
+            return failure(
+                "unsaved_changes",
+                "the open script has unsaved changes; save it, or close it with discard, before opening another",
+            );
+        }
         let mut refusal = None;
         if attach && let Some(run) = &self.run {
             for s in coldopen_link::find_sessions(run, &path) {
@@ -211,6 +225,7 @@ impl Backend {
                 };
                 match LinkClient::attach(&s, &who, &path) {
                     Ok(link) => {
+                        self.leave();
                         let link = Arc::new(link);
                         self.watch(link.clone());
                         let rev = link.hello.rev;
@@ -240,12 +255,21 @@ impl Backend {
                 }
             }
         }
-        let by = Author::agent(client, Some("doc_open".to_string()));
-        let cmd = match Command::from_parts("doc.open", params) {
-            Ok(c) => c,
-            Err(e) => return failure("invalid_params", e),
-        };
-        let mut response = self.run_local(cmd, &by);
+        // The same script, open here already: it is clean (see above), and
+        // must let go of its journal before it is opened again.
+        let reopening = matches!(&self.mode, Mode::Local(d) if d
+            .session()
+            .and_then(|s| s.path.as_deref())
+            .is_some_and(|p| coldopen_link::canonical(p) == coldopen_link::canonical(&path)));
+        if reopening {
+            self.leave();
+        }
+        let mut fresh = Box::new(Dispatcher::new(Options::default()));
+        let mut response = Dispatcher::response(Value::Null, fresh.execute_as(cmd, &by));
+        if response["ok"] == true {
+            self.leave();
+            self.mode = Mode::Local(fresh);
+        }
         if response["error"]["code"] == "doc_locked" {
             let why = match (attach, refusal) {
                 (false, _) => "the script is open in the Cold Open app; open it with attach \"auto\" to edit it there".to_string(),

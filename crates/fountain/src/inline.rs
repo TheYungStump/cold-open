@@ -151,32 +151,56 @@ fn apply(style: &mut Style, ch: char, n: usize) {
 }
 
 /// The CommonMark "process emphasis" procedure over one line's tokens.
+///
+/// Linear in the line's length (review finding F15): the delimiter stack
+/// is a linked list, so removing a delimiter is constant time (a `Vec`
+/// shifted its tail on every removal, which made a long line of unmatched
+/// emphasis quadratic), and the styles of matched pairs are applied at the
+/// end in one pass, with counts that rise at each opener and fall at each
+/// closer, rather than token by token for every pair.
 fn process_emphasis(toks: &mut [T]) {
-    let mut stack: Vec<usize> = (0..toks.len())
+    const NONE: usize = usize::MAX;
+    let delims: Vec<usize> = (0..toks.len())
         .filter(|&i| delim(&toks[i]).is_some())
         .collect();
+    let n = delims.len();
+    let mut prev: Vec<usize> = (0..n).map(|i| i.checked_sub(1).unwrap_or(NONE)).collect();
+    let mut next: Vec<usize> = (0..n)
+        .map(|i| if i + 1 < n { i + 1 } else { NONE })
+        .collect();
+    let unlink = |i: usize, prev: &mut [usize], next: &mut [usize]| {
+        let (p, q) = (prev[i], next[i]);
+        if p != NONE {
+            next[p] = q;
+        }
+        if q != NONE {
+            prev[q] = p;
+        }
+    };
     // Lowest token index an opener may have, per (char, closer can open, orig % 3).
     let mut bottom = [[[0usize; 3]; 2]; 2];
+    // Per style (underline, italic, bold): +1 after each opener, -1 at each
+    // closer; a token is styled where the running sum is above zero.
+    let mut rise = vec![[0i32; 3]; toks.len() + 1];
 
-    let mut ci = 0;
-    while ci < stack.len() {
-        let c_tok = stack[ci];
+    let mut ci = if n > 0 { 0 } else { NONE };
+    while ci != NONE {
+        let c_tok = delims[ci];
         let Some((ch, _, c_orig, c_open, c_close)) = delim(&toks[c_tok]) else {
-            ci += 1;
+            ci = next[ci];
             continue;
         };
         if !c_close {
-            ci += 1;
+            ci = next[ci];
             continue;
         }
         let key = (usize::from(ch == '_'), usize::from(c_open), c_orig % 3);
         let floor = bottom[key.0][key.1][key.2];
 
         let mut found = None;
-        let mut oi = ci;
-        while oi > 0 {
-            oi -= 1;
-            let o_tok = stack[oi];
+        let mut oi = prev[ci];
+        while oi != NONE {
+            let o_tok = delims[oi];
             if o_tok < floor {
                 break;
             }
@@ -193,36 +217,59 @@ fn process_emphasis(toks: &mut [T]) {
                     break;
                 }
             }
+            oi = prev[oi];
         }
 
         match found {
             Some(oi) => {
-                let o_tok = stack[oi];
+                let o_tok = delims[oi];
                 let ocount = delim(&toks[o_tok]).map_or(0, |d| d.1);
                 let ccount = delim(&toks[c_tok]).map_or(0, |d| d.1);
                 let used = if ocount >= 2 && ccount >= 2 { 2 } else { 1 };
-                for t in &mut toks[o_tok + 1..c_tok] {
-                    apply(&mut t.style, ch, used);
-                }
+                let flag = match (ch, used) {
+                    ('_', _) => 0,
+                    (_, 1) => 1,
+                    _ => 2,
+                };
+                rise[o_tok + 1][flag] += 1;
+                rise[c_tok][flag] -= 1;
                 take(&mut toks[o_tok], used);
                 take(&mut toks[c_tok], used);
-                stack.drain(oi + 1..ci);
-                ci = oi + 1;
+                // Delimiters between the pair can no longer match.
+                let mut k = next[oi];
+                while k != ci && k != NONE {
+                    let after = next[k];
+                    unlink(k, &mut prev, &mut next);
+                    k = after;
+                }
                 if delim(&toks[o_tok]).map_or(0, |d| d.1) == 0 {
-                    stack.remove(oi);
-                    ci -= 1;
+                    unlink(oi, &mut prev, &mut next);
                 }
                 if delim(&toks[c_tok]).map_or(0, |d| d.1) == 0 {
-                    stack.remove(ci);
+                    let after = next[ci];
+                    unlink(ci, &mut prev, &mut next);
+                    ci = after;
                 }
             }
             None => {
                 bottom[key.0][key.1][key.2] = c_tok;
+                let after = next[ci];
                 if !c_open {
-                    stack.remove(ci);
-                } else {
-                    ci += 1;
+                    unlink(ci, &mut prev, &mut next);
                 }
+                ci = after;
+            }
+        }
+    }
+
+    let mut level = [0i32; 3];
+    for (t, r) in toks.iter_mut().zip(&rise) {
+        for (l, d) in level.iter_mut().zip(r) {
+            *l += d;
+        }
+        for (ch, used, on) in [('_', 1, level[0]), ('*', 1, level[1]), ('*', 2, level[2])] {
+            if on > 0 {
+                apply(&mut t.style, ch, used);
             }
         }
     }

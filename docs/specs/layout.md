@@ -343,7 +343,7 @@ The page view is the plain-text picture of the pages, used by `coldopen pages`, 
 
 ## 13. Reference comparison
 
-The gate for phase 2 compares our pagination of the three reference .fdx files with the PDFs Final Draft printed from them in 2012. The test lives in `crates/layout/tests/reference/` and runs with `cargo test -p coldopen-layout --test reference`. It skips when `corpus/` is missing, and skips any pair whose `.ref.json` is missing or was extracted from a different PDF, printing the `refpdf extract` command that writes it; with `COLDOPEN_REQUIRE_CORPUS=1` each of those skips is a failure instead.
+The gate for phase 2 compares our pagination of the three reference .fdx files with the PDFs Final Draft printed from them in 2012. The test lives in `crates/layout/tests/reference/` and runs with `cargo test -p coldopen-layout --test reference`. It skips when `corpus/` is missing, and skips any pair whose `.ref.json` is missing or was extracted from a different PDF, printing the `refpdf extract` command that writes it; with `COLDOPEN_REQUIRE_CORPUS=1` each of those skips is a failure instead. Whenever it compares fewer than the three reference scripts, it writes a "REFERENCE GATE NOT RUN" banner straight to standard error, which a plain `cargo test` shows even for a passing test, and in CI also a warning on the run's page (2026-10-16, review finding F17.1), so a skipped gate never passes looking like a real one.
 
 - **Inputs.** `tools/refpdf` extracts each reference PDF to `<stem>.ref.json`: positioned text segments per baseline, with no interpretation. The test reads the .fdx with `crates/fdx`, which gives the script, page format, overrides and title page.
 - **Alignment.**

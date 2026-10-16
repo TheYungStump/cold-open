@@ -5,6 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
+use coldopen_app::app::Prompt;
 use coldopen_app::files::{Ask, Dialogs, Dirs};
 use coldopen_app::headless::Headless;
 use coldopen_app::{App, Boot, Message};
@@ -75,16 +76,104 @@ fn closing_with_changes_asks_and_each_answer_does_what_it_says() {
     h.type_text("!");
     assert!(h.app.d.session().is_some());
 
-    // D: don't save. The script closes and its journal goes with it.
+    // D: don't save. The script closes, and its journal is set aside, not
+    // deleted (docs/specs/journal.md, "Closing").
     h.shortcut('w', false);
     press(&mut h, "d");
     assert!(h.app.d.session().is_none());
     assert_eq!(std::fs::read_to_string(&p).unwrap(), SCRIPT);
     assert!(!coldopen_core::journal::path_for(&p).exists());
+    let kept = std::fs::read_dir(home.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().contains(".discarded-"))
+        .count();
+    assert_eq!(kept, 1);
 
     // The start screen: Mod+N starts a new script there.
     h.shortcut('n', false);
     assert!(h.app.d.session().is_some());
+}
+
+/// The Antigravity review (its finding 4) said that D or N on the lossy
+/// save question ("Save anyway" / "Cancel") closes the script without
+/// saving. It does not: on that question both keys only cancel.
+#[test]
+fn d_or_n_on_the_lossy_save_question_cancels() {
+    let home = tempfile::tempdir().unwrap();
+    let p = script(home.path());
+    let mut h = app(home.path(), Some(&p), None);
+    to_first_action(&mut h);
+    h.shortcut('7', false); // a Shot, which Fountain cannot hold
+    for key in ["d", "n"] {
+        h.shortcut('w', false); // close: "Save changes?"
+        assert!(matches!(h.app.prompt, Some(Prompt::Unsaved(_))));
+        h.named(Named::Enter, Modifiers::empty()); // Save
+        assert!(
+            matches!(h.app.prompt, Some(Prompt::Lossy { .. })),
+            "{:?}",
+            h.app.prompt
+        );
+        press(&mut h, key);
+        assert!(h.app.prompt.is_none());
+        let s = h.app.d.session().expect("the script is still open");
+        assert!(s.dirty);
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), SCRIPT);
+        assert!(coldopen_core::journal::path_for(&p).exists());
+    }
+    h.app.d.discard();
+}
+
+/// Review finding F11: Mod+S replaced the file even when another program
+/// had changed it since it was opened. Now the writer is asked: overwrite,
+/// reload, or save as.
+#[test]
+fn saving_over_another_programs_changes_asks_first() {
+    const OUTSIDE: &str = "INT. LAB - NIGHT\n\nRain.\n\nAdded by a sync client.\n";
+    let read = |p: &Path| std::fs::read_to_string(p).unwrap();
+    for answer in ["o", "r", "a"] {
+        let home = tempfile::tempdir().unwrap();
+        let p = script(home.path());
+        let mine = home.path().join("mine.fountain");
+        let mut h = app(home.path(), Some(&p), Some(mine.clone()));
+        to_first_action(&mut h);
+        h.type_text(" Thunder.");
+        std::fs::write(&p, OUTSIDE).unwrap();
+        h.shortcut('s', false);
+        assert!(
+            matches!(h.app.prompt, Some(Prompt::Changed { .. })),
+            "{:?}",
+            h.app.prompt
+        );
+        assert_eq!(read(&p), OUTSIDE);
+        press(&mut h, answer);
+        assert!(h.app.prompt.is_none(), "{answer}");
+        let s = h.app.d.session().unwrap();
+        assert!(!s.dirty, "{answer}: {:?}", h.app.banners);
+        match answer {
+            "o" => assert_eq!(read(&p), SCRIPT.replace("Rain.", "Rain. Thunder.")),
+            "r" => {
+                assert_eq!(read(&p), OUTSIDE);
+                let texts: Vec<String> = s
+                    .doc
+                    .blocks
+                    .iter()
+                    .map(|b| b.element.text.plain_text())
+                    .collect();
+                assert_eq!(texts[2], "Added by a sync client.");
+                let kept = std::fs::read_dir(home.path())
+                    .unwrap()
+                    .filter_map(|e| e.ok())
+                    .any(|e| e.file_name().to_string_lossy().contains(".discarded-"));
+                assert!(kept, "the unsaved changes are kept aside");
+            }
+            _ => {
+                assert_eq!(read(&p), OUTSIDE);
+                assert!(read(&mine).contains("Rain. Thunder."));
+            }
+        }
+        h.app.d.shutdown();
+    }
 }
 
 #[test]
@@ -166,6 +255,80 @@ fn a_crash_is_recovered_with_a_dialog_and_discard_goes_back_to_the_file() {
         .any(|e| e.file_name().to_string_lossy().contains(".discarded-"));
     assert!(aside);
     h.app.d.shutdown();
+}
+
+/// Review finding F14: a save whose rename never reached the disk, as in
+/// a power cut, leaves the file at the old version and the journal's
+/// header at the saved one. The recovery dialog offers the saved version.
+#[test]
+fn a_save_lost_in_a_power_cut_is_offered_back() {
+    let home = tempfile::tempdir().unwrap();
+    let p = script(home.path());
+    {
+        let mut h = app(home.path(), Some(&p), None);
+        to_first_action(&mut h);
+        h.type_text(" Thunder.");
+        h.shortcut('s', false);
+        assert!(!h.app.d.session().unwrap().dirty, "{:?}", h.app.banners);
+        // Dropped without closing: a crash with nothing unsaved.
+    }
+    std::fs::write(&p, SCRIPT).unwrap();
+    let mut h = app(home.path(), Some(&p), None);
+    let r = h.app.recovery.clone().expect("the recovery dialog");
+    assert_eq!(r.commands, 0);
+    assert!(r.external_change && !r.never_saved);
+    assert_eq!(r.scenes, ["INT. LAB - NIGHT"]);
+    let s = h.app.d.session().unwrap();
+    assert!(s.dirty);
+    assert_eq!(s.doc.blocks[1].element.text.plain_text(), "Rain. Thunder.");
+    h.app.d.shutdown();
+}
+
+/// Review finding F16: a crash journal synced or committed from another
+/// computer was recovered without a word. The app now asks first.
+#[test]
+fn a_journal_from_another_computer_is_offered_first() {
+    for answer in ["s", "r"] {
+        let home = tempfile::tempdir().unwrap();
+        let p = script(home.path());
+        {
+            let mut h = app(home.path(), Some(&p), None);
+            to_first_action(&mut h);
+            h.type_text(" Thunder.");
+            // Dropped without closing: a crash.
+        }
+        let j = coldopen_core::journal::path_for(&p);
+        let text = std::fs::read_to_string(&j).unwrap();
+        let (head, rest) = text.split_once('\n').unwrap();
+        let mut header: serde_json::Value = serde_json::from_str(head).unwrap();
+        header["host"] = serde_json::json!("someone-elses-laptop");
+        std::fs::write(&j, format!("{header}\n{rest}")).unwrap();
+
+        let mut h = app(home.path(), Some(&p), None);
+        assert!(
+            matches!(h.app.prompt, Some(Prompt::Foreign { .. })),
+            "{:?} {:?}",
+            h.app.prompt,
+            h.app.banners
+        );
+        assert!(h.app.recovery.is_none());
+        press(&mut h, answer);
+        assert!(h.app.prompt.is_none());
+        let s = h.app.d.session().expect("the script is open");
+        let line = s.doc.blocks[1].element.text.plain_text();
+        if answer == "s" {
+            assert_eq!(line, "Rain.");
+            let kept = std::fs::read_dir(home.path())
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .any(|e| e.file_name().to_string_lossy().contains(".discarded-"));
+            assert!(kept);
+        } else {
+            assert_eq!(line, "Rain. Thunder.");
+            assert!(h.app.recovery.is_some(), "the recovery dialog follows");
+        }
+        h.app.d.discard();
+    }
 }
 
 #[test]

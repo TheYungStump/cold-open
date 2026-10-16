@@ -7,7 +7,9 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use coldopen_core::{BlockId, Command, Dispatcher, Durability, Options, PreparedSave};
+use coldopen_core::{
+    BlockId, Command, CommandError, Dispatcher, Durability, Options, PreparedSave,
+};
 use coldopen_screenplay::{ElementKind, Pt};
 use iced::keyboard::{self, Key, key::Named};
 use iced::widget::scrollable;
@@ -448,7 +450,39 @@ impl App {
     }
 
     pub fn open(&mut self, path: &Path) {
-        match self.run("doc.open", json!({ "path": path })) {
+        self.open_with(path, "auto");
+    }
+
+    /// Opens a script with `recover` (`auto`, `apply` or `discard`). A crash
+    /// journal written on another computer or for another folder is offered
+    /// first (docs/specs/journal.md, "Header").
+    pub(super) fn open_with(&mut self, path: &Path, recover: &str) {
+        let opened = Command::from_parts("doc.open", json!({ "path": path, "recover": recover }))
+            .map_err(CommandError::invalid_params)
+            .and_then(|cmd| self.d.execute(cmd));
+        let opened = match opened {
+            Err(e) if e.code == "journal_foreign" => {
+                let detail = |k: &str| {
+                    e.details
+                        .as_ref()
+                        .and_then(|d| d[k].as_str())
+                        .unwrap_or("unknown")
+                        .to_string()
+                };
+                self.prompt = Some(Prompt::Foreign {
+                    path: path.to_path_buf(),
+                    host: detail("host"),
+                    at: detail("path"),
+                });
+                return;
+            }
+            Err(e) => {
+                self.banners.push(e.message);
+                None
+            }
+            Ok(r) => Some(r),
+        };
+        match opened {
             Some(r) => {
                 for w in r["warnings"].as_array().into_iter().flatten() {
                     if let Some(m) = w["message"].as_str() {
@@ -1142,6 +1176,31 @@ impl App {
         let cmd = kp.modifiers.command();
         let enter = matches!(kp.key.as_ref(), Key::Named(Named::Enter));
         let esc = matches!(kp.key.as_ref(), Key::Named(Named::Escape));
+        if matches!(self.prompt, Some(Prompt::Foreign { .. })) {
+            return if enter || ch == "r" {
+                self.reply(Reply::Recover)
+            } else if ch == "s" {
+                self.reply(Reply::SetAside)
+            } else if esc || ch == "c" {
+                self.reply(Reply::Cancel)
+            } else {
+                Task::none()
+            };
+        }
+        if matches!(self.prompt, Some(Prompt::Changed { .. })) {
+            // Enter takes the choice that keeps both versions.
+            return if enter || ch == "a" {
+                self.reply(Reply::SaveAs)
+            } else if ch == "o" {
+                self.reply(Reply::Overwrite)
+            } else if ch == "r" {
+                self.reply(Reply::Reload)
+            } else if esc || ch == "c" {
+                self.reply(Reply::Cancel)
+            } else {
+                Task::none()
+            };
+        }
         if self.prompt.is_some() {
             return if enter || ch == "s" {
                 self.reply(Reply::Save)
@@ -1662,12 +1721,49 @@ impl App {
         self.action(&action)
     }
 
+    /// Commands that open, close, revert or save the script, given in the
+    /// palette's params form, go through the app's own flows: they ask
+    /// before losing work, keep recent files and agents in step, and never
+    /// leave an agent attached to a script it was not given (review finding
+    /// F7). `None` for any other command.
+    fn session_command(&mut self, name: &str, params: &Value) -> Option<Task<Message>> {
+        let path = params["path"].as_str().map(PathBuf::from);
+        let flag = |k: &str| params[k].as_bool().unwrap_or(false);
+        Some(match name {
+            "doc.open" => match path {
+                Some(p) => self.leave(After::OpenPath(p)),
+                None => {
+                    self.banners.push("doc.open needs a \"path\".".into());
+                    Task::none()
+                }
+            },
+            "doc.new" if path.is_some() => {
+                self.banners
+                    .push("A new script starts untitled; name it with Save as.".into());
+                Task::none()
+            }
+            "doc.new" => self.leave(After::New),
+            "doc.close" => self.leave(After::Close),
+            "doc.revert" => self.reload(),
+            "doc.save" => match path {
+                Some(p) => self.save_as(p, flag("allow_lossy"), flag("overwrite")),
+                None => self.save_with(flag("allow_lossy"), flag("overwrite")),
+            },
+            _ => return None,
+        })
+    }
+
     fn params_run(&mut self) -> Task<Message> {
         let Some((name, json)) = self.palette.as_ref().and_then(|p| p.params.clone()) else {
             return Task::none();
         };
         let response = match serde_json::from_str::<Value>(&json) {
             Ok(params) => {
+                if let Some(task) = self.session_command(&name, &params) {
+                    self.palette = None;
+                    self.focus = Focus::Page;
+                    return task;
+                }
                 let r = self.d.handle(&json!({ "command": name, "params": params }));
                 serde_json::to_string_pretty(&r).unwrap_or_default()
             }

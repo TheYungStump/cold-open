@@ -564,13 +564,19 @@ fn revert_reloads_and_keeps_the_journal_aside() {
         })
         .count();
     assert_eq!(aside, 1);
+    // The reread blocks get fresh ids, so an id from before the revert
+    // never names another block (review finding F12): "Rain." is b_4 now.
+    assert_eq!(
+        h.err("text.insert", json!({"id": "b_2", "at": 0, "text": "x"})),
+        "block_not_found"
+    );
     // The journal goes on: a crash now recovers new edits only.
-    h.type_str("b_2", 5, "!", 10);
+    h.type_str("b_4", 5, "!", 10);
     crash(h);
     let mut h2 = Harness::new();
     let r = h2.ok("doc.open", json!({"path": p}));
     assert_eq!(r["recovered"]["commands"], 1);
-    assert_eq!(h2.text("b_2"), "Rain.!");
+    assert_eq!(h2.text("b_4"), "Rain.!");
 
     let mut h3 = Harness::new();
     h3.ok("doc.new", json!({}));

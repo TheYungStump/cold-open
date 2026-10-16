@@ -5,10 +5,6 @@ use serde_json::{Value, json};
 
 use crate::command::{Class, Command};
 use crate::dispatcher::{Dispatcher, Options};
-use crate::document::Document;
-use crate::io::SourceStyle;
-use crate::journal;
-use crate::session::Session;
 
 /// Feeds each line of `data` to a dispatcher holding an untitled document.
 /// Every line must get exactly one well-formed response echoing its id.
@@ -64,36 +60,33 @@ fn reaches_disk(line: &str) -> bool {
         .is_ok_and(|cmd| matches!(cmd.class(), Class::Session | Class::Output))
 }
 
-/// Reads arbitrary bytes as a journal and replays what it can. Must never
-/// panic, and replay must stop cleanly at the first bad entry.
+/// Runs real recovery over arbitrary bytes as a journal, for a script that
+/// has no file and for one that does. It must never panic, and:
+/// - a recovered document keeps the id rules (review finding C7);
+/// - it is exactly what the trusted entries give: recovering only the bytes
+///   up to where they end yields the same document, with nothing left to
+///   distrust (review finding F9).
 pub fn journal_replay(data: &[u8]) -> Result<(), String> {
-    let Ok(read) = journal::read(data) else {
-        return Ok(());
-    };
-    // A hand-made header may claim ids it never handed out; replay must
-    // still not panic.
-    let doc: Document = read.header.doc;
-    let mut s = Session::new(doc, None, SourceStyle::default());
-    for e in &read.entries {
-        if e.saved_disk().is_some() {
+    let file = b"INT. HOUSE - DAY\n\nRain.\n";
+    for disk in [None, Some(&file[..])] {
+        let r = crate::dispatcher::recovery_check(data, disk);
+        let Some(doc) = &r.doc else {
             continue;
-        }
-        let Ok(cmd) = Command::from_parts(&e.command, e.params.clone()) else {
-            break;
         };
-        // Only edits and history are ever journaled (docs/specs/journal.md).
-        if !matches!(
-            cmd.class(),
-            crate::command::Class::Edit | crate::command::Class::History
-        ) {
-            break;
+        doc.check()
+            .map_err(|e| format!("a recovered document breaks the id rules: {e}"))?;
+        let cut = usize::try_from(r.valid_len)
+            .unwrap_or(usize::MAX)
+            .min(data.len());
+        let prefix = crate::dispatcher::recovery_check(&data[..cut], disk);
+        if prefix.doc.as_ref() != Some(doc) {
+            return Err("the recovered document is not what its trusted entries give".into());
         }
-        let ex = crate::session::Exec {
-            by: e.by.clone().unwrap_or_default(),
-            merge: crate::session::Merge::Recorded(e.merge),
-        };
-        if s.execute_with(&cmd, &ex).is_err() {
-            break;
+        if prefix.problem.is_some() {
+            return Err(format!(
+                "the trusted entries alone still have a problem: {:?}",
+                prefix.problem
+            ));
         }
     }
     Ok(())
@@ -102,6 +95,33 @@ pub fn journal_replay(data: &[u8]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Review finding F17.2: the journal check now runs real recovery, so it
+    /// sees what the old copy of replay could not, such as F9's diverged
+    /// entry (with the F9 fix taken out, this test fails).
+    #[test]
+    fn the_journal_check_runs_real_recovery() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("s.fountain");
+        std::fs::write(&p, "INT. HOUSE - DAY\n\nRain.\n").unwrap();
+        let mut d = Dispatcher::new(Options {
+            journal: true,
+            fsync: false,
+        });
+        d.handle(&json!({"command": "doc.open", "params": {"path": p}}));
+        for text in ["Line A.", "Line B."] {
+            d.handle(
+                &json!({"command": "block.insert", "params": {"type": "action", "text": text}}),
+            );
+        }
+        drop(d);
+        let journal = std::fs::read_to_string(crate::journal::path_for(&p)).unwrap();
+        assert_eq!(journal_replay(journal.as_bytes()), Ok(()));
+        // Entry 2 recorded an id replay will not give.
+        let diverged = journal.replace(r#""result":{"id":"b_4"}"#, r#""result":{"id":"b_99"}"#);
+        assert_ne!(diverged, journal);
+        assert_eq!(journal_replay(diverged.as_bytes()), Ok(()));
+    }
 
     /// `"export\u002epdf"` and `"doc\u002esave"` decode to file commands,
     /// although the raw lines contain neither `export.` nor `doc.`.
