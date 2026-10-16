@@ -37,6 +37,7 @@
 | `result` | The command's result, including assigned ids, so replay can confirm it reached the same state. Replay compares only part of it ("What replay compares", below). |
 | `by` | Optional (2026-10-15). The command's author, as in `docs/specs/commands.md` ("Authors and undo steps"). Absent means a writer. |
 | `merge` | Optional (2026-10-15). `true` when the command joined the undo step before it. Absent means false. |
+| `step` | `undo` and `redo` only, optional (2026-10-16). The step reversed: see "Undo and redo entries". |
 
 Only edits, `undo`, `redo` and `doc.saved` markers are written. Queries, output commands and session commands are not. Replay stops at any other entry, so a damaged or hand-made journal can never make recovery write files.
 
@@ -47,6 +48,13 @@ Only edits, `undo`, `redo` and `doc.saved` markers are written. Queries, output 
 ```
 
 Replay runs nothing for a marker. It only remembers the fingerprint, for `external_change` (recovery step 5). The marker is written before the file is replaced, so whether or not that save completed, the file on disk matches either the header's `disk` or a marker's.
+
+**Undo and redo entries** (2026-10-16). Replay must reverse exactly the step the writer reversed, so each `undo` or `redo` entry says which step that was:
+
+- `"step": 7`: the step made by entry 7 of this journal (a typing group is named by the entry that began it). Replay checks that the step on top of its rebuilt history is that one; if not, it stops there, as for any other divergence.
+- `"step": {"tx": [...], "command": "typing", "label": "Typing", "by": {...}}`: a step made before this journal's header, so not in the history replay rebuilds. This happens after a save, which starts the journal again while the undo history keeps every earlier step. The entry carries the step: `tx` lists the operations the undo or redo applied (`{"op": "insert" | "remove" | "replace" | "move", ...}`, as in `crates/core/src/ops.rs`), and `command`, `label` and `by` describe it. Replay applies `tx` and puts the step on the other stack, so later entries can name it by this entry's `seq`.
+
+A save also ends any typing group, so typing never joins a step across a journal restart. Entries without `step`, written before 2026-10-16, replay as before: the step on top is reversed, and its command name is compared.
 
 **What replay compares** (2026-10-16). A replayed result must reproduce only what later entries depend on:
 

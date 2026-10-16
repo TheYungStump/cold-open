@@ -13,6 +13,7 @@ use crate::author::Author;
 use crate::document::Document;
 use crate::flush::{Durability, FlushStatus, Flusher};
 use crate::io::{Fingerprint, open_rw};
+use crate::ops::Transaction;
 
 pub const FORMAT: &str = "coldopen";
 pub const VERSION: u32 = 1;
@@ -49,6 +50,29 @@ pub struct Entry {
     pub by: Option<Author>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub merge: bool,
+    /// `undo` and `redo` only (2026-10-16): the step they reverse.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<StepRef>,
+}
+
+/// Which step an `undo` or `redo` reversed (docs/specs/journal.md, "Undo
+/// and redo entries").
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum StepRef {
+    /// The seq of the entry, in this journal, that made the step.
+    Seq(u64),
+    /// A step made before this journal's header: replay cannot find it in
+    /// the history it rebuilds, so the entry carries it.
+    Before {
+        /// The operations the undo or redo applied.
+        tx: Transaction,
+        command: String,
+        label: String,
+        /// The step's author; absent means a writer.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by: Option<Author>,
+    },
 }
 
 fn is_false(b: &bool) -> bool {
@@ -252,6 +276,7 @@ impl Journal {
         result: &Value,
         by: &Author,
         merge: bool,
+        step: Option<StepRef>,
     ) -> io::Result<()> {
         let entry = Entry {
             seq: self.seq + 1,
@@ -263,6 +288,7 @@ impl Journal {
             result: result.clone(),
             by: (!by.is_writer()).then(|| by.clone()),
             merge,
+            step,
         };
         self.write_entry(&entry)
     }
@@ -280,6 +306,7 @@ impl Journal {
             result: serde_json::json!({}),
             by: None,
             merge: false,
+            step: None,
         };
         self.write_entry(&entry)
     }
@@ -458,6 +485,7 @@ mod tests {
                 &json!({}),
                 &Author::Writer,
                 false,
+                None,
             )
             .unwrap();
         }
@@ -517,10 +545,17 @@ mod tests {
         let (mut j, _) = Journal::open_locked(&p, Durability::OsOnly).ok().unwrap();
         j.start(&Document::default(), None).unwrap();
         let agent = Author::agent("claude-code", Some("text_insert".into()));
-        j.append("text.insert", json!({}), &json!({}), &agent, false)
+        j.append("text.insert", json!({}), &json!({}), &agent, false, None)
             .unwrap();
-        j.append("text.insert", json!({}), &json!({}), &Author::Writer, true)
-            .unwrap();
+        j.append(
+            "text.insert",
+            json!({}),
+            &json!({}),
+            &Author::Writer,
+            true,
+            None,
+        )
+        .unwrap();
         j.append_saved(Fingerprint::of(b"x")).unwrap();
         assert_eq!(j.entries(), 3);
         let bytes = j.contents().unwrap();
@@ -544,6 +579,7 @@ mod tests {
             &json!({}),
             &Author::Writer,
             false,
+            None,
         )
     }
 

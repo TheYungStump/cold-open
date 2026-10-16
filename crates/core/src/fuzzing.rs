@@ -91,6 +91,8 @@ pub fn journal_replay(data: &[u8]) -> Result<(), String> {
         let ex = crate::session::Exec {
             by: e.by.clone().unwrap_or_default(),
             merge: crate::session::Merge::Recorded(e.merge),
+            seq: Some(e.seq),
+            step: e.step.clone(),
         };
         if s.execute_with(&cmd, &ex).is_err() {
             break;

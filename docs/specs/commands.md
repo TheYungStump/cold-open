@@ -93,7 +93,7 @@ Each undo step has a **label** for menus and history:
 
 1. That step holds only `text.insert` commands by the same writer, in the same block.
 2. The new text starts exactly where the step's last insert ended.
-3. No other command has been applied, undone or redone in between.
+3. No other command has been applied, undone or redone in between, and the document has not been saved in between (2026-10-16).
 4. Less than 1.5 s passed since that last insert, by the dispatcher's monotonic clock.
 
 A `text.delete` joins a step of `text.delete` commands by the same writer in the same block in the same way, when it continues a backspace run (its `to` is the last delete's `from`) or a forward-delete run (its `from` is the last delete's `from`).

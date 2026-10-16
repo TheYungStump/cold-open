@@ -589,3 +589,129 @@ fn f9_a_diverged_entry_leaves_no_trace_in_the_recovered_document() {
 fn text_of(d: &mut Dispatcher) -> String {
     text(d)
 }
+
+/// Review finding C1 (and Antigravity's 1): a save restarts the journal,
+/// but the undo history keeps the steps from before it. Undoing one of
+/// them after the save was journaled as a bare `undo`, which replay could
+/// not repeat (`nothing_to_undo`), so everything after it was lost.
+#[test]
+fn c1_undo_and_redo_across_a_save_survive_a_crash() {
+    let w = Author::Writer;
+    // Codex's steps: set text, save, undo, type, crash.
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("o.fountain");
+    fs::write(&p, "Original.\n").unwrap();
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &w, "doc.open", json!({"path": p}));
+    ok(
+        &mut d,
+        &w,
+        "block.set_text",
+        json!({"id": "b_1", "text": "Saved."}),
+    );
+    ok(&mut d, &w, "doc.save", json!({}));
+    ok(&mut d, &w, "undo", json!({}));
+    ok(
+        &mut d,
+        &w,
+        "text.insert",
+        json!({"id": "b_1", "at": 9, "text": " New work."}),
+    );
+    let live = text(&mut d);
+    assert_eq!(live, "Original. New work.\n");
+    drop(d);
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, &w, "doc.open", json!({"path": p}));
+    assert_eq!(r["warnings"], json!([]), "{r}");
+    assert_eq!(r["recovered"]["commands"], 2, "{r}");
+    assert_eq!(text(&mut d), live);
+    // The step came back into the history with it: redo works.
+    ok(&mut d, &w, "undo", json!({}));
+    ok(&mut d, &w, "redo", json!({}));
+    assert_eq!(text(&mut d), live);
+    d.discard();
+
+    // Redo across a save, and typing on both sides of it.
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("r.fountain");
+    fs::write(&p, "One.\n").unwrap();
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &w, "doc.open", json!({"path": p}));
+    ok(
+        &mut d,
+        &w,
+        "block.insert",
+        json!({"type": "action", "text": "Two."}),
+    );
+    ok(&mut d, &w, "undo", json!({}));
+    ok(
+        &mut d,
+        &w,
+        "text.insert",
+        json!({"id": "b_1", "at": 4, "text": " a"}),
+    );
+    ok(
+        &mut d,
+        &w,
+        "text.insert",
+        json!({"id": "b_1", "at": 6, "text": "b"}),
+    );
+    ok(&mut d, &w, "doc.save", json!({}));
+    ok(
+        &mut d,
+        &w,
+        "text.insert",
+        json!({"id": "b_1", "at": 7, "text": "c"}),
+    );
+    ok(&mut d, &w, "undo", json!({})); // the "c" typed after the save
+    ok(&mut d, &w, "undo", json!({})); // " ab", from before it
+    ok(&mut d, &w, "redo", json!({}));
+    // Undone again, so the document differs from the saved file and there
+    // is something to recover.
+    ok(&mut d, &w, "undo", json!({}));
+    let live = text(&mut d);
+    assert_eq!(live, "One.\n");
+    drop(d);
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, &w, "doc.open", json!({"path": p}));
+    assert_eq!(r["warnings"], json!([]), "{r}");
+    assert_eq!(text(&mut d), live);
+    // Both steps can be redone: the one from before the save, then the
+    // one typed after it.
+    ok(&mut d, &w, "redo", json!({}));
+    assert_eq!(text(&mut d), "One. ab\n");
+    ok(&mut d, &w, "redo", json!({}));
+    assert_eq!(text(&mut d), "One. abc\n");
+    d.discard();
+}
+
+/// Review finding F16, first part: an undo entry used to say only "undo",
+/// so if the rebuilt history ever differed (a change in how steps group),
+/// replay would silently reverse some other step. Each entry now names
+/// the step, and a mismatch stops replay instead.
+#[test]
+fn f16_an_undo_of_a_different_step_is_caught() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("s.fountain");
+    fs::write(&p, SCRIPT).unwrap();
+    let w = Author::Writer;
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &w, "doc.open", json!({"path": p}));
+    ok(&mut d, &w, "block.insert", json!({"type": "action", "text": "Line A."}));
+    ok(&mut d, &w, "block.insert", json!({"type": "action", "text": "Line B."}));
+    ok(&mut d, &w, "undo", json!({}));
+    drop(d);
+    let j = journal::path_for(&p);
+    let text_j = fs::read_to_string(&j).unwrap();
+    assert_eq!(text_j.matches(r#","step":2}"#).count(), 1, "{text_j}");
+    fs::write(&j, text_j.replace(r#","step":2}"#, r#","step":1}"#)).unwrap();
+
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, &w, "doc.open", json!({"path": p}));
+    assert_eq!(r["recovered"]["commands"], 2, "{r}");
+    let warning = r["warnings"][0]["message"].as_str().unwrap();
+    assert!(warning.contains("different step") && warning.contains(".diverged-"), "{warning}");
+    let t = text(&mut d);
+    assert!(t.contains("Line A.") && t.contains("Line B."), "{t}");
+    d.discard();
+}

@@ -15,7 +15,7 @@ use crate::command::{
 use crate::document::{Block, BlockId, Document, word_count};
 use crate::error::CommandError;
 use crate::io::{Fingerprint, SourceStyle};
-use crate::journal::Journal;
+use crate::journal::{Journal, StepRef};
 use crate::ops::{Op, Transaction};
 use crate::replace::{find_in, replace_in, replace_one};
 use crate::view::View;
@@ -30,13 +30,18 @@ pub const GROUP_MS: u64 = 1500;
 pub struct Exec {
     pub by: Author,
     pub merge: Merge,
+    /// Replaying a journal: the entry's `seq`, which names the step it
+    /// makes.
+    pub seq: Option<u64>,
+    /// Replaying an `undo` or `redo`: the step the entry says it reversed.
+    pub step: Option<StepRef>,
 }
 
 impl Exec {
     pub fn by(by: Author) -> Exec {
         Exec {
             by,
-            merge: Merge::Auto,
+            ..Exec::default()
         }
     }
 }
@@ -78,6 +83,10 @@ struct Step {
     by: Author,
     tx: Transaction,
     group: Option<Group>,
+    /// The seq of the journal entry that made the step, while that entry
+    /// is in the journal; `None` for a step made before the journal last
+    /// started again (docs/specs/journal.md, "Undo and redo entries").
+    origin: Option<u64>,
 }
 
 /// Hands out session ids, unique in the process.
@@ -430,7 +439,8 @@ impl Session {
         };
         let now = self.clock.now_ms();
         let merge = self.should_merge(cmd, ex, now, &inverse);
-        if let Err(e) = self.journal_append(cmd.name(), cmd.params(), &result, &ex.by, merge) {
+        if let Err(e) = self.journal_append(cmd.name(), cmd.params(), &result, &ex.by, merge, None)
+        {
             inverse.apply(&mut self.doc);
             self.doc.next_id = next_id;
             return Err(e);
@@ -440,6 +450,7 @@ impl Session {
         } else {
             None
         };
+        let origin = self.journaled_seq().or(ex.seq);
         match self.undo.last_mut() {
             Some(top) if merge => {
                 // The step already restores the block as it was before the
@@ -453,6 +464,7 @@ impl Session {
                 by: ex.by.clone(),
                 tx: inverse,
                 group,
+                origin,
             }),
         }
         self.redo.clear();
@@ -576,6 +588,31 @@ impl Session {
 
     fn history(&mut self, cmd: &Command, ex: &Exec) -> Result<Value, CommandError> {
         let is_undo = matches!(cmd, Command::Undo(_));
+        let key = if is_undo { "undone" } else { "redone" };
+        // Replaying an undo or redo of a step made before the journal's
+        // header: the rebuilt history cannot hold that step, so the entry
+        // carries it (review finding C1).
+        if let Some(StepRef::Before {
+            tx,
+            command,
+            label,
+            by,
+        }) = &ex.step
+        {
+            let reverse = tx.clone().apply(&mut self.doc);
+            self.push_reversed(
+                is_undo,
+                Step {
+                    command: command.clone(),
+                    label: label.clone(),
+                    by: by.clone().unwrap_or_default(),
+                    tx: reverse,
+                    group: None,
+                    origin: ex.seq,
+                },
+            );
+            return Ok(json!({ key: command, "label": label }));
+        }
         let stack = if is_undo { &self.undo } else { &self.redo };
         let Some(top) = stack.last() else {
             return Err(if is_undo {
@@ -584,6 +621,14 @@ impl Session {
                 CommandError::new("nothing_to_redo", "there is nothing to redo")
             });
         };
+        if let Some(StepRef::Seq(seq)) = &ex.step
+            && top.origin != Some(*seq)
+        {
+            return Err(CommandError::new(
+                "diverged",
+                format!("replay reached a different step than the one entry {seq} made"),
+            ));
+        }
         if !ex.by.is_writer() && !top.by.same_actor(&ex.by) {
             return Err(CommandError::new(
                 "not_your_step",
@@ -607,14 +652,39 @@ impl Session {
                 "history changed underneath",
             ));
         };
-        let reverse = step.tx.apply(&mut self.doc);
-        let key = if is_undo { "undone" } else { "redone" };
-        let result = json!({ key: step.command, "label": step.label });
-        if let Err(e) = self.journal_append(cmd.name(), cmd.params(), &result, &ex.by, false) {
+        // The entry names the step, or carries it when it was made before
+        // the journal last started again (docs/specs/journal.md, "Undo and
+        // redo entries").
+        let step_ref = match step.origin {
+            Some(seq) => Some(StepRef::Seq(seq)),
+            None => self.journal.is_some().then(|| StepRef::Before {
+                tx: step.tx.clone(),
+                command: step.command.clone(),
+                label: step.label.clone(),
+                by: (!step.by.is_writer()).then(|| step.by.clone()),
+            }),
+        };
+        let Step {
+            command,
+            label,
+            by,
+            tx,
+            group,
+            origin,
+        } = step;
+        let reverse = tx.apply(&mut self.doc);
+        let result = json!({ key: command, "label": label });
+        if let Err(e) =
+            self.journal_append(cmd.name(), cmd.params(), &result, &ex.by, false, step_ref)
+        {
             let restore = reverse.apply(&mut self.doc);
             let back = Step {
+                command,
+                label,
+                by,
                 tx: restore,
-                ..step
+                group,
+                origin,
             };
             if is_undo {
                 self.undo.push(back);
@@ -623,15 +693,29 @@ impl Session {
             }
             return Err(e);
         }
-        let back = Step {
-            tx: reverse,
-            group: None,
-            ..step
-        };
+        // A step from before the header enters the journal at this entry.
+        let origin = origin.or_else(|| self.journaled_seq()).or(ex.seq);
+        self.push_reversed(
+            is_undo,
+            Step {
+                command,
+                label,
+                by,
+                tx: reverse,
+                group: None,
+                origin,
+            },
+        );
+        Ok(result)
+    }
+
+    /// Puts a step that was just undone on the redo stack, or a redone one
+    /// on the undo stack.
+    fn push_reversed(&mut self, is_undo: bool, step: Step) {
         if is_undo {
-            self.redo.push(back);
+            self.redo.push(step);
         } else {
-            self.undo.push(back);
+            self.undo.push(step);
         }
         // Undo and redo end any typing group: the next keystroke starts a
         // new step.
@@ -640,7 +724,27 @@ impl Session {
         }
         self.dirty = true;
         self.rev += 1;
-        Ok(result)
+    }
+
+    /// The seq of the entry last written to the journal, if there is one.
+    fn journaled_seq(&self) -> Option<u64> {
+        self.journal
+            .as_ref()
+            .map(Journal::entries)
+            .filter(|&n| n > 0)
+    }
+
+    /// Called when the journal starts again from the current document
+    /// (after a save): the entries that made the steps in the history are
+    /// gone, so an undo or redo of one must carry the step itself, and a
+    /// typing burst never joins a step across the restart.
+    pub fn journal_restarted(&mut self) {
+        for s in self.undo.iter_mut().chain(self.redo.iter_mut()) {
+            s.origin = None;
+        }
+        if let Some(top) = self.undo.last_mut() {
+            top.group = None;
+        }
     }
 
     fn journal_append(
@@ -650,16 +754,18 @@ impl Session {
         result: &Value,
         by: &Author,
         merge: bool,
+        step: Option<StepRef>,
     ) -> Result<(), CommandError> {
         if let Some(j) = &mut self.journal {
-            j.append(name, params, result, by, merge).map_err(|e| {
-                CommandError::new(
-                    "journal_error",
-                    format!(
-                        "the crash journal could not be written, so the change was undone: {e}"
-                    ),
-                )
-            })?;
+            j.append(name, params, result, by, merge, step)
+                .map_err(|e| {
+                    CommandError::new(
+                        "journal_error",
+                        format!(
+                            "the crash journal could not be written, so the change was undone: {e}"
+                        ),
+                    )
+                })?;
         }
         Ok(())
     }

@@ -90,7 +90,7 @@ struct Replayed {
 impl Replayed {
     /// What a copy of a journal that replay stopped early is called.
     fn aside_tag(msg: &str) -> &'static str {
-        if msg.contains("different result") {
+        if msg.contains("different result") || msg.contains("different step") {
             "diverged"
         } else {
             "corrupt"
@@ -546,6 +546,8 @@ impl Dispatcher {
             let ex = Exec {
                 by: entry.by.clone().unwrap_or_default(),
                 merge: Merge::Recorded(entry.merge),
+                seq: Some(entry.seq),
+                step: entry.step.clone(),
             };
             let outcome = Command::from_parts(&entry.command, entry.params.clone())
                 .map_err(|e| format!("entry {} cannot be read as a command: {e}", entry.seq))
@@ -769,6 +771,7 @@ impl Dispatcher {
                 let _ = old.delete();
             }
         }
+        session.journal_restarted();
         session.path = Some(target.clone());
         session.dirty = false;
         session.recovered = None;
@@ -924,6 +927,7 @@ impl Dispatcher {
                 j.start(&session.doc, Some(prepared.fingerprint))
                     .map_err(|e| CommandError::io(j.path(), &e))?;
             }
+            session.journal_restarted();
             session.dirty = false;
             session.recovered = None;
         } else if let Some(j) = &session.journal {
