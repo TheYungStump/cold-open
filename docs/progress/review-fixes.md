@@ -43,6 +43,10 @@ Each finding gets a test made from the reviewer's reproduction. The test is run 
 | — | A4: D or N on the lossy-save question discards the script | rejected: both keys only cancel | `app/tests/file_flows.rs` `d_or_n_on_the_lossy_save_question_cancels` (passes on unchanged code) | |
 | — | Grok: header size; flusher's cloned handle | flusher assumption documented in `journal.md` | | |
 
+## Checks per group
+
+- **Group 1** (2026-10-16, Windows 11): `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` (no failures), and clippy for `x86_64-unknown-linux-gnu` and `aarch64-apple-darwin` on core, cli, mcp and link. The reviewers' CLI reproductions, rerun against the release binary: F1, `run --doc` with a query leaves the journal in place and the next open recovers the line; F2, save-as onto a script held by another `serve` returns `doc_locked` with the target unchanged, and onto a crashed script returns `unsaved_changes` with its journal intact; F5, a second `doc.new` returns `already_exists` and the 284-byte journal is untouched. CI: see the branch's runs.
+
 ## Decisions
 
 1. Each finding is its own commit: spec, test and fix together. The branch is pushed after each group.
