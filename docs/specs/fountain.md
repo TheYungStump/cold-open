@@ -249,6 +249,17 @@ The writer's output for a script `s` reads back as `s` exactly when `s` is in **
 
 Every script the parser produces is in normal form. The property tests generate only normal-form scripts.
 
+**Normalisation is not reported as a loss** (noted 2026-10-16, review finding F21 and Antigravity's 12; for phase 5). A document held in memory need not be in normal form: commands can put text in it that the normal form changes. Writing it then changes the document without listing a loss, because none of these changes what prints:
+- leading and trailing spaces on dialogue and other non-action lines, and trailing spaces on action lines;
+- an action holding only spaces, which becomes empty;
+- an action beginning with blank lines, which lose them, and one with several blank lines inside, which splits into elements with `space_before`;
+- two adjacent dialogue elements, which join into one;
+- a dialogue line `=== ` that keeps only `===`;
+- a note at the start of an action line, followed by a line break, which loses the break;
+- trailing blank lines in the last action of the script, which are dropped (in any other action they become the next element's `space_before`).
+
+It matters more in phase 5, where script diff and tracked changes compare documents block by block: "one block became two" or "a trailing space vanished" would show as a change nobody made. Phase 5 should either report these as a `normalized` loss class that never blocks a save, or have the `block.*` and `text.*` commands normalise as they apply, so the document never holds what the file cannot. Until then the recovery check ("Nothing to recover?" in `docs/specs/journal.md`) relies on the file's fingerprint first, so a file outside normal form is not taken for a change.
+
 **Source map** (2026-10-15, for the desktop editor). Layout runs on the normal form (`docs/specs/layout.md` §4.8), but the editor places its caret in the document's own elements, so it needs to know where each piece of normal-form text came from. `normalize_with_source_map` returns the normal form and, for each of its elements:
 - the index of the source element it starts in;
 - a list of **segments**. Each segment is a byte range of the element's printed text, together with the source element and byte offset in that element's printed text that the range was copied from.
