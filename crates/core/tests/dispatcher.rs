@@ -768,3 +768,63 @@ fn replay_stops_at_entries_that_are_not_edits() {
     assert!(texts.iter().any(|t| t == "action:Kept."));
     assert!(!texts.iter().any(|t| t == "action:Lost."));
 }
+
+/// A hand-made journal for a script that was never saved: a header with
+/// one block and `next_id`, then one insert recorded with `id`.
+fn hand_made_journal(dir: &Path, blocks: &str, next_id: &str, id: &str) -> PathBuf {
+    let p = dir.join("never-saved.fountain");
+    let header = format!(
+        r#"{{"journal":"coldopen","v":1,"app":"0.1.0","doc":{{"title_page":{{"fields":[]}},"blocks":{blocks},"next_id":{next_id}}},"disk":null}}"#
+    );
+    let entry = format!(
+        r#"{{"seq":1,"t":1,"command":"block.insert","params":{{"type":"action","text":"Two."}},"result":{{"id":"{id}"}}}}"#
+    );
+    fs::write(journal::path_for(&p), format!("{header}\n{entry}\n")).unwrap();
+    p
+}
+
+/// Review finding C7: a journal header was accepted without checking its
+/// ids. One whose `next_id` was already in use gave two blocks with the
+/// same id; one with the largest `next_id` panicked on the next insert.
+#[test]
+fn a_journal_header_with_bad_ids_is_set_aside_not_trusted() {
+    for (blocks, next_id, id) in [
+        (
+            r#"[{"id":"b_1","type":"action","text":"One."}]"#,
+            "1",
+            "b_1",
+        ),
+        (
+            r#"[{"id":"b_1","type":"action","text":"One."}]"#,
+            "18446744073709551615",
+            "b_18446744073709551615",
+        ),
+        (
+            r#"[{"id":"b_2","type":"action","text":"One."},{"id":"b_2","type":"action","text":"Again."}]"#,
+            "3",
+            "b_3",
+        ),
+        (
+            r#"[{"id":"b_1","type":"page_break","text":"Words."}]"#,
+            "2",
+            "b_2",
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let p = hand_made_journal(dir.path(), blocks, next_id, id);
+        let mut h = Harness::new();
+        let r = h.ok("doc.open", json!({"path": p}));
+        assert_eq!(r["warnings"][0]["code"], "journal_unreadable", "{r}");
+        let ids: Vec<Value> = h
+            .blocks()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| b["id"].clone())
+            .collect();
+        let mut unique = ids.clone();
+        unique.dedup();
+        assert_eq!(ids, unique, "{ids:?}");
+        h.d.discard();
+    }
+}

@@ -363,8 +363,9 @@ impl Dispatcher {
             next_id: 1,
             ..Default::default()
         };
-        if let Some(kind) = p.start {
-            let id = doc.allocate_id();
+        if let Some(kind) = p.start
+            && let Some(id) = doc.allocate_id()
+        {
             doc.blocks.push(crate::document::Block {
                 id,
                 element: coldopen_screenplay::Element::new(kind, ""),

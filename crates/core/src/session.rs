@@ -128,6 +128,14 @@ pub struct Session {
     view: Option<View>,
 }
 
+/// Every block id has been handed out (only a damaged document gets here).
+fn ids_used_up() -> CommandError {
+    CommandError::new(
+        "internal_error",
+        "this document has used every block id; save it and open it again",
+    )
+}
+
 fn range_error(e: RangeError) -> CommandError {
     CommandError::new("invalid_range", e.message).with_details(json!({ "len": e.len }))
 }
@@ -722,7 +730,7 @@ impl Session {
             (None, Some(b)) => self.index(b)?,
             (None, None) => self.doc.blocks.len(),
         };
-        let id = self.doc.allocate_id();
+        let id = self.doc.allocate_id().ok_or_else(ids_used_up)?;
         Ok((
             Transaction(vec![Op::Insert {
                 index,
@@ -966,7 +974,7 @@ impl Session {
         Self::check(&first)?;
         Self::check(&second)?;
         let mut ops = self.replace_op(index, first).0;
-        let id = self.doc.allocate_id();
+        let id = self.doc.allocate_id().ok_or_else(ids_used_up)?;
         ops.push(Op::Insert {
             index: index + 1,
             block: Block {

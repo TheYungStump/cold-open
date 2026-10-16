@@ -147,11 +147,41 @@ impl Document {
         self.blocks.iter().find(|b| b.id == id)
     }
 
-    /// Hands out a fresh id.
-    pub fn allocate_id(&mut self) -> BlockId {
+    /// Hands out a fresh id, or `None` when every id has been used.
+    pub fn allocate_id(&mut self) -> Option<BlockId> {
         let id = BlockId(self.next_id);
-        self.next_id += 1;
-        id
+        self.next_id = self.next_id.checked_add(1)?;
+        Some(id)
+    }
+
+    /// Checks what a document read from outside (a journal header) must
+    /// hold before anything trusts it: ids are unique and below `next_id`,
+    /// and every block keeps the model rules.
+    pub fn check(&self) -> Result<(), String> {
+        if self.next_id == u64::MAX {
+            return Err("next_id leaves no id to hand out".into());
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        for b in &self.blocks {
+            if !seen.insert(b.id) {
+                return Err(format!("the id {} is used twice", b.id));
+            }
+            if b.id.0 >= self.next_id {
+                return Err(format!(
+                    "the id {} is not below next_id {}",
+                    b.id, self.next_id
+                ));
+            }
+            let problems = b.element.problems();
+            if !problems.is_empty() {
+                return Err(format!(
+                    "block {} breaks a model rule: {}",
+                    b.id,
+                    problems.join("; ")
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Scenes in order. A scene runs from its heading to the next heading
@@ -194,6 +224,20 @@ pub fn word_count(e: &Element) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Review finding C7: allocation added without checking, so a huge
+    /// `next_id` overflowed (a panic in debug builds).
+    #[test]
+    fn allocation_never_overflows() {
+        let mut doc = Document {
+            next_id: u64::MAX - 1,
+            ..Default::default()
+        };
+        assert_eq!(doc.allocate_id(), Some(BlockId(u64::MAX - 1)));
+        assert_eq!(doc.allocate_id(), None);
+        assert_eq!(doc.next_id, u64::MAX);
+        assert!(doc.check().is_err());
+    }
 
     fn doc(kinds: &[ElementKind]) -> Document {
         Document::from_script(Script {

@@ -25,7 +25,7 @@ Each finding gets a test made from the reviewer's reproduction. The test is run 
 | 3 | C1: save, undo, type, crash: recovery fails with `nothing_to_undo` | to do | | |
 | 3 | F8 / C6: replay demands byte-equal results | fixed. Before: the real phase 1 and 2 journals stopped at their first undo ("entry 4 gave a different result on replay") | `core/tests/old_journals.rs`; `core/src/dispatcher.rs` `replay_compares_only_ids_and_undo_targets` | "Replay compares only ids and undo targets; old-phase journals as fixtures" |
 | 3 | F9: a diverged entry stays in the recovered document | fixed. Before: "recovered 1 of the journal's changes", yet the document held Line B, which the cut journal could not rebuild | `core/tests/no_lost_work.rs` `f9_a_diverged_entry_leaves_no_trace_in_the_recovered_document` | "A diverged entry leaves no trace in the recovered document" |
-| 3 | C7: journal headers are not validated | to do | | |
+| 3 | C7: journal headers are not validated | fixed. Before: a header whose `next_id` was in use opened with two blocks named `b_1` and no warning | `core/tests/dispatcher.rs` `a_journal_header_with_bad_ids_is_set_aside_not_trusted`; `core/src/document.rs` `allocation_never_overflows` | "Check journal headers before trusting them; allocate ids with a check" |
 | 3 | F16: undo targets, resolved params, `semantics`, foreign journals | to do | | |
 | 3 | F17.3: journals from earlier phases as fixtures | done: written by the real phase 1, 2 and 3 builds (`tests/fixtures/journal/`) | `core/tests/old_journals.rs` | same commit as F8 |
 | 4 | F7: the palette runs session commands past the app's flows | to do | | |

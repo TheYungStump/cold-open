@@ -132,7 +132,7 @@ A refused save writes nothing: the target's file and journal are exactly as they
 
 When `doc.open` finds a journal for the file:
 
-1. **Lock the journal.** If the header cannot be read, copy the journal to `<journal>.corrupt-<ms>` (never delete it), warn, and start a fresh journal from the file.
+1. **Lock the journal.** If the header cannot be read, copy the journal to `<journal>.corrupt-<ms>` (never delete it), warn, and start a fresh journal from the file. A header that reads but holds a damaged document is treated the same way (2026-10-16): two blocks with one id, an id not below `next_id`, a `next_id` that leaves no id to hand out, or a block that breaks a model rule. Ids are handed out with an overflow check, so even a document that slips past cannot panic.
 2. **Replay.** Start from `doc` and replay the entries in order.
    - A final line with no `\n` is a write torn by the crash. It is ignored and cut off; it was never acknowledged.
    - A complete line that does not parse, or a `seq` out of order, stops replay at that point. The journal is copied aside, and a warning names how many entries were recovered.

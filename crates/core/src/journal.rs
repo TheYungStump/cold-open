@@ -401,6 +401,12 @@ pub fn read(contents: &[u8]) -> Result<ReadBack, String> {
             header.journal, header.v
         ));
     }
+    // A damaged or hand-made header must never put two blocks under one id
+    // or run out of ids mid-replay (review finding C7).
+    header
+        .doc
+        .check()
+        .map_err(|e| format!("the journal header is damaged: {e}"))?;
     let mut entries = Vec::new();
     let mut entry_ends = Vec::new();
     let mut valid_len = h1 as u64;
