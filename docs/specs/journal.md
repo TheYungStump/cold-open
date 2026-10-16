@@ -98,6 +98,12 @@ The two possible crash points are both safe:
 
 Every crash point is safe. The journal always holds the last saved base plus every later edit, so replay reaches the latest acknowledged state. The file is either the old version or the new one, each named by the header or a marker. "Save as" to a new path is done in one step, as before, because a file dialog has just paused the writer anyway.
 
+**One save at a time** (2026-10-16). If a second save could run while a prepared one is being written, the older write could land last, and the commit of either could mark newer edits as saved. So:
+
+- From prepare to commit, the save holds the session's only save token, numbered among that session's saves. Every other save of that session, `doc.save` (in place or "save as") or another prepare, fails with `save_in_progress` and changes nothing. The error is retryable. The app's own Mod+S during a save waits and saves again after it; an agent's `doc_save` gets the error and tries again.
+- The commit ends the save, whatever the outcome, so a failed write never leaves the token held.
+- A commit applies only to the session it was prepared for, and only for the token it holds. If that session was closed, reopened or reverted meanwhile, the commit changes nothing and reports `save_superseded`: the file was written, with the version saved then. The session open now keeps its own unsaved state.
+
 **"Save as" to another path** (2026-10-16). The target may be open in another Cold Open process, or its last session may have crashed and left unsaved work in its journal. So before anything is written:
 
 1. The target's journal is locked. If another process holds it, the save fails with `doc_locked`.

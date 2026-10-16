@@ -54,6 +54,10 @@ pub struct PreparedSave {
     losses: Vec<Value>,
     rev: u64,
     fingerprint: Fingerprint,
+    /// The session it was prepared for, and its number among that
+    /// session's saves: only that session's outstanding save may commit.
+    session: u64,
+    number: u64,
 }
 
 /// What opening a document would make of its crash journal, worked out
@@ -655,6 +659,7 @@ impl Dispatcher {
             .session
             .as_ref()
             .ok_or_else(CommandError::no_document)?;
+        refuse_while_saving(session)?;
         let Rendered {
             target,
             format,
@@ -779,6 +784,7 @@ impl Dispatcher {
                 "this document has no file yet; give a path",
             ));
         }
+        refuse_while_saving(session)?;
         let r = Self::render(session, p)?;
         let fingerprint = Fingerprint::of(&r.bytes);
         // A broken journal protects nothing, so it gets no marker; the
@@ -794,6 +800,8 @@ impl Dispatcher {
             })?;
             j.flush_now();
         }
+        session.saves += 1;
+        session.saving = Some(session.saves);
         Ok(PreparedSave {
             target: r.target,
             bytes: r.bytes,
@@ -801,33 +809,44 @@ impl Dispatcher {
             losses: r.losses,
             rev: session.rev,
             fingerprint,
+            session: session.id(),
+            number: session.saves,
         })
     }
 
-    /// Step 3 of a save in place: records how the write went. If nothing
-    /// was edited since [`Dispatcher::save_prepare`], the journal starts
-    /// again from the saved document; otherwise it keeps every edit and the
-    /// document stays unsaved.
+    /// Step 3 of a save in place: records how the write went, which ends
+    /// the save. If nothing was edited since [`Dispatcher::save_prepare`],
+    /// the journal starts again from the saved document; otherwise it keeps
+    /// every edit and the document stays unsaved. A save prepared for a
+    /// session that has since been closed, reopened or reverted commits
+    /// nothing (`save_superseded`).
     pub fn save_commit(
         &mut self,
         prepared: PreparedSave,
         written: std::io::Result<()>,
     ) -> Result<Value, CommandError> {
-        written.map_err(|e| CommandError::io(&prepared.target, &e))?;
         let session = self
             .session
             .as_mut()
-            .ok_or_else(CommandError::no_document)?;
-        let same = session
-            .path
-            .as_ref()
-            .is_some_and(|own| same_path(own, &prepared.target));
-        if !same {
-            return Err(CommandError::new(
-                "no_document",
-                "the document was closed or renamed while it was being saved; the file was written",
-            ));
-        }
+            .filter(|s| s.id() == prepared.session && s.saving == Some(prepared.number));
+        let Some(session) = session else {
+            let name = prepared.target.file_name().map_or_else(
+                || prepared.target.display().to_string(),
+                |n| n.to_string_lossy().into_owned(),
+            );
+            return Err(match written {
+                Ok(()) => CommandError::new(
+                    "save_superseded",
+                    format!(
+                        "a save of {name} started before the script was closed or reopened has finished; the file holds the version saved then"
+                    ),
+                ),
+                Err(e) => CommandError::io(&prepared.target, &e),
+            }
+            .with_details(json!({ "path": prepared.target.display().to_string() })));
+        };
+        session.saving = None;
+        written.map_err(|e| CommandError::io(&prepared.target, &e))?;
         let current = session.rev == prepared.rev;
         if current {
             if let Some(j) = &mut session.journal {
@@ -1159,6 +1178,19 @@ fn unsupported(path: &Path) -> CommandError {
             path.display()
         ),
     )
+}
+
+/// One save at a time: while a save prepared off the UI thread is being
+/// written, every other save fails, so an older write can never land after
+/// a newer one (docs/specs/journal.md, "Saving off the UI thread").
+fn refuse_while_saving(session: &Session) -> Result<(), CommandError> {
+    if session.saving.is_some() {
+        return Err(CommandError::new(
+            "save_in_progress",
+            "the script is being saved; try again when that save has finished",
+        ));
+    }
+    Ok(())
 }
 
 /// Whether opening `path` would recover work from its crash journal,

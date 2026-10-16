@@ -2,6 +2,7 @@
 //! undo/redo run here; opening and saving live in the dispatcher.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use coldopen_screenplay::{ElementKind, RangeError, RichText, StyleChange, TextRepr};
 use serde_json::{Value, json};
@@ -79,6 +80,9 @@ struct Step {
     group: Option<Group>,
 }
 
+/// Hands out session ids, unique in the process.
+static SESSIONS: AtomicU64 = AtomicU64::new(1);
+
 /// Unsaved work that `doc.open` brought back from a crash journal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Recovered {
@@ -101,6 +105,15 @@ pub struct Session {
     /// Set while the document holds work recovered from a crash journal
     /// that has not been saved since.
     pub recovered: Option<Recovered>,
+    /// Unique in the process, so a save prepared for one session can tell
+    /// it is not committing into another (docs/specs/journal.md, "Saving
+    /// off the UI thread").
+    id: u64,
+    /// Saves prepared so far; each prepared save carries its number.
+    pub(crate) saves: u64,
+    /// The number of the prepared save being written, if one is. While it
+    /// is set, no other save may start.
+    pub(crate) saving: Option<u64>,
     /// Edits, undos, redos and reverts applied since the document was
     /// opened or created. Never goes down.
     pub rev: u64,
@@ -165,12 +178,20 @@ impl Session {
             journal: None,
             dirty: false,
             recovered: None,
+            id: SESSIONS.fetch_add(1, Ordering::Relaxed),
+            saves: 0,
+            saving: None,
             rev: 0,
             clock: Clock::default(),
             undo: Vec::new(),
             redo: Vec::new(),
             view: None,
         }
+    }
+
+    /// This session's id, unique in the process.
+    pub fn id(&self) -> u64 {
+        self.id
     }
 
     /// The laid-out document, brought up to date first. Only the pages an

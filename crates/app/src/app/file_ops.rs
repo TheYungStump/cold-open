@@ -322,8 +322,17 @@ impl App {
         {
             self.after_save = None;
             self.save_again = false;
-            self.banners
-                .push(format!("The script was not saved: {}", e.message));
+            // A save that finished after its script was closed or reopened
+            // did save; it just no longer says anything about this script.
+            self.banners.push(if e.code == "save_superseded" {
+                let mut m = e.message;
+                if let Some(first) = m.get_mut(0..1) {
+                    first.make_ascii_uppercase();
+                }
+                m
+            } else {
+                format!("The script was not saved: {}", e.message)
+            });
             return Task::none();
         }
         // Edits made while the file was written are still unsaved.

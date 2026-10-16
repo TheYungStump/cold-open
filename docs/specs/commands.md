@@ -144,6 +144,7 @@ Notes on each command:
   - `path` is "save as". The target's lock is taken, and its crash journal judged, before anything is written (2026-10-16; `docs/specs/journal.md`, "Saving"): a target open in another process fails with `doc_locked`, and one whose journal holds unsaved work fails with `unsaved_changes`. A refused save writes nothing.
   - `format` is `"fountain"`. It is inferred from the path when omitted.
   - If Fountain cannot hold something in the document, the save fails with `lossy_format` and lists the losses, unless `allow_lossy` is true.
+  - While a save off the UI thread is being written, `doc.save` fails with `save_in_progress` (2026-10-16; `docs/specs/journal.md`, "One save at a time"). Try again when it has finished.
 - **`doc.close`**
   - Refuses with `unsaved_changes` unless `discard` is true.
   - With `discard`, unsaved changes are kept in a copy of the journal, which a `journal_discarded` warning names (2026-10-16; `docs/specs/journal.md`, "Closing").
@@ -318,6 +319,7 @@ Undo is unlimited. A new edit clears the redo history.
 | `io_error` | Reading or writing a file failed. |
 | `journal_error` | The crash journal could not be written; the edit was rolled back. |
 | `would_overwrite_document` | An output command was asked to write over the open document or its journal. |
+| `save_in_progress` | Another save of the document is being written; nothing changed. Retryable. |
 | `invalid_range` | An offset is past the end of the block's text, or `from` is after `to`. |
 | `not_your_step` | An agent tried to undo or redo a step made by someone else, or to set aside a writer's recovered work (`details.recovered`). |
 | `not_allowed_attached` | A command an agent may not send over the app's agent link, such as `doc.open` (`docs/specs/mcp.md`). |
