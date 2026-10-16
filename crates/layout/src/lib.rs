@@ -47,6 +47,7 @@ pub use page::{
 };
 pub use paginate::{Cursor, Rules};
 pub use text::Look;
+pub use title::title_lines;
 
 /// A page format that passed validation (§3.3). Layout only accepts these,
 /// so it never has to cope with a format it cannot lay out.

@@ -34,6 +34,20 @@ pub fn path_for(doc: &Path) -> PathBuf {
     doc.with_file_name(format!(".{name}.coldopen-journal"))
 }
 
+/// `.script.fdx.coldopen-original-<ms>` next to `script.fdx`: a repaired
+/// file kept as it was before the first save over it
+/// (docs/specs/journal.md, "Damaged originals").
+pub fn original_path(doc: &Path) -> PathBuf {
+    let name = doc
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis());
+    doc.with_file_name(format!(".{name}.coldopen-original-{ms}"))
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct Header {
     pub journal: String,

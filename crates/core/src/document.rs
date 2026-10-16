@@ -120,6 +120,11 @@ pub struct Document {
     /// move them.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub spacing: BTreeMap<BlockId, Pt>,
+    /// Everything an .fdx file holds that the blocks do not, kept to write
+    /// the file back (docs/specs/fdx.md §13). Its block ids are this
+    /// document's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fdx: Option<Box<coldopen_fdx::Kept>>,
 }
 
 /// A scene derived from the block list.
@@ -179,15 +184,21 @@ impl Document {
     pub fn renumbered_from(mut self, first: u64) -> Option<Document> {
         let mut next = first;
         let mut spacing = BTreeMap::new();
+        let mut ids = BTreeMap::new();
         for b in &mut self.blocks {
             let id = BlockId(next);
             if let Some(&pt) = self.spacing.get(&b.id) {
                 spacing.insert(id, pt);
             }
+            ids.insert(b.id.0, id.0);
             b.id = id;
             next = next.checked_add(1)?;
         }
         self.spacing = spacing;
+        if let Some(kept) = self.fdx.take() {
+            let map = |old: u64| ids.get(&old).copied().unwrap_or(old);
+            self.fdx = Some(Box::new(kept.renumbered(&map)));
+        }
         self.next_id = next.max(first);
         (self.next_id < u64::MAX).then_some(self)
     }
@@ -241,6 +252,11 @@ impl Document {
             if line.space_before < Pt::ZERO || line.space_before > body {
                 return Err("a title line's space above is outside the page body".into());
             }
+        }
+        if let Some(kept) = &self.fdx
+            && kept.paragraphs.keys().any(|&id| id >= self.next_id)
+        {
+            return Err("the .fdx store names a block id not below next_id".into());
         }
         Ok(())
     }

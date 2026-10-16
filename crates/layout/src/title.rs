@@ -193,6 +193,118 @@ pub(crate) fn from_fields(tp: &TitlePage, format: &PageFormat) -> Vec<Page> {
     finish(p)
 }
 
+/// Positioned title lines that print exactly as [`from_fields`] prints
+/// the Fountain keys: one line per value, with its block's alignment, the
+/// action column, and the rows above it as space (docs/specs/fdx.md
+/// §14.3). [`from_lines`] lays them out on the same rows.
+pub fn title_lines(tp: &TitlePage, format: &PageFormat) -> Vec<TitleLine> {
+    let a = &format.elements.action;
+    let rows = {
+        let lh = format.line_height.0.max(1);
+        format.body_height().0 / lh
+    };
+    // Each value with its alignment and the row it starts on, in the
+    // order and rows `from_fields` gives them.
+    let mut placed: Vec<(RichText, Align, i32)> = Vec::new();
+    let height = |v: &RichText, caps: bool, align: Align| -> i32 {
+        let g = geom(format, a.left, a.right, align);
+        let t = text::build(v, caps, Look::default()).0;
+        wrap::wrap(&t, 0, true, g.measure).len() as i32
+    };
+    let mut row = rows / 3;
+    for v in values(tp, "title") {
+        let v = upper(&v);
+        let h = height(&v, false, Align::Center);
+        placed.push((v, Align::Center, row));
+        row += h;
+    }
+    for key in ["credit", "author", "source"] {
+        let vs = values(tp, key);
+        if vs.is_empty() {
+            continue;
+        }
+        row += 1;
+        for v in vs {
+            let h = height(&v, false, Align::Center);
+            placed.push((v, Align::Center, row));
+            row += h;
+        }
+    }
+    // The bottom blocks end at the last row. Stacked paragraphs cannot
+    // share rows, so with both, the right one goes just above the left.
+    let mut bottom = rows;
+    for (keys, align) in [
+        (["draft date", "contact"], Align::Left),
+        (["notes", "copyright"], Align::Right),
+    ] {
+        let vs: Vec<RichText> = tp
+            .fields
+            .iter()
+            .filter(|f| keys.contains(&f.key.trim().to_lowercase().as_str()))
+            .flat_map(|f| f.values.iter().cloned())
+            .collect();
+        let total: i32 = vs.iter().map(|v| height(v, false, align)).sum();
+        bottom -= total;
+        let mut r = bottom;
+        for v in vs {
+            let h = height(&v, false, align);
+            placed.push((v, align, r));
+            r += h;
+        }
+    }
+    // `from_lines` starts the first line on row 0 and moves each later one
+    // down by its space; lines must also come in row order.
+    placed.sort_by_key(|p| p.2);
+    let lh = format.line_height.0.max(1);
+    let mut out = Vec::new();
+    let mut row = 0i32;
+    for (text, align, at) in placed {
+        if at < 0 {
+            continue;
+        }
+        if out.is_empty() && at > 0 {
+            out.push(TitleLine {
+                text: RichText::empty(),
+                align: Align::Left,
+                left: a.left,
+                right: a.right,
+                space_before: Pt::ZERO,
+            });
+            row = 1;
+        }
+        let gap = (at - row).max(0);
+        let h = height(&text, false, align);
+        out.push(TitleLine {
+            space_before: if out.is_empty() {
+                Pt::ZERO
+            } else {
+                Pt(gap.saturating_mul(lh).min(format.body_height().0))
+            },
+            text,
+            align,
+            left: a.left,
+            right: a.right,
+        });
+        row = row.max(at) + h;
+    }
+    out
+}
+
+/// Rich text in capitals, as the title prints.
+fn upper(v: &RichText) -> RichText {
+    RichText::new(
+        v.runs()
+            .iter()
+            .map(|r| match r {
+                coldopen_screenplay::Run::Text { text, style } => {
+                    coldopen_screenplay::Run::styled(text.to_uppercase(), *style)
+                }
+                other => other.clone(),
+            })
+            .collect(),
+    )
+}
+
 /// Title pages from positioned paragraphs, as an .fdx file stores it.
 pub(crate) fn from_lines(lines: &[TitleLine], format: &PageFormat) -> Vec<Page> {
     let mut p = Placer::new(format);

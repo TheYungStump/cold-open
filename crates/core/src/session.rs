@@ -114,6 +114,9 @@ pub struct Session {
     pub format: FormatId,
     pub style: SourceStyle,
     pub journal: Option<Journal>,
+    /// The file was repaired when it was read (docs/specs/fdx.md §17): the
+    /// first save in place keeps a copy of it as it was first.
+    pub damaged: bool,
     /// True when there are changes since the last open or save.
     pub dirty: bool,
     /// Set while the document holds work recovered from a crash journal
@@ -208,6 +211,7 @@ impl Session {
             format,
             style,
             journal: None,
+            damaged: false,
             dirty: false,
             recovered: None,
             disk: None,
@@ -267,7 +271,7 @@ impl Session {
             Class::Query => self.query(cmd),
             Class::Edit => self.edit(cmd, ex),
             Class::History => self.history(cmd, ex),
-            Class::Session | Class::Output => Err(CommandError::new(
+            Class::Session | Class::Output | Class::File => Err(CommandError::new(
                 "invalid_request",
                 format!("{} is handled by the dispatcher", cmd.name()),
             )),
@@ -278,6 +282,7 @@ impl Session {
         match cmd {
             Command::DocGet(_) => Ok(json!({
                 "path": self.path.as_ref().map(|p| p.display().to_string()),
+                "format": self.format.name(),
                 "dirty": self.dirty,
                 "rev": self.rev,
                 "title_page": self.doc.title_page,

@@ -16,6 +16,7 @@ schema = ["dep:schemars", "coldopen-screenplay/schema"]
 coldopen-screenplay.workspace = true
 coldopen-fountain.workspace = true
 coldopen-layout.workspace = true
+coldopen-fdx.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

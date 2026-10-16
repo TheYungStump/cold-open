@@ -497,7 +497,7 @@ A generated paragraph is written on its own line at the file's indent (two space
 ### 14.3 Title lines
 
 - Each title line is a `TitlePage/Content` paragraph with `Alignment` (`Left`, `Center` or `Right`), `LeftIndent`, `RightIndent` and `SpaceBefore`, in alphabetical order, and its runs. Empty lines are paragraphs with one empty run.
-- **A document with Fountain title keys and no title lines** (read from Fountain, or new) gets title lines made from the keys exactly as layout prints them (`docs/specs/layout.md` §9.3): one line per printed line, with its block's alignment, the action column, and as space before the rows above it times the line height. The page therefore looks the same. The key names themselves (`Title:`, `Author:`…) have no place in .fdx, so they are a loss (`title_page_keys`); the text is kept.
+- **A document with Fountain title keys and no title lines** (read from Fountain, or new) gets title lines made from the keys exactly as layout prints them (`docs/specs/layout.md` §9.3): one line per printed line, with its block's alignment, the action column, and as space before the rows above it times the line height. The page therefore looks the same, with one exception: stacked paragraphs cannot share rows, so when both bottom blocks are present (`Draft date` and `Contact` on the left, `Notes` and `Copyright` on the right) the right one goes just above the left. The key names themselves (`Title:`, `Author:`…) have no place in .fdx, so they are a loss (`title_page_keys`); the text is kept.
 
 ### 14.4 Editing a kept paragraph
 

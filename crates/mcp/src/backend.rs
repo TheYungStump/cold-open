@@ -178,7 +178,7 @@ impl Backend {
                     self.signals.listed();
                     self.signals.changed();
                 }
-                Class::Query | Class::Output => {}
+                Class::Query | Class::Output | Class::File => {}
             }
         }
         response

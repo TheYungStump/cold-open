@@ -106,6 +106,18 @@ pub const TOOLS: &[(&str, &str)] = &[
         "export.pdf",
         "Write the script as a PDF to `path`, with optional scene numbers and watermark. The script is not changed.",
     ),
+    (
+        "export.fdx",
+        "Write a copy of the script as an .fdx file to a new `path`. The open script keeps its own file and format.",
+    ),
+    (
+        "export.fountain",
+        "Write a copy of the script as a Fountain file to a new `path`. The open script keeps its own file and format.",
+    ),
+    (
+        "file.repair",
+        "Read the .fdx file at `path`, repairing what it can, and write the repaired copy to a new path `out`; returns the repair report. `path` is never written.",
+    ),
 ];
 
 /// A command's tool name: dots become underscores.

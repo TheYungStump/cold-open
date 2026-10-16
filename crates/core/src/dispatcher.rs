@@ -8,7 +8,9 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use crate::author::{Author, Clock};
-use crate::command::{Class, Command, DocClose, DocNew, DocOpen, DocSave, ExportPdf, Recover};
+use crate::command::{
+    Class, Command, DocClose, DocNew, DocOpen, DocSave, ExportFile, ExportPdf, FileRepair, Recover,
+};
 use crate::document::Document;
 use crate::error::CommandError;
 use crate::flush::{Durability, FlushStatus};
@@ -59,6 +61,9 @@ pub struct PreparedSave {
     /// session's saves: only that session's outstanding save may commit.
     session: u64,
     number: u64,
+    /// The damaged file kept before this save, if it was the first save
+    /// in place of a repaired file.
+    original: Option<PathBuf>,
 }
 
 /// What opening a document would make of its crash journal, worked out
@@ -253,6 +258,9 @@ impl Dispatcher {
             Command::DocClose(p) => self.doc_close(p, by),
             Command::DocRevert(_) => self.doc_revert(by),
             Command::ExportPdf(p) => self.export_pdf(p, by),
+            Command::ExportFdx(p) => self.export_file(FormatId::Fdx, p, by),
+            Command::ExportFountain(p) => self.export_file(FormatId::Fountain, p, by),
+            Command::FileRepair(p) => self.file_repair(p, by),
             other => self
                 .session
                 .as_mut()
@@ -442,6 +450,7 @@ impl Dispatcher {
             doc: disk_doc,
             style,
             mut warnings,
+            repaired,
         } = format.get().read(&bytes)?;
         let mut session = self.new_session(disk_doc.clone(), Some(path.clone()), format, style);
         let mut recovered = Value::Null;
@@ -531,6 +540,7 @@ impl Dispatcher {
         }
 
         session.disk = (!missing).then(|| Fingerprint::of(&bytes));
+        session.damaged = repaired.is_some();
         let result = json!({
             "path": path.display().to_string(),
             "format": format.name(),
@@ -538,6 +548,7 @@ impl Dispatcher {
             "scenes": session.doc.scenes().len(),
             "warnings": warnings,
             "recovered": recovered,
+            "repaired": repaired,
         });
         self.session = Some(session);
         Ok(result)
@@ -760,7 +771,10 @@ impl Dispatcher {
         if !losses.is_empty() && !p.allow_lossy {
             return Err(CommandError::new(
                 "lossy_format",
-                "Fountain cannot hold everything in this document; nothing was saved",
+                format!(
+                    "{} cannot hold everything in this document; nothing was saved",
+                    format.title()
+                ),
             )
             .with_details(json!({ "losses": losses })));
         }
@@ -805,6 +819,11 @@ impl Dispatcher {
         } else if !p.overwrite && target.exists() {
             return Err(exists(&target));
         }
+        let original = if same_file && session.damaged {
+            keep_original(&target)?
+        } else {
+            None
+        };
         // Save as: the target's lock is taken, and its journal judged,
         // before anything is written (docs/specs/journal.md, "Saving").
         let claimed = if opts.journal && !same_file {
@@ -825,6 +844,11 @@ impl Dispatcher {
             .session
             .as_mut()
             .ok_or_else(CommandError::no_document)?;
+        // A conversion leaves the document in the new format's form before
+        // the journal starts again from it.
+        if session.format != format {
+            crate::format::adopt(&mut session.doc, format);
+        }
         if same_file {
             if let Some(j) = &mut session.journal {
                 j.set_format(format);
@@ -845,11 +869,13 @@ impl Dispatcher {
         session.disk = Some(fingerprint);
         session.style = saved_style(session.style);
         session.set_format(format);
+        session.damaged &= !same_file;
         Ok(json!({
             "path": target.display().to_string(),
             "format": format.name(),
             "bytes": bytes.len(),
             "losses": losses,
+            "warnings": original_warnings(original.as_deref()),
         }))
     }
 
@@ -928,6 +954,11 @@ impl Dispatcher {
         refuse_while_saving(session)?;
         let r = Self::render(session, p)?;
         refuse_if_changed(session, &r.target, p.overwrite)?;
+        let original = if session.damaged {
+            keep_original(&r.target)?
+        } else {
+            None
+        };
         let fingerprint = Fingerprint::of(&r.bytes);
         // A broken journal protects nothing, so it gets no marker; the
         // commit starts it again, which is the only way out of that state.
@@ -953,6 +984,7 @@ impl Dispatcher {
             fingerprint,
             session: session.id(),
             number: session.saves,
+            original,
         })
     }
 
@@ -992,6 +1024,7 @@ impl Dispatcher {
         // The file now holds these bytes, whether or not edits came since.
         session.disk = Some(prepared.fingerprint);
         session.style = saved_style(session.style);
+        session.damaged = false;
         let current = session.rev == prepared.rev;
         if current {
             if let Some(j) = &mut session.journal {
@@ -1010,6 +1043,7 @@ impl Dispatcher {
             "bytes": prepared.bytes.len(),
             "losses": prepared.losses,
             "dirty": session.dirty,
+            "warnings": original_warnings(prepared.original.as_deref()),
         }))
     }
 
@@ -1101,6 +1135,117 @@ impl Dispatcher {
         }))
     }
 
+    /// `export.fdx` and `export.fountain`: a copy of the document in that
+    /// format; the session is not changed (docs/specs/commands.md).
+    fn export_file(
+        &mut self,
+        format: FormatId,
+        p: ExportFile,
+        by: &Author,
+    ) -> Result<Value, CommandError> {
+        if p.overwrite && !by.is_writer() {
+            return Err(writer_only("replace an existing file"));
+        }
+        if p.allow_lossy && !by.is_writer() {
+            return Err(writer_only("write with losses (allow_lossy)"));
+        }
+        let session = self
+            .session
+            .as_ref()
+            .ok_or_else(CommandError::no_document)?;
+        let target = PathBuf::from(&p.path);
+        if FormatId::for_path(&target) != Some(format) {
+            return Err(CommandError::new(
+                "unsupported_format",
+                format!(
+                    "{} is not a .{} path",
+                    target.display(),
+                    format.get().extensions().first().copied().unwrap_or("")
+                ),
+            ));
+        }
+        refuse_document_or_journal(session.path.as_deref(), &target)?;
+        if !p.overwrite && target.exists() {
+            return Err(exists(&target));
+        }
+        let written = format.get().write(&session.doc, SourceStyle::default());
+        let losses = session.losses_json(&written.losses);
+        if !losses.is_empty() && !p.allow_lossy {
+            return Err(CommandError::new(
+                "lossy_format",
+                format!(
+                    "{} cannot hold everything in this document; nothing was written",
+                    format.title()
+                ),
+            )
+            .with_details(json!({ "losses": losses })));
+        }
+        io::atomic_write(&target, &written.bytes).map_err(|e| CommandError::io(&target, &e))?;
+        Ok(json!({
+            "path": target.display().to_string(),
+            "format": format.name(),
+            "bytes": written.bytes.len(),
+            "losses": losses,
+        }))
+    }
+
+    /// `file.repair`: a repaired copy of an .fdx file; the input is never
+    /// written (docs/specs/fdx.md §17).
+    fn file_repair(&mut self, p: FileRepair, by: &Author) -> Result<Value, CommandError> {
+        if p.overwrite && !by.is_writer() {
+            return Err(writer_only("replace an existing file"));
+        }
+        let input = PathBuf::from(&p.path);
+        let out = PathBuf::from(&p.out);
+        if FormatId::for_path(&out) != Some(FormatId::Fdx) {
+            return Err(CommandError::new(
+                "unsupported_format",
+                format!("{} is not an .fdx path", out.display()),
+            ));
+        }
+        if same_path(&input, &out) || canonical(&input) == canonical(&out) {
+            return Err(CommandError::new(
+                "would_overwrite_input",
+                format!(
+                    "{} is the file being repaired; write the repaired copy somewhere else",
+                    out.display()
+                ),
+            )
+            .with_details(json!({ "path": out.display().to_string() })));
+        }
+        let open = self.session.as_ref().and_then(|s| s.path.as_deref());
+        refuse_document_or_journal(open, &out)?;
+        if !p.overwrite && out.exists() {
+            return Err(exists(&out));
+        }
+        let bytes = fs::read(&input).map_err(|e| CommandError::io(&input, &e))?;
+        let doc = coldopen_fdx::read(&bytes).map_err(|e| {
+            CommandError::new(
+                "unsupported_format",
+                format!("{} cannot be repaired: {e}", input.display()),
+            )
+        })?;
+        let text = doc.write_back().text;
+        let out_bytes = coldopen_fdx::encode(
+            &text,
+            coldopen_fdx::TextEncoding {
+                // What is not UTF-8 or UTF-16 is written as UTF-8.
+                encoding: match doc.encoding.encoding {
+                    e @ (coldopen_fdx::Encoding::Utf16Le | coldopen_fdx::Encoding::Utf16Be) => e,
+                    _ => coldopen_fdx::Encoding::Utf8,
+                },
+                bom: doc.encoding.bom,
+            },
+        );
+        io::atomic_write(&out, &out_bytes).map_err(|e| CommandError::io(&out, &e))?;
+        Ok(json!({
+            "out": out.display().to_string(),
+            "bytes": out_bytes.len(),
+            "repaired": doc.repaired(),
+            "issues": doc.report,
+        }))
+    }
+
     fn doc_close(&mut self, p: DocClose, by: &Author) -> Result<Value, CommandError> {
         let session = self
             .session
@@ -1160,6 +1305,7 @@ impl Dispatcher {
             doc,
             style,
             mut warnings,
+            repaired,
         } = format.get().read(&bytes)?;
         // Ids are never reused within an open document, and agents may still
         // hold old ones: the file's blocks get fresh ids, so an old id fails
@@ -1188,6 +1334,7 @@ impl Dispatcher {
             restart().map_err(|e| CommandError::io(j.path(), &e))?;
         }
         let mut fresh = Session::new(doc, Some(path.clone()), format, style);
+        fresh.damaged = repaired.is_some();
         fresh.clock = clock;
         fresh.journal = session.journal.take();
         fresh.rev = session.rev + 1;
@@ -1323,6 +1470,53 @@ pub fn to_line(response: &Value) -> String {
 
 fn failure(id: Value, e: CommandError) -> Value {
     json!({ "v": 1, "id": id, "ok": false, "error": e })
+}
+
+/// An output may never be written over the open document or its journal.
+fn refuse_document_or_journal(open: Option<&Path>, target: &Path) -> Result<(), CommandError> {
+    if let Some(doc) = open
+        && (same_path(doc, target) || same_path(&journal::path_for(doc), target))
+    {
+        return Err(CommandError::new(
+            "would_overwrite_document",
+            format!(
+                "{} is the open document or its crash journal; choose another path",
+                target.display()
+            ),
+        )
+        .with_details(json!({ "path": target.display().to_string() })));
+    }
+    Ok(())
+}
+
+/// Keeps a copy of a repaired file as it is, before the first save over it
+/// (docs/specs/journal.md, "Damaged originals"). A file that has gone has
+/// nothing to keep.
+fn keep_original(target: &Path) -> Result<Option<PathBuf>, CommandError> {
+    let bytes = match fs::read(target) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(CommandError::io(target, &e)),
+    };
+    let copy = journal::original_path(target);
+    io::write_new(&copy, &bytes).map_err(|e| CommandError::io(&copy, &e))?;
+    Ok(Some(copy))
+}
+
+fn original_warnings(original: Option<&Path>) -> Vec<Value> {
+    original
+        .map(|copy| {
+            json!({
+                "code": "original_kept",
+                "message": format!(
+                    "the file was repaired when it was opened; a copy of it as it was is kept in {}",
+                    copy.display()
+                ),
+                "details": { "copy": copy.display().to_string() },
+            })
+        })
+        .into_iter()
+        .collect()
 }
 
 /// A save in place refuses when the file is no longer what this session

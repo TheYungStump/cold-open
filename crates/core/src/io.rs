@@ -197,6 +197,14 @@ mod hex64 {
     }
 }
 
+/// Writes a new file, failing if one is already there, and flushes it to
+/// the disk: for copies kept aside, which must never replace anything.
+pub fn write_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let mut f = OpenOptions::new().write(true).create_new(true).open(path)?;
+    f.write_all(bytes)?;
+    f.sync_all()
+}
+
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn temp_path(target: &Path) -> PathBuf {

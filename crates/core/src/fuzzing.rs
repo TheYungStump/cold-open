@@ -57,7 +57,7 @@ fn reaches_disk(line: &str) -> bool {
     // A command that does not build is refused by the dispatcher before it
     // can run, so the line still exercises that error path.
     Command::from_parts(name, params)
-        .is_ok_and(|cmd| matches!(cmd.class(), Class::Session | Class::Output))
+        .is_ok_and(|cmd| matches!(cmd.class(), Class::Session | Class::Output | Class::File))
 }
 
 /// Runs real recovery over arbitrary bytes as a journal, for a script that
