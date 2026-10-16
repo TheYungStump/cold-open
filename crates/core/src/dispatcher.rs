@@ -56,6 +56,44 @@ pub struct PreparedSave {
     fingerprint: Fingerprint,
 }
 
+/// What opening a document would make of its crash journal, worked out
+/// without touching the disk (docs/specs/journal.md, "Recovery on open").
+enum Assessment {
+    /// The header cannot be read.
+    Unreadable(String),
+    Replayed(Box<Replayed>),
+}
+
+/// A crash journal replayed as far as it can be trusted.
+struct Replayed {
+    session: Session,
+    /// Bytes and entries up to the last trusted entry.
+    valid_len: u64,
+    applied: u64,
+    /// Commands replayed; markers are not counted.
+    commands: usize,
+    /// The newest replayed entry's time.
+    last: u64,
+    /// Why replay stopped early, if it did.
+    problem: Option<String>,
+    /// True when the journal holds work the file does not.
+    recover: bool,
+    external_change: bool,
+    /// Whether any of the work is a writer's.
+    writer: bool,
+}
+
+impl Replayed {
+    /// What a copy of a journal that replay stopped early is called.
+    fn aside_tag(msg: &str) -> &'static str {
+        if msg.contains("different result") {
+            "diverged"
+        } else {
+            "corrupt"
+        }
+    }
+}
+
 /// A document written out for saving, before anything touches the disk.
 struct Rendered {
     target: PathBuf,
@@ -302,14 +340,48 @@ impl Dispatcher {
                         ));
                     }
                     Recover::Auto => {
-                        resumed = self.recover(
-                            &mut session,
-                            &mut j,
-                            &contents,
-                            (&bytes, missing),
-                            &mut warnings,
-                            &mut recovered,
-                        )?;
+                        let jio = |e: std::io::Error, j: &Journal| CommandError::io(j.path(), &e);
+                        match self.assess(&path, decoded.style, &contents, (&bytes, missing)) {
+                            Assessment::Unreadable(msg) => {
+                                let aside =
+                                    j.copy_aside(&contents, "corrupt").map_err(|e| jio(e, &j))?;
+                                warnings.push(warning(
+                                    "journal_unreadable",
+                                    format!("{msg}; it was kept in {}", aside.display()),
+                                ));
+                            }
+                            Assessment::Replayed(r) => {
+                                if let Some(msg) = &r.problem {
+                                    let aside = j
+                                        .copy_aside(&contents, Replayed::aside_tag(msg))
+                                        .map_err(|e| jio(e, &j))?;
+                                    warnings.push(warning(
+                                        "journal_partial",
+                                        format!(
+                                            "recovered {} of the journal's changes; {msg}; the journal was kept in {}",
+                                            r.commands,
+                                            aside.display()
+                                        ),
+                                    ));
+                                }
+                                if r.recover {
+                                    j.resume(r.valid_len, r.applied).map_err(|e| jio(e, &j))?;
+                                    recovered = json!({
+                                        "commands": r.commands,
+                                        "external_change": r.external_change,
+                                        "last": r.last,
+                                    });
+                                    let mut replay = r.session;
+                                    replay.dirty = true;
+                                    replay.recovered = Some(crate::session::Recovered {
+                                        rev: replay.rev,
+                                        writer: r.writer,
+                                    });
+                                    session = replay;
+                                    resumed = true;
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -333,39 +405,29 @@ impl Dispatcher {
         Ok(result)
     }
 
-    /// Replays a crash journal into `session`. Returns true when the session
-    /// now holds recovered, unsaved work and the journal continues.
-    #[allow(clippy::too_many_arguments)]
-    fn recover(
+    /// Replays a crash journal and judges whether it holds work the file
+    /// does not, without touching the disk. `doc.open` acts on the answer;
+    /// "save as" uses it to refuse a target with unsaved work.
+    fn assess(
         &self,
-        session: &mut Session,
-        j: &mut Journal,
+        path: &Path,
+        style: SourceStyle,
         contents: &[u8],
         (disk_bytes, missing): (&[u8], bool),
-        warnings: &mut Vec<Value>,
-        recovered: &mut Value,
-    ) -> Result<bool, CommandError> {
-        let jio = |e: std::io::Error, j: &Journal| CommandError::io(j.path(), &e);
+    ) -> Assessment {
         let read = match journal::read(contents) {
             Ok(r) => r,
-            Err(msg) => {
-                let aside = j.copy_aside(contents, "corrupt").map_err(|e| jio(e, j))?;
-                warnings.push(warning(
-                    "journal_unreadable",
-                    format!("{msg}; it was kept in {}", aside.display()),
-                ));
-                return Ok(false);
-            }
+            Err(msg) => return Assessment::Unreadable(msg),
         };
 
-        let mut replay =
-            self.new_session(read.header.doc.clone(), session.path.clone(), session.style);
+        let mut replay = self.new_session(read.header.doc.clone(), Some(path.to_path_buf()), style);
         // Fingerprints the file may legitimately have: the header's, and
         // those of the saves the journal records.
         let mut known_disk: Vec<Fingerprint> = read.header.disk.into_iter().collect();
         let mut applied = 0usize;
         let mut commands = 0usize;
         let mut last = 0u64;
+        let mut writer = false;
         let mut valid_len = read.header_len();
         let mut problem = read.problem.clone();
         for (k, entry) in read.entries.iter().enumerate() {
@@ -413,52 +475,41 @@ impl Dispatcher {
             applied = k + 1;
             commands += 1;
             last = entry.t;
+            writer |= ex.by.is_writer();
             valid_len = read.entry_end(k);
-        }
-        if let Some(msg) = &problem {
-            let tag = if msg.contains("different result") {
-                "diverged"
-            } else {
-                "corrupt"
-            };
-            let aside = j.copy_aside(contents, tag).map_err(|e| jio(e, j))?;
-            warnings.push(warning(
-                "journal_partial",
-                format!(
-                    "recovered {commands} of the journal's changes; {msg}; the journal was kept in {}",
-                    aside.display()
-                ),
-            ));
-        }
-        if commands == 0 && !missing {
-            return Ok(false);
         }
 
         // The file already holds the replayed document only if writing it
         // is lossless and gives the same bytes. A lossy write can match the
         // file's text while the document differs, so it always recovers.
-        if !missing {
+        let recover = if missing {
+            true
+        } else if commands == 0 {
+            false
+        } else {
             let written = coldopen_fountain::write(&replay.doc.to_script());
-            if written.losses.is_empty() && io::encode(&written.text, session.style) == disk_bytes {
-                return Ok(false);
-            }
-        }
-
+            !(written.losses.is_empty() && io::encode(&written.text, style) == disk_bytes)
+        };
         let external_change = if missing {
             !known_disk.is_empty()
         } else {
             !known_disk.contains(&Fingerprint::of(disk_bytes))
         };
-        j.resume(valid_len, applied as u64).map_err(|e| jio(e, j))?;
-        replay.dirty = true;
+        // Work in the header alone has no author; it is treated as the
+        // writer's, which is the cautious choice.
+        writer |= commands == 0;
         replay.journal = None;
-        *session = replay;
-        *recovered = json!({
-            "commands": commands,
-            "external_change": external_change,
-            "last": last,
-        });
-        Ok(true)
+        Assessment::Replayed(Box::new(Replayed {
+            session: replay,
+            valid_len,
+            applied: applied as u64,
+            commands,
+            last,
+            problem,
+            recover,
+            external_change,
+            writer,
+        }))
     }
 
     /// Writes the document out for saving and checks it can be saved, without
@@ -540,6 +591,7 @@ impl Dispatcher {
         }
         session.path = Some(target.clone());
         session.dirty = false;
+        session.recovered = None;
         Ok(json!({
             "path": target.display().to_string(),
             "format": format,
@@ -623,6 +675,7 @@ impl Dispatcher {
                     .map_err(|e| CommandError::io(j.path(), &e))?;
             }
             session.dirty = false;
+            session.recovered = None;
         } else if let Some(j) = &session.journal {
             j.flush_now();
         }

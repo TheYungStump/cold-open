@@ -79,6 +79,17 @@ struct Step {
     group: Option<Group>,
 }
 
+/// Unsaved work that `doc.open` brought back from a crash journal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Recovered {
+    /// The session's `rev` when recovery finished, so equal to `rev` for as
+    /// long as nothing has changed since.
+    pub rev: u64,
+    /// Whether any of it is a writer's work, which an agent may not set
+    /// aside (docs/specs/mcp.md §7).
+    pub writer: bool,
+}
+
 #[derive(Debug)]
 pub struct Session {
     pub doc: Document,
@@ -87,6 +98,9 @@ pub struct Session {
     pub journal: Option<Journal>,
     /// True when there are changes since the last open or save.
     pub dirty: bool,
+    /// Set while the document holds work recovered from a crash journal
+    /// that has not been saved since.
+    pub recovered: Option<Recovered>,
     /// Edits, undos, redos and reverts applied since the document was
     /// opened or created. Never goes down.
     pub rev: u64,
@@ -150,6 +164,7 @@ impl Session {
             style,
             journal: None,
             dirty: false,
+            recovered: None,
             rev: 0,
             clock: Clock::default(),
             undo: Vec::new(),

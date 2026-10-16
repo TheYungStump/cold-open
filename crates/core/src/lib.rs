@@ -32,5 +32,5 @@ pub use dispatcher::{Dispatcher, Options, PreparedSave, to_line};
 pub use document::{Block, BlockId, Document};
 pub use error::CommandError;
 pub use flush::{Durability, FlushStatus};
-pub use session::{Exec, Merge};
+pub use session::{Exec, Merge, Recovered};
 pub use view::View;
