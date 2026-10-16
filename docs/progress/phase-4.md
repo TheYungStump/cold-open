@@ -11,7 +11,7 @@ Phase 4 makes Cold Open read and write .fdx. A file that came from another app o
 | 1 | Branch, and this file | done |
 | 2 | Format seam (F18.1): a `Format` trait in core with Fountain behind it, no change in behaviour; the journal header records the format. Its own reviewed commit | done |
 | 3 | Specs before code: `fdx.md` (writer, passthrough, round trip, repair report), `commands.md`, `journal.md` (F18.2–F18.4, hidden files, Recovered versions, cleanup), `editor.md`, `mcp.md`, `layout.md`, `fountain.md` | done |
-| 4 | Model and layout: the document's page format, title lines, paragraph spacing and passthrough store; per-document layout | |
+| 4 | Model and layout: the document's page format, title lines, paragraph spacing and passthrough store; per-document layout | done, except the store, which comes with the reader (step 5) and core integration (step 8) |
 | 5 | .fdx reader: a lossless XML layer, the passthrough store, resyncing after syntax errors, report classes; our own fixtures, broken ones included | |
 | 6 | .fdx writer: write back what was read byte for byte, generate what was edited; property tests, the hostile-input timing test, fuzz targets for the writer | |
 | 7 | The round-trip gate on the corpus, with its report | |
@@ -66,4 +66,6 @@ The files are studied only with scripts that print structure (element paths, att
 7. **`Version="1"` for new files**, the lowest version in the samples, and only elements every sample version has. New files use Courier Prime and our own `PageFormat` values (`fdx.md` §14.6).
 8. **No `File ›` wording.** The notices say "Open Recovered versions to restore them." and carry a button (decision 4). A damaged original has its own sentence.
 9. **Fountain from .fdx** (`fountain.md` §11): new losses for a non-default page format, spacing that isn't whole lines, title-line positions (with a written rule for turning lines into keys) and the .fdx store.
+10. **Spacing overrides are keyed by block id in the document** (`Document.spacing`), not by element index as the reader gives them. Layout gets them as indices recomputed on every view refresh (`Document::overrides`), through `Incremental::update_with`, so an edit before an overridden paragraph never moves its spacing to another one. The flow is assembled again on every update anyway, so this adds no layout work.
+11. **The document's page format, title lines and spacing are checked with the rest of a journal header** (`Document::check`): a format layout refuses, a spacing on an id at or above `next_id`, or a space outside the page body makes the header untrusted, as a bad id already did.
 

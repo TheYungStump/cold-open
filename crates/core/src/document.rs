@@ -1,8 +1,11 @@
 //! The editable document: screenplay elements with stable ids.
 
+use std::collections::BTreeMap;
 use std::fmt;
 
-use coldopen_screenplay::{Element, ElementKind, ElementRepr, Script, TitlePage};
+use coldopen_screenplay::{
+    Element, ElementKind, ElementRepr, PageFormat, Pt, Script, TitleLine, TitlePage,
+};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// A block's stable id. Opaque to clients; written as `b_<n>`.
@@ -102,6 +105,21 @@ pub struct Document {
     pub blocks: Vec<Block>,
     /// The next id to hand out. Ids are never reused.
     pub next_id: u64,
+    /// The page and element settings of a file that has its own, such as
+    /// an .fdx file; `None` is the default format. Every field from here on
+    /// is left out of the JSON when empty, so Fountain journals are as
+    /// before (docs/specs/journal.md, "The document in the header").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_format: Option<Box<PageFormat>>,
+    /// A title page given as positioned lines (from .fdx), used instead of
+    /// the title-page keys.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub title_lines: Vec<TitleLine>,
+    /// Paragraph spacing overrides: the space above a block, replacing its
+    /// usual spacing (docs/specs/layout.md §6). Keyed by id, so edits never
+    /// move them.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub spacing: BTreeMap<BlockId, Pt>,
 }
 
 /// A scene derived from the block list.
@@ -129,6 +147,7 @@ impl Document {
             title_page: script.title_page,
             next_id: blocks.len() as u64 + 1,
             blocks,
+            ..Document::default()
         }
     }
 
@@ -159,10 +178,16 @@ impl Document {
     /// ids would run out.
     pub fn renumbered_from(mut self, first: u64) -> Option<Document> {
         let mut next = first;
+        let mut spacing = BTreeMap::new();
         for b in &mut self.blocks {
-            b.id = BlockId(next);
+            let id = BlockId(next);
+            if let Some(&pt) = self.spacing.get(&b.id) {
+                spacing.insert(id, pt);
+            }
+            b.id = id;
             next = next.checked_add(1)?;
         }
+        self.spacing = spacing;
         self.next_id = next.max(first);
         (self.next_id < u64::MAX).then_some(self)
     }
@@ -194,7 +219,50 @@ impl Document {
                 ));
             }
         }
+        // What layout is given must be what layout accepts.
+        let format = self.page_format.as_deref().cloned().unwrap_or_default();
+        let problems = format.problems();
+        if !problems.is_empty() {
+            return Err(format!(
+                "the page format is invalid: {}",
+                problems.join("; ")
+            ));
+        }
+        let body = format.body_height();
+        for (id, pt) in &self.spacing {
+            if id.0 >= self.next_id {
+                return Err(format!("spacing names {id}, which is not below next_id"));
+            }
+            if *pt < Pt::ZERO || *pt > body {
+                return Err(format!("the spacing of {id} is outside the page body"));
+            }
+        }
+        for line in &self.title_lines {
+            if line.space_before < Pt::ZERO || line.space_before > body {
+                return Err("a title line's space above is outside the page body".into());
+            }
+        }
         Ok(())
+    }
+
+    /// The layout overrides for a script laid out from this document:
+    /// `map[k]` is the block laid-out element `k` starts in, and an element
+    /// gets its block's spacing when it is the first one from that block.
+    pub fn overrides(&self, map: &[usize]) -> BTreeMap<usize, Pt> {
+        let mut out = BTreeMap::new();
+        if self.spacing.is_empty() {
+            return out;
+        }
+        let mut last = None;
+        for (k, &b) in map.iter().enumerate() {
+            if last != Some(b)
+                && let Some(&pt) = self.blocks.get(b).and_then(|blk| self.spacing.get(&blk.id))
+            {
+                out.insert(k, pt);
+            }
+            last = Some(b);
+        }
+        out
     }
 
     /// Scenes in order. A scene runs from its heading to the next heading

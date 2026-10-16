@@ -382,8 +382,8 @@ impl Session {
             .collect()
     }
 
-    /// Lays out the document with the default page format, in the form its
-    /// format gives it: for Fountain the normal form, so the pages are the
+    /// Lays out the document with its page format, title lines and spacing
+    /// (the defaults for a Fountain script), in the form its format gives it: for Fountain the normal form, so the pages are the
     /// same after a save and reload (docs/specs/layout.md §4.8). The second
     /// value maps each laid-out element to the index of the block it came
     /// from.
@@ -392,9 +392,14 @@ impl Session {
         options: &coldopen_layout::Options,
     ) -> (coldopen_layout::Layout, Vec<usize>) {
         let LayoutForm { script, sources } = self.format.get().layout_form(&self.doc);
-        let map = sources.elements.iter().map(|e| e.source).collect();
-        let layout =
-            coldopen_layout::layout(&script, &coldopen_layout::ValidFormat::default(), options);
+        let map: Vec<usize> = sources.elements.iter().map(|e| e.source).collect();
+        let options = coldopen_layout::Options {
+            overrides: self.doc.overrides(&map),
+            title_lines: crate::view::layout_options(&self.doc).title_lines,
+            ..options.clone()
+        };
+        let format = crate::view::page_format(&self.doc);
+        let layout = coldopen_layout::layout(&script, &format, &options);
         (layout, map)
     }
 

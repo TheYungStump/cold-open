@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use coldopen_screenplay::{Script, TitlePage};
+use coldopen_screenplay::{Pt, Script, TitlePage};
 
 use crate::flow::{self, Block, Flow, FlowInput, Memo};
 use crate::page::Page;
@@ -159,6 +159,17 @@ impl Incremental {
             &self.options,
         );
         e.run().title
+    }
+
+    /// Lays out the script after an edit, with the spacing overrides as they
+    /// now stand: an edit before an overridden element changes its index
+    /// (§15.2). The flow is assembled again on every update, so changed
+    /// overrides are found like any other change.
+    pub fn update_with(&mut self, script: &Script, overrides: &BTreeMap<usize, Pt>) -> &Layout {
+        if self.options.overrides != *overrides {
+            self.options.overrides = overrides.clone();
+        }
+        self.update(script)
     }
 
     /// Lays out the script after an edit. Any script may be given; the work

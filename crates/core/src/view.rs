@@ -46,8 +46,12 @@ impl View {
             script: norm,
             sources,
         } = format.get().layout_form(doc);
-        let map = sources.elements.iter().map(|e| e.source).collect();
-        let inc = Incremental::new(&norm, &ValidFormat::default(), &Options::default());
+        let map: Vec<usize> = sources.elements.iter().map(|e| e.source).collect();
+        let options = Options {
+            overrides: doc.overrides(&map),
+            ..layout_options(doc)
+        };
+        let inc = Incremental::new(&norm, &page_format(doc), &options);
         View {
             rev,
             norm,
@@ -65,7 +69,7 @@ impl View {
             sources,
         } = self.format.get().layout_form(doc);
         self.map = sources.elements.iter().map(|e| e.source).collect();
-        self.inc.update(&norm);
+        self.inc.update_with(&norm, &doc.overrides(&self.map));
         self.norm = norm;
         self.sources = sources;
         self.rev = rev;
@@ -83,5 +87,24 @@ impl View {
     /// What the last refresh laid out again.
     pub fn stats(&self) -> &UpdateStats {
         self.inc.stats()
+    }
+}
+
+/// The document's page format, ready for layout. A document's format is
+/// checked when it is read, so the default stands in only for one that
+/// slipped past.
+pub fn page_format(doc: &Document) -> ValidFormat {
+    doc.page_format
+        .as_deref()
+        .and_then(|f| ValidFormat::new(f.clone()).ok())
+        .unwrap_or_default()
+}
+
+/// Layout options the document itself sets: its title lines. Overrides
+/// depend on the laid-out form and are added by the caller.
+pub fn layout_options(doc: &Document) -> Options {
+    Options {
+        title_lines: (!doc.title_lines.is_empty()).then(|| doc.title_lines.clone()),
+        ..Options::default()
     }
 }
