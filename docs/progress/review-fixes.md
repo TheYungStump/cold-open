@@ -46,6 +46,7 @@ Each finding gets a test made from the reviewer's reproduction. The test is run 
 ## Checks per group
 
 - **Group 1** (2026-10-16, Windows 11): `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` (no failures), and clippy for `x86_64-unknown-linux-gnu` and `aarch64-apple-darwin` on core, cli, mcp and link. The reviewers' CLI reproductions, rerun against the release binary: F1, `run --doc` with a query leaves the journal in place and the next open recovers the line; F2, save-as onto a script held by another `serve` returns `doc_locked` with the target unchanged, and onto a crashed script returns `unsaved_changes` with its journal intact; F5, a second `doc.new` returns `already_exists` and the 284-byte journal is untouched. CI on the push of `review-fixes` (Linux only, as configured for branch pushes): every job passed. macOS and Windows CI run on the pull request.
+- **Group 2** (2026-10-16, Windows 11): the same checks, all passing. Against the release binary: F11, a file changed by another program while `serve` had it open makes `doc.save` fail with `file_changed`, and the outside edit stays; F13, `doc.save {"path": "notes.txt"}` onto an existing file fails with `already_exists`, and the file is unchanged.
 
 ## Decisions
 
