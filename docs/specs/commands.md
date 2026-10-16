@@ -141,7 +141,7 @@ Notes on each command:
   - `recovered` is null, or `{commands, external_change, last}`. `last` (added 2026-10-15) is when the newest recovered change was made, in milliseconds since the Unix epoch, for the app's recovery dialog.
 - **`doc.save`**
   - Saves atomically.
-  - `path` is "save as". The target's lock is taken, and its crash journal judged, before anything is written (2026-10-16; `docs/specs/journal.md`, "Saving"): a target open in another process fails with `doc_locked`, and one whose journal holds unsaved work fails with `unsaved_changes`. A refused save writes nothing.
+  - `path` is "save as". A path where another file already is fails with `already_exists` unless `overwrite` is true (2026-10-16): "save as" never replaces a file by accident, and every `.txt` counts as a script. The target's lock is taken, and its crash journal judged, before anything is written (2026-10-16; `docs/specs/journal.md`, "Saving"): a target open in another process fails with `doc_locked`, and one whose journal holds unsaved work fails with `unsaved_changes`. A refused save writes nothing.
   - `format` is `"fountain"`. It is inferred from the path when omitted.
   - If Fountain cannot hold something in the document, the save fails with `lossy_format` and lists the losses, unless `allow_lossy` is true.
   - Saving in place over a file that another program changed since this session last read or wrote it fails with `file_changed` (2026-10-16; `docs/specs/journal.md`, "Saving"). `overwrite: true` replaces it anyway. Only a writer may pass `overwrite`; from an agent it fails with `writer_only`.
@@ -275,11 +275,11 @@ The keystroke commands below (2026-10-15) are what the desktop editor sends for 
 
 | Command | Params | Result |
 | --- | --- | --- |
-| `export.pdf` | `path`, `watermark?`, `scene_numbers?`, `title_page?` | `{path, pages, bytes, warnings}` |
+| `export.pdf` | `path`, `watermark?`, `scene_numbers?`, `title_page?`, `overwrite?` | `{path, pages, bytes, warnings}` |
 
 - **`export.pdf`**
   - Lays out the open document (as `scene.list` does) and writes it as a PDF, atomically, as `docs/specs/layout.md` §12 describes. The same document and options always give the same bytes.
-  - `path` must end in `.pdf`, otherwise `unsupported_format`. It may never be the open document or its crash journal (`would_overwrite_document`).
+  - `path` must end in `.pdf`, otherwise `unsupported_format`. It may never be the open document or its crash journal (`would_overwrite_document`). A file already there is replaced only with `overwrite: true`, otherwise `already_exists` (2026-10-16). Only a writer may pass `overwrite` (`writer_only`). The CLI's `export` subcommand passes it, since its output is named on the command line, as `convert` replaces its output.
   - `watermark` is text printed diagonally under every page. `scene_numbers` (default false) prints scene numbers beside headings. `title_page` (default true) includes the title page when the script has one.
   - `pages` counts the PDF's pages, title page included. It is never 0: a document with nothing to print gives one blank page, with the watermark if one is given (2026-10-14).
   - `warnings` lists `{code, message, chars?, id?}`: characters the bundled font cannot print, in the script or the watermark (`missing_glyph`, `missing_mark`), and layout diagnostics such as `dual_too_tall`, with the block `id` when there is one.
@@ -312,7 +312,7 @@ Undo is unlimited. A new edit clears the redo history.
 | `invalid_attr` | The block would break a model rule; `details.problems` lists them. |
 | `nothing_to_undo`, `nothing_to_redo` | The history is empty in that direction. |
 | `unsaved_changes` | The document has unsaved changes; or a "save as" target has unsaved work in its crash journal (`details.path`). |
-| `already_exists` | `doc.new` was given an existing file, the open document's path, or a path whose crash journal holds anything (`details.journal`). |
+| `already_exists` | `doc.new` was given an existing file, the open document's path, or a path whose crash journal holds anything (`details.journal`); or "save as" or `export.pdf` was given an existing file without `overwrite`. |
 | `no_path` | `doc.save` has no path to save to. |
 | `unsupported_format` | The file type is not supported in this version. |
 | `lossy_format` | The format cannot hold the document; `details.losses` lists why. |

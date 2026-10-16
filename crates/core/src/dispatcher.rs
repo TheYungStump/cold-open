@@ -203,7 +203,7 @@ impl Dispatcher {
             Command::DocSave(p) => self.doc_save(p, by),
             Command::DocClose(p) => self.doc_close(p, by),
             Command::DocRevert(_) => self.doc_revert(by),
-            Command::ExportPdf(p) => self.export_pdf(p),
+            Command::ExportPdf(p) => self.export_pdf(p, by),
             other => self
                 .session
                 .as_mut()
@@ -678,6 +678,8 @@ impl Dispatcher {
             .is_some_and(|old| same_path(old, &target));
         if same_file {
             refuse_if_changed(session, &target, p.overwrite)?;
+        } else if !p.overwrite && target.exists() {
+            return Err(exists(&target));
         }
         // Save as: the target's lock is taken, and its journal judged,
         // before anything is written (docs/specs/journal.md, "Saving").
@@ -882,7 +884,10 @@ impl Dispatcher {
 
     /// Lays out the open document and writes it as a PDF. The document and
     /// its journal are untouched (docs/specs/commands.md, "Output").
-    fn export_pdf(&mut self, p: ExportPdf) -> Result<Value, CommandError> {
+    fn export_pdf(&mut self, p: ExportPdf, by: &Author) -> Result<Value, CommandError> {
+        if p.overwrite && !by.is_writer() {
+            return Err(writer_only("replace an existing file"));
+        }
         let session = self
             .session
             .as_ref()
@@ -909,6 +914,9 @@ impl Dispatcher {
                 ),
             )
             .with_details(json!({ "path": target.display().to_string() })));
+        }
+        if !p.overwrite && target.exists() {
+            return Err(exists(&target));
         }
         let options = coldopen_layout::Options {
             scene_numbers: p.scene_numbers,
@@ -1267,6 +1275,19 @@ pub fn journal_holds_work(path: &Path) -> bool {
 /// unsaved work, which an agent may not set aside (docs/specs/mcp.md §7).
 fn holds_writers_work(session: &Session, by: &Author) -> bool {
     !by.is_writer() && session.recovered.is_some_and(|r| r.writer)
+}
+
+/// A save or export to a path where some other file already is
+/// (docs/specs/commands.md): it is replaced only with `overwrite`.
+fn exists(target: &Path) -> CommandError {
+    CommandError::new(
+        "already_exists",
+        format!(
+            "{} already exists; choose another path, or pass overwrite to replace it",
+            target.display()
+        ),
+    )
+    .with_details(json!({ "path": target.display().to_string() }))
 }
 
 /// Some choices are the writer's to make, never an agent's: an agent would

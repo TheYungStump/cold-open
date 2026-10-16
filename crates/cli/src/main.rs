@@ -274,10 +274,13 @@ fn export(
     let mut d = reader();
     let opened = call(&mut d, "doc.open", json!({ "path": path_str(input) }))?;
     print_warnings(&opened);
+    // The output was named on the command line, so it is replaced, as
+    // `convert` replaces its output.
     let mut params = json!({
         "path": path_str(output),
         "scene_numbers": scene_numbers,
         "title_page": !no_title_page,
+        "overwrite": true,
     });
     if let Some(w) = watermark {
         params["watermark"] = json!(w);

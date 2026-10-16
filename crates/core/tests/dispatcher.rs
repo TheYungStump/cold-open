@@ -641,7 +641,7 @@ fn export_pdf_writes_without_touching_the_document() {
     assert_eq!(fs::read(&again).unwrap(), bytes);
     let r = h.ok(
         "export.pdf",
-        json!({"path": again, "watermark": "DRAFT", "scene_numbers": true, "title_page": false}),
+        json!({"path": again, "watermark": "DRAFT", "scene_numbers": true, "title_page": false, "overwrite": true}),
     );
     assert_eq!(r["pages"], 1);
     assert_ne!(fs::read(&again).unwrap(), bytes);

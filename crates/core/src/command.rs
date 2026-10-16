@@ -491,6 +491,9 @@ pub struct ExportPdf {
     pub scene_numbers: bool,
     #[serde(default = "yes")]
     pub title_page: bool,
+    /// Replace a file already at `path`. Writers only.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub overwrite: bool,
 }
 
 /// A style given in full, for `text.insert`.

@@ -263,7 +263,9 @@ fn other_document(dir: &Path) -> Dispatcher {
 
 /// Review findings F2 and C2: "save as" onto a script another process has
 /// open wrote the file, then failed to lock the journal and reported
-/// `doc_locked`, so the caller believed nothing had happened.
+/// `doc_locked`, so the caller believed nothing had happened. These saves
+/// pass `overwrite`, as the app does after its dialog: the checks hold
+/// even then.
 #[test]
 fn f2_save_as_onto_a_locked_script_writes_nothing() {
     let dir = tempfile::tempdir().unwrap();
@@ -274,7 +276,12 @@ fn f2_save_as_onto_a_locked_script_writes_nothing() {
     ok(&mut a, &w, "doc.open", json!({"path": p}));
 
     let mut b = other_document(dir.path());
-    let e = err(&mut b, &w, "doc.save", json!({"path": p}));
+    let e = err(
+        &mut b,
+        &w,
+        "doc.save",
+        json!({"path": p, "overwrite": true}),
+    );
     assert_eq!(e.code, "doc_locked", "{e}");
     assert_eq!(fs::read_to_string(&p).unwrap(), SCRIPT);
     // B still has its own document, unsaved; A is untouched.
@@ -294,7 +301,12 @@ fn f2_save_as_onto_a_script_with_unsaved_work_writes_nothing() {
     let before = fs::read(&j).unwrap();
     let w = Author::Writer;
     let mut b = other_document(dir.path());
-    let e = err(&mut b, &w, "doc.save", json!({"path": p}));
+    let e = err(
+        &mut b,
+        &w,
+        "doc.save",
+        json!({"path": p, "overwrite": true}),
+    );
     assert_eq!(e.code, "unsaved_changes", "{e}");
     assert_eq!(e.details.as_ref().unwrap()["path"], p.display().to_string());
     assert_eq!(fs::read_to_string(&p).unwrap(), SCRIPT);
@@ -320,7 +332,12 @@ fn f2_save_as_onto_a_script_with_nothing_unsaved_goes_ahead() {
     assert!(journal::path_for(&p).exists());
 
     let mut b = other_document(dir.path());
-    ok(&mut b, &w, "doc.save", json!({"path": p}));
+    ok(
+        &mut b,
+        &w,
+        "doc.save",
+        json!({"path": p, "overwrite": true}),
+    );
     assert!(fs::read_to_string(&p).unwrap().contains("Agent draft."));
     assert!(asides(dir.path(), "corrupt").is_empty());
 
@@ -328,7 +345,12 @@ fn f2_save_as_onto_a_script_with_nothing_unsaved_goes_ahead() {
     let r = dir.path().join("r.fountain");
     fs::write(&r, SCRIPT).unwrap();
     fs::write(journal::path_for(&r), "not a journal\n").unwrap();
-    ok(&mut b, &w, "doc.save", json!({"path": r}));
+    ok(
+        &mut b,
+        &w,
+        "doc.save",
+        json!({"path": r, "overwrite": true}),
+    );
     assert_eq!(asides(dir.path(), "corrupt").len(), 1);
 }
 
@@ -437,4 +459,71 @@ fn f14_discarding_a_recovered_header_keeps_a_copy() {
             .contains("SAVED WORK.")
     );
     assert!(!text(&mut d).contains("SAVED WORK."));
+}
+
+/// Review finding F13 (and Antigravity's 8): "save as" and PDF export
+/// replaced whatever file was at the path, from any client, an agent
+/// included. Every `.txt` counts as a script.
+#[test]
+fn f13_saving_or_exporting_over_another_file_needs_overwrite() {
+    let dir = tempfile::tempdir().unwrap();
+    let notes = dir.path().join("notes.txt");
+    let contract = dir.path().join("contract.pdf");
+    fs::write(&notes, "My notes, not a script.\n").unwrap();
+    fs::write(&contract, b"%PDF-1.4 not ours").unwrap();
+    let w = Author::Writer;
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &w, "doc.new", json!({}));
+    ok(
+        &mut d,
+        &w,
+        "block.insert",
+        json!({"type": "action", "text": "x"}),
+    );
+
+    let e = err(&mut d, &w, "doc.save", json!({"path": notes}));
+    assert_eq!(e.code, "already_exists", "{e}");
+    let e = err(&mut d, &w, "export.pdf", json!({"path": contract}));
+    assert_eq!(e.code, "already_exists", "{e}");
+    assert_eq!(
+        fs::read_to_string(&notes).unwrap(),
+        "My notes, not a script.\n"
+    );
+    assert_eq!(fs::read(&contract).unwrap(), b"%PDF-1.4 not ours");
+
+    // An agent may not choose to replace them.
+    let a = agent();
+    for (command, path) in [("doc.save", &notes), ("export.pdf", &contract)] {
+        let e = err(
+            &mut d,
+            &a,
+            command,
+            json!({"path": path, "overwrite": true}),
+        );
+        assert_eq!(e.code, "writer_only", "{e}");
+    }
+    assert_eq!(fs::read(&contract).unwrap(), b"%PDF-1.4 not ours");
+
+    // The writer may, and a new path needs nothing.
+    ok(
+        &mut d,
+        &w,
+        "export.pdf",
+        json!({"path": contract, "overwrite": true}),
+    );
+    assert!(fs::read(&contract).unwrap().len() > 100);
+    ok(
+        &mut d,
+        &w,
+        "export.pdf",
+        json!({"path": dir.path().join("new.pdf")}),
+    );
+    ok(
+        &mut d,
+        &w,
+        "doc.save",
+        json!({"path": notes, "overwrite": true}),
+    );
+    assert_eq!(fs::read_to_string(&notes).unwrap(), "x\n");
+    d.shutdown();
 }

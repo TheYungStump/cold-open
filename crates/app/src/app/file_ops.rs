@@ -477,7 +477,11 @@ impl App {
                 let asked = target == path;
                 self.save_as(target, false, asked)
             }
-            Ask::ExportPdf(_) => self.export_to(with_extension(path, "pdf")),
+            Ask::ExportPdf(_) => {
+                let target = with_extension(path.clone(), "pdf");
+                let asked = target == path;
+                self.export_to(target, asked)
+            }
         }
     }
 
@@ -495,12 +499,15 @@ impl App {
         self.ask(Ask::ExportPdf(format!("{}.pdf", self.stem())))
     }
 
-    fn export_to(&mut self, path: PathBuf) -> Task<Message> {
+    /// Exports to a path the writer chose; `overwrite` when the system's
+    /// dialog asked about replacing this very path.
+    fn export_to(&mut self, path: PathBuf, overwrite: bool) -> Task<Message> {
         let form = self.export.take().unwrap_or_default();
         let mut params = json!({
             "path": path,
             "scene_numbers": form.scene_numbers,
             "title_page": form.title_page,
+            "overwrite": overwrite,
         });
         if !form.watermark.trim().is_empty() {
             params["watermark"] = json!(form.watermark.trim());
