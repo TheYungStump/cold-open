@@ -31,17 +31,16 @@ fn script(dir: &Path) -> PathBuf {
     p
 }
 
+/// Types at the end of the second block, whatever its id (a revert gives
+/// the blocks new ones).
 fn type_at_end(d: &mut Dispatcher, s: &str) {
-    let len = ok(d, "doc.get", json!({}))["blocks"][1]["text"]
-        .as_str()
-        .unwrap()
-        .chars()
-        .count();
+    let block = ok(d, "doc.get", json!({}))["blocks"][1].clone();
+    let len = block["text"].as_str().unwrap().chars().count();
     for (k, c) in s.chars().enumerate() {
         ok(
             d,
             "text.insert",
-            json!({"id": "b_2", "at": len + k, "text": c.to_string()}),
+            json!({"id": block["id"], "at": len + k, "text": c.to_string()}),
         );
     }
 }

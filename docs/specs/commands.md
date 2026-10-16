@@ -39,6 +39,7 @@ New commands, new optional params and new result fields are added without changi
 - **Block ids** are opaque strings, currently `b_<n>`.
 - Within an open document they are never reused. A deleted id stays invalid, and undoing the delete brings the same id back.
 - Opening a Fountain file numbers its blocks in order, because Fountain has no place to store ids.
+- `doc.revert` reads the file into the same open document, so its blocks get fresh ids, continuing from the document's next id (2026-10-16). An id from before the revert then fails with `block_not_found` instead of naming another block, which matters to agents that remember ids between calls.
 - **A scene's id** is the id of its scene-heading block. A scene runs from its heading up to the next scene heading or section.
 
 ## Blocks in JSON
@@ -151,7 +152,7 @@ Notes on each command:
   - With `discard`, unsaved changes are kept in a copy of the journal, which a `journal_discarded` warning names (2026-10-16; `docs/specs/journal.md`, "Closing").
   - An agent's `discard` fails with `not_your_step` when the document holds a writer's recovered work (2026-10-16; `docs/specs/mcp.md` §6). The same holds for an agent's `doc.revert`, and for its `doc.open` with `recover: "discard"`.
 - **`doc.revert`** (2026-10-15)
-  - Throws away unsaved changes and the undo history, and reads the document's file again.
+  - Throws away unsaved changes and the undo history, and reads the document's file again. The blocks read get fresh ids ("Ids" above).
   - The journal is never deleted by a revert: if the document has unsaved changes or the journal holds entries, it is copied aside to `<journal>.discarded-<ms>` first, then started again from the file. (2026-10-16: "unsaved changes" covers a recovered journal header with no entries, `docs/specs/journal.md` recovery step 4.)
   - Fails with `no_path` for an untitled document, and with `io_error` if the file cannot be read; the open document is unchanged in both cases.
   - The desktop app's recovery dialog uses it for Discard.

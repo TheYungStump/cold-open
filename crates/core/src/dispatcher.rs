@@ -1137,7 +1137,17 @@ impl Dispatcher {
         for d in &parsed.diagnostics {
             warnings.push(json!({ "code": d.code, "message": d.message, "line": d.line }));
         }
-        let doc = Document::from_script(parsed.script);
+        // Ids are never reused within an open document, and agents may still
+        // hold old ones: the file's blocks get fresh ids, so an old id fails
+        // rather than naming another block (review finding F12).
+        let doc = Document::from_script(parsed.script)
+            .renumbered_from(session.doc.next_id)
+            .ok_or_else(|| {
+                CommandError::new(
+                    "internal_error",
+                    "this document has used every block id; close it and open it again",
+                )
+            })?;
         // A recovered header alone holds unsaved work with no entries, so
         // being dirty is enough to keep a copy (docs/specs/journal.md).
         let dirty = session.dirty;

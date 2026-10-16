@@ -828,3 +828,44 @@ fn a_journal_header_with_bad_ids_is_set_aside_not_trusted() {
         h.d.discard();
     }
 }
+
+/// Review finding F12 (and Antigravity's 9): `doc.revert` numbered the
+/// file's blocks from `b_1` again, inside the same open document, so an
+/// agent's remembered id could name a different block afterwards.
+#[test]
+fn revert_never_hands_out_an_id_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("r.fountain");
+    fs::write(&p, "INT. HOUSE - DAY\n\nRain.\n\nWind.\n").unwrap();
+    let mut h = Harness::new();
+    h.ok("doc.open", json!({"path": p}));
+    // The reviewer's steps: a line at the top, saved, then revert.
+    h.ok(
+        "block.insert",
+        json!({"before": "b_1", "type": "action", "text": "A new opening line."}),
+    );
+    h.ok("doc.save", json!({}));
+    h.ok("doc.revert", json!({}));
+    // An agent that learned b_3 = "Wind." must not delete "Rain." now.
+    let r = h.raw("block.delete", json!({"id": "b_3"}));
+    assert_eq!(r["error"]["code"], "block_not_found", "{r}");
+    let texts = h.texts();
+    assert!(texts.iter().any(|t| t.ends_with("Rain.")), "{texts:?}");
+
+    // Antigravity's steps: an id allocated and deleted before a save is
+    // never handed out again after a revert.
+    let mut seen: Vec<String> = h
+        .blocks()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["id"].as_str().unwrap().to_string())
+        .collect();
+    seen.extend(["b_1", "b_2", "b_3", "b_4", "b_5"].map(String::from));
+    let id = h.ok("block.insert", json!({"type": "action", "text": "Later."}))["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(!seen.contains(&id), "{id} was handed out before");
+    h.d.discard();
+}

@@ -154,6 +154,19 @@ impl Document {
         Some(id)
     }
 
+    /// Numbers the blocks again from `first`, for a document read back into
+    /// a session that has already handed out ids below it. `None` if the
+    /// ids would run out.
+    pub fn renumbered_from(mut self, first: u64) -> Option<Document> {
+        let mut next = first;
+        for b in &mut self.blocks {
+            b.id = BlockId(next);
+            next = next.checked_add(1)?;
+        }
+        self.next_id = next.max(first);
+        (self.next_id < u64::MAX).then_some(self)
+    }
+
     /// Checks what a document read from outside (a journal header) must
     /// hold before anything trusts it: ids are unique and below `next_id`,
     /// and every block keeps the model rules.
