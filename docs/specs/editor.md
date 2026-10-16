@@ -306,6 +306,7 @@ When an agent attaches to the open script through `coldopen mcp` (`docs/specs/mc
 
 - **Typing gate** (`crates/app/tests/typing_gate.rs`). A short scene is typed key by key: smart flow, two autocomplete picks, accented letters from the keyboard and from an input method, a pause and an undo, then Mod+S and its "Save as" dialog. The saved file must equal `tests/fixtures/app/gate-scene.fountain` byte for byte.
 - **File flows** (`crates/app/tests/file_flows.rs`): saving in place, close and quit prompts, save as from `Unsaved/`, the recovery dialog after a crash (Keep and Discard), leftover work at start-up, and PDF export options.
+- **Crash gate** (`crates/app/tests/crash_gate.rs`). The app runs as its own process (`coldopen-driver`), keys go in one at a time, and the process is killed (TerminateProcess or SIGKILL) at points spread over the sequence. Reopening must give back every acknowledged key. Since 2026-10-16 (review finding F17.4) it also saves every seven keys, so kills land before, during and right after saves, and it kills the app while an agent attached through the real link is inserting lines: every edit the agent was told had succeeded must come back.
 
 ## 15. Not in phase 3
 
