@@ -124,6 +124,58 @@ fn d_or_n_on_the_lossy_save_question_cancels() {
     h.app.d.discard();
 }
 
+/// Review finding F11: Mod+S replaced the file even when another program
+/// had changed it since it was opened. Now the writer is asked: overwrite,
+/// reload, or save as.
+#[test]
+fn saving_over_another_programs_changes_asks_first() {
+    const OUTSIDE: &str = "INT. LAB - NIGHT\n\nRain.\n\nAdded by a sync client.\n";
+    let read = |p: &Path| std::fs::read_to_string(p).unwrap();
+    for answer in ["o", "r", "a"] {
+        let home = tempfile::tempdir().unwrap();
+        let p = script(home.path());
+        let mine = home.path().join("mine.fountain");
+        let mut h = app(home.path(), Some(&p), Some(mine.clone()));
+        to_first_action(&mut h);
+        h.type_text(" Thunder.");
+        std::fs::write(&p, OUTSIDE).unwrap();
+        h.shortcut('s', false);
+        assert!(
+            matches!(h.app.prompt, Some(Prompt::Changed { .. })),
+            "{:?}",
+            h.app.prompt
+        );
+        assert_eq!(read(&p), OUTSIDE);
+        press(&mut h, answer);
+        assert!(h.app.prompt.is_none(), "{answer}");
+        let s = h.app.d.session().unwrap();
+        assert!(!s.dirty, "{answer}: {:?}", h.app.banners);
+        match answer {
+            "o" => assert_eq!(read(&p), SCRIPT.replace("Rain.", "Rain. Thunder.")),
+            "r" => {
+                assert_eq!(read(&p), OUTSIDE);
+                let texts: Vec<String> = s
+                    .doc
+                    .blocks
+                    .iter()
+                    .map(|b| b.element.text.plain_text())
+                    .collect();
+                assert_eq!(texts[2], "Added by a sync client.");
+                let kept = std::fs::read_dir(home.path())
+                    .unwrap()
+                    .filter_map(|e| e.ok())
+                    .any(|e| e.file_name().to_string_lossy().contains(".discarded-"));
+                assert!(kept, "the unsaved changes are kept aside");
+            }
+            _ => {
+                assert_eq!(read(&p), OUTSIDE);
+                assert!(read(&mine).contains("Rain. Thunder."));
+            }
+        }
+        h.app.d.shutdown();
+    }
+}
+
 #[test]
 fn quitting_with_changes_can_save_first() {
     let home = tempfile::tempdir().unwrap();

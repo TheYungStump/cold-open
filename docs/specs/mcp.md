@@ -163,6 +163,8 @@ Commands still run as the agent, so the undo labels and the `not_your_step` rule
 
 **The writer's recovered work** (2026-10-16). After the app crashes, `coldopen mcp` is often the first to open the script, so it recovers the writer's journal. The agent may read, edit and save that work, or leave it in the journal, but it may never set it aside: while the session holds recovered work that includes any of the writer's entries and has not been saved, `doc_close` with `discard`, `doc_revert`, and `doc_open` with `recover: "discard"` all fail with `not_your_step` (`details.recovered` is true), and nothing changes. Each of these would keep a copy, but the writer would never be shown it. Work the agent recovered from its own entries may be discarded as usual.
 
+**Choices that are the writer's** (2026-10-16). An agent may not pass `overwrite` to `doc_save` (`writer_only`): replacing a file another program changed is the writer's decision, and an agent would simply pass the flag.
+
 ## 7. Security
 
 | Threat | Answer |

@@ -251,7 +251,7 @@ impl App {
     }
 
     /// The script's file name, or "this script" when it has none yet.
-    fn script_name(&self) -> String {
+    pub(super) fn script_name(&self) -> String {
         if self.untitled() {
             return "this script".into();
         }
@@ -298,6 +298,31 @@ impl App {
                 ]
                 .spacing(8),
                 hint(pal, "Enter: Save anyway  ·  Esc: Cancel"),
+            ]
+            .spacing(12)
+            .into(),
+            Prompt::Changed { .. } => column![
+                title(
+                    pal,
+                    format!("{} was changed by another program", self.script_name())
+                ),
+                body(
+                    pal,
+                    "Since Cold Open last opened or saved it, another program wrote to the \
+                     file. Saving now would replace that version. Reload reads the file \
+                     again and keeps a copy of your unsaved changes.",
+                ),
+                row![
+                    dialog_button("Save as…", Message::Reply(Reply::SaveAs), true),
+                    dialog_button("Overwrite", Message::Reply(Reply::Overwrite), false),
+                    dialog_button("Reload", Message::Reply(Reply::Reload), false),
+                    dialog_button("Cancel", Message::Reply(Reply::Cancel), false),
+                ]
+                .spacing(8),
+                hint(
+                    pal,
+                    "Enter or A: Save as  ·  O: Overwrite  ·  R: Reload  ·  Esc: Cancel"
+                ),
             ]
             .spacing(12)
             .into(),

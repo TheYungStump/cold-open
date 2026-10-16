@@ -200,7 +200,7 @@ impl Dispatcher {
         match cmd {
             Command::DocNew(p) => self.doc_new(p),
             Command::DocOpen(p) => self.doc_open(p, by),
-            Command::DocSave(p) => self.doc_save(p),
+            Command::DocSave(p) => self.doc_save(p, by),
             Command::DocClose(p) => self.doc_close(p, by),
             Command::DocRevert(_) => self.doc_revert(by),
             Command::ExportPdf(p) => self.export_pdf(p),
@@ -484,6 +484,7 @@ impl Dispatcher {
             session.journal = Some(j);
         }
 
+        session.disk = (!missing).then(|| Fingerprint::of(&bytes));
         let result = json!({
             "path": path.display().to_string(),
             "format": "fountain",
@@ -652,7 +653,12 @@ impl Dispatcher {
         })
     }
 
-    fn doc_save(&mut self, p: DocSave) -> Result<Value, CommandError> {
+    fn doc_save(&mut self, p: DocSave, by: &Author) -> Result<Value, CommandError> {
+        if p.overwrite && !by.is_writer() {
+            return Err(writer_only(
+                "replace a file that is not the open document, or that another program changed",
+            ));
+        }
         let opts = self.opts;
         let durability = self.durability();
         let session = self
@@ -670,6 +676,9 @@ impl Dispatcher {
             .path
             .as_ref()
             .is_some_and(|old| same_path(old, &target));
+        if same_file {
+            refuse_if_changed(session, &target, p.overwrite)?;
+        }
         // Save as: the target's lock is taken, and its journal judged,
         // before anything is written (docs/specs/journal.md, "Saving").
         let claimed = if opts.journal && !same_file {
@@ -705,6 +714,7 @@ impl Dispatcher {
         session.path = Some(target.clone());
         session.dirty = false;
         session.recovered = None;
+        session.disk = Some(fingerprint);
         Ok(json!({
             "path": target.display().to_string(),
             "format": format,
@@ -786,6 +796,7 @@ impl Dispatcher {
         }
         refuse_while_saving(session)?;
         let r = Self::render(session, p)?;
+        refuse_if_changed(session, &r.target, p.overwrite)?;
         let fingerprint = Fingerprint::of(&r.bytes);
         // A broken journal protects nothing, so it gets no marker; the
         // commit starts it again, which is the only way out of that state.
@@ -847,6 +858,8 @@ impl Dispatcher {
         };
         session.saving = None;
         written.map_err(|e| CommandError::io(&prepared.target, &e))?;
+        // The file now holds these bytes, whether or not edits came since.
+        session.disk = Some(prepared.fingerprint);
         let current = session.rev == prepared.rev;
         if current {
             if let Some(j) = &mut session.journal {
@@ -1037,6 +1050,7 @@ impl Dispatcher {
         fresh.clock = clock;
         fresh.journal = session.journal.take();
         fresh.rev = session.rev + 1;
+        fresh.disk = Some(Fingerprint::of(&bytes));
         let result = json!({
             "path": path.display().to_string(),
             "blocks": fresh.doc.blocks.len(),
@@ -1180,6 +1194,39 @@ fn unsupported(path: &Path) -> CommandError {
     )
 }
 
+/// A save in place refuses when the file is no longer what this session
+/// last read or wrote, unless the writer chose to overwrite it
+/// (docs/specs/journal.md, "Saving"). A file that has gone is simply put
+/// back.
+fn refuse_if_changed(
+    session: &Session,
+    target: &Path,
+    overwrite: bool,
+) -> Result<(), CommandError> {
+    if overwrite {
+        return Ok(());
+    }
+    let now = match fs::read(target) {
+        Ok(b) => Fingerprint::of(&b),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(CommandError::io(target, &e)),
+    };
+    if session.disk == Some(now) {
+        return Ok(());
+    }
+    let name = target.file_name().map_or_else(
+        || target.display().to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    );
+    Err(CommandError::new(
+        "file_changed",
+        format!(
+            "{name} was changed by another program since Cold Open last read or saved it; saving now would replace those changes. Reload it, save it under another name, or save with overwrite"
+        ),
+    )
+    .with_details(json!({ "path": target.display().to_string() })))
+}
+
 /// One save at a time: while a save prepared off the UI thread is being
 /// written, every other save fails, so an older write can never land after
 /// a newer one (docs/specs/journal.md, "Saving off the UI thread").
@@ -1220,6 +1267,15 @@ pub fn journal_holds_work(path: &Path) -> bool {
 /// unsaved work, which an agent may not set aside (docs/specs/mcp.md §7).
 fn holds_writers_work(session: &Session, by: &Author) -> bool {
     !by.is_writer() && session.recovered.is_some_and(|r| r.writer)
+}
+
+/// Some choices are the writer's to make, never an agent's: an agent would
+/// simply pass the flag.
+fn writer_only(what: &str) -> CommandError {
+    CommandError::new(
+        "writer_only",
+        format!("only the writer can choose to {what}; an agent may not"),
+    )
 }
 
 fn writers_work(what: &str) -> CommandError {

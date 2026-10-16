@@ -37,7 +37,13 @@ pub enum Prompt {
     Lossy {
         message: String,
         path: Option<PathBuf>,
+        /// For a "save as": whether the file dialog asked about replacing
+        /// that path.
+        overwrite: bool,
     },
+    /// Another program changed the file since Cold Open last read or saved
+    /// it: overwrite, reload, or save as? With the save's `allow_lossy`.
+    Changed { message: String, allow_lossy: bool },
 }
 
 /// The writer's answer to a [`Prompt`].
@@ -46,6 +52,12 @@ pub enum Reply {
     Save,
     DontSave,
     Cancel,
+    /// Changed: replace the other program's version.
+    Overwrite,
+    /// Changed: read the file again; unsaved changes are kept aside.
+    Reload,
+    /// Changed: save under another name.
+    SaveAs,
 }
 
 /// What the recovery dialog shows (editor.md §13).
@@ -262,19 +274,62 @@ impl App {
                 self.run("doc.close", json!({ "discard": true }));
                 self.proceed(after)
             }
-            (Prompt::Lossy { path: Some(p), .. }, Reply::Save) => self.save_as(p, true),
+            (
+                Prompt::Lossy {
+                    path: Some(p),
+                    overwrite,
+                    ..
+                },
+                Reply::Save,
+            ) => self.save_as(p, true, overwrite),
             (Prompt::Lossy { path: None, .. }, Reply::Save) => self.save(true),
             (Prompt::Lossy { .. }, Reply::DontSave) => {
                 self.after_save = None;
                 Task::none()
             }
+            (Prompt::Changed { allow_lossy, .. }, Reply::Overwrite) => {
+                self.save_with(allow_lossy, true)
+            }
+            (Prompt::Changed { .. }, Reply::Reload) => {
+                self.after_save = None;
+                self.reload()
+            }
+            (Prompt::Changed { .. }, Reply::SaveAs) => {
+                self.ask(Ask::SaveAs(format!("{}.fountain", self.stem())))
+            }
+            // A key that answers some other question: this one stays open.
+            (prompt, _) => {
+                self.prompt = Some(prompt);
+                Task::none()
+            }
         }
+    }
+
+    /// Reads the file again after another program changed it. The unsaved
+    /// changes are kept in a copy of the journal (doc.revert).
+    fn reload(&mut self) -> Task<Message> {
+        if let Some(r) = self.run("doc.revert", json!({}))
+            && let Some(s) = self.d.session()
+        {
+            self.editor = self.fresh_editor(&s.doc);
+            if let Some(w) = r["warnings"][0]["message"].as_str() {
+                self.banners
+                    .push(format!("Reloaded {}. Your {w}.", self.script_name()));
+            }
+        }
+        self.after_change(true)
     }
 
     /// Mod+S: saves in place on a worker thread, or asks where for a
     /// script that has never been saved (docs/specs/journal.md, "Saving
     /// off the UI thread").
     pub(super) fn save(&mut self, allow_lossy: bool) -> Task<Message> {
+        self.save_with(allow_lossy, false)
+    }
+
+    /// [`App::save`], with `overwrite` once the writer chose to replace
+    /// another program's changes.
+    fn save_with(&mut self, allow_lossy: bool, overwrite: bool) -> Task<Message> {
         if self.d.session().is_none() {
             return Task::none();
         }
@@ -287,6 +342,7 @@ impl App {
         }
         let p = DocSave {
             allow_lossy,
+            overwrite,
             ..DocSave::default()
         };
         match self.d.save_prepare(&p) {
@@ -299,6 +355,14 @@ impl App {
                 self.prompt = Some(Prompt::Lossy {
                     message: e.message,
                     path: None,
+                    overwrite: false,
+                });
+                Task::none()
+            }
+            Err(e) if e.code == "file_changed" => {
+                self.prompt = Some(Prompt::Changed {
+                    message: e.message,
+                    allow_lossy,
                 });
                 Task::none()
             }
@@ -348,14 +412,20 @@ impl App {
 
     /// Saves to a path the writer chose, here on the UI thread: the dialog
     /// has just paused the writer anyway (decision 10 in
-    /// docs/progress/phase-3.md).
-    pub(super) fn save_as(&mut self, path: PathBuf, allow_lossy: bool) -> Task<Message> {
+    /// docs/progress/phase-3.md). `overwrite` is true when that dialog
+    /// asked about replacing this very path.
+    pub(super) fn save_as(
+        &mut self,
+        path: PathBuf,
+        allow_lossy: bool,
+        overwrite: bool,
+    ) -> Task<Message> {
         if self.saving.is_some() {
             self.banners
                 .push("A save is still running. Try Save as again in a moment.".into());
             return Task::none();
         }
-        let params = json!({ "path": path, "allow_lossy": allow_lossy });
+        let params = json!({ "path": path, "allow_lossy": allow_lossy, "overwrite": overwrite });
         let cmd = match coldopen_core::Command::from_parts("doc.save", params) {
             Ok(c) => c,
             Err(e) => {
@@ -376,6 +446,7 @@ impl App {
                 self.prompt = Some(Prompt::Lossy {
                     message: e.message,
                     path: Some(path),
+                    overwrite,
                 });
                 Task::none()
             }
@@ -399,7 +470,13 @@ impl App {
         };
         match ask {
             Ask::Open => self.leave(After::OpenPath(path)),
-            Ask::SaveAs(_) => self.save_as(with_extension(path, "fountain"), false),
+            Ask::SaveAs(_) => {
+                // The dialog asked before replacing the path it returned,
+                // not the one an added extension makes.
+                let target = with_extension(path.clone(), "fountain");
+                let asked = target == path;
+                self.save_as(target, false, asked)
+            }
             Ask::ExportPdf(_) => self.export_to(with_extension(path, "pdf")),
         }
     }

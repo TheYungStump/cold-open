@@ -14,7 +14,7 @@ use crate::command::{
 };
 use crate::document::{Block, BlockId, Document, word_count};
 use crate::error::CommandError;
-use crate::io::SourceStyle;
+use crate::io::{Fingerprint, SourceStyle};
 use crate::journal::Journal;
 use crate::ops::{Op, Transaction};
 use crate::replace::{find_in, replace_in, replace_one};
@@ -105,6 +105,10 @@ pub struct Session {
     /// Set while the document holds work recovered from a crash journal
     /// that has not been saved since.
     pub recovered: Option<Recovered>,
+    /// The file as this session last read or wrote it, or `None` if it
+    /// had no file then. A save in place that finds anything else there
+    /// refuses with `file_changed`.
+    pub disk: Option<Fingerprint>,
     /// Unique in the process, so a save prepared for one session can tell
     /// it is not committing into another (docs/specs/journal.md, "Saving
     /// off the UI thread").
@@ -178,6 +182,7 @@ impl Session {
             journal: None,
             dirty: false,
             recovered: None,
+            disk: None,
             id: SESSIONS.fetch_add(1, Ordering::Relaxed),
             saves: 0,
             saving: None,

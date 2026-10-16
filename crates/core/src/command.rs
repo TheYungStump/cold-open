@@ -287,6 +287,11 @@ pub struct DocSave {
     pub format: Option<String>,
     #[serde(default)]
     pub allow_lossy: bool,
+    /// Replace the target even though it is a file other than the open
+    /// document, or another program changed it since Cold Open last read
+    /// or saved it (docs/specs/commands.md). Writers only.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub overwrite: bool,
 }
 
 fn fountain() -> String {

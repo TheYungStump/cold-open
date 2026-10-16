@@ -23,9 +23,11 @@ fn ok(d: &mut Dispatcher, command: &str, params: Value) -> Value {
     }
 }
 
+const SCRIPT_TEXT: &str = "INT. LAB - NIGHT\n\nRain.\n";
+
 fn script(dir: &Path) -> PathBuf {
     let p = dir.join("save.fountain");
-    fs::write(&p, "INT. LAB - NIGHT\n\nRain.\n").unwrap();
+    fs::write(&p, SCRIPT_TEXT).unwrap();
     p
 }
 
@@ -302,5 +304,82 @@ fn a_save_never_commits_into_a_document_opened_after_it() {
     assert_eq!(ok(&mut d, "doc.get", json!({}))["dirty"], true);
     assert!(text(&mut d).contains("Y."));
     assert_clean_means_saved(&mut d, &p);
+    d.discard();
+}
+
+/// Review finding F11: a save replaced the file without looking, so an
+/// edit another program made meanwhile (a `git pull`, a synced change, a
+/// second editor) was erased by the next save.
+#[test]
+fn a_save_never_replaces_another_programs_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = script(dir.path());
+    let outside = "INT. LAB - NIGHT\n\nRain.\n\nA paragraph added elsewhere.\n";
+    for off_the_ui_thread in [false, true] {
+        let mut d = app();
+        ok(&mut d, "doc.open", json!({"path": p}));
+        fs::write(&p, outside).unwrap();
+        type_at_end(&mut d, " Wind.");
+        let e = if off_the_ui_thread {
+            d.save_prepare(&DocSave::default()).unwrap_err()
+        } else {
+            let save = Command::from_parts("doc.save", json!({})).unwrap();
+            d.execute(save).unwrap_err()
+        };
+        assert_eq!(e.code, "file_changed", "{e}");
+        assert_eq!(fs::read_to_string(&p).unwrap(), outside);
+        assert_eq!(ok(&mut d, "doc.get", json!({}))["dirty"], true);
+        // The writer chose to overwrite.
+        ok(&mut d, "doc.save", json!({"overwrite": true}));
+        assert!(!fs::read_to_string(&p).unwrap().contains("elsewhere"));
+        d.shutdown();
+        fs::write(&p, SCRIPT_TEXT).unwrap();
+    }
+}
+
+/// Cold Open's own writes are never mistaken for another program's.
+#[test]
+fn saves_after_saves_and_reverts_go_ahead() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = script(dir.path());
+    let mut d = app();
+    ok(&mut d, "doc.open", json!({"path": p}));
+    type_at_end(&mut d, " One.");
+    ok(&mut d, "doc.save", json!({}));
+    type_at_end(&mut d, " Two.");
+    // A background save that finishes while the writer types on.
+    let prepared = d.save_prepare(&DocSave::default()).unwrap();
+    type_at_end(&mut d, " Three.");
+    let written = io::atomic_write(&prepared.target, &prepared.bytes);
+    d.save_commit(prepared, written).unwrap();
+    ok(&mut d, "doc.save", json!({}));
+    fs::write(&p, "INT. LAB - NIGHT\n\nChanged outside.\n").unwrap();
+    ok(&mut d, "doc.revert", json!({}));
+    type_at_end(&mut d, " Four.");
+    ok(&mut d, "doc.save", json!({}));
+    assert!(
+        fs::read_to_string(&p)
+            .unwrap()
+            .contains("Changed outside. Four.")
+    );
+    d.shutdown();
+}
+
+/// Only the writer may choose to overwrite another program's changes; an
+/// agent would just pass the flag (decision 12 in
+/// docs/progress/review-fixes.md).
+#[test]
+fn an_agent_cannot_overwrite_another_programs_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = script(dir.path());
+    let mut d = app();
+    ok(&mut d, "doc.open", json!({"path": p}));
+    fs::write(&p, "INT. LAB - NIGHT\n\nChanged outside.\n").unwrap();
+    type_at_end(&mut d, " Wind.");
+    let agent = Author::agent("claude-code", Some("doc_save".into()));
+    let save = Command::from_parts("doc.save", json!({"overwrite": true})).unwrap();
+    let e = d.execute_as(save, &agent).unwrap_err();
+    assert_eq!(e.code, "writer_only", "{e}");
+    assert!(fs::read_to_string(&p).unwrap().contains("Changed outside."));
     d.discard();
 }

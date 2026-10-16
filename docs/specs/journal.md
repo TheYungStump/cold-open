@@ -82,6 +82,7 @@ In Every-entry mode, an operating-system crash loses nothing that was acknowledg
 
 ## Saving
 
+0. **Another program's changes** (2026-10-16). A session remembers the fingerprint of its file as it last read or wrote it (at open, revert and every save it made). A save in place first reads the file. If it is not that version, the save fails with `file_changed` and writes nothing, unless `overwrite` is true. A file that has gone is simply written again. Changes made outside while the file is open (a `git pull`, a sync client, another editor) are therefore never replaced without the writer's say. After a recovery, the fingerprint is the file's as it was opened: the recovery report has already said whether another program changed it (`external_change`).
 1. Saving writes the script atomically (see below).
 2. Then the journal is truncated in place, and a new header is written with `doc` set to the saved document and `disk` set to the new file.
 

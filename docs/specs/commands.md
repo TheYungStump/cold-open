@@ -122,7 +122,7 @@ An edit that changes nothing, such as `text.replace` with no matches, succeeds w
 | --- | --- | --- |
 | `doc.new` | `path?`, `start?` | `{path, warnings}` |
 | `doc.open` | `path`, `recover?` | `{path, format, blocks, scenes, warnings, recovered}` |
-| `doc.save` | `path?`, `format?`, `allow_lossy?` | `{path, format, bytes, losses}` |
+| `doc.save` | `path?`, `format?`, `allow_lossy?`, `overwrite?` | `{path, format, bytes, losses}` |
 | `doc.close` | `discard?` | `{warnings}` |
 | `doc.revert` | — | `{path, blocks, scenes, warnings}` |
 
@@ -144,6 +144,7 @@ Notes on each command:
   - `path` is "save as". The target's lock is taken, and its crash journal judged, before anything is written (2026-10-16; `docs/specs/journal.md`, "Saving"): a target open in another process fails with `doc_locked`, and one whose journal holds unsaved work fails with `unsaved_changes`. A refused save writes nothing.
   - `format` is `"fountain"`. It is inferred from the path when omitted.
   - If Fountain cannot hold something in the document, the save fails with `lossy_format` and lists the losses, unless `allow_lossy` is true.
+  - Saving in place over a file that another program changed since this session last read or wrote it fails with `file_changed` (2026-10-16; `docs/specs/journal.md`, "Saving"). `overwrite: true` replaces it anyway. Only a writer may pass `overwrite`; from an agent it fails with `writer_only`.
   - While a save off the UI thread is being written, `doc.save` fails with `save_in_progress` (2026-10-16; `docs/specs/journal.md`, "One save at a time"). Try again when it has finished.
 - **`doc.close`**
   - Refuses with `unsaved_changes` unless `discard` is true.
@@ -320,6 +321,8 @@ Undo is unlimited. A new edit clears the redo history.
 | `journal_error` | The crash journal could not be written; the edit was rolled back. |
 | `would_overwrite_document` | An output command was asked to write over the open document or its journal. |
 | `save_in_progress` | Another save of the document is being written; nothing changed. Retryable. |
+| `file_changed` | Another program changed the file since the document last read or wrote it; nothing was saved. `overwrite` replaces it. |
+| `writer_only` | An agent passed a choice only the writer may make, such as `overwrite`. |
 | `invalid_range` | An offset is past the end of the block's text, or `from` is after `to`. |
 | `not_your_step` | An agent tried to undo or redo a step made by someone else, or to set aside a writer's recovered work (`details.recovered`). |
 | `not_allowed_attached` | A command an agent may not send over the app's agent link, such as `doc.open` (`docs/specs/mcp.md`). |

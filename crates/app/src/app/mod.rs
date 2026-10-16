@@ -1142,6 +1142,20 @@ impl App {
         let cmd = kp.modifiers.command();
         let enter = matches!(kp.key.as_ref(), Key::Named(Named::Enter));
         let esc = matches!(kp.key.as_ref(), Key::Named(Named::Escape));
+        if matches!(self.prompt, Some(Prompt::Changed { .. })) {
+            // Enter takes the choice that keeps both versions.
+            return if enter || ch == "a" {
+                self.reply(Reply::SaveAs)
+            } else if ch == "o" {
+                self.reply(Reply::Overwrite)
+            } else if ch == "r" {
+                self.reply(Reply::Reload)
+            } else if esc || ch == "c" {
+                self.reply(Reply::Cancel)
+            } else {
+                Task::none()
+            };
+        }
         if self.prompt.is_some() {
             return if enter || ch == "s" {
                 self.reply(Reply::Save)
