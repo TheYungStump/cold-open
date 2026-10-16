@@ -4,14 +4,16 @@
 //! Reopening must give back every key the app had acknowledged, which is
 //! every key that reached the screen (docs/specs/journal.md, "What a crash
 //! can lose"). Since review finding F17.4 the kills also land before,
-//! during and right after saves, and while an agent is attached.
+//! during and right after saves, and while an agent is attached. Since
+//! phase 4 they also land during .fdx saves and around a Save as that
+//! converts the script to .fdx (docs/specs/editor.md §14).
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use coldopen_app::files::{Dialogs, Dirs};
+use coldopen_app::files::{Ask, Dialogs, Dirs};
 use coldopen_app::headless::Headless;
 use coldopen_app::{App, Boot, Message};
 use iced::keyboard::Modifiers;
@@ -60,6 +62,10 @@ fn replay_line(h: &mut Headless, line: &str) {
     match cmd {
         "char" => h.type_text(rest),
         "mod" => h.shortcut(rest.chars().next().unwrap(), false),
+        "saveas" => h.run(vec![Message::Chosen(
+            Ask::SaveAs(String::new()),
+            Some(PathBuf::from(rest)),
+        )]),
         "key" => {
             let k = match rest {
                 "enter" => Named::Enter,
@@ -265,6 +271,89 @@ fn text_of(app: &App) -> String {
     coldopen_fountain::write(&app.d.session().unwrap().doc.to_script()).text
 }
 
+/// The lighthouse scene as an .fdx file, written by Cold Open from the
+/// Fountain text.
+fn fdx_start(dir: &Path) -> PathBuf {
+    let fountain = dir.join("start.fountain");
+    std::fs::write(&fountain, START).unwrap();
+    let fdx = dir.join("lighthouse.fdx");
+    let mut d = coldopen_core::Dispatcher::new(coldopen_core::Options::default());
+    for (c, p) in [
+        ("doc.open", serde_json::json!({ "path": fountain })),
+        ("export.fdx", serde_json::json!({ "path": fdx })),
+        ("doc.close", serde_json::json!({})),
+    ] {
+        d.execute(coldopen_core::Command::from_parts(c, p).unwrap())
+            .unwrap();
+    }
+    std::fs::remove_file(&fountain).unwrap();
+    fdx
+}
+
+/// Kills the driver at each of `kill_at` while it works through the lines
+/// `lines(home)` gives, on the script `start(home)` makes. After each kill
+/// some file `reopen(home, acked)` names must open, after Keep, on a text
+/// no older than the last acknowledged line.
+fn kill_and_check(
+    lines: &dyn Fn(&Path) -> Vec<String>,
+    start: &dyn Fn(&Path) -> PathBuf,
+    reopen: &dyn Fn(&Path, usize) -> Vec<PathBuf>,
+    kill_at: &[usize],
+) {
+    let home = tempfile::tempdir().unwrap();
+    let script = start(home.path());
+    let mut h = headless(home.path(), Some(script));
+    let mut texts = vec![text_of(&h.app)];
+    for line in lines(home.path()) {
+        replay_line(&mut h, &line);
+        texts.push(text_of(&h.app));
+    }
+    h.app.d.discard();
+
+    for (run, &kill_at) in kill_at.iter().enumerate() {
+        let home = tempfile::tempdir().unwrap();
+        let script = start(home.path());
+        let acked = type_and_kill(home.path(), Some(&script), &lines(home.path()), kill_at);
+        assert!(acked >= kill_at, "run {run}: the driver stopped at {acked}");
+        let mut got = Vec::new();
+        let mut found = None;
+        for file in reopen(home.path(), acked)
+            .into_iter()
+            .filter(|f| f.exists())
+        {
+            let mut h = headless(home.path(), Some(file.clone()));
+            if h.app.recovery.is_some() {
+                h.run(vec![Message::RecoveryKeep]);
+            }
+            let text = text_of(&h.app);
+            h.app.d.discard();
+            found = texts
+                .iter()
+                .enumerate()
+                .skip(acked)
+                .find(|(_, t)| **t == text)
+                .map(|(j, _)| (j, file));
+            got.push(text);
+            if found.is_some() {
+                break;
+            }
+        }
+        eprintln!(
+            "run {run}: {acked} of {} lines acknowledged, recovered the text after {:?}",
+            texts.len() - 1,
+            found
+        );
+        assert!(
+            found.is_some(),
+            "run {run}: killed after {acked} acknowledged lines, recovered
+{got:#?}
+expected at least
+{}",
+            texts[acked]
+        );
+    }
+}
+
 /// Review finding F17.4: the gate killed the app only mid-typing, never
 /// during or right after a save, where findings F2, F3 and F14 lived. Here
 /// it saves every seven keys, so kills land before, during and after saves,
@@ -272,45 +361,64 @@ fn text_of(app: &App) -> String {
 #[test]
 fn killing_the_app_around_saves_loses_no_acknowledged_key() {
     let lines = keys_with_saves(7);
-    let home = tempfile::tempdir().unwrap();
-    let script = home.path().join("lighthouse.fountain");
-    std::fs::write(&script, START).unwrap();
-    let mut h = headless(home.path(), Some(script.clone()));
-    let mut texts = vec![text_of(&h.app)];
-    for line in &lines {
-        replay_line(&mut h, line);
-        texts.push(text_of(&h.app));
-    }
-    h.app.d.discard();
+    let start = |dir: &Path| {
+        let p = dir.join("lighthouse.fountain");
+        std::fs::write(&p, START).unwrap();
+        p
+    };
+    kill_and_check(
+        &|_| lines.clone(),
+        &start,
+        &|dir, _| vec![dir.join("lighthouse.fountain")],
+        &kill_points(lines.len(), 8),
+    );
+}
 
-    for (run, kill_at) in kill_points(lines.len(), 8).into_iter().enumerate() {
-        let home = tempfile::tempdir().unwrap();
-        let script = home.path().join("lighthouse.fountain");
-        std::fs::write(&script, START).unwrap();
-        let acked = type_and_kill(home.path(), Some(&script), &lines, kill_at);
-        assert!(acked >= kill_at, "run {run}: the driver stopped at {acked}");
-        let mut h = headless(home.path(), Some(script.clone()));
-        if h.app.recovery.is_some() {
-            h.run(vec![Message::RecoveryKeep]);
+/// The same with an .fdx script, saved in place as .fdx every seven keys.
+#[test]
+fn killing_the_app_around_fdx_saves_loses_no_acknowledged_key() {
+    let lines = keys_with_saves(7);
+    kill_and_check(
+        &|_| lines.clone(),
+        &fdx_start,
+        &|dir, _| vec![dir.join("lighthouse.fdx")],
+        &kill_points(lines.len(), 8),
+    );
+}
+
+/// A Fountain script converted to .fdx with Save as halfway through the
+/// typing, then saved as .fdx. Until the Save as is acknowledged the work
+/// may be in either file, so either may give it back; after it, the .fdx
+/// file must.
+#[test]
+fn killing_the_app_around_a_save_as_to_fdx_loses_no_acknowledged_key() {
+    let base = keys_with_saves(9);
+    let at = base.len() / 2;
+    let lines = |dir: &Path| {
+        let mut v = base.clone();
+        v.insert(
+            at,
+            format!("saveas {}", dir.join("lighthouse.fdx").display()),
+        );
+        v
+    };
+    let start = |dir: &Path| {
+        let p = dir.join("lighthouse.fountain");
+        std::fs::write(&p, START).unwrap();
+        p
+    };
+    let reopen = |dir: &Path, acked: usize| {
+        let fdx = dir.join("lighthouse.fdx");
+        if acked > at {
+            vec![fdx]
+        } else {
+            vec![dir.join("lighthouse.fountain"), fdx]
         }
-        let got = text_of(&h.app);
-        let found = texts
-            .iter()
-            .enumerate()
-            .skip(acked)
-            .find(|(_, t)| **t == got);
-        eprintln!(
-            "run {run}: {acked} of {} lines acknowledged, recovered the text after {:?}",
-            lines.len(),
-            found.map(|(j, _)| j)
-        );
-        assert!(
-            found.is_some(),
-            "run {run}: killed after {acked} acknowledged lines, recovered\n{got}\nexpected at least\n{}",
-            texts[acked]
-        );
-        h.app.d.discard();
-    }
+    };
+    // Around the Save as itself, and at random points.
+    let mut points = vec![at - 1, at, at + 1, at + 2];
+    points.extend(kill_points(base.len() + 1, 6));
+    kill_and_check(&lines, &start, &reopen, &points);
 }
 
 /// F17.4 with an agent attached through the real link: every edit the agent

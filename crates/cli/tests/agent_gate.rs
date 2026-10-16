@@ -412,3 +412,112 @@ fn a_failed_doc_open_keeps_the_open_script() {
     );
     h.app.d.discard();
 }
+
+fn fdx_fixture(name: &str) -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/fdx")
+        .join(name)
+}
+
+/// Phase 4 (docs/specs/editor.md §14): an agent attached to an .fdx script
+/// open in the app saves it in place as .fdx, writes copies as .fdx and as
+/// Fountain to new paths, repairs a damaged file into a new one, and lists
+/// recovered versions; replacing a file stays the writer's to decide.
+#[test]
+fn an_agent_saves_an_fdx_script_and_writes_copies() {
+    let home = tempfile::tempdir().unwrap();
+    let script = home.path().join("basic.fdx");
+    std::fs::copy(fdx_fixture("basic.fdx"), &script).unwrap();
+    let mut app = App::new(Boot {
+        file: Some(script.clone()),
+        dirs: Some(Dirs::under(home.path())),
+        ..Boot::default()
+    });
+    app.set_dialogs(Dialogs::scripted(|_| None));
+    let mut h = Headless::new(app, iced::Size::new(1000.0, 700.0)).unwrap();
+    let mut mcp = Mcp::start(home.path(), &[]);
+    mcp.request(
+        &mut h,
+        "initialize",
+        json!({
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "gate-agent", "version": "1.0"}
+        }),
+    );
+    mcp.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+    let r = mcp.tool(&mut h, "doc_open", json!({"path": script}));
+    assert_eq!(r["structuredContent"]["attached"], true, "{r}");
+    let r = mcp.tool(&mut h, "doc_get", json!({}));
+    assert_eq!(r["structuredContent"]["format"], "fdx", "{r}");
+
+    // An edit, saved in place: still an .fdx file, with the edit in it.
+    let r = mcp.tool(
+        &mut h,
+        "block_insert",
+        json!({"type": "action", "text": "The kettle whistles at last."}),
+    );
+    assert_eq!(r["isError"], false, "{r}");
+    let r = mcp.tool(&mut h, "doc_save", json!({}));
+    assert_eq!(r["isError"], false, "{r}");
+    assert!(!h.app.d.session().unwrap().dirty);
+    let saved = std::fs::read_to_string(&script).unwrap();
+    assert!(saved.starts_with("<?xml"));
+    assert!(saved.contains("The kettle whistles at last."));
+
+    // Copies to new paths; the script stays as it is.
+    let copy = home.path().join("copy.fdx");
+    let r = mcp.tool(&mut h, "export_fdx", json!({"path": copy}));
+    assert_eq!(r["isError"], false, "{r}");
+    assert!(
+        std::fs::read_to_string(&copy)
+            .unwrap()
+            .contains("The kettle whistles")
+    );
+    // As Fountain, what Fountain can't hold is reported, and accepting
+    // the losses is the writer's call.
+    let fountain = home.path().join("copy.fountain");
+    let r = mcp.tool(&mut h, "export_fountain", json!({"path": fountain}));
+    if r["isError"] == true {
+        assert_eq!(r["structuredContent"]["code"], "lossy_format", "{r}");
+        let r = mcp.tool(
+            &mut h,
+            "export_fountain",
+            json!({"path": fountain, "allow_lossy": true}),
+        );
+        assert_eq!(r["structuredContent"]["code"], "writer_only", "{r}");
+        assert!(!fountain.exists());
+    } else {
+        assert!(
+            std::fs::read_to_string(&fountain)
+                .unwrap()
+                .contains("The kettle whistles")
+        );
+    }
+    let s = h.app.d.session().unwrap();
+    assert_eq!(s.path.as_deref(), Some(script.as_path()));
+    assert_eq!(s.format, coldopen_core::FormatId::Fdx);
+    // Replacing a file is the writer's call.
+    let r = mcp.tool(
+        &mut h,
+        "export_fdx",
+        json!({"path": copy, "overwrite": true}),
+    );
+    assert_eq!(r["structuredContent"]["code"], "writer_only", "{r}");
+
+    // A damaged file, repaired into a new one; the input is never written.
+    let broken = home.path().join("broken.fdx");
+    std::fs::copy(fdx_fixture("broken-markup.fdx"), &broken).unwrap();
+    let before = std::fs::read(&broken).unwrap();
+    let out = home.path().join("mended.fdx");
+    let r = mcp.tool(&mut h, "file_repair", json!({"path": broken, "out": out}));
+    assert_eq!(r["isError"], false, "{r}");
+    assert_eq!(r["structuredContent"]["repaired"], true, "{r}");
+    assert!(out.exists());
+    assert_eq!(std::fs::read(&broken).unwrap(), before);
+
+    // Recovered versions: listed, but restoring is the writer's.
+    let r = mcp.tool(&mut h, "recovered_list", json!({}));
+    assert_eq!(r["isError"], false, "{r}");
+    h.app.d.discard();
+}

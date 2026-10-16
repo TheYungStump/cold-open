@@ -16,10 +16,10 @@ Phase 4 makes Cold Open read and write .fdx. A file that came from another app o
 | 6 | .fdx writer: write back what was read byte for byte, generate what was edited; property tests, the hostile-input timing test, fuzz targets for the writer | done |
 | 7 | The round-trip gate on the corpus, with its report | done on the nine corpus files here; to run again when the new downloads arrive |
 | 8 | Core: .fdx open, save and conversion, `export.fdx`, `export.fountain`, `file.repair`, damaged originals; the CLI's `repair` and `convert`; MCP tools | done |
-| 9 | Recovery copies: hidden on Windows, `recovered.*` commands, clean-up | core done (hidden files, commands, the clean-up rule); the app's clean-up and screen come with step 11 |
+| 9 | Recovery copies: hidden on Windows, `recovered.*` commands, clean-up | done: core in this step (hidden files, commands, the clean-up rule); the app's clean-up and screen in step 11 |
 | 10 | App: one command router, `App::dispatch(request, origin)` (F18.5) | done: the refactor (117f45e, app tests unchanged), then restore, delete and waiting for saves in flight (ccf4b0b) |
 | 11 | App: .fdx dialogs, Save As conversion, exports, the repair dialog, the Recovered versions screen, notices without paths | done: all of these, plus the start-up clean-up and leftover work for restored scripts; screenshots reviewed in three themes |
-| 12 | Gates: crash gate (kills during .fdx saves and Save As conversion), typing gate on .fdx, agent gate; CI on three OSes; measurements; your manual test of the Windows build; the final report | |
+| 12 | Gates: crash gate (kills during .fdx saves and Save As conversion), typing gate on .fdx, agent gate; CI on three OSes; measurements; your manual test of the Windows build; the final report | gates done: the crash gate kills during .fdx saves and around a Save as to .fdx (five clean runs in a row); the typing gate types the scene into an .fdx script and reads it back; the agent gate saves an .fdx in place and writes copies. CI, measurements, your manual test and the report are next |
 
 ## Decisions made with the user before the phase (2026-10-16)
 
@@ -107,3 +107,6 @@ The files are studied only with scripts that print structure (element paths, att
 39. **The clean-up runs at start-up before anything opens** and looks only where the list looks (next to the recent scripts, and `Unsaved/`). It deletes through `recovered.delete`, so only names of set-aside copies can go.
 40. **Closing a script no longer shows "no document is open"**: the navigator asked core for scenes after the script closed. Found by the new Don't save test; it predates phase 4.
 41. **Restored scripts are leftover work**: an untitled script whose journal header says unsaved is offered at the next start even with no entries in its journal.
+42. **The crash gate's Save as run accepts either file until the Save as is acknowledged.** A kill can land after the conversion wrote the .fdx file and moved the journal but before the acknowledgement, so the work is then in the .fdx file. After the acknowledgement, the .fdx file must give it back.
+43. **The .fdx typing gate saves a new script as .fdx before the first key**, so every key goes through the .fdx layout. The saved file reads back as the same blocks, and written as Fountain it equals the phase 3 gate's file.
+44. **An agent can't accept losses on export**: `export_fountain` of the .fdx gate script reports `lossy_format`, and `allow_lossy` from an agent is `writer_only`, as for `doc.save`.
