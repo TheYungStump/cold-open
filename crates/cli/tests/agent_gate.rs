@@ -331,3 +331,84 @@ fn an_agent_cannot_discard_the_writers_recovered_work() {
     assert_eq!(std::fs::read(&journal).unwrap(), before);
     h.app.d.discard();
 }
+
+/// Review finding C5 (and Antigravity's 5): `coldopen mcp` shut its open
+/// document down before it checked a `doc_open`, so a failed open (a path
+/// that does not exist) threw away an unsaved untitled script for good,
+/// and moved past the unsaved-changes rule for a saved one.
+#[test]
+fn a_failed_doc_open_keeps_the_open_script() {
+    let home = tempfile::tempdir().unwrap();
+    let a = home.path().join("a.fountain");
+    std::fs::write(&a, SCRIPT).unwrap();
+    let app = App::new(Boot {
+        dirs: Some(Dirs::under(&home.path().join("unused"))),
+        ..Boot::default()
+    });
+    let mut h = Headless::new(app, iced::Size::new(800.0, 600.0)).unwrap();
+    let mut mcp = Mcp::start(home.path(), &["--no-attach"]);
+    mcp.request(
+        &mut h,
+        "initialize",
+        json!({
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "solo", "version": "1.0"}
+        }),
+    );
+    mcp.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+    let missing = home.path().join("missing.fountain");
+
+    // Codex's steps: an untitled script, unsaved, then a failed open.
+    let r = mcp.tool(&mut h, "doc_new", json!({}));
+    assert_eq!(r["isError"], false, "{r}");
+    let r = mcp.tool(
+        &mut h,
+        "block_insert",
+        json!({"type": "action", "text": "Unsaved MCP work."}),
+    );
+    assert_eq!(r["isError"], false, "{r}");
+    let r = mcp.tool(&mut h, "doc_open", json!({"path": missing}));
+    assert_eq!(r["isError"], true, "{r}");
+    let r = mcp.tool(&mut h, "doc_get", json!({}));
+    assert_eq!(r["isError"], false, "{r}");
+    assert_eq!(
+        r["structuredContent"]["blocks"][0]["text"], "Unsaved MCP work.",
+        "{r}"
+    );
+    let r = mcp.tool(&mut h, "doc_close", json!({"discard": true}));
+    assert_eq!(r["isError"], false, "{r}");
+
+    // Antigravity's steps: a saved script with unsaved edits.
+    let r = mcp.tool(&mut h, "doc_open", json!({"path": a}));
+    assert_eq!(r["isError"], false, "{r}");
+    mcp.tool(
+        &mut h,
+        "block_insert",
+        json!({"type": "action", "text": "Edit."}),
+    );
+    let r = mcp.tool(&mut h, "doc_open", json!({"path": missing}));
+    assert_eq!(r["structuredContent"]["code"], "unsaved_changes", "{r}");
+    let r = mcp.tool(&mut h, "doc_get", json!({}));
+    assert!(
+        r["structuredContent"]["path"]
+            .as_str()
+            .unwrap()
+            .ends_with("a.fountain"),
+        "{r}"
+    );
+
+    // A clean script stays open when the new one cannot be opened.
+    mcp.tool(&mut h, "doc_save", json!({}));
+    let r = mcp.tool(&mut h, "doc_open", json!({"path": missing}));
+    assert_eq!(r["structuredContent"]["code"], "io_error", "{r}");
+    let r = mcp.tool(&mut h, "doc_get", json!({}));
+    assert!(
+        r["structuredContent"]["path"]
+            .as_str()
+            .unwrap()
+            .ends_with("a.fountain"),
+        "{r}"
+    );
+    h.app.d.discard();
+}

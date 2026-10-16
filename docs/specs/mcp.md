@@ -148,7 +148,7 @@ Steps an agent made stay in the history after it disconnects.
 
 - **Forwarding.** While attached, every tool call except `doc_open` and `doc_close` becomes one request on the link. The response becomes the tool result.
 - **Attaching.** `doc_open`'s result then reads `{path, attached: true, rev, scenes, warnings: [], recovered: null}`.
-- **Detaching.** `doc_close` sends `{"bye":true}`, returns `{detached: true}`, and leaves the writer's document alone. `doc_open` of a different script detaches first.
+- **Detaching.** `doc_close` sends `{"bye":true}`, returns `{detached: true}`, and leaves the writer's document alone. `doc_open` of a different script detaches once the new script is open (2026-10-16); if it cannot be opened, the agent stays attached.
 - **When the app closes the script.** If the link closes from the app's side, later tools fail with `no_document`, and the message explains that the app closed the script.
 - **A link belongs to one script** (2026-10-16). A link is bound to the script it attached to. When the app's open script changes path, by opening another script, starting a new one or "Save as" under another name, every link is closed (agents get `closed`), and a request that still arrives for the old script closes its link instead of running. An agent never edits a script the writer did not attach it to.
 - **Resource updates** come from the app's `changed` events.
@@ -158,7 +158,8 @@ Steps an agent made stay in the history after it disconnects.
 When the script isn't open in the app, `coldopen mcp` opens it with its own dispatcher, exactly as `coldopen serve --stdio` does:
 - it takes the journal lock, so the app then can't open the file (`doc_locked`);
 - it flushes every journal entry (`docs/specs/journal.md`, Every-entry mode);
-- it keeps unsaved work in the journal when the client goes away.
+- it keeps unsaved work in the journal when the client goes away;
+- `doc_open` keeps the open script until the new one is open (2026-10-16). It is refused with `unsaved_changes` while the open script has unsaved changes, as `doc.open` is everywhere, and a script that cannot be opened (a missing file, say) leaves the open one exactly as it was.
 
 Commands still run as the agent, so the undo labels and the `not_your_step` rule are the same as when attached.
 
