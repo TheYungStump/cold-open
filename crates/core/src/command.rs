@@ -72,6 +72,12 @@ pub enum Command {
     ExportFountain(ExportFile),
     #[serde(rename = "file.repair")]
     FileRepair(FileRepair),
+    #[serde(rename = "recovered.list")]
+    RecoveredList(RecoveredList),
+    #[serde(rename = "recovered.restore")]
+    RecoveredRestore(RecoveredRestore),
+    #[serde(rename = "recovered.delete")]
+    RecoveredDelete(RecoveredDelete),
 }
 
 /// How a command interacts with undo and the journal.
@@ -91,7 +97,7 @@ pub enum Class {
 
 impl Command {
     /// Every command name, in a stable order (for a command palette).
-    pub const NAMES: [&'static str; 30] = [
+    pub const NAMES: [&'static str; 33] = [
         "doc.new",
         "doc.open",
         "doc.save",
@@ -122,6 +128,9 @@ impl Command {
         "export.fdx",
         "export.fountain",
         "file.repair",
+        "recovered.list",
+        "recovered.restore",
+        "recovered.delete",
     ];
 
     pub fn name(&self) -> &'static str {
@@ -156,6 +165,9 @@ impl Command {
             Command::ExportFdx(_) => "export.fdx",
             Command::ExportFountain(_) => "export.fountain",
             Command::FileRepair(_) => "file.repair",
+            Command::RecoveredList(_) => "recovered.list",
+            Command::RecoveredRestore(_) => "recovered.restore",
+            Command::RecoveredDelete(_) => "recovered.delete",
         }
     }
 
@@ -176,7 +188,10 @@ impl Command {
             Command::ExportPdf(_) | Command::ExportFdx(_) | Command::ExportFountain(_) => {
                 Class::Output
             }
-            Command::FileRepair(_) => Class::File,
+            Command::FileRepair(_) | Command::RecoveredList(_) | Command::RecoveredDelete(_) => {
+                Class::File
+            }
+            Command::RecoveredRestore(_) => Class::Session,
             // Listed one by one so a new command cannot fall into a class
             // by accident.
             Command::BlockInsert(_)
@@ -246,6 +261,9 @@ impl Command {
             "export.pdf" => of::<ExportPdf>(),
             "export.fdx" | "export.fountain" => of::<ExportFile>(),
             "file.repair" => of::<FileRepair>(),
+            "recovered.list" => of::<RecoveredList>(),
+            "recovered.restore" => of::<RecoveredRestore>(),
+            "recovered.delete" => of::<RecoveredDelete>(),
             "text.insert" => of::<TextInsert>(),
             "text.delete" => of::<TextDelete>(),
             "text.style" => of::<TextStyle>(),
@@ -548,6 +566,36 @@ pub struct FileRepair {
     pub overwrite: bool,
 }
 
+/// Params for `recovered.list` (docs/specs/commands.md, "Queries").
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct RecoveredList {
+    /// The script whose copies to list; the open document's without it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
+/// Params for `recovered.restore`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct RecoveredRestore {
+    /// The set-aside copy, as `recovered.list` names it.
+    pub copy: String,
+    /// Where the restored script is journaled: a path with no file yet.
+    pub path: String,
+}
+
+/// Params for `recovered.delete`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct RecoveredDelete {
+    /// The set-aside copy, as `recovered.list` names it.
+    pub copy: String,
+}
+
 /// A style given in full, for `text.insert`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -718,6 +766,8 @@ mod tests {
                 "export.pdf" => json!({"path": "x.pdf"}),
                 "export.fdx" | "export.fountain" => json!({"path": "x"}),
                 "file.repair" => json!({"path": "a.fdx", "out": "b.fdx"}),
+                "recovered.restore" => json!({"copy": "c", "path": "p"}),
+                "recovered.delete" => json!({"copy": "c"}),
                 "text.insert" => json!({"id": "b_1", "at": 0, "text": "x"}),
                 "text.delete" | "text.style" => json!({"id": "b_1", "from": 0, "to": 1}),
                 "block.split" | "text.complete" => json!({"id": "b_1", "at": 0}),

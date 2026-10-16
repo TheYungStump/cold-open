@@ -23,6 +23,7 @@ pub mod fuzzing;
 pub mod io;
 pub mod journal;
 pub mod ops;
+pub mod recovered;
 pub mod replace;
 pub mod session;
 pub mod view;

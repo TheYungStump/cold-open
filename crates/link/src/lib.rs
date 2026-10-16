@@ -78,11 +78,12 @@ pub fn run_dir() -> Option<std::path::PathBuf> {
 pub const BYE: &str = r#"{"bye":true}"#;
 
 /// Commands an attached agent may not run (mcp.md §5.4): they would
-/// replace, close or rename the writer's document. `doc.save` is refused
-/// only with a path.
+/// replace, close or rename the writer's document, or restore or delete
+/// the writer's set-aside copies. `doc.save` is refused only with a path.
 pub fn refused(command: &str, params: &serde_json::Value) -> bool {
     match command {
-        "doc.new" | "doc.open" | "doc.close" | "doc.revert" => true,
+        "doc.new" | "doc.open" | "doc.close" | "doc.revert" | "recovered.restore"
+        | "recovered.delete" => true,
         "doc.save" => params.get("path").is_some_and(|p| !p.is_null()),
         _ => false,
     }

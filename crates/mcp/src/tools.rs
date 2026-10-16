@@ -115,6 +115,18 @@ pub const TOOLS: &[(&str, &str)] = &[
         "Write a copy of the script as a Fountain file to a new `path`. The open script keeps its own file and format.",
     ),
     (
+        "recovered.list",
+        "List the copies Cold Open set aside for a script (unsaved changes kept when they were discarded, journals that could not be replayed, damaged originals).",
+    ),
+    (
+        "recovered.restore",
+        "Restore a set-aside copy as a new script. Only the writer may; an agent gets writer_only.",
+    ),
+    (
+        "recovered.delete",
+        "Delete a set-aside copy. Only the writer may; an agent gets writer_only.",
+    ),
+    (
         "file.repair",
         "Read the .fdx file at `path`, repairing what it can, and write the repaired copy to a new path `out`; returns the repair report. `path` is never written.",
     ),

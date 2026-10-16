@@ -24,6 +24,7 @@
 | `disk` | The length and FNV-1a 64-bit hash of the script file as last saved, or null if it has never been saved. It is used only to notice changes made by other programs. |
 | `semantics` | (2026-10-16) What replaying the entries means, now 1. It goes up whenever a command's replay changes meaning, because results alone cannot show that ("What replay compares"). Absent means 1. A journal with a higher number than this version knows is treated like an unreadable header: kept aside, never replayed. |
 | `host`, `path` | (2026-10-16) The computer's name and the script's canonical path when the header was written. Absent in older journals. |
+| `unsaved` | (2026-10-16, phase 4) `true` when the header's document is itself unsaved work with no file behind it, as for a restored copy ("Recovered versions"), so the app offers it at start-up though the journal has no entries. Written only in a header with no `disk`; absent means false. |
 | `format` | (2026-10-16, phase 4) The file format `doc` was read from or saved as, such as `"fdx"`. Recovery writes the replayed document in this format when it checks whether the file already holds it (step 4), so it compares like with like. Absent means Fountain, and Fountain is never written, so Fountain journals are exactly as before. A format this version does not know makes the header unreadable: the journal is kept aside (step 1), never replayed as the wrong format. |
 
 **The document in the header** (2026-10-16, phase 4). `doc` is the whole document, so it carries what an .fdx file gave it besides the blocks (`docs/specs/fdx.md` §12, §13):
@@ -34,9 +35,8 @@
 | `title_lines` | The title page as positioned lines. Absent means none. |
 | `spacing` | Paragraph spacing overrides in points, by block id (`{"b_12": 1200}` is 12 pt). Absent means none. |
 | `fdx` | The .fdx passthrough store: everything in the file that the blocks do not hold, kept to write the file back. Absent for a document not read from .fdx. |
-| `unsaved` | `true` when the header's document is itself unsaved work, as for a restored copy ("Recovered versions"). Absent means false. |
 
-All five are left out when absent, so a Fountain journal is byte for byte what it was. Builds from before phase 4 cannot read a header that holds them: they keep such a journal aside as unreadable (recovery step 1), and never replay or lose it.
+All four are left out when absent, so a Fountain journal is byte for byte what it was. Builds from before phase 4 cannot read a header that holds them: they keep such a journal aside as unreadable (recovery step 1), and never replay or lose it.
 
 The header holds one copy of the store, written at each save, as it already held one copy of the blocks. The store holds only the kept parts of the file (`docs/specs/fdx.md` §13.2): about a tenth of Big Fish's paragraphs, and its settings. `crates/fdx/tests/roundtrip.rs` reports its size for every corpus file.
 

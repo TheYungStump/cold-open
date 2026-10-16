@@ -16,7 +16,7 @@ Phase 4 makes Cold Open read and write .fdx. A file that came from another app o
 | 6 | .fdx writer: write back what was read byte for byte, generate what was edited; property tests, the hostile-input timing test, fuzz targets for the writer | done |
 | 7 | The round-trip gate on the corpus, with its report | done on the nine corpus files here; to run again when the new downloads arrive |
 | 8 | Core: .fdx open, save and conversion, `export.fdx`, `export.fountain`, `file.repair`, damaged originals; the CLI's `repair` and `convert`; MCP tools | done |
-| 9 | Recovery copies: hidden on Windows, `recovered.*` commands, clean-up | |
+| 9 | Recovery copies: hidden on Windows, `recovered.*` commands, clean-up | core done (hidden files, commands, the clean-up rule); the app's clean-up and screen come with step 11 |
 | 10 | App: one command router, `App::dispatch(request, origin)` (F18.5) | |
 | 11 | App: .fdx dialogs, Save As conversion, exports, the repair dialog, the Recovered versions screen, notices without paths | |
 | 12 | Gates: crash gate (kills during .fdx saves and Save As conversion), typing gate on .fdx, agent gate; CI on three OSes; measurements; your manual test of the Windows build; the final report | |
@@ -90,4 +90,9 @@ The files are studied only with scripts that print structure (element paths, att
 22. **Fountain keys become .fdx title lines** through a new `coldopen_layout::title_lines`, which places them on the rows layout prints them on (a test checks the two lay out the same). Stacked paragraphs cannot share a row, so with both bottom blocks the right one goes just above the left (`fdx.md` §14.3).
 23. **Damaged originals** are copied with a new `io::write_new` (create-new, fsync) before the first save in place, for both `doc.save` and the background save. The save's result carries an `original_kept` warning.
 24. **New commands**: `export.fdx`, `export.fountain` (class output) and `file.repair` (a new class, `file`). Each has an MCP tool and a palette title. The CLI gets `coldopen repair` (text report, `--json`, `--report`), and `convert` reads and writes .fdx.
+25. **Hidden files on Windows** use the existing hand-declared kernel32 FFI in `io::win` (`GetFileAttributesW`/`SetFileAttributesW`), so there is no new dependency. Journals are hidden whenever they are opened, which includes those from earlier phases; copies and damaged originals are hidden when written. Hiding is best effort: a file that cannot be hidden still works. A test checks the attribute on Windows.
+26. **Copies are never written over**: `copy_aside` now creates a new file (it used to overwrite), and a copy made in the same millisecond takes the next free one, so its name still gives the time.
+27. **`unsaved` is a journal header field**, not a document field as first written in `journal.md`. It describes the journal (a restored script with no file), and the first header written for a saved file clears it.
+28. **`recovered.list` and `recovered.delete` are in the new `file` class**: they need no open document. `recovered.restore` is a session command. Restore and delete are writer-only in core and refused over the agent link. A copy is known only by its name pattern, so `recovered.delete` can never delete anything else.
+29. **Set-aside warnings carry `details.copy`** (`journal_discarded`, `journal_unreadable`, `journal_partial`, `original_kept`), so the app can say "set aside" without showing a path. The messages keep the path for the CLI and JSON clients.
 

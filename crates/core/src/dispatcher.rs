@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 use crate::author::{Author, Clock};
 use crate::command::{
     Class, Command, DocClose, DocNew, DocOpen, DocSave, ExportFile, ExportPdf, FileRepair, Recover,
+    RecoveredDelete, RecoveredList, RecoveredRestore,
 };
 use crate::document::Document;
 use crate::error::CommandError;
@@ -133,6 +134,17 @@ struct Rendered {
 
 fn warning(code: &str, message: impl Into<String>) -> Value {
     json!({ "code": code, "message": message.into() })
+}
+
+/// A warning about work set aside: the path is in the message for the CLI
+/// and JSON clients, and in `details.copy` for front ends that show their
+/// own words instead (docs/specs/journal.md, "Recovered versions").
+fn set_aside(code: &str, message: String, copy: &Path) -> Value {
+    json!({
+        "code": code,
+        "message": message,
+        "details": { "copy": copy.display().to_string() },
+    })
 }
 
 fn locked(path: &Path) -> CommandError {
@@ -261,6 +273,9 @@ impl Dispatcher {
             Command::ExportFdx(p) => self.export_file(FormatId::Fdx, p, by),
             Command::ExportFountain(p) => self.export_file(FormatId::Fountain, p, by),
             Command::FileRepair(p) => self.file_repair(p, by),
+            Command::RecoveredList(p) => self.recovered_list(p),
+            Command::RecoveredRestore(p) => self.recovered_restore(p, by),
+            Command::RecoveredDelete(p) => self.recovered_delete(p, by),
             other => self
                 .session
                 .as_mut()
@@ -472,9 +487,10 @@ impl Dispatcher {
                         let aside = j
                             .copy_aside(&contents, "discarded")
                             .map_err(|e| CommandError::io(j.path(), &e))?;
-                        warnings.push(warning(
+                        warnings.push(set_aside(
                             "journal_discarded",
                             format!("unsaved changes were set aside in {}", aside.display()),
+                            &aside,
                         ));
                     }
                     Recover::Auto | Recover::Apply => {
@@ -483,9 +499,10 @@ impl Dispatcher {
                             Assessment::Unreadable(msg) => {
                                 let aside =
                                     j.copy_aside(&contents, "corrupt").map_err(|e| jio(e, &j))?;
-                                warnings.push(warning(
+                                warnings.push(set_aside(
                                     "journal_unreadable",
                                     format!("{msg}; it was kept in {}", aside.display()),
+                                    &aside,
                                 ));
                             }
                             Assessment::Replayed(r) => {
@@ -501,13 +518,14 @@ impl Dispatcher {
                                     let aside = j
                                         .copy_aside(&contents, Replayed::aside_tag(msg))
                                         .map_err(|e| jio(e, &j))?;
-                                    warnings.push(warning(
+                                    warnings.push(set_aside(
                                         "journal_partial",
                                         format!(
                                             "recovered {} of the journal's changes; {msg}; the journal was kept in {}",
                                             r.commands,
                                             aside.display()
                                         ),
+                                        &aside,
                                     ));
                                 }
                                 if r.recover {
@@ -1246,6 +1264,109 @@ impl Dispatcher {
         }))
     }
 
+    /// `recovered.list` (docs/specs/commands.md).
+    fn recovered_list(&mut self, p: RecoveredList) -> Result<Value, CommandError> {
+        let script = match p.path {
+            Some(path) => PathBuf::from(path),
+            None => self
+                .session
+                .as_ref()
+                .ok_or_else(CommandError::no_document)?
+                .path
+                .clone()
+                .ok_or_else(|| {
+                    CommandError::new("no_path", "this document has no file, so no copies")
+                })?,
+        };
+        let copies: Vec<Value> = crate::recovered::of_script(&script)
+            .iter()
+            .map(|c| {
+                json!({
+                    "copy": c.copy.display().to_string(),
+                    "script": c.script.display().to_string(),
+                    "kind": c.kind,
+                    "at": c.at,
+                    "unread": false,
+                    "readable": crate::recovered::readable(c),
+                })
+            })
+            .collect();
+        Ok(json!({ "copies": copies }))
+    }
+
+    /// `recovered.restore`: a copy's document as a new, unsaved script
+    /// journaled at `path`; nothing is written over anything
+    /// (docs/specs/journal.md, "Recovered versions").
+    fn recovered_restore(
+        &mut self,
+        p: RecoveredRestore,
+        by: &Author,
+    ) -> Result<Value, CommandError> {
+        if !by.is_writer() {
+            return Err(writer_only("restore a recovered version"));
+        }
+        self.refuse_if_dirty()?;
+        let copy = recovered_copy(&p.copy)?;
+        let path = PathBuf::from(&p.path);
+        if path.exists() {
+            return Err(CommandError::new(
+                "already_exists",
+                format!("{} already exists; restore to a new path", path.display()),
+            ));
+        }
+        let format = FormatId::for_path(&path).ok_or_else(|| unsupported(&path))?;
+        let (doc, _) = crate::recovered::read(&copy).map_err(|why| {
+            CommandError::new(
+                "copy_unreadable",
+                format!("{} cannot be read: {why}", copy.copy.display()),
+            )
+            .with_details(json!({ "copy": copy.copy.display().to_string() }))
+        })?;
+        let mut journal = None;
+        if self.opts.journal {
+            let (mut j, contents) = open_journal(&path, format, self.durability())?;
+            if !contents.is_empty() {
+                return Err(CommandError::new(
+                    "already_exists",
+                    format!(
+                        "{} has a crash journal; restore to another path",
+                        path.display()
+                    ),
+                )
+                .with_details(json!({ "journal": j.path().display().to_string() })));
+            }
+            j.set_unsaved(true);
+            journal = Some(j);
+        }
+        self.shutdown();
+        let mut session = self.new_session(doc, Some(path.clone()), format, SourceStyle::default());
+        session.dirty = true;
+        if let Some(mut j) = journal {
+            j.start(&session.doc, None)
+                .map_err(|e| CommandError::io(j.path(), &e))?;
+            session.journal = Some(j);
+        }
+        let result = json!({
+            "path": path.display().to_string(),
+            "format": format.name(),
+            "blocks": session.doc.blocks.len(),
+            "scenes": session.doc.scenes().len(),
+            "warnings": [],
+        });
+        self.session = Some(session);
+        Ok(result)
+    }
+
+    /// `recovered.delete`: one set-aside copy, and nothing else.
+    fn recovered_delete(&mut self, p: RecoveredDelete, by: &Author) -> Result<Value, CommandError> {
+        if !by.is_writer() {
+            return Err(writer_only("delete a recovered version"));
+        }
+        let copy = recovered_copy(&p.copy)?;
+        fs::remove_file(&copy.copy).map_err(|e| CommandError::io(&copy.copy, &e))?;
+        Ok(json!({}))
+    }
+
     fn doc_close(&mut self, p: DocClose, by: &Author) -> Result<Value, CommandError> {
         let session = self
             .session
@@ -1273,9 +1394,10 @@ impl Dispatcher {
         let warnings: Vec<Value> = kept
             .iter()
             .map(|k| {
-                warning(
+                set_aside(
                     "journal_discarded",
                     format!("unsaved changes were set aside in {}", k.display()),
+                    k,
                 )
             })
             .collect();
@@ -1324,9 +1446,10 @@ impl Dispatcher {
                 if dirty || j.entries() > 0 {
                     let contents = j.contents()?;
                     let aside = j.copy_aside(&contents, "discarded")?;
-                    warnings.push(warning(
+                    warnings.push(set_aside(
                         "journal_discarded",
                         format!("unsaved changes were set aside in {}", aside.display()),
+                        &aside,
                     ));
                 }
                 j.start(&doc, Some(Fingerprint::of(&bytes)))
@@ -1419,7 +1542,7 @@ impl Dispatcher {
                 "unknown_command",
                 format!("there is no command \"{name}\""),
             )
-            .with_details(json!({ "commands": Command::NAMES })));
+            .with_details(json!({ "commands": Command::NAMES.as_slice() })));
         }
         let params = match obj.get("params") {
             None | Some(Value::Null) => json!({}),
@@ -1470,6 +1593,39 @@ pub fn to_line(response: &Value) -> String {
 
 fn failure(id: Value, e: CommandError) -> Value {
     json!({ "v": 1, "id": id, "ok": false, "error": e })
+}
+
+/// A path that names a set-aside copy, which must be there.
+fn recovered_copy(path: &str) -> Result<crate::recovered::Copy, CommandError> {
+    let p = PathBuf::from(path);
+    let copy = crate::recovered::parse(&p).ok_or_else(|| {
+        CommandError::invalid_params(format!(
+            "{path} is not a recovered version (a copy recovered.list names)"
+        ))
+    })?;
+    if !p.is_file() {
+        return Err(CommandError::io(
+            &p,
+            &std::io::Error::from(std::io::ErrorKind::NotFound),
+        ));
+    }
+    Ok(copy)
+}
+
+/// The document a journal copy holds, replayed as recovery replays it,
+/// and the format its header names; nothing on disk is touched.
+pub(crate) fn replay_copy(script: &Path, contents: &[u8]) -> Result<(Document, FormatId), String> {
+    let format = journal::read(contents)?.header.format;
+    match Dispatcher::default().assess(
+        script,
+        format,
+        SourceStyle::default(),
+        contents,
+        (&[], true),
+    ) {
+        Assessment::Unreadable(why) => Err(why),
+        Assessment::Replayed(r) => Ok((r.session.doc, format)),
+    }
 }
 
 /// An output may never be written over the open document or its journal.

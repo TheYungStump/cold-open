@@ -202,7 +202,10 @@ mod hex64 {
 pub fn write_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let mut f = OpenOptions::new().write(true).create_new(true).open(path)?;
     f.write_all(bytes)?;
-    f.sync_all()
+    f.sync_all()?;
+    drop(f);
+    hide(path);
+    Ok(())
 }
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -301,9 +304,35 @@ mod win {
     const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
     const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
 
+    const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+    const INVALID_FILE_ATTRIBUTES: u32 = u32::MAX;
+
     #[link(name = "kernel32")]
     unsafe extern "system" {
         fn MoveFileExW(existing: *const u16, new: *const u16, flags: u32) -> i32;
+        fn GetFileAttributesW(name: *const u16) -> u32;
+        fn SetFileAttributesW(name: *const u16, attributes: u32) -> i32;
+    }
+
+    /// Adds the hidden attribute to a file, keeping its others.
+    pub fn hide(p: &Path) -> io::Result<()> {
+        let name = wide(p);
+        // SAFETY: `name` is a NUL-terminated UTF-16 string that lives until
+        // each call returns; neither function keeps the pointer.
+        let attrs = unsafe { GetFileAttributesW(name.as_ptr()) };
+        if attrs == INVALID_FILE_ATTRIBUTES {
+            return Err(io::Error::last_os_error());
+        }
+        if attrs & FILE_ATTRIBUTE_HIDDEN != 0 {
+            return Ok(());
+        }
+        // SAFETY: as above.
+        let ok = unsafe { SetFileAttributesW(name.as_ptr(), attrs | FILE_ATTRIBUTE_HIDDEN) };
+        if ok == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
     }
 
     fn wide(p: &Path) -> Vec<u16> {
@@ -329,6 +358,21 @@ mod win {
         } else {
             Ok(())
         }
+    }
+}
+
+/// Hides a file Cold Open keeps for itself (a journal, a copy kept aside)
+/// on Windows, which ignores the leading dot that hides it elsewhere
+/// (docs/specs/journal.md, "Hidden files"). Best effort: a file that
+/// cannot be hidden still works.
+pub fn hide(path: &Path) {
+    #[cfg(windows)]
+    {
+        let _ = win::hide(path);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
     }
 }
 
