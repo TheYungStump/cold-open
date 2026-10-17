@@ -95,6 +95,8 @@ const FRAGMENTS: &[&str] = &[
     "TÉLÉ",
     "—",
     "\u{a0}",
+    // A byte-order mark not at the start of the input is text (spec §3).
+    "\u{feff}",
     " ",
     "  trailing  ",
 ];
@@ -440,4 +442,41 @@ fn a_lyric_ending_in_a_note_parses_to_its_normal_form() {
         coldopen_fountain::fuzzing::round_trip("~la la\n~\n[[open\n[[note]]~"),
         Ok(())
     );
+}
+
+/// Found by the `fountain_roundtrip` fuzz target in CI (2026-10-16, again
+/// 2026-10-17): a blank line, then U+FEFF. The blank line is not written,
+/// so the character came first in the output, where a reader removes it as
+/// a byte-order mark. The writer now forces that paragraph (spec §9).
+#[test]
+fn an_opening_paragraph_starting_with_a_byte_order_mark_round_trips() {
+    for input in [
+        "\n\u{feff}",
+        "\n\u{feff}BOB\nHello.\n",
+        "\n\u{feff}CUT TO:\n",
+    ] {
+        assert_eq!(
+            coldopen_fountain::fuzzing::round_trip(input),
+            Ok(()),
+            "{input:?}"
+        );
+    }
+    let script = coldopen_fountain::parse("\n\u{feff}").script;
+    assert_eq!(coldopen_fountain::write(&script).text, "!\u{feff}\n");
+}
+
+/// Found by the round-trip property test at 20,000 cases (2026-10-17): a
+/// dual-dialogue character named `EST`, then a hold line. Written as
+/// `EST ^`, the name read back as a scene heading; it is now forced.
+#[test]
+fn a_dual_name_that_reads_as_a_heading_is_forced() {
+    for input in ["EST^\n  ", "INT^\n  "] {
+        assert_eq!(
+            coldopen_fountain::fuzzing::round_trip(input),
+            Ok(()),
+            "{input:?}"
+        );
+    }
+    let script = coldopen_fountain::parse("EST^\n  ").script;
+    assert_eq!(coldopen_fountain::write(&script).text, "@EST ^\n  \n");
 }
