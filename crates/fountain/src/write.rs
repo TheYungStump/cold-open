@@ -676,22 +676,30 @@ impl Writer<'_> {
         }
 
         if let Some((line_idx, i)) = first_line_of_body {
-            self.guard_title_lookalike(line_idx, i, &els[i]);
+            self.guard_opening(line_idx, i, &els[i]);
         }
     }
 
-    /// Without a title page, the first paragraph must not read as one.
-    fn guard_title_lookalike(&mut self, line_idx: usize, i: usize, e: &Element) {
-        // Physical lines: inline notes and boneyard can hold line breaks.
-        let para: Vec<&str> = self
+    /// Without a title page, the first paragraph must not read as one, nor
+    /// start with U+FEFF, which a reader removes as a byte-order mark
+    /// (spec §3, §9).
+    fn guard_opening(&mut self, line_idx: usize, i: usize, e: &Element) {
+        let bom = self
             .out
-            .iter()
-            .skip(line_idx)
-            .flat_map(|l| l.split('\n'))
-            .take_while(|l| !l.trim().is_empty())
-            .collect();
-        if title::detect(&para).is_none() {
-            return;
+            .get(line_idx)
+            .is_some_and(|l| l.starts_with('\u{feff}'));
+        if !bom {
+            // Physical lines: inline notes and boneyard can hold line breaks.
+            let para: Vec<&str> = self
+                .out
+                .iter()
+                .skip(line_idx)
+                .flat_map(|l| l.split('\n'))
+                .take_while(|l| !l.trim().is_empty())
+                .collect();
+            if title::detect(&para).is_none() {
+                return;
+            }
         }
         let Some(first) = self.out.get_mut(line_idx) else {
             return;
@@ -705,6 +713,8 @@ impl Writer<'_> {
             {
                 first.insert(0, '.')
             }
+            // The read-back check reports what can't be forced.
+            _ if bom => {}
             _ => self.loss(
                 Some(i),
                 "title_lookalike",
@@ -974,9 +984,16 @@ impl Writer<'_> {
         let v = seen(&s);
         let t = v.trim();
         // A hold line after the name is not content, so the scene heading
-        // and transition rules, which come first, could claim the line.
+        // and transition rules, which come first, could claim the line, as
+        // it is written: the dual marker can make a heading of a name
+        // ("EST ^").
+        let line = if e.dual {
+            format!("{t} ^")
+        } else {
+            t.to_string()
+        };
         let claimed_earlier =
-            ctx.hold_follows && (is_scene_heading_prefix(t) || is_transition_shape(t));
+            ctx.hold_follows && (is_scene_heading_prefix(&line) || is_transition_shape(&line));
         let auto = ctx.para_start
             && ctx.group_follows
             && is_character_shape(t)

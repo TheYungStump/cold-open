@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 372fa362ca4ac80ded7a6c79613ffbdcb8647dfa179be41fe32daea98fd56c89 # shrinks to s = "**bold**[[open\nclose]]*//* bone"
+cc 214d16b5f451d74ad2417a67ab3aef285b6fc236550fe9b2ee29d77688ed350e # shrinks to s = "EST^\n  "
