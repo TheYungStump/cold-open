@@ -199,7 +199,7 @@ impl<'a> Gen<'a> {
     }
 
     fn indent(&self, depth: usize) -> String {
-        self.style.unit.repeat(depth)
+        self.style.indent(depth)
     }
 
     fn loss(&mut self, block: u64, code: &'static str, message: &str) {

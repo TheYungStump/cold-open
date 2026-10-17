@@ -1,6 +1,6 @@
 # .fdx: how Cold Open reads and writes it
 
-- **Date:** 2026-10-13, updated 2026-10-14 and 2026-10-16 (phase 4: the writer, passthrough, round trip and repair, §12 to §17)
+- **Date:** 2026-10-13, updated 2026-10-14, 2026-10-16 (phase 4: the writer, passthrough, round trip and repair, §12 to §17) and 2026-10-17 (the corpus downloads, and how the markup style is read, §13.1)
 - **Status:** the phase 2 reader is implemented in `crates/fdx` (package `coldopen-fdx`). Phase 4 (2026-10-16) adds the writer, the passthrough store, resyncing after syntax errors and the repair report; they are being implemented.
 - **Sources:**
   - Seven publicly shared .fdx files from the MIT-licensed repository <https://github.com/SimonGZ/jumpcut>, path `tests/fixtures/corpus/public/<name>/source/source.fdx`, downloaded 2026-10-13. They are kept in the gitignored `corpus/` folder and identified by the first 12 hex digits of their sha256:
@@ -17,7 +17,11 @@
 
   - The six samples of the AGPL repository rsdoiel/fdx, read locally and never copied into this repository: `https://raw.githubusercontent.com/rsdoiel/fdx/main/testdata/sample-0N.fdx` for N = 1 to 6, downloaded 2026-10-13. sha256 prefixes: 6bda3c386458, 717949f5fb55, e4495f4878c9, f507658c1896, 1834073d2591, 1c5fbaa7f24c.
   - (2026-10-16) The three .fdx files of the reference pairs from fountain.io (`docs/specs/layout.md` §14), kept in `corpus/fountain-io/`: Big Fish (daf2e979d0e8), Brick & Steel (c242f797a33b) and The Last Birthday Card (19f11c08dd91). They were saved by Final Draft in 2012 (`Version="1"`). They were studied for phase 4 the same way, with scripts that print element paths, attribute names in source order, whitespace shapes and counts, never text. Brick & Steel is the only sample with dual dialogue and the only one with a `Revisions` list and `ScriptNoteDefinitions`; no sample has an anchored script note or a run with a revision mark.
-  - (2026-10-16) Further public files asked of the project's owner for the round-trip corpus (§16), recorded here by sha256 once they are on disk: the seven jumpcut files above (no longer on the build machine), files saved by Fade In and by other libraries (wildwinter/screenplay-tools and vilcans/screenplain, both MIT), and two more rsdoiel files (rsdoiel/scripttool, AGPL, local only).
+  - (2026-10-16) Further public files asked of the project's owner for the round-trip corpus (§16): the seven jumpcut files above (no longer on the build machine), files saved by Fade In and by other libraries (wildwinter/screenplay-tools and vilcans/screenplain, both MIT), and two more rsdoiel files (rsdoiel/scripttool, AGPL, local only).
+  - (2026-10-17) Arrived, downloaded on Windows, so every file has CRLF line breaks where the published files have LF. With CRLF turned back into LF, the seven jumpcut corpus files give exactly the sha256 prefixes in the table above. Studied the same way, structure only. sha256 prefixes of the copies on disk:
+    - `corpus/jumpcut/` (MIT): the seven corpus files above, and six of jumpcut's own .fdx import fixtures. `corpus_public_big-fish-scene-numbers_source_source.fdx` 92c84d000af1; `corpus_public_big-fish_source_source.fdx` 31ef7ce42793; `corpus_public_extranormal_source_source.fdx` 3d78096e89b1; `corpus_public_gumshoe_source_source.fdx` ac017faae392; `corpus_public_little-women_source_source.fdx` a15864b9d01e; `corpus_public_mostly-genius_source_source.fdx` 7f8e822555d7; `corpus_public_vikings_source_source.fdx` c93a11883f05; `fdx-import_brick-n-steel-basic.fdx` 7eacb5640f30; `fdx-import_dual-dialogue-basic.fdx` ae9a6d2201a1; `fdx-import_paragraph-layout-overrides.fdx` ea5889d528d2; `fdx-import_settings-normalized.fdx` b438ec0e66f3; `fdx-import_title-page-cast-page.fdx` d52d91bed750; `fdx-import_title-pages-multi.fdx` 1196c4873fa1.
+    - `corpus/screenplain/` (MIT): the nine test files and three examples (the fountain.io scripts as screenplain writes them, `Version="1"`). `examples_Big-Fish.fdx` 63e892ad89d6; `examples_Brick-and-Steel.fdx` 5a751f3f4b78; `examples_The-Last-Birthday-Card.fdx` ccf22d92d928; `tests_files_dialogue-with-blank-line.fdx` d4ac3a46d784; `tests_files_dialogue.fdx` 609c90ca047a; `tests_files_dual-dialogue.fdx` a47dad43431a; `tests_files_extended-characters.fdx` 8dc289e57754; `tests_files_forced-action.fdx` 381360c5fd01; `tests_files_indentation.fdx` e59c70a79c60; `tests_files_parenthetical.fdx` 58cc33795409; `tests_files_simple.fdx` 5b61aab29417; `tests_files_utf-8-bom.fdx` 5b61aab29417. The `utf-8-bom` and `simple` files are the same bytes: the BOM was in screenplain's Fountain input, not its .fdx output.
+    - Not arrived: wildwinter/screenplay-tools and rsdoiel/scripttool.
   - Extensible Markup Language (XML) 1.0, <https://www.w3.org/TR/xml/>, for the five predefined entities, character references and line-end handling.
   - The WHATWG Encoding Standard's windows-1252 index, <https://encoding.spec.whatwg.org/index-windows-1252.txt>, for the fallback decoding in §2.1.
   - `docs/specs/layout.md` and the types in `crates/screenplay`, which define what the reader must produce.
@@ -278,7 +282,7 @@ Observed: every title paragraph carries all eight inline attributes, with `LeftI
 
 These facts come from the public samples (structure only) and matter to `crates/layout`:
 
-- **Line breaks.** Inside `Content`, line breaks occur only as LF characters in the middle of a `Text` run, in action and dialogue paragraphs (including dialogue nested in dual dialogue), never two in a row. The rsdoiel title pages have LF inside title runs. No sample has a CR byte.
+- **Line breaks.** Inside `Content`, line breaks occur only as LF characters in the middle of a `Text` run, in action and dialogue paragraphs (including dialogue nested in dual dialogue), never two in a row. The rsdoiel title pages have LF inside title runs. No sample as published has a CR byte; the copies downloaded on Windows on 2026-10-17 have CRLF throughout the markup (§16).
 - **Tabs** occur only in header paragraphs, before `DynamicLabel` elements. No script or title text holds a tab.
 - **Whitespace.** Trailing spaces at the end of a paragraph are common (over 200 paragraphs in one script), and a few paragraphs start with a space. They are kept.
 - **Characters.** Curly quotes, ellipses, accented Latin letters and the degree sign appear; quotes in the XML are written as `&#x27;` and `&quot;` in the fd11 files and as raw characters elsewhere.
@@ -422,7 +426,16 @@ The output depends only on the document, never on the OS, the locale or hash-map
 | **Kept paragraphs** | For each paragraph group the generator does not reproduce exactly (§13.2): its text in the file, with the whitespace before it, and a copy of the blocks it was read into. Stored under the id of the group's first block. |
 | **Loose children** | Anything in `Content` that is not a `Paragraph` (unknown elements, comments, text that is not whitespace), as text, anchored to the paragraph group before it (§13.4). |
 | **Trailing paragraphs** | The empty general paragraphs the reader leaves out of the model at the end (§6.7), as text. |
-| **Style** | The newline used in markup (LF or CRLF), the whitespace before a `Content` paragraph (the indent), and whether apostrophes and quotation marks in text were written as references. |
+| **Style** | The newline used in markup (LF or CRLF), the indentation, and whether apostrophes and quotation marks in text were written as references. |
+
+**Reading the style** (2026-10-17). The style comes from the first `Content` paragraph whose start tag begins a line:
+
+- The newline is CRLF when the line break before that paragraph is CRLF, otherwise LF.
+- The indent unit is what the paragraph's first child element (its `Text`) is indented by beyond the paragraph itself.
+- The paragraph is two levels below the root, so whatever its indentation has before two units is an offset added at every level below the root. The jumpcut files indent `Content` by four spaces and step by two after that, which is a two-space unit with a two-space offset.
+- If the child is not on its own line, the paragraph's indentation is taken as two units, with no offset.
+
+The 2026-10-16 reader looked past the whitespace before the first paragraph, so it saw no line break and kept the defaults (LF, two spaces). Every file whose markup differs from those defaults then kept nearly all its paragraphs as raw text: the Windows (CRLF) copies of the jumpcut and screenplain files, and the jumpcut files with their offset. They still wrote back byte for byte, but their stores were about three times the size of the file.
 
 A **paragraph group** is one `Content` paragraph and the blocks it was read into: a page break before it (§6.5), and its element, or the elements of its dual-dialogue block (§6.6).
 

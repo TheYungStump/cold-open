@@ -18,6 +18,10 @@ pub struct XmlStyle {
     pub newline: String,
     /// One level of indentation.
     pub unit: String,
+    /// Indentation added at every level below the root, where a file
+    /// indents its sections by more than one unit (§13.1).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub offset: String,
     /// How an apostrophe in text is written, when not as itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub apostrophe: Option<String>,
@@ -38,9 +42,21 @@ impl Default for XmlStyle {
         XmlStyle {
             newline: "\n".into(),
             unit: "  ".into(),
+            offset: String::new(),
             apostrophe: None,
             quote: None,
             gt: false,
+        }
+    }
+}
+
+impl XmlStyle {
+    /// The indentation `depth` levels below the root.
+    pub fn indent(&self, depth: usize) -> String {
+        if depth == 0 {
+            String::new()
+        } else {
+            format!("{}{}", self.offset, self.unit.repeat(depth))
         }
     }
 }
@@ -246,6 +262,25 @@ fn child_span(c: &Child) -> Range<usize> {
     }
 }
 
+/// The indentation on the last line of whitespace, without a CR.
+fn line_indent(lead: &str) -> &str {
+    lead.rsplit('\n')
+        .next()
+        .unwrap_or("")
+        .trim_start_matches('\r')
+}
+
+/// The indentation of an element's first child element, when that child
+/// starts a line.
+fn child_indent<'t>(text: &'t str, n: &Node) -> Option<&'t str> {
+    let first = n.children.iter().find_map(|c| match c {
+        Child::Element(e) => Some(e),
+        _ => None,
+    })?;
+    let lead = text.get(n.open_end..first.span.start)?;
+    (whitespace(lead) && lead.contains('\n')).then(|| line_indent(lead))
+}
+
 /// The file's markup style, from `Content`'s first paragraph and its text.
 fn detect_style(text: &str, content: Option<&Node>) -> XmlStyle {
     let mut style = XmlStyle::default();
@@ -255,28 +290,45 @@ fn detect_style(text: &str, content: Option<&Node>) -> XmlStyle {
         }
         return style;
     };
+    // The whitespace before the first paragraph is a text child of
+    // `Content`; the lead runs from the last child that is not whitespace.
     let mut prev = content.open_end;
     for c in &content.children {
-        if let Child::Element(p) = c
-            && p.name == "Paragraph"
-        {
-            let lead = text.get(prev..p.span.start).unwrap_or("");
-            if whitespace(lead) && lead.contains('\n') {
-                if lead.contains("\r\n") {
-                    style.newline = "\r\n".into();
+        match c {
+            Child::Element(p) if p.name == "Paragraph" => {
+                let lead = text.get(prev..p.span.start).unwrap_or("");
+                if whitespace(lead) && lead.contains('\n') {
+                    if lead.contains("\r\n") {
+                        style.newline = "\r\n".into();
+                    }
+                    let para = line_indent(lead);
+                    match child_indent(text, p).and_then(|i| i.strip_prefix(para)) {
+                        // One level is what the child adds; the paragraph
+                        // is two levels below the root, and what it has
+                        // before those is the offset.
+                        Some(unit) if !unit.is_empty() => {
+                            let two = unit.repeat(2);
+                            if let Some(offset) = para.strip_suffix(two.as_str()) {
+                                style.unit = unit.to_string();
+                                style.offset = offset.to_string();
+                            }
+                        }
+                        _ => {
+                            let chars: Vec<char> = para.chars().collect();
+                            if !chars.is_empty()
+                                && chars.len().is_multiple_of(2)
+                                && chars.iter().all(|&c| c == chars[0])
+                            {
+                                style.unit = chars[..chars.len() / 2].iter().collect();
+                            }
+                        }
+                    }
                 }
-                let indent = lead.rsplit('\n').next().unwrap_or("");
-                let chars: Vec<char> = indent.chars().collect();
-                if !chars.is_empty()
-                    && chars.len().is_multiple_of(2)
-                    && chars.iter().all(|&c| c == chars[0])
-                {
-                    style.unit = chars[..chars.len() / 2].iter().collect();
-                }
+                break;
             }
-            break;
+            Child::Text { raw, .. } if whitespace(text.get(raw.clone()).unwrap_or("")) => {}
+            c => prev = child_span(c).end,
         }
-        prev = child_span(c).end;
     }
     // References used in text: look at the raw text of runs.
     let mut scan = |n: &Node| {
@@ -369,7 +421,7 @@ pub(crate) fn build(src: &Source<'_>) -> Kept {
         } else {
             // Skipped bytes lie between: whitespace before them goes too.
             pending_text.clear();
-            format!("{nl}{}", kept.style.unit)
+            format!("{nl}{}", kept.style.indent(1))
         };
         prev = span.end;
         match c {
@@ -489,7 +541,7 @@ fn title_page(text: &str, n: &Node, lead: &str) -> Section {
 fn content_parts(src: &Source<'_>, content: &Node, kept: &mut Kept) {
     let text = src.text;
     let nl = kept.style.newline.clone();
-    let para_lead = format!("{nl}{}{}", kept.style.unit, kept.style.unit);
+    let para_lead = format!("{nl}{}", kept.style.indent(2));
     let len = src.elements.len();
     let mut prev = content.open_end;
     let mut paragraph = 0usize;
@@ -582,7 +634,7 @@ fn content_parts(src: &Source<'_>, content: &Node, kept: &mut Kept) {
     kept.content_close = if content.closed && ends_with_end_tag(tail, "Content") {
         format!("{pending}{tail}")
     } else {
-        format!("{nl}{}{end_tag}", kept.style.unit)
+        format!("{nl}{}{end_tag}", kept.style.indent(1))
     };
 }
 

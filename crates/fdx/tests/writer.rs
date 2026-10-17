@@ -248,3 +248,40 @@ fn a_new_file_reads_back_as_written() {
     assert!(text.contains("Font=\"Courier Prime\""));
     assert!(text.contains("<DualDialogue>"));
 }
+
+/// The markup style is read from the file (fdx.md §13.1, 2026-10-17): a
+/// file with CRLF line breaks, `Content` four spaces in and a two-space
+/// step after that needs no paragraph kept as raw text, and an edited
+/// paragraph is written in that style.
+#[test]
+fn the_files_newline_and_indentation_are_followed() {
+    let text = [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\" ?>",
+        "<FinalDraft DocumentType=\"Script\" Template=\"No\" Version=\"4\">",
+        "    <Content>",
+        "      <Paragraph Type=\"Scene Heading\">",
+        "        <Text>INT. FERRY - NIGHT</Text>",
+        "      </Paragraph>",
+        "      <Paragraph Type=\"Action\">",
+        "        <Text>Fog on the rails.</Text>",
+        "      </Paragraph>",
+        "    </Content>",
+        "</FinalDraft>",
+        "",
+    ]
+    .join("\r\n");
+    let doc = read(text.as_bytes()).unwrap();
+    assert_eq!(doc.kept.style.newline, "\r\n");
+    assert_eq!(doc.kept.style.unit, "  ");
+    assert_eq!(doc.kept.style.offset, "  ");
+    assert!(doc.kept.paragraphs.is_empty(), "{:?}", doc.kept.paragraphs);
+    assert_eq!(doc.write_back().text, text);
+
+    let mut elements = ids(&doc);
+    elements[1].1.text = RichText::plain("Fog on the rails. A horn.");
+    let out = rewrite(&doc, &elements).text;
+    assert_eq!(
+        out,
+        text.replace("Fog on the rails.", "Fog on the rails. A horn.")
+    );
+}
