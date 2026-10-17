@@ -192,8 +192,12 @@ impl Kept {
 }
 
 /// Whether text outside the root holds only what XML allows there:
-/// whitespace, comments, processing instructions and a doctype.
+/// whitespace, comments, processing instructions and a doctype, with no
+/// character XML does not allow (§9, `invalid_char`).
 fn clean_misc(s: &str) -> bool {
+    if !s.chars().all(write::valid_xml_char) {
+        return false;
+    }
     let mut rest = s;
     loop {
         rest = rest.trim_start_matches([' ', '\t', '\r', '\n']);
@@ -216,22 +220,30 @@ fn clean_misc(s: &str) -> bool {
     }
 }
 
-/// The XML declaration at the start of a prolog, alone.
+/// The XML declaration at the start of a prolog, alone; a plain one in
+/// place of one holding a character XML does not allow (§9,
+/// `invalid_char`).
 fn declaration_only(prolog: &str, nl: &str) -> String {
     match prolog.find("?>") {
+        Some(_) if prolog.starts_with("<?xml") && !clean_declaration(prolog) => {
+            format!("<?xml version=\"1.0\"?>{nl}")
+        }
         Some(k) if prolog.starts_with("<?xml") => format!("{}{nl}", &prolog[..k + 2]),
         _ => String::new(),
     }
 }
 
-/// Text or markup as written, without characters XML does not allow,
-/// which the reader reported (§9, `invalid_char`).
+/// Text or markup as written, less what XML does not allow, which the
+/// reader reported (§9, `invalid_char`; [`write::writable_raw`]).
 fn xml_text(text: &str, raw: &Range<usize>) -> String {
-    text.get(raw.clone())
-        .unwrap_or("")
-        .chars()
-        .filter(|&c| write::valid_xml_char(c))
-        .collect()
+    write::writable_raw(text.get(raw.clone()).unwrap_or(""))
+}
+
+/// Whether a prolog's declaration holds only characters XML allows.
+fn clean_declaration(prolog: &str) -> bool {
+    prolog
+        .find("?>")
+        .is_none_or(|k| prolog[..k + 2].chars().all(write::valid_xml_char))
 }
 
 /// Whether `tail` is whitespace and then the end tag of `name`, which may

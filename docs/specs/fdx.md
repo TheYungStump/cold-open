@@ -314,7 +314,7 @@ A file is **repaired** when its report holds any `fixed` or `dropped` issue. Onl
 | `encoding_lossy` | dropped | invalid byte sequences | replaced with U+FFFD |
 | `truncated_xml` | dropped | more than 1,000 syntax errors (§2.2) | the rest of the file is ignored |
 | `skipped_bytes` | dropped | an XML syntax error, or text outside the root (§2.2) | the bytes up to the next markup are skipped |
-| `invalid_char` | dropped | a character XML 1.0 does not allow in text or an attribute value: a control character other than tab, line feed and carriage return (2026-10-16) | dropped; a character reference to one is `bad_char_ref` |
+| `invalid_char` | dropped | a character XML 1.0 does not allow in text or an attribute value: a control character other than tab, line feed and carriage return (2026-10-16); or in a comment, processing instruction or doctype (2026-10-17) | dropped from text and attribute values; a comment, processing instruction, doctype or CDATA section holding one is left out whole, because taking the character out could end it early (`<?x\0>?>` would become `<?x>?>`); an XML declaration holding one is replaced by `<?xml version="1.0"?>`, which is right for UTF-8 and UTF-16 alike; a character reference to one is `bad_char_ref` |
 | `mismatched_end_tag` | fixed | an end tag closes other open elements first | those elements are closed |
 | `stray_end_tag` | fixed | an end tag with no open element of that name | ignored |
 | `unclosed_element` | fixed | elements still open at the end | closed |
@@ -563,6 +563,7 @@ A document without a store is written as:
   - a break before the first printing paragraph, or after the last, changes nothing, as layout ignores it (`docs/specs/layout.md` §4.5).
 - **A dual-dialogue block** (a character with `dual` and the group before it, as layout pairs them, `docs/specs/layout.md` §4.4) is written as one outer `General` paragraph with `SpaceBefore` set to the character kind's space before. Its only child is a `DualDialogue` element holding the two groups' paragraphs, each with only its `Type` and runs.
 - A `dual` character that layout would not pair is written as an ordinary group, and the flag is a loss (`dual_unpaired`).
+- **Resolution (2026-10-17):** groups are found in the document as it is written, without the notes, boneyard, sections and synopses that §15 leaves out. A section between the second speaker's dialogue and a parenthetical no longer ends the dual-dialogue block, since reading the file back would join them and writing it again would give other text. Found by the `fdx_write` fuzz target.
 
 ## 15. Losses
 

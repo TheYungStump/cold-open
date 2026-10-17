@@ -80,26 +80,42 @@ pub(crate) fn group_end(blocks: &[Blk<'_>], i: usize) -> usize {
     }
     let p = blocks[j].element;
     if p.kind == ElementKind::Character && !p.dual {
+        // A speech's lines, and how many; what .fdx leaves out between
+        // them doesn't end it (§14.7).
         let members = |from: usize| {
-            let mut m = from;
-            while m < n && blocks[m].element.kind.is_dialogue_member() {
+            let (mut m, mut lines) = (from, 0);
+            while m < n {
+                let kind = blocks[m].element.kind;
+                if kind.is_dialogue_member() {
+                    lines += 1;
+                } else if !left_out(kind) {
+                    break;
+                }
                 m += 1;
             }
-            m
+            (m, lines)
         };
-        let a_end = members(j + 1);
-        if a_end > j + 1
+        let (a_end, a) = members(j + 1);
+        if a > 0
             && a_end < n
             && blocks[a_end].element.kind == ElementKind::Character
             && blocks[a_end].element.dual
         {
-            let b_end = members(a_end + 1);
-            if b_end > a_end + 1 {
+            let (b_end, b) = members(a_end + 1);
+            if b > 0 {
                 return b_end;
             }
         }
     }
     j + 1
+}
+
+/// What an .fdx file has no place for (§15): left out, and reported.
+fn left_out(kind: ElementKind) -> bool {
+    matches!(
+        kind,
+        ElementKind::Note | ElementKind::Boneyard | ElementKind::Section | ElementKind::Synopsis
+    )
 }
 
 /// What an edited kept paragraph carries over (§14.4).
@@ -223,7 +239,16 @@ impl<'a> Gen<'a> {
             }
             k += 1;
         }
-        let rest = &blocks[k..];
+        // What .fdx leaves out inside a dual-dialogue block (§14.7).
+        let mut rest: Vec<Blk<'_>> = Vec::new();
+        for &b in &blocks[k..] {
+            if left_out(b.element.kind) {
+                self.transparent_loss(b.id, b.element.kind);
+            } else {
+                rest.push(b);
+            }
+        }
+        let rest = rest.as_slice();
         if rest.is_empty() {
             // Breaks with nothing after them print nothing (§14.7).
             return;
@@ -1127,6 +1152,20 @@ fn push_attrs(out: &mut String, attrs: &[(String, String)]) {
     }
 }
 
+/// Text or markup as the file had it, without the characters XML does
+/// not allow (§9, `invalid_char`). Markup holding one (a comment,
+/// processing instruction, doctype or CDATA section) is left out whole:
+/// taking the character out could end it early (`<?x\0>?>`).
+pub(crate) fn writable_raw(raw: &str) -> String {
+    if raw.chars().all(valid_xml_char) {
+        raw.to_string()
+    } else if raw.starts_with('<') {
+        String::new()
+    } else {
+        raw.chars().filter(|&c| valid_xml_char(c)).collect()
+    }
+}
+
 pub(crate) fn valid_xml_char(c: char) -> bool {
     matches!(c, '\t' | '\n' | '\r' | '\u{20}'..='\u{D7FF}' | '\u{E000}'..='\u{FFFD}' | '\u{10000}'..)
 }
@@ -1203,8 +1242,7 @@ pub(crate) fn serialize(text: &str, n: &Node, out: &mut String) {
     for c in &n.children {
         match c {
             Child::Text { raw, .. } | Child::Other(raw) => {
-                let raw = text.get(raw.clone()).unwrap_or("");
-                out.extend(raw.chars().filter(|&c| valid_xml_char(c)));
+                out.push_str(&writable_raw(text.get(raw.clone()).unwrap_or("")));
             }
             Child::Element(child) if child.repaired => serialize(text, child, out),
             Child::Element(child) => out.push_str(text.get(child.span.clone()).unwrap_or("")),

@@ -220,9 +220,47 @@ pub(crate) fn parse(text: &str, report: &mut Report) -> Result<Tree, FdxError> {
                 if let Ok(v) = d.xml_version() {
                     b.version = v;
                 }
+                if !text
+                    .get(start..end)
+                    .unwrap_or("")
+                    .chars()
+                    .all(crate::write::valid_xml_char)
+                {
+                    let at = b.locator.locate(start);
+                    report.push_at(
+                        codes::INVALID_CHAR,
+                        "the XML declaration held characters XML does not allow; a plain one \
+                         is written in its place"
+                            .to_string(),
+                        None,
+                        at,
+                    );
+                }
             }
             Ok(Event::Eof) => break,
-            Ok(Event::Comment(_) | Event::PI(_) | Event::DocType(_)) => b.other(start..end),
+            Ok(Event::Comment(_) | Event::PI(_) | Event::DocType(_)) => {
+                // Left out whole when written: taking the character out
+                // could end it early (§9, `invalid_char`).
+                if !text
+                    .get(start..end)
+                    .unwrap_or("")
+                    .chars()
+                    .all(crate::write::valid_xml_char)
+                {
+                    let at = b.locator.locate(start);
+                    let para = b.current_paragraph();
+                    report.push_at(
+                        codes::INVALID_CHAR,
+                        "a comment, processing instruction or doctype holding characters XML \
+                         does not allow was left out"
+                            .to_string(),
+                        para,
+                        at,
+                    );
+                    b.mark_repaired();
+                }
+                b.other(start..end)
+            }
             Err(err) => {
                 errors += 1;
                 first_error.get_or_insert_with(|| err.to_string());
