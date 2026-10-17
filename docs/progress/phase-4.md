@@ -40,6 +40,10 @@ Corpus files stay in the gitignored `corpus/`. On 2026-10-16 it held `fountain-i
 
 The files are studied only with scripts that print structure (element paths, attribute names, counts), never script text, and each is recorded by sha256 in `fdx.md`.
 
+**2026-10-17:** `corpus/jumpcut/` (the seven corpus files and six import fixtures) and `corpus/screenplain/` (nine test files, three examples) arrived: 25 more files, 34 in all. They were downloaded on Windows and have CRLF line breaks; converted back to LF, the jumpcut files match the hashes `fdx.md` recorded on 2026-10-13. screenplay-tools and scripttool have not arrived.
+
+**Round trip on all 34 files (2026-10-17):** every file writes back byte for byte, unedited (G1); re-reading the output gives the same model and store, and writing again gives the same bytes (G2); the scripted edits change only the edited paragraphs (G3). The core test opens, edits, saves and reopens every file through the dispatcher. No file needed repair. Before the style fix below, the CRLF copies and the jumpcut files kept nearly all their paragraphs as raw text (2,754 of jumpcut's Big Fish, 827 KB of store); after it, jumpcut's Big Fish keeps 6 (35 KB) and screenplain's keeps none.
+
 ## Measurements (2026-10-16)
 
 Release build on the development machine (Windows 11), median of 11 runs, with `cargo run --release -p coldopen-core --example open_times -- FILE`. "Open" is `doc.open` plus the first layout, which is what the app waits for before drawing. The budget is a 120-page script open in under 200 ms.
@@ -55,6 +59,7 @@ Release build on the development machine (Windows 11), median of 11 runs, with `
 - Every open is well inside the 200 ms budget. The .fdx reader costs more than the Fountain one (the lossless XML layer and the generate-and-compare pass), and the layout costs less (the identity layout form skips the normal form).
 - The .fdx journal header is about 1.1 times the file, because it carries the passthrough store. It is written once per save, inside the save's time above; the first edit after a save takes 0.3 ms.
 - Saving .fdx is faster than saving Fountain: kept paragraphs are copied as they are.
+- The new corpus files (2026-10-17, after the style fix): jumpcut's Big Fish (387 KB, 129 pages) opens in 36 ms, saves in 5 ms, header 304 KB; jumpcut's Vikings (356 KB, 114 pages) 32 ms, 5 ms, 284 KB; screenplain's Big Fish (342 KB, 124 pages) 35 ms, 5 ms, 265 KB.
 
 ## Decisions made during the phase
 
@@ -126,3 +131,4 @@ Release build on the development machine (Windows 11), median of 11 runs, with `
 42. **The crash gate's Save as run accepts either file until the Save as is acknowledged.** A kill can land after the conversion wrote the .fdx file and moved the journal but before the acknowledgement, so the work is then in the .fdx file. After the acknowledgement, the .fdx file must give it back.
 43. **The .fdx typing gate saves a new script as .fdx before the first key**, so every key goes through the .fdx layout. The saved file reads back as the same blocks, and written as Fountain it equals the phase 3 gate's file.
 44. **An agent can't accept losses on export**: `export_fountain` of the .fdx gate script reports `lossy_format`, and `allow_lossy` from an agent is `writer_only`, as for `doc.save`.
+45. **The markup style is read properly** (2026-10-17, found by the new corpus files): the reader looked past the whitespace before the first paragraph and so always kept the default style (LF, two-space indentation). It now reads the newline from that whitespace, takes the indent unit from the paragraph's `Text`, and keeps any extra indentation below the root as an offset (jumpcut indents `Content` by four). Files were byte-identical before and after; what changed is how much is kept as raw text: jumpcut's Big Fish journal header went from 1.1 MB to 304 KB, and its open from 43 ms to 36 ms.
