@@ -8,6 +8,7 @@ These are short scenes written by us, one area per file, for the rules in [`docs
 | --- | --- |
 | `<case>.fdx` | The input. |
 | `<case>.expected.json` | What `coldopen_fdx::read` must return: `script` (the serde form of `Script`), `overrides`, `title_lines`, `scenes`, the `report` codes in order, and `format` as a JSON merge patch (RFC 7386) against `PageFormat::default()`. |
+| `<case>.repaired.out` | For a case the reader repairs: the file written back unedited (`docs/specs/fdx.md` §17), which `crates/fdx/tests/repair.rs` compares byte for byte (2026-10-16). |
 
 ## The harness
 
@@ -49,3 +50,5 @@ and review the diff line by line before committing. Blessing is refused when `CI
 | `invalid-format` | Margins larger than the page | §5.4 |
 | `out-of-range` | Paragraph and title-page `SpaceBefore` below 0 or above the body height, a `Spacing` whose product does not fit a length | §5.2, §6.4, §7 |
 | `long-inserts` | (MORE), (CONT'D) and page-number suffix strings longer than the format allows, one of them over two lines | §5.1, §5.3 |
+| `broken-markup` | Text before the root, half a tag between paragraphs, a malformed attribute, an unknown section kept | §2.2, §13, §17 |
+| `control-characters` | A control character in text, a NUL in a `Type`, a character reference to a control character | §2.3, §9 (`invalid_char`) |

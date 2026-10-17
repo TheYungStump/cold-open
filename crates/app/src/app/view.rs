@@ -123,6 +123,10 @@ impl App {
                 button(text(format!("Open…  {}", keys("app.open"))).font(fonts::UI))
                     .on_press(Message::Action("app.open".into()))
                     .padding([6, 14]),
+                button(text("Recovered versions").font(fonts::UI))
+                    .on_press(Message::Action("app.recovered".into()))
+                    .style(button::secondary)
+                    .padding([6, 14]),
             ]
             .spacing(10),
         ]
@@ -214,10 +218,16 @@ impl App {
     /// The open dialog, if any: unsaved changes, a lossy save, recovered
     /// work, or PDF export (editor.md §11, §13).
     fn dialog(&self, pal: Palette) -> Option<Element<'_, Message>> {
+        let mut width = 520.0;
         let content = if let Some(p) = &self.prompt {
             self.prompt_view(pal, p)
         } else if let Some(r) = &self.recovery {
             self.recovery_view(pal, r)
+        } else if let Some(r) = &self.repair {
+            self.repair_view(pal, r)
+        } else if let Some(s) = &self.recovered {
+            width = 820.0;
+            self.recovered_view(pal, s)
         } else if let Some(f) = &self.export {
             export_view(pal, f)
         } else {
@@ -225,7 +235,7 @@ impl App {
         };
         let card = container(content)
             .padding(18)
-            .width(Length::Fixed(520.0))
+            .width(Length::Fixed(width))
             .style(move |_| container::Style {
                 background: Some(Background::Color(pal.panel_alt)),
                 border: Border {
@@ -289,8 +299,18 @@ impl App {
                 .spacing(12)
                 .into()
             }
-            Prompt::Lossy { message, .. } => column![
-                title(pal, "Fountain can't hold everything in this script"),
+            Prompt::Lossy { message, path, .. } => column![
+                title(
+                    pal,
+                    format!(
+                        "{} can't hold everything in this script",
+                        path.as_deref()
+                            .and_then(coldopen_core::FormatId::for_path)
+                            .or_else(|| self.d.session().map(|s| s.format))
+                            .unwrap_or_default()
+                            .title()
+                    )
+                ),
                 body(pal, message.clone()),
                 row![
                     dialog_button("Save anyway", Message::Reply(Reply::Save), false),
@@ -322,6 +342,18 @@ impl App {
                     pal,
                     "Enter or R: Recover them  ·  S: Set them aside (a copy is kept)  ·  Esc: Cancel"
                 ),
+            ]
+            .spacing(12)
+            .into(),
+            Prompt::DeleteCopy(_) => column![
+                title(pal, "Delete this copy?"),
+                body(pal, "It can't be undone."),
+                row![
+                    dialog_button("Delete", Message::Reply(Reply::Save), true),
+                    dialog_button("Cancel", Message::Reply(Reply::Cancel), false),
+                ]
+                .spacing(8),
+                hint(pal, "Enter: Delete  ·  Esc: Cancel"),
             ]
             .spacing(12)
             .into(),
@@ -743,7 +775,10 @@ impl App {
     }
 
     fn banner(&self, pal: Palette) -> Element<'_, Message> {
-        let msg = self.banners.last().cloned().unwrap_or_default();
+        let msg = self
+            .banners
+            .last()
+            .map_or_else(String::new, |b| b.text.clone());
         let more = if self.banners.len() > 1 {
             format!("  (+{} more)", self.banners.len() - 1)
         } else {
@@ -756,6 +791,14 @@ impl App {
                     .size(13)
                     .color(pal.text)
                     .width(Fill),
+                button(text("Recovered versions").font(fonts::UI).size(12))
+                    .on_press_maybe(
+                        self.banners
+                            .last()
+                            .is_some_and(|b| b.recovered)
+                            .then(|| Message::Action("app.recovered".into()))
+                    )
+                    .padding([3, 10]),
                 button(text("Dismiss").font(fonts::UI).size(12))
                     .on_press(Message::DismissBanner)
                     .padding([3, 10]),
@@ -1022,19 +1065,19 @@ fn export_view(pal: Palette, f: &ExportForm) -> Element<'_, Message> {
     .into()
 }
 
-fn title<'a>(pal: Palette, t: impl text::IntoFragment<'a>) -> text::Text<'a, Theme> {
+pub(super) fn title<'a>(pal: Palette, t: impl text::IntoFragment<'a>) -> text::Text<'a, Theme> {
     text(t).font(fonts::UI_BOLD).size(16).color(pal.text)
 }
 
-fn body<'a>(pal: Palette, t: impl text::IntoFragment<'a>) -> text::Text<'a, Theme> {
+pub(super) fn body<'a>(pal: Palette, t: impl text::IntoFragment<'a>) -> text::Text<'a, Theme> {
     text(t).font(fonts::UI).size(13).color(pal.text)
 }
 
-fn hint<'a>(pal: Palette, t: impl text::IntoFragment<'a>) -> text::Text<'a, Theme> {
+pub(super) fn hint<'a>(pal: Palette, t: impl text::IntoFragment<'a>) -> text::Text<'a, Theme> {
     text(t).font(fonts::UI).size(12).color(pal.text_quiet)
 }
 
-fn dialog_button(
+pub(super) fn dialog_button(
     label: &'static str,
     m: Message,
     primary: bool,
@@ -1049,7 +1092,7 @@ fn dialog_button(
         })
 }
 
-fn file_name(p: &std::path::Path) -> String {
+pub(super) fn file_name(p: &std::path::Path) -> String {
     p.file_name()
         .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
 }

@@ -496,3 +496,81 @@ fn crash_mid_session_recovers_every_acknowledged_edit() {
 fn crash_after_the_last_edit_recovers_all() {
     crash_and_recover(EDITS);
 }
+
+fn fdx_fixture(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/fdx")
+        .join(name)
+}
+
+/// `coldopen repair` (docs/specs/fdx.md §17): a repaired copy and a report,
+/// never the input.
+#[test]
+fn repair_writes_a_copy_and_a_report() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("broken.fdx");
+    fs::copy(fdx_fixture("broken-markup.fdx"), &input).unwrap();
+    let before = fs::read(&input).unwrap();
+    let out = dir.path().join("fixed.fdx");
+    let report = dir.path().join("report.json");
+    let o = coldopen(&["repair", s(&input), s(&out)]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let text = String::from_utf8_lossy(&o.stdout);
+    assert!(text.starts_with("Repaired, with "), "{text}");
+    assert!(text.contains("(skipped_bytes)"), "{text}");
+    assert_eq!(fs::read(&input).unwrap(), before);
+    assert_eq!(
+        fs::read(&out).unwrap(),
+        fs::read(fdx_fixture("broken-markup.repaired.out")).unwrap()
+    );
+    let o = coldopen(&[
+        "repair",
+        s(&input),
+        s(&out),
+        "--json",
+        "--report",
+        s(&report),
+    ]);
+    assert!(o.status.success());
+    let v: Value = serde_json::from_slice(&fs::read(&report).unwrap()).unwrap();
+    assert_eq!(v["repaired"], true);
+    assert!(
+        v["issues"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|i| i["class"].is_string())
+    );
+    let o = coldopen(&["repair", s(&input), s(&input)]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("would_overwrite_input"));
+    assert_eq!(fs::read(&input).unwrap(), before);
+}
+
+#[test]
+fn convert_to_and_from_fdx() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("scene.fdx");
+    let o = coldopen(&[
+        "convert",
+        s(&fixture("ct02-inner-spaces.fountain")),
+        s(&out),
+    ]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(fs::read_to_string(&out).unwrap().contains("<FinalDraft"));
+    let back = dir.path().join("back.fountain");
+    let o = coldopen(&["convert", s(&fdx_fixture("settings.fdx")), s(&back)]);
+    assert_eq!(
+        o.status.code(),
+        Some(1),
+        "an .fdx's settings are lost in Fountain"
+    );
+    assert!(String::from_utf8_lossy(&o.stderr).contains("--allow-lossy"));
+    let o = coldopen(&[
+        "convert",
+        s(&fdx_fixture("settings.fdx")),
+        s(&back),
+        "--allow-lossy",
+    ]);
+    assert!(o.status.success());
+}

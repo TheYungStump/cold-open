@@ -6,11 +6,15 @@
 //! coldopen-driver --home DIR [SCRIPT]
 //! ```
 //!
+//! SCRIPT may be a .fountain or an .fdx file.
+//!
 //! Input lines:
 //! - `char X`: types the character X (the rest of the line, one character);
 //! - `key NAME`: presses enter, tab, backspace, escape, up, down, left,
 //!   right, home or end;
 //! - `mod X`: presses Mod+X (Ctrl, or Cmd on macOS);
+//! - `saveas PATH`: Save as PATH, as if the save dialog had answered with
+//!   it; the extension picks the format, so this converts;
 //! - `quit`: closes the script cleanly and exits.
 //!
 //! After each line has gone through the app's update, and so has been
@@ -21,9 +25,9 @@ use std::io::{BufRead, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use coldopen_app::files::{Dialogs, Dirs};
+use coldopen_app::files::{Ask, Dialogs, Dirs};
 use coldopen_app::headless::Headless;
-use coldopen_app::{App, Boot};
+use coldopen_app::{App, Boot, Message};
 use iced::keyboard::Modifiers;
 use iced::keyboard::key::Named;
 
@@ -93,6 +97,10 @@ fn main() -> ExitCode {
                     continue;
                 };
                 h.shortcut(c, false);
+            }
+            "saveas" if !rest.is_empty() => {
+                let to = PathBuf::from(rest);
+                h.run(vec![Message::Chosen(Ask::SaveAs(String::new()), Some(to))]);
             }
             "quit" => {
                 h.app.d.shutdown();

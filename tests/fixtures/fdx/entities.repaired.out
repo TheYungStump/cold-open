@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FinalDraft DocumentType="Script" Version="4">
+  <Content>
+    <Paragraph Type="Action">
+      <Text>Salt &amp; pepper, Wren&#8217;s cup, a dash&#x2014;and &lt;tags&gt; with &quot;quotes&quot; &amp; &apos;apostrophes&apos;.</Text>
+    </Paragraph>
+    <Paragraph Type="Action">
+      <Text><![CDATA[CDATA keeps <b>this</b> & that literally.]]></Text>
+    </Paragraph>
+    <Paragraph Type="Action">
+      <Text>An unknown&nbsp;entity and a bad reference &#0; stay as written; a lone & is fine.</Text>
+    </Paragraph>
+    <Paragraph Type="Character">
+      <Text>FIRST TYPE WINS</Text>
+    </Paragraph>
+    <Paragraph Number="4&bogus;" Type="Scene Heading">
+      <Text>EXT. PIER - DUSK</Text>
+    </Paragraph>
+  </Content>
+</FinalDraft>

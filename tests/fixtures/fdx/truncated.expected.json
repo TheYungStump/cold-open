@@ -19,7 +19,7 @@
   "title_lines": [],
   "scenes": [],
   "report": [
-    "truncated_xml",
+    "skipped_bytes",
     "unclosed_element",
     "section_missing",
     "settings_missing"

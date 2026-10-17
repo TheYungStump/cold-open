@@ -10,6 +10,9 @@ use serde::Serialize;
 pub struct Issue {
     /// A stable code from [`codes`].
     pub code: &'static str,
+    /// What happens to that part of the file when it is written back:
+    /// `fixed`, `dropped`, `kept` or `info` ([`codes::class`], §9).
+    pub class: &'static str,
     /// A description in English. It never quotes script text.
     pub message: String,
     /// The 0-based index of the `Paragraph` in `Content`, in document order,
@@ -17,6 +20,30 @@ pub struct Issue {
     /// their outer paragraph's index.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub paragraph: Option<usize>,
+    /// Where in the decoded text the reader met it, 1-based, counting
+    /// characters; for issues found at the XML level.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column: Option<u32>,
+}
+
+impl Issue {
+    pub fn new(code: &'static str, message: impl Into<String>, paragraph: Option<usize>) -> Issue {
+        Issue {
+            code,
+            class: codes::class(code),
+            message: message.into(),
+            paragraph,
+            line: None,
+            column: None,
+        }
+    }
+
+    /// True for a `fixed` or `dropped` issue: the file was repaired.
+    pub fn is_repair(&self) -> bool {
+        matches!(self.class, codes::FIXED | codes::DROPPED)
+    }
 }
 
 /// Every report code, as listed in docs/specs/fdx.md §9.
@@ -25,6 +52,8 @@ pub mod codes {
     pub const ENCODING_WINDOWS_1252: &str = "encoding_windows_1252";
     pub const ENCODING_LOSSY: &str = "encoding_lossy";
     pub const TRUNCATED_XML: &str = "truncated_xml";
+    pub const SKIPPED_BYTES: &str = "skipped_bytes";
+    pub const INVALID_CHAR: &str = "invalid_char";
     pub const MISMATCHED_END_TAG: &str = "mismatched_end_tag";
     pub const STRAY_END_TAG: &str = "stray_end_tag";
     pub const UNCLOSED_ELEMENT: &str = "unclosed_element";
@@ -76,11 +105,13 @@ pub mod codes {
     pub const TITLE_FORMAT_IGNORED: &str = "title_format_ignored";
 
     /// Every code, in the order of the spec's table.
-    pub const ALL: [&str; 53] = [
+    pub const ALL: [&str; 55] = [
         ENCODING_UTF16,
         ENCODING_WINDOWS_1252,
         ENCODING_LOSSY,
         TRUNCATED_XML,
+        SKIPPED_BYTES,
+        INVALID_CHAR,
         MISMATCHED_END_TAG,
         STRAY_END_TAG,
         UNCLOSED_ELEMENT,
@@ -131,6 +162,94 @@ pub mod codes {
         TRAILING_EMPTY_DROPPED,
         TITLE_FORMAT_IGNORED,
     ];
+
+    /// The classes of §9.
+    pub const FIXED: &str = "fixed";
+    pub const DROPPED: &str = "dropped";
+    pub const KEPT: &str = "kept";
+    pub const INFO: &str = "info";
+
+    /// A code's class (§9).
+    pub fn class(code: &str) -> &'static str {
+        match code {
+            ENCODING_WINDOWS_1252 | MISMATCHED_END_TAG | STRAY_END_TAG | UNCLOSED_ELEMENT => FIXED,
+            ENCODING_LOSSY | TRUNCATED_XML | SKIPPED_BYTES | INVALID_CHAR | TOO_DEEP
+            | CONTENT_AFTER_ROOT | ATTRIBUTE_SYNTAX | DUPLICATE_ATTRIBUTE => DROPPED,
+            UNKNOWN_ENTITY
+            | BAD_CHAR_REF
+            | ATTRIBUTE_VALUE
+            | SECTIONS_IGNORED
+            | DUPLICATE_SECTION
+            | SETTINGS_FOR_UNMODELLED_TYPE
+            | DUPLICATE_SETTINGS
+            | SETTINGS_FONT_IGNORED
+            | DOCUMENT_LEADING
+            | SCENE_NUMBER_SIDE
+            | STARTING_PAGE
+            | HEADER_CONTENT_IGNORED
+            | FOOTER_IGNORED
+            | UNKNOWN_PARAGRAPH_TYPE
+            | SCENE_NUMBER_IGNORED
+            | SCENE_PROPERTIES_IGNORED
+            | UNKNOWN_STYLE
+            | RUN_FONT
+            | RUN_SIZE
+            | RUN_COLOR
+            | RUN_BACKGROUND
+            | RUN_ADORNMENT
+            | RUN_REVISION
+            | ELEMENT_IGNORED
+            | PARAGRAPH_FORMAT_IGNORED
+            | TRAILING_EMPTY_DROPPED
+            | TITLE_FORMAT_IGNORED => KEPT,
+            _ => INFO,
+        }
+    }
+}
+
+/// Turns byte offsets in the decoded text into 1-based lines and columns,
+/// counting characters. Positions usually come in increasing order, so it
+/// walks on from the last one; the whole text is walked at most once that
+/// way, which keeps a one-line file with many issues linear.
+pub(crate) struct Locator<'a> {
+    text: &'a str,
+    pos: usize,
+    line: u32,
+    col: u32,
+}
+
+impl<'a> Locator<'a> {
+    pub(crate) fn new(text: &'a str) -> Locator<'a> {
+        Locator {
+            text,
+            pos: 0,
+            line: 1,
+            col: 1,
+        }
+    }
+
+    pub(crate) fn locate(&mut self, at: usize) -> (u32, u32) {
+        let mut at = at.min(self.text.len());
+        while !self.text.is_char_boundary(at) {
+            at -= 1;
+        }
+        if at < self.pos {
+            // Rare: start over from the beginning.
+            self.pos = 0;
+            self.line = 1;
+            self.col = 1;
+        }
+        for c in self.text[self.pos..at].chars() {
+            if c == '\n' {
+                self.line = self.line.saturating_add(1);
+                self.col = 1;
+            } else {
+                self.col = self.col.saturating_add(1);
+            }
+        }
+        self.pos = at;
+        (self.line, self.col)
+    }
 }
 
 /// Builds the message of a counted issue from its key and count.
@@ -164,11 +283,21 @@ impl Report {
         message: impl Into<String>,
         paragraph: Option<usize>,
     ) {
-        self.issues.push(Issue {
-            code,
-            message: message.into(),
-            paragraph,
-        });
+        self.issues.push(Issue::new(code, message, paragraph));
+    }
+
+    /// Like [`Report::push`], with the line and column where it was found.
+    pub(crate) fn push_at(
+        &mut self,
+        code: &'static str,
+        message: impl Into<String>,
+        paragraph: Option<usize>,
+        (line, column): (u32, u32),
+    ) {
+        let mut issue = Issue::new(code, message, paragraph);
+        issue.line = Some(line);
+        issue.column = Some(column);
+        self.issues.push(issue);
     }
 
     pub(crate) fn extend(&mut self, issues: impl IntoIterator<Item = Issue>) {
@@ -201,11 +330,11 @@ impl Report {
 
     pub(crate) fn finish(self) -> Vec<Issue> {
         let mut out = self.issues;
-        out.extend(self.tallies.into_iter().map(|t| Issue {
-            code: t.code,
-            message: (t.describe)(&t.key, t.count),
-            paragraph: t.paragraph,
-        }));
+        out.extend(
+            self.tallies
+                .into_iter()
+                .map(|t| Issue::new(t.code, (t.describe)(&t.key, t.count), t.paragraph)),
+        );
         out
     }
 }

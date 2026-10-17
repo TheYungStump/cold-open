@@ -1,0 +1,32 @@
+{
+  "script": {
+    "elements": [
+      {
+        "text": "INT. WORKSHOP - NIGHT",
+        "type": "scene_heading"
+      },
+      {
+        "text": "Sparks fly from the grinder.",
+        "type": "action"
+      },
+      {
+        "text": "Hand me the clamp.",
+        "type": "dialogue"
+      }
+    ]
+  },
+  "overrides": {},
+  "title_lines": [],
+  "scenes": [],
+  "report": [
+    "skipped_bytes",
+    "skipped_bytes",
+    "skipped_bytes",
+    "stray_end_tag",
+    "sections_ignored",
+    "section_missing",
+    "settings_missing",
+    "element_ignored"
+  ],
+  "format": {}
+}

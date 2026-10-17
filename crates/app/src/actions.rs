@@ -37,6 +37,22 @@ pub const APP_ACTIONS: &[ActionInfo] = &[
         title: "Export a PDF",
     },
     ActionInfo {
+        name: "app.export_fdx",
+        title: "Save a copy as .fdx",
+    },
+    ActionInfo {
+        name: "app.export_fountain",
+        title: "Save a copy as Fountain",
+    },
+    ActionInfo {
+        name: "app.repair",
+        title: "Repair an .fdx file",
+    },
+    ActionInfo {
+        name: "app.recovered",
+        title: "Recovered versions",
+    },
+    ActionInfo {
         name: "app.quit",
         title: "Quit",
     },
@@ -248,6 +264,12 @@ pub fn command_title(name: &str) -> &'static str {
         "scene.list" => "List scenes",
         "scene.move" => "Move a scene",
         "export.pdf" => "Export a PDF by path",
+        "export.fdx" => "Export an .fdx copy by path",
+        "export.fountain" => "Export a Fountain copy by path",
+        "file.repair" => "Repair an .fdx file into a new one",
+        "recovered.list" => "List recovered versions",
+        "recovered.restore" => "Restore a recovered version",
+        "recovered.delete" => "Delete a recovered version",
         "undo" => "Undo",
         "redo" => "Redo",
         "batch" => "Run several edits as one",

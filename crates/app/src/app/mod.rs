@@ -18,12 +18,16 @@ use serde_json::{Value, json};
 
 mod agents;
 mod bench;
+mod copies;
 mod file_ops;
+mod router;
 mod view;
 
 pub use agents::Agent;
 pub use bench::{Bench, BenchKind};
+pub use copies::{CopyRow, RecoveredScreen, RepairReport};
 pub use file_ops::{After, ExportForm, Prompt, Recovery, Reply};
+pub use router::{Origin, Outcome, Request};
 pub use view::eighths;
 
 use crate::actions;
@@ -97,7 +101,74 @@ pub enum Message {
     Frame,
     /// The agent link (docs/specs/mcp.md §5).
     Link(crate::link::LinkEvent),
+    /// The repair dialog (editor.md §13).
+    RepairOk,
+    RepairDetails,
+    RepairSaveCopy,
+    /// Recovered versions (editor.md §13).
+    RecoveredSelect(usize),
+    RecoveredRestore,
+    RecoveredDelete,
+    RecoveredClose,
     Noop,
+}
+
+/// A message over the page (editor.md §13). Some offer the Recovered
+/// versions screen; none shows the path of a set-aside copy.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Banner {
+    pub text: String,
+    /// Shows a Recovered versions button.
+    pub recovered: bool,
+}
+
+impl Banner {
+    /// "Your unsaved changes were set aside…", with the button.
+    pub fn set_aside() -> Banner {
+        Banner {
+            text: "Your unsaved changes were set aside. Open Recovered versions to restore them."
+                .into(),
+            recovered: true,
+        }
+    }
+
+    /// The first save over a repaired file kept it as it was.
+    pub fn original_kept() -> Banner {
+        Banner {
+            text:
+                "The file as it was before the repair was kept. Open Recovered versions to see it."
+                    .into(),
+            recovered: true,
+        }
+    }
+}
+
+impl From<String> for Banner {
+    fn from(text: String) -> Banner {
+        Banner {
+            text,
+            recovered: false,
+        }
+    }
+}
+
+impl From<&str> for Banner {
+    fn from(text: &str) -> Banner {
+        Banner::from(text.to_string())
+    }
+}
+
+impl std::fmt::Display for Banner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.text)
+    }
+}
+
+impl std::ops::Deref for Banner {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.text
+    }
 }
 
 /// One row of the navigator (editor.md §7).
@@ -169,7 +240,7 @@ pub struct App {
     pub focus: Focus,
     caret_on: bool,
     last_input: Instant,
-    pub banners: Vec<String>,
+    pub banners: Vec<Banner>,
     viewport: Option<scrollable::Viewport>,
     fonts: Box<dyn coldopen_layout::Coverage>,
     keymap: Keymap,
@@ -198,8 +269,16 @@ pub struct App {
     save_again: bool,
     /// What to do once the script is saved.
     after_save: Option<After>,
+    /// What waits for the save in flight to finish before it runs: opening,
+    /// closing or leaving a script never overlaps a save (editor.md §16).
+    waiting: Option<After>,
     pub prompt: Option<Prompt>,
     pub recovery: Option<Recovery>,
+    /// The repair report, after opening a damaged .fdx file or repairing
+    /// one.
+    pub repair: Option<RepairReport>,
+    /// The Recovered versions screen.
+    pub recovered: Option<RecoveredScreen>,
     pub export: Option<ExportForm>,
     pub sheet: Option<Sheet>,
     /// Scripts with unsaved work from an earlier session (editor.md §11).
@@ -260,12 +339,12 @@ impl App {
         if let Some(t) = boot.theme {
             settings.theme = t;
         }
-        let mut banners: Vec<String> = warn.into_iter().collect();
+        let mut banners: Vec<Banner> = warn.into_iter().map(Banner::from).collect();
         let keymap_text = dirs
             .as_ref()
             .and_then(|d| std::fs::read_to_string(d.config.join("keymap.json")).ok());
         let (keymap, kw) = Keymap::load(keymap_text.as_deref(), &actions::known);
-        banners.extend(kw);
+        banners.extend(kw.into_iter().map(Banner::from));
 
         let mut d = Dispatcher::new(Options::default());
         if !boot.every_entry {
@@ -303,8 +382,11 @@ impl App {
             saving: None,
             save_again: false,
             after_save: None,
+            waiting: None,
             prompt: None,
             recovery: None,
+            repair: None,
+            recovered: None,
             export: None,
             sheet: None,
             leftover: Vec::new(),
@@ -323,8 +405,9 @@ impl App {
             .and_then(|d| std::fs::read_to_string(d.config.join("flow.json")).ok())
         {
             let w = app.flow.apply_overrides(&text);
-            app.banners.extend(w);
+            app.banners.extend(w.into_iter().map(Banner::from));
         }
+        app.clean_up_copies();
         match boot.file {
             Some(f) => app.open(&f),
             None => {
@@ -417,14 +500,14 @@ impl App {
         let cmd = match Command::from_parts(name, params) {
             Ok(c) => c,
             Err(e) => {
-                self.banners.push(e);
+                self.banners.push(e.into());
                 return None;
             }
         };
         match self.d.execute(cmd) {
             Ok(v) => Some(v),
             Err(e) => {
-                self.banners.push(e.message);
+                self.banners.push(e.message.into());
                 None
             }
         }
@@ -477,22 +560,19 @@ impl App {
                 return;
             }
             Err(e) => {
-                self.banners.push(e.message);
+                self.banners.push(e.message.into());
                 None
             }
             Ok(r) => Some(r),
         };
         match opened {
             Some(r) => {
-                for w in r["warnings"].as_array().into_iter().flatten() {
-                    if let Some(m) = w["message"].as_str() {
-                        self.banners.push(m.to_string());
-                    }
-                }
+                self.notices(&r);
                 if let Some(s) = self.d.session() {
                     self.editor = self.fresh_editor(&s.doc);
                 }
                 self.recovery_from(&r["recovered"], path);
+                self.repair_from(&r["repaired"], path);
                 self.leftover.retain(|p| p != path);
                 let unsaved = self
                     .dirs
@@ -514,7 +594,7 @@ impl App {
             && let Err(e) = self.settings.save(d)
         {
             self.banners
-                .push(format!("Settings could not be saved: {e}"));
+                .push(format!("Settings could not be saved: {e}").into());
         }
     }
 
@@ -530,7 +610,7 @@ impl App {
         self.editor
             .problems
             .drain(..)
-            .for_each(|p| self.banners.push(p.message));
+            .for_each(|p| self.banners.push(p.message.into()));
         self.caret_spot = self.editor.caret_spot(&mut self.d);
         self.caret_on = true;
         self.last_input = Instant::now();
@@ -607,6 +687,12 @@ impl App {
             return;
         }
         self.nav_rev = rev;
+        // With no script open there is nothing to list, and asking would
+        // say "no document is open" over the start screen.
+        if rev.is_none() {
+            self.nav.clear();
+            return;
+        }
         let scenes = self
             .run("scene.list", json!({}))
             .and_then(|r| r["scenes"].as_array().cloned())
@@ -835,7 +921,7 @@ impl App {
                 self.system_dark = dark;
                 Task::none()
             }
-            Message::Action(a) => self.action(&a),
+            Message::Action(a) => self.dispatch(Request::Action(a), Origin::Button).task,
             Message::Pasted(t) => {
                 if let Some(t) = t {
                     self.editor.paste(&mut self.d, &t);
@@ -906,6 +992,19 @@ impl App {
             Message::Saved(r) => self.saved(r),
             Message::Reply(r) => self.reply(r),
             Message::RecoveryKeep => self.recovery_keep(),
+            Message::RepairOk | Message::RepairDetails | Message::RepairSaveCopy => {
+                self.repair_reply(&message)
+            }
+            Message::RecoveredSelect(i) => {
+                self.recovered_select(i);
+                Task::none()
+            }
+            Message::RecoveredRestore => self.recovered_restore(),
+            Message::RecoveredDelete => self.recovered_delete(),
+            Message::RecoveredClose => {
+                self.recovered = None;
+                Task::none()
+            }
             Message::RecoveryDiscard => self.recovery_discard(),
             Message::ExportNumbers => {
                 if let Some(f) = &mut self.export {
@@ -1162,6 +1261,8 @@ impl App {
     pub(super) fn modal(&self) -> bool {
         self.prompt.is_some()
             || self.recovery.is_some()
+            || self.repair.is_some()
+            || self.recovered.is_some()
             || self.export.is_some()
             || self.sheet.is_some()
     }
@@ -1201,6 +1302,15 @@ impl App {
                 Task::none()
             };
         }
+        if matches!(self.prompt, Some(Prompt::DeleteCopy(_))) {
+            return if enter || ch == "d" {
+                self.reply(Reply::Save)
+            } else if esc || ch == "c" {
+                self.reply(Reply::Cancel)
+            } else {
+                Task::none()
+            };
+        }
         if self.prompt.is_some() {
             return if enter || ch == "s" {
                 self.reply(Reply::Save)
@@ -1220,6 +1330,29 @@ impl App {
             } else {
                 Task::none()
             };
+        }
+        if let Some(r) = &self.repair {
+            return if enter || esc || ch == "o" {
+                self.repair_reply(&Message::RepairOk)
+            } else if ch == "d" && !r.issues.is_empty() {
+                self.repair_reply(&Message::RepairDetails)
+            } else if ch == "s" && r.written.is_none() {
+                self.repair_reply(&Message::RepairSaveCopy)
+            } else {
+                Task::none()
+            };
+        }
+        if let Some(s) = &self.recovered {
+            let selected = s.selected;
+            match kp.key.as_ref() {
+                Key::Named(Named::ArrowDown) => self.recovered_select(selected + 1),
+                Key::Named(Named::ArrowUp) => self.recovered_select(selected.saturating_sub(1)),
+                Key::Named(Named::Delete) => return self.recovered_delete(),
+                _ if enter || ch == "r" => return self.recovered_restore(),
+                _ if esc => self.recovered = None,
+                _ => {}
+            }
+            return Task::none();
         }
         if let Some(sheet) = self.sheet {
             if esc || enter {
@@ -1447,8 +1580,14 @@ impl App {
         self.after_change(true)
     }
 
-    /// Runs an action by name (editor.md §10).
+    /// Runs an action by name (editor.md §10), as a shortcut would.
     pub fn action(&mut self, name: &str) -> Task<Message> {
+        self.dispatch(Request::Action(name.to_string()), Origin::Key)
+            .task
+    }
+
+    /// The actions themselves, for [`App::dispatch`].
+    fn action_by(&mut self, name: &str, _origin: &Origin) -> Task<Message> {
         let mut scroll = true;
         match name {
             "app.palette" => {
@@ -1463,10 +1602,26 @@ impl App {
             "doc.save" => return self.save(false),
             "app.save_as" => {
                 if self.d.session().is_some() {
-                    return self.ask(Ask::SaveAs(format!("{}.fountain", self.stem())));
+                    return self.ask(Ask::SaveAs(self.suggested()));
                 }
             }
             "app.export_pdf" => return self.export_start(),
+            "app.export_fdx" | "app.export_fountain" => {
+                if self.d.session().is_some() {
+                    let stem = self.stem();
+                    return self.ask(if name == "app.export_fdx" {
+                        Ask::ExportFdx(format!("{stem}.fdx"))
+                    } else {
+                        Ask::ExportFountain(format!("{stem}.fountain"))
+                    });
+                }
+            }
+            "app.repair" => return self.ask(Ask::RepairIn),
+            "app.recovered" => {
+                self.palette = None;
+                self.recovered_open();
+                scroll = false;
+            }
             n if n.starts_with("leftover:") => {
                 let i: usize = n["leftover:".len()..].parse().unwrap_or(usize::MAX);
                 if let Some(p) = self.leftover.get(i).cloned() {
@@ -1666,7 +1821,7 @@ impl App {
             }
             other => self
                 .banners
-                .push(format!("\"{other}\" is not available yet.")),
+                .push(format!("\"{other}\" is not available yet.").into()),
         }
         self.after_change(scroll)
     }
@@ -1718,54 +1873,39 @@ impl App {
         let action = item.action.clone();
         self.palette = None;
         self.focus = Focus::Page;
-        self.action(&action)
+        self.dispatch(Request::Action(action), Origin::Palette).task
     }
 
-    /// Commands that open, close, revert or save the script, given in the
-    /// palette's params form, go through the app's own flows: they ask
-    /// before losing work, keep recent files and agents in step, and never
-    /// leave an agent attached to a script it was not given (review finding
-    /// F7). `None` for any other command.
-    fn session_command(&mut self, name: &str, params: &Value) -> Option<Task<Message>> {
-        let path = params["path"].as_str().map(PathBuf::from);
-        let flag = |k: &str| params[k].as_bool().unwrap_or(false);
-        Some(match name {
-            "doc.open" => match path {
-                Some(p) => self.leave(After::OpenPath(p)),
-                None => {
-                    self.banners.push("doc.open needs a \"path\".".into());
-                    Task::none()
-                }
-            },
-            "doc.new" if path.is_some() => {
-                self.banners
-                    .push("A new script starts untitled; name it with Save as.".into());
-                Task::none()
-            }
-            "doc.new" => self.leave(After::New),
-            "doc.close" => self.leave(After::Close),
-            "doc.revert" => self.reload(),
-            "doc.save" => match path {
-                Some(p) => self.save_as(p, flag("allow_lossy"), flag("overwrite")),
-                None => self.save_with(flag("allow_lossy"), flag("overwrite")),
-            },
-            _ => return None,
-        })
-    }
-
+    /// Runs the palette's params form through the router (editor.md §9,
+    /// §16): session commands run the app's flows, the rest answer in the
+    /// form.
     fn params_run(&mut self) -> Task<Message> {
         let Some((name, json)) = self.palette.as_ref().and_then(|p| p.params.clone()) else {
             return Task::none();
         };
         let response = match serde_json::from_str::<Value>(&json) {
             Ok(params) => {
-                if let Some(task) = self.session_command(&name, &params) {
-                    self.palette = None;
-                    self.focus = Focus::Page;
-                    return task;
+                let request = json!({ "command": name, "params": params });
+                match Dispatcher::read_request(&request).1 {
+                    Ok(cmd) => {
+                        let out = self.dispatch(Request::Command(cmd), Origin::Form);
+                        match out.response {
+                            None => {
+                                self.palette = None;
+                                self.focus = Focus::Page;
+                                return out.task;
+                            }
+                            Some(r) => {
+                                let r = Dispatcher::response(Value::Null, r);
+                                serde_json::to_string_pretty(&r).unwrap_or_default()
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let r = Dispatcher::response(Value::Null, Err(e));
+                        serde_json::to_string_pretty(&r).unwrap_or_default()
+                    }
                 }
-                let r = self.d.handle(&json!({ "command": name, "params": params }));
-                serde_json::to_string_pretty(&r).unwrap_or_default()
             }
             Err(e) => format!("The params are not JSON: {e}"),
         };

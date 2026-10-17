@@ -12,6 +12,7 @@ use serde_json::Value;
 use crate::author::Author;
 use crate::document::Document;
 use crate::flush::{Durability, FlushStatus, Flusher};
+use crate::format::FormatId;
 use crate::io::{Fingerprint, open_rw};
 use crate::ops::Transaction;
 
@@ -33,6 +34,20 @@ pub fn path_for(doc: &Path) -> PathBuf {
     doc.with_file_name(format!(".{name}.coldopen-journal"))
 }
 
+/// `.script.fdx.coldopen-original-<ms>` next to `script.fdx`: a repaired
+/// file kept as it was before the first save over it
+/// (docs/specs/journal.md, "Damaged originals").
+pub fn original_path(doc: &Path) -> PathBuf {
+    let name = doc
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis());
+    doc.with_file_name(format!(".{name}.coldopen-original-{ms}"))
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct Header {
     pub journal: String,
@@ -49,6 +64,16 @@ pub struct Header {
     pub host: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// The file format `doc` was read from or saved as, so recovery
+    /// compares like with like. Absent means Fountain, which is never
+    /// written, so Fountain journals are as before (2026-10-16).
+    #[serde(default, skip_serializing_if = "FormatId::is_fountain")]
+    pub format: FormatId,
+    /// The header's document is itself unsaved work, as for a restored
+    /// copy, so the app offers it at start-up though it has no entries
+    /// (docs/specs/journal.md, "Recovered versions"). Absent means false.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub unsaved: bool,
 }
 
 fn first_semantics() -> u32 {
@@ -137,6 +162,10 @@ pub struct Journal {
     /// The computer and script path written into each header.
     host: Option<String>,
     doc_path: Option<String>,
+    /// The format written into each header.
+    format: FormatId,
+    /// Written into the next header that has no file behind it.
+    unsaved: bool,
     /// Set when the file may end in a fragment that could not be cut off,
     /// or has no whole header: nothing written now could be replayed, so
     /// every write fails until [`Journal::start`] succeeds.
@@ -157,6 +186,7 @@ impl Journal {
         durability: Durability,
     ) -> Result<(Journal, Vec<u8>), OpenError> {
         let mut file = open_rw(path).map_err(OpenError::Io)?;
+        crate::io::hide(path);
         match file.try_lock() {
             Ok(()) => {}
             Err(TryLockError::WouldBlock) => return Err(OpenError::Locked),
@@ -179,6 +209,8 @@ impl Journal {
                 len: contents.len() as u64,
                 host: None,
                 doc_path: None,
+                format: FormatId::default(),
+                unsaved: false,
                 broken: None,
                 durability,
                 flusher,
@@ -205,6 +237,17 @@ impl Journal {
     pub fn set_identity(&mut self, host: Option<String>, doc_path: Option<String>) {
         self.host = host;
         self.doc_path = doc_path;
+    }
+
+    /// Names the file format, for the headers written from now on.
+    pub fn set_format(&mut self, format: FormatId) {
+        self.format = format;
+    }
+
+    /// Marks the headers written from now on, until one is written for a
+    /// saved file, as holding unsaved work.
+    pub fn set_unsaved(&mut self, unsaved: bool) {
+        self.unsaved = unsaved;
     }
 
     /// Whether the journal is broken (see `broken`).
@@ -267,7 +310,12 @@ impl Journal {
             semantics: SEMANTICS,
             host: self.host.clone(),
             path: self.doc_path.clone(),
+            format: self.format,
+            unsaved: self.unsaved && disk.is_none(),
         };
+        if disk.is_some() {
+            self.unsaved = false;
+        }
         let mut line = serde_json::to_vec(&header).map_err(io::Error::other)?;
         line.push(b'\n');
         // If this fails, the old journal is still whole.
@@ -390,14 +438,20 @@ impl Journal {
     /// Keeps a copy of the journal's bytes next to it, never deleting
     /// anything a writer might want back.
     pub fn copy_aside(&self, contents: &[u8], tag: &str) -> io::Result<PathBuf> {
-        let ms = SystemTime::now()
+        let mut ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_millis());
-        let mut name = self.path.as_os_str().to_owned();
-        name.push(format!(".{tag}-{ms}"));
-        let aside = PathBuf::from(name);
-        fs::write(&aside, contents)?;
-        Ok(aside)
+        // Never over another copy: a copy made in the same millisecond
+        // takes the next free one, so its name still says when it was made.
+        loop {
+            let mut name = self.path.as_os_str().to_owned();
+            name.push(format!(".{tag}-{ms}"));
+            let aside = PathBuf::from(name);
+            match crate::io::write_new(&aside, contents) {
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => ms += 1,
+                other => return other.map(|()| aside),
+            }
+        }
     }
 
     /// Releases the lock and removes the journal file.
@@ -538,6 +592,35 @@ mod tests {
             path_for(Path::new("dir/My Script.fountain")),
             Path::new("dir/.My Script.fountain.coldopen-journal")
         );
+    }
+
+    /// The header records its format (review finding F18.1), but a Fountain
+    /// journal reads and writes exactly as before: absent means Fountain.
+    /// A format this version does not know makes the header unreadable, so
+    /// the journal is kept aside, never replayed as the wrong format.
+    #[test]
+    fn the_header_names_its_format_only_when_not_fountain() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_, bytes) = sample(dir.path());
+        let header = String::from_utf8(bytes).unwrap();
+        let header = header.lines().next().unwrap().to_string();
+        assert!(!header.contains("\"format\""), "{header}");
+        assert_eq!(
+            read(format!("{header}\n").as_bytes())
+                .unwrap()
+                .header
+                .format,
+            FormatId::Fountain
+        );
+
+        let named = header.replacen("{", "{\"format\":\"fountain\",", 1);
+        assert_eq!(
+            read(format!("{named}\n").as_bytes()).unwrap().header.format,
+            FormatId::Fountain
+        );
+        let unknown = header.replacen("{", "{\"format\":\"wordstar\",", 1);
+        let e = read(format!("{unknown}\n").as_bytes()).err().unwrap();
+        assert!(e.contains("unreadable"), "{e}");
     }
 
     #[test]

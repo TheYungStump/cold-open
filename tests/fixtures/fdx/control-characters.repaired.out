@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
+<FinalDraft DocumentType="Script" Template="No" Version="4">
+
+  <Content>
+    <Paragraph Type="Action">
+      <Text>A bell rings twice.</Text>
+    </Paragraph>
+    <Paragraph Type="Action">
+      <Text>Nothing after the bell, &amp;#1;and a reference to nothing.</Text>
+    </Paragraph>
+  </Content>
+</FinalDraft>

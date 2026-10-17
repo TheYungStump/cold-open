@@ -37,6 +37,33 @@ pub struct SourceMap {
 }
 
 impl SourceMap {
+    /// The map of a script laid out as it is, without normalizing: each
+    /// element comes whole from itself. Used for documents whose format is
+    /// laid out unnormalized, such as .fdx (docs/specs/layout.md §4.8).
+    pub fn identity(script: &Script) -> SourceMap {
+        let elements = script
+            .elements
+            .iter()
+            .enumerate()
+            .map(|(i, e)| {
+                let len = e.text.plain_text().len() as u32;
+                ElementSource {
+                    source: i,
+                    segments: if len == 0 {
+                        Vec::new()
+                    } else {
+                        vec![Segment {
+                            norm: 0..len,
+                            source: i,
+                            at: 0,
+                        }]
+                    },
+                }
+            })
+            .collect();
+        SourceMap { elements }
+    }
+
     /// The source element and byte offset for a byte offset in a
     /// normal-form element. A position where one segment ends and the next
     /// begins belongs to the next one. A position the normal form added (a
@@ -234,6 +261,22 @@ fn align(text: &str, sources: &[String], cur: &mut Cursor, end: usize) -> Vec<Se
 mod tests {
     use super::*;
     use coldopen_screenplay::{Element, ElementKind};
+
+    #[test]
+    fn the_identity_map_maps_every_element_to_itself() {
+        let s = script(vec![
+            Element::new(ElementKind::Action, "  Rain.  "),
+            Element::new(ElementKind::Dialogue, ""),
+            Element::new(ElementKind::Dialogue, "Caf\u{e9}."),
+        ]);
+        let m = SourceMap::identity(&s);
+        assert_eq!(m.elements.len(), 3);
+        assert_eq!(m.to_source(0, 2), Some((0, 2)));
+        assert_eq!(m.to_norm(0, 8), Some((0, 8)));
+        assert!(m.elements[1].segments.is_empty());
+        assert_eq!(m.to_source(1, 0), Some((1, 0)));
+        assert_eq!(m.to_norm(2, 5), Some((2, 5)));
+    }
 
     fn script(elements: Vec<Element>) -> Script {
         Script {

@@ -15,6 +15,7 @@ use crate::command::{
 };
 use crate::document::{Block, BlockId, Document, word_count};
 use crate::error::CommandError;
+use crate::format::{FormatId, LayoutForm, Loss};
 use crate::io::{Fingerprint, SourceStyle};
 use crate::journal::{Journal, StepRef};
 use crate::ops::{Op, Transaction};
@@ -108,8 +109,14 @@ pub struct Recovered {
 pub struct Session {
     pub doc: Document,
     pub path: Option<PathBuf>,
+    /// The file format the document was read from or last saved as; a
+    /// save in place writes it again.
+    pub format: FormatId,
     pub style: SourceStyle,
     pub journal: Option<Journal>,
+    /// The file was repaired when it was read (docs/specs/fdx.md §17): the
+    /// first save in place keeps a copy of it as it was first.
+    pub damaged: bool,
     /// True when there are changes since the last open or save.
     pub dirty: bool,
     /// Set while the document holds work recovered from a crash journal
@@ -192,12 +199,19 @@ fn label(cmd: &Command, by: &Author) -> String {
 }
 
 impl Session {
-    pub fn new(doc: Document, path: Option<PathBuf>, style: SourceStyle) -> Session {
+    pub fn new(
+        doc: Document,
+        path: Option<PathBuf>,
+        format: FormatId,
+        style: SourceStyle,
+    ) -> Session {
         Session {
             doc,
             path,
+            format,
             style,
             journal: None,
+            damaged: false,
             dirty: false,
             recovered: None,
             disk: None,
@@ -217,6 +231,15 @@ impl Session {
         self.id
     }
 
+    /// Changes the file format, as a save as another format does. The
+    /// document is laid out again in that format's form.
+    pub fn set_format(&mut self, format: FormatId) {
+        if self.format != format {
+            self.format = format;
+            self.view = None;
+        }
+    }
+
     /// The laid-out document, brought up to date first. Only the pages an
     /// edit can change are laid out again (docs/specs/layout.md §15).
     pub fn view(&mut self) -> &View {
@@ -226,8 +249,9 @@ impl Session {
         {
             v.refresh(&self.doc, rev);
         }
-        let doc = &self.doc;
-        self.view.get_or_insert_with(|| View::new(doc, rev))
+        let (doc, format) = (&self.doc, self.format);
+        self.view
+            .get_or_insert_with(|| View::with_format(doc, rev, format))
     }
 
     /// The laid-out document as last brought up to date, which may be
@@ -247,7 +271,7 @@ impl Session {
             Class::Query => self.query(cmd),
             Class::Edit => self.edit(cmd, ex),
             Class::History => self.history(cmd, ex),
-            Class::Session | Class::Output => Err(CommandError::new(
+            Class::Session | Class::Output | Class::File => Err(CommandError::new(
                 "invalid_request",
                 format!("{} is handled by the dispatcher", cmd.name()),
             )),
@@ -258,22 +282,29 @@ impl Session {
         match cmd {
             Command::DocGet(_) => Ok(json!({
                 "path": self.path.as_ref().map(|p| p.display().to_string()),
+                "format": self.format.name(),
                 "dirty": self.dirty,
                 "rev": self.rev,
                 "title_page": self.doc.title_page,
                 "blocks": self.doc.blocks,
             })),
             Command::SceneList(_) => Ok(json!({ "scenes": self.scene_list() })),
-            Command::DocExport(p) => match p.format.to_ascii_lowercase().as_str() {
-                "fountain" => {
-                    let written = coldopen_fountain::write(&self.doc.to_script());
+            Command::DocExport(p) => match (
+                FormatId::from_name(&p.format),
+                p.format.to_ascii_lowercase().as_str(),
+            ) {
+                (Some(id), _) => {
+                    // Text is UTF-8 with LF line ends, whatever the file uses.
+                    let written = id.get().write(&self.doc, SourceStyle::default());
+                    let text = String::from_utf8(written.bytes)
+                        .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
                     Ok(json!({
-                        "format": "fountain",
-                        "text": written.text,
+                        "format": id.name(),
+                        "text": text,
                         "losses": self.losses_json(&written.losses),
                     }))
                 }
-                "json" => {
+                (None, "json") => {
                     let content = json!({
                         "title_page": self.doc.title_page,
                         "blocks": self.doc.blocks,
@@ -282,7 +313,7 @@ impl Session {
                         .map_err(|e| CommandError::new("invalid_request", e.to_string()))?;
                     Ok(json!({ "format": "json", "text": text + "\n", "losses": [] }))
                 }
-                "pages" => {
+                (None, "pages") => {
                     let layout = self.view().layout();
                     let text = match coldopen_layout::Fonts::new() {
                         Ok(fonts) => layout.page_view(&fonts),
@@ -290,7 +321,7 @@ impl Session {
                     };
                     Ok(json!({ "format": "pages", "text": text, "losses": [] }))
                 }
-                other => Err(CommandError::new(
+                (None, other) => Err(CommandError::new(
                     "unsupported_format",
                     format!(
                         "\"{other}\" is not a supported export format; use \"fountain\", \"json\" or \"pages\""
@@ -346,7 +377,7 @@ impl Session {
     }
 
     /// Writer losses with element indices turned into block ids.
-    pub fn losses_json(&self, losses: &[coldopen_fountain::Loss]) -> Vec<Value> {
+    pub fn losses_json(&self, losses: &[Loss]) -> Vec<Value> {
         losses
             .iter()
             .map(|l| {
@@ -356,17 +387,24 @@ impl Session {
             .collect()
     }
 
-    /// Lays out the document with the default page format. Layout runs on
-    /// the Fountain normal form, so the pages are the same after a save and
-    /// reload (docs/specs/layout.md §4.8). The second value maps each laid-out
-    /// element to the index of the block it came from.
+    /// Lays out the document with its page format, title lines and spacing
+    /// (the defaults for a Fountain script), in the form its format gives it: for Fountain the normal form, so the pages are the
+    /// same after a save and reload (docs/specs/layout.md §4.8). The second
+    /// value maps each laid-out element to the index of the block it came
+    /// from.
     pub fn layout(
         &self,
         options: &coldopen_layout::Options,
     ) -> (coldopen_layout::Layout, Vec<usize>) {
-        let (script, map) = coldopen_fountain::normalize_with_map(&self.doc.to_script());
-        let layout =
-            coldopen_layout::layout(&script, &coldopen_layout::ValidFormat::default(), options);
+        let LayoutForm { script, sources } = self.format.get().layout_form(&self.doc);
+        let map: Vec<usize> = sources.elements.iter().map(|e| e.source).collect();
+        let options = coldopen_layout::Options {
+            overrides: self.doc.overrides(&map),
+            title_lines: crate::view::layout_options(&self.doc).title_lines,
+            ..options.clone()
+        };
+        let format = crate::view::page_format(&self.doc);
+        let layout = coldopen_layout::layout(&script, &format, &options);
         (layout, map)
     }
 

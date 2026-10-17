@@ -1,0 +1,25 @@
+{
+  "script": {
+    "elements": [
+      {
+        "text": "A bell rings twice.",
+        "type": "action"
+      },
+      {
+        "text": "Nothing after the bell, &#1;and a reference to nothing.",
+        "type": "action"
+      }
+    ]
+  },
+  "overrides": {},
+  "title_lines": [],
+  "scenes": [],
+  "report": [
+    "invalid_char",
+    "invalid_char",
+    "section_missing",
+    "settings_missing",
+    "bad_char_ref"
+  ],
+  "format": {}
+}

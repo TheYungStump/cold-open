@@ -25,14 +25,15 @@ struct Cli {
 #[derive(Clone, Copy, ValueEnum)]
 enum Format {
     Fountain,
+    Fdx,
     Json,
 }
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Convert a script to canonical Fountain or to JSON.
+    /// Convert a script to Fountain, .fdx or JSON.
     Convert {
-        /// The script to read (.fountain, .spmd or .txt).
+        /// The script to read (.fountain, .spmd, .txt or .fdx).
         input: PathBuf,
         /// Where to write, or - for standard output.
         output: String,
@@ -43,9 +44,23 @@ enum Cmd {
         #[arg(long)]
         allow_lossy: bool,
     },
+    /// Repair a damaged .fdx file into a new one, and print what was
+    /// repaired. The input is never written.
+    Repair {
+        /// The .fdx file to repair.
+        input: PathBuf,
+        /// Where to write the repaired copy (.fdx).
+        output: PathBuf,
+        /// Print the report as JSON.
+        #[arg(long)]
+        json: bool,
+        /// Also write the report to this file.
+        #[arg(long)]
+        report: Option<PathBuf>,
+    },
     /// Export a script as a PDF.
     Export {
-        /// The script to read (.fountain, .spmd or .txt).
+        /// The script to read (.fountain, .spmd, .txt or .fdx).
         input: PathBuf,
         /// The PDF to write.
         output: PathBuf,
@@ -125,6 +140,12 @@ fn main() -> ExitCode {
             scene_numbers,
             no_title_page,
         } => export(&input, &output, watermark, scene_numbers, no_title_page),
+        Cmd::Repair {
+            input,
+            output,
+            json,
+            report,
+        } => repair(&input, &output, json, report.as_deref()),
         Cmd::Pages { file } => pages(&file),
         Cmd::Scenes { file, json } => scenes(&file, json),
         Cmd::Licenses => licenses(),
@@ -218,7 +239,9 @@ fn convert(
         .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
     {
-        return Err("convert writes Fountain or JSON; use `coldopen export` to make a PDF".into());
+        return Err(
+            "convert writes Fountain, .fdx or JSON; use `coldopen export` to make a PDF".into(),
+        );
     }
     let format = to.unwrap_or_else(|| {
         let ext = Path::new(output)
@@ -227,6 +250,7 @@ fn convert(
             .map(str::to_ascii_lowercase);
         match ext.as_deref() {
             Some("json") => Format::Json,
+            Some("fdx") => Format::Fdx,
             _ => Format::Fountain,
         }
     });
@@ -235,6 +259,7 @@ fn convert(
     print_warnings(&opened);
     let name = match format {
         Format::Fountain => "fountain",
+        Format::Fdx => "fdx",
         Format::Json => "json",
     };
     let exported = call(&mut d, "doc.export", json!({ "format": name }))?;
@@ -248,7 +273,13 @@ fn convert(
             );
         }
         if !allow_lossy {
-            return Err("Fountain cannot hold everything in this script; nothing was written (use --allow-lossy to write anyway)".into());
+            let what = match format {
+                Format::Fdx => "An .fdx file",
+                _ => "Fountain",
+            };
+            return Err(format!(
+                "{what} cannot hold everything in this script; nothing was written (use --allow-lossy to write anyway)"
+            ));
         }
     }
     let text = exported["text"].as_str().unwrap_or_default();
@@ -262,6 +293,86 @@ fn convert(
             .map_err(|e| format!("{output}: {e}"))?;
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// `coldopen repair` (docs/specs/fdx.md §17): `file.repair`, then the
+/// report as text or JSON.
+fn repair(
+    input: &Path,
+    output: &Path,
+    json_out: bool,
+    report: Option<&Path>,
+) -> Result<ExitCode, String> {
+    let mut d = reader();
+    // The output was named on the command line, so it is replaced, as
+    // `convert` and `export` replace theirs; the input never is.
+    let result = call(
+        &mut d,
+        "file.repair",
+        json!({ "path": path_str(input), "out": path_str(output), "overwrite": true }),
+    )?;
+    let issues = result["issues"].as_array().cloned().unwrap_or_default();
+    let text = if json_out {
+        let v = json!({ "repaired": result["repaired"], "issues": issues });
+        serde_json::to_string_pretty(&v).map_err(|e| e.to_string())? + "\n"
+    } else {
+        report_text(&result, &issues)
+    };
+    print!("{text}");
+    if let Some(path) = report {
+        coldopen_core::io::atomic_write(path, text.as_bytes())
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The repair report for people (docs/specs/fdx.md §9): repairs one per
+/// line, then a count of what was kept or noted.
+fn report_text(result: &Value, issues: &[Value]) -> String {
+    let mut out = String::new();
+    let class = |i: &Value| i["class"].as_str().unwrap_or("").to_string();
+    let repairs: Vec<&Value> = issues
+        .iter()
+        .filter(|i| matches!(class(i).as_str(), "fixed" | "dropped"))
+        .collect();
+    if result["repaired"] == true {
+        out.push_str(&format!(
+            "Repaired, with {} {}:\n",
+            repairs.len(),
+            if repairs.len() == 1 {
+                "change"
+            } else {
+                "changes"
+            }
+        ));
+    } else {
+        out.push_str("Nothing needed repair; the copy is the file as it was.\n");
+    }
+    for i in &repairs {
+        let at = match (
+            i["line"].as_u64(),
+            i["column"].as_u64(),
+            i["paragraph"].as_u64(),
+        ) {
+            (Some(l), Some(c), _) => format!("line {l}, column {c}: "),
+            (_, _, Some(p)) => format!("paragraph {p}: "),
+            _ => String::new(),
+        };
+        out.push_str(&format!(
+            "  {:<8} {at}{} ({})\n",
+            class(i),
+            i["message"].as_str().unwrap_or(""),
+            i["code"].as_str().unwrap_or("")
+        ));
+    }
+    let kept = issues.iter().filter(|i| class(i) == "kept").count();
+    let info = issues.iter().filter(|i| class(i) == "info").count();
+    if kept + info > 0 {
+        out.push_str(&format!(
+            "Also: {kept} kept as they are (Cold Open does not use them), {info} noted. Run with --json for every item.\n"
+        ));
+    }
+    out
 }
 
 fn export(

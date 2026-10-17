@@ -66,6 +66,18 @@ pub enum Command {
     TextComplete(TextComplete),
     #[serde(rename = "history.list")]
     HistoryList(Empty),
+    #[serde(rename = "export.fdx")]
+    ExportFdx(ExportFile),
+    #[serde(rename = "export.fountain")]
+    ExportFountain(ExportFile),
+    #[serde(rename = "file.repair")]
+    FileRepair(FileRepair),
+    #[serde(rename = "recovered.list")]
+    RecoveredList(RecoveredList),
+    #[serde(rename = "recovered.restore")]
+    RecoveredRestore(RecoveredRestore),
+    #[serde(rename = "recovered.delete")]
+    RecoveredDelete(RecoveredDelete),
 }
 
 /// How a command interacts with undo and the journal.
@@ -78,11 +90,14 @@ pub enum Class {
     /// Writes a file from the document without changing it; not undoable
     /// and not journaled.
     Output,
+    /// Works on files other than the open document and needs none; not
+    /// undoable and not journaled (2026-10-16).
+    File,
 }
 
 impl Command {
     /// Every command name, in a stable order (for a command palette).
-    pub const NAMES: [&'static str; 27] = [
+    pub const NAMES: [&'static str; 33] = [
         "doc.new",
         "doc.open",
         "doc.save",
@@ -110,6 +125,12 @@ impl Command {
         "text.find",
         "text.complete",
         "history.list",
+        "export.fdx",
+        "export.fountain",
+        "file.repair",
+        "recovered.list",
+        "recovered.restore",
+        "recovered.delete",
     ];
 
     pub fn name(&self) -> &'static str {
@@ -141,6 +162,12 @@ impl Command {
             Command::TextFind(_) => "text.find",
             Command::TextComplete(_) => "text.complete",
             Command::HistoryList(_) => "history.list",
+            Command::ExportFdx(_) => "export.fdx",
+            Command::ExportFountain(_) => "export.fountain",
+            Command::FileRepair(_) => "file.repair",
+            Command::RecoveredList(_) => "recovered.list",
+            Command::RecoveredRestore(_) => "recovered.restore",
+            Command::RecoveredDelete(_) => "recovered.delete",
         }
     }
 
@@ -158,7 +185,13 @@ impl Command {
             | Command::TextComplete(_)
             | Command::HistoryList(_) => Class::Query,
             Command::Undo(_) | Command::Redo(_) => Class::History,
-            Command::ExportPdf(_) => Class::Output,
+            Command::ExportPdf(_) | Command::ExportFdx(_) | Command::ExportFountain(_) => {
+                Class::Output
+            }
+            Command::FileRepair(_) | Command::RecoveredList(_) | Command::RecoveredDelete(_) => {
+                Class::File
+            }
+            Command::RecoveredRestore(_) => Class::Session,
             // Listed one by one so a new command cannot fall into a class
             // by accident.
             Command::BlockInsert(_)
@@ -226,6 +259,11 @@ impl Command {
             "text.replace" => of::<TextReplace>(),
             "scene.move" => of::<SceneMove>(),
             "export.pdf" => of::<ExportPdf>(),
+            "export.fdx" | "export.fountain" => of::<ExportFile>(),
+            "file.repair" => of::<FileRepair>(),
+            "recovered.list" => of::<RecoveredList>(),
+            "recovered.restore" => of::<RecoveredRestore>(),
+            "recovered.delete" => of::<RecoveredDelete>(),
             "text.insert" => of::<TextInsert>(),
             "text.delete" => of::<TextDelete>(),
             "text.style" => of::<TextStyle>(),
@@ -499,6 +537,65 @@ pub struct ExportPdf {
     pub overwrite: bool,
 }
 
+/// Params for `export.fdx` and `export.fountain`: a copy of the document
+/// in that format (docs/specs/commands.md, "Output").
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct ExportFile {
+    pub path: String,
+    /// Write even though the format cannot hold everything. Writers only.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub allow_lossy: bool,
+    /// Replace a file already at `path`. Writers only.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub overwrite: bool,
+}
+
+/// Params for `file.repair` (docs/specs/commands.md, "Files").
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct FileRepair {
+    /// The .fdx file to read. It is never written.
+    pub path: String,
+    /// Where the repaired copy goes.
+    pub out: String,
+    /// Replace a file already at `out`. Writers only.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub overwrite: bool,
+}
+
+/// Params for `recovered.list` (docs/specs/commands.md, "Queries").
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct RecoveredList {
+    /// The script whose copies to list; the open document's without it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
+/// Params for `recovered.restore`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct RecoveredRestore {
+    /// The set-aside copy, as `recovered.list` names it.
+    pub copy: String,
+    /// Where the restored script is journaled: a path with no file yet.
+    pub path: String,
+}
+
+/// Params for `recovered.delete`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct RecoveredDelete {
+    /// The set-aside copy, as `recovered.list` names it.
+    pub copy: String,
+}
+
 /// A style given in full, for `text.insert`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -667,6 +764,10 @@ mod tests {
                 "text.replace" => json!({"find": "a", "with": "b"}),
                 "scene.move" => json!({"id": "b_1"}),
                 "export.pdf" => json!({"path": "x.pdf"}),
+                "export.fdx" | "export.fountain" => json!({"path": "x"}),
+                "file.repair" => json!({"path": "a.fdx", "out": "b.fdx"}),
+                "recovered.restore" => json!({"copy": "c", "path": "p"}),
+                "recovered.delete" => json!({"copy": "c"}),
                 "text.insert" => json!({"id": "b_1", "at": 0, "text": "x"}),
                 "text.delete" | "text.style" => json!({"id": "b_1", "from": 0, "to": 1}),
                 "block.split" | "text.complete" => json!({"id": "b_1", "at": 0}),

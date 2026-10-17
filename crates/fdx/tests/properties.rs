@@ -1,6 +1,8 @@
-//! Property tests: random and mutated input through `fuzzing::read`, the
-//! same checks the cargo-fuzz target runs (no panic, the same result twice,
-//! and a document that satisfies the model rules).
+//! Property tests: random and mutated input through `fuzzing::read` and
+//! `fuzzing::roundtrip`, the same checks the cargo-fuzz targets run (no
+//! panic, the same result twice, a document that satisfies the model
+//! rules, and the round trip of docs/specs/fdx.md §16.1); and generated
+//! documents through `fuzzing::write_document` (§16.2).
 
 use std::path::Path;
 use std::sync::OnceLock;
@@ -25,7 +27,8 @@ fn fixtures() -> &'static [Vec<u8>] {
 }
 
 fn check(data: &[u8]) -> Result<(), TestCaseError> {
-    coldopen_fdx::fuzzing::read(data).map_err(TestCaseError::fail)
+    coldopen_fdx::fuzzing::read(data).map_err(TestCaseError::fail)?;
+    coldopen_fdx::fuzzing::roundtrip(data).map_err(TestCaseError::fail)
 }
 
 /// One edit of a byte string: replace, delete, insert, truncate or
@@ -94,6 +97,11 @@ const TOKENS: &[&str] = &[
     "<TitlePage><Content><Paragraph/><Paragraph SpaceBefore=\"21474836.47\"><Text>t</Text></Paragraph></Content></TitlePage>",
     "</Bogus>",
     "<a>",
+    // Markup holding a character XML does not allow (2026-10-17).
+    "<?p \u{0}?>",
+    "<!--\u{0}-->",
+    "<![CDATA[]]\u{0}>]]>",
+    "\u{0}",
 ];
 
 proptest! {
@@ -135,11 +143,67 @@ proptest! {
             .collect();
         check(&utf16)?;
     }
+
+    #[test]
+    fn generated_documents_write_and_read_back(data in vec(any::<u8>(), 0..400)) {
+        let (elements, spacing) = coldopen_fdx::fuzzing::document_from_bytes(&data);
+        coldopen_fdx::fuzzing::write_document(&elements, &spacing)
+            .map_err(TestCaseError::fail)?;
+    }
 }
 
 #[test]
 fn every_fixture_passes_the_fuzz_checks() {
     for f in fixtures() {
         coldopen_fdx::fuzzing::read(f).unwrap();
+        coldopen_fdx::fuzzing::roundtrip(f).unwrap();
     }
+}
+
+/// Found by the `fdx_roundtrip` fuzz target in CI (2026-10-17): a
+/// processing instruction holding a NUL. The NUL was taken out when the
+/// file was written back, and `<?\0>?>` became `<?>?>`, which no longer
+/// reads as one processing instruction. Markup holding such a character is
+/// now reported and left out whole (fdx.md §9, `invalid_char`).
+#[test]
+fn markup_holding_a_character_xml_forbids_is_left_out_whole() {
+    for input in [
+        "<FinalDraft><?\0>?>",
+        "<?\0?><FinalDraft>",
+        "<FinalDraft><!--a-\0->--></FinalDraft>",
+        "<FinalDraft><Content><![CDATA[a]]\0>b]]></Content></FinalDraft>",
+        "<!DOCTYPE x\0><FinalDraft></FinalDraft>",
+        "<FinalDraft></FinalDraft><?p \0?>",
+        "<FinalDraft><PageLayout><?p \0?></PageLayout></FinalDraft>",
+        // Found by the property tests at 20,000 cases: in the declaration.
+        "<?xml version=\"1.\0\"?><FinalDraft></FinalDraft>",
+    ] {
+        check(input.as_bytes()).unwrap_or_else(|e| panic!("{input:?}: {e}"));
+        let doc = coldopen_fdx::read(input.as_bytes()).unwrap();
+        assert!(
+            doc.report.iter().any(|i| i.code == "invalid_char"),
+            "{input:?}"
+        );
+    }
+}
+
+/// Found by the `fdx_write` fuzz target in CI (2026-10-17): a section
+/// between the second speaker's dialogue and a parenthetical. .fdx leaves
+/// the section out, so reading the file back joined the parenthetical to
+/// the dual dialogue and writing it again gave other text. Groups are now
+/// found without what .fdx leaves out (fdx.md §14.7).
+#[test]
+fn a_section_inside_dual_dialogue_does_not_split_it() {
+    use coldopen_screenplay::{Element, ElementKind};
+    let mut second = Element::new(ElementKind::Character, "BEA");
+    second.dual = true;
+    let elements = [
+        Element::new(ElementKind::Character, "ADA"),
+        Element::new(ElementKind::Dialogue, "Left."),
+        second,
+        Element::new(ElementKind::Dialogue, "Right."),
+        Element::new(ElementKind::Section, "Act two"),
+        Element::new(ElementKind::Parenthetical, "(still right)"),
+    ];
+    coldopen_fdx::fuzzing::write_document(&elements, &Default::default()).unwrap();
 }

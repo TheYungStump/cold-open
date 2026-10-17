@@ -1,6 +1,7 @@
 //! `Content` paragraphs into a `Script` (docs/specs/fdx.md §6).
 
 use std::collections::BTreeMap;
+use std::ops::Range;
 
 use coldopen_screenplay::{Element, ElementKind, Pt, RichText, Run, Script, Style};
 
@@ -14,6 +15,9 @@ pub(crate) struct ContentOut {
     pub(crate) script: Script,
     pub(crate) overrides: BTreeMap<usize, Pt>,
     pub(crate) scenes: Vec<SceneProps>,
+    /// For each `Content` paragraph, in order, the elements it was read
+    /// into, before trailing empty paragraphs were dropped (§13.1).
+    pub(crate) groups: Vec<Range<usize>>,
 }
 
 struct Reader<'a> {
@@ -32,6 +36,7 @@ pub(crate) fn read(root: &Node, settings: &Settings, r: &mut Report) -> ContentO
         overrides: BTreeMap::new(),
         scenes: Vec::new(),
     };
+    let mut groups = Vec::new();
     match root.child("Content") {
         None => rd.r.push(
             codes::NO_CONTENT,
@@ -43,11 +48,13 @@ pub(crate) fn read(root: &Node, settings: &Settings, r: &mut Report) -> ContentO
                 ignored_element(rd.r, "<Content>", &n.name, None);
             }
             for (i, p) in content.children_named("Paragraph").enumerate() {
+                let before = rd.elements.len();
                 if p.child("DualDialogue").is_some() {
                     rd.dual(i, p);
                 } else {
                     rd.paragraph(i, p, true);
                 }
+                groups.push(before..rd.elements.len());
             }
             rd.drop_trailing_empty();
         }
@@ -59,6 +66,7 @@ pub(crate) fn read(root: &Node, settings: &Settings, r: &mut Report) -> ContentO
         },
         overrides: rd.overrides,
         scenes: rd.scenes,
+        groups,
     }
 }
 
@@ -380,8 +388,12 @@ fn second_speaker(kinds: &[ElementKind]) -> Option<usize> {
     let members_only = kinds
         .iter()
         .all(|k| *k == ElementKind::Character || k.is_dialogue_member());
+    // Each speaker needs at least one line, as layout pairs them
+    // (docs/specs/layout.md §4.4).
     match characters.as_slice() {
-        [_, second] if members_only => Some(*second),
+        [first, second] if members_only && second - first > 1 && second + 1 < kinds.len() => {
+            Some(*second)
+        }
         _ => None,
     }
 }
@@ -519,5 +531,8 @@ mod tests {
             None
         );
         assert_eq!(second_speaker(&[]), None);
+        // A speaker with no lines is not paired (layout.md §4.4).
+        assert_eq!(second_speaker(&[Character, Character, Dialogue]), None);
+        assert_eq!(second_speaker(&[Character, Dialogue, Character]), None);
     }
 }

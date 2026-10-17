@@ -8,10 +8,14 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use crate::author::{Author, Clock};
-use crate::command::{Class, Command, DocClose, DocNew, DocOpen, DocSave, ExportPdf, Recover};
+use crate::command::{
+    Class, Command, DocClose, DocNew, DocOpen, DocSave, ExportFile, ExportPdf, FileRepair, Recover,
+    RecoveredDelete, RecoveredList, RecoveredRestore,
+};
 use crate::document::Document;
 use crate::error::CommandError;
 use crate::flush::{Durability, FlushStatus};
+use crate::format::{FormatId, ReadOut, Written, unsupported};
 use crate::io::{self, Fingerprint, SourceStyle};
 use crate::journal::{self, Journal, OpenError};
 use crate::session::{Exec, Merge, Session};
@@ -58,6 +62,9 @@ pub struct PreparedSave {
     /// session's saves: only that session's outstanding save may commit.
     session: u64,
     number: u64,
+    /// The damaged file kept before this save, if it was the first save
+    /// in place of a repaired file.
+    original: Option<PathBuf>,
 }
 
 /// What opening a document would make of its crash journal, worked out
@@ -120,7 +127,7 @@ struct Replay {
 /// A document written out for saving, before anything touches the disk.
 struct Rendered {
     target: PathBuf,
-    format: String,
+    format: FormatId,
     bytes: Vec<u8>,
     losses: Vec<Value>,
 }
@@ -129,10 +136,15 @@ fn warning(code: &str, message: impl Into<String>) -> Value {
     json!({ "code": code, "message": message.into() })
 }
 
-fn is_fountain(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "fountain" | "spmd" | "txt"))
+/// A warning about work set aside: the path is in the message for the CLI
+/// and JSON clients, and in `details.copy` for front ends that show their
+/// own words instead (docs/specs/journal.md, "Recovered versions").
+fn set_aside(code: &str, message: String, copy: &Path) -> Value {
+    json!({
+        "code": code,
+        "message": message,
+        "details": { "copy": copy.display().to_string() },
+    })
 }
 
 fn locked(path: &Path) -> CommandError {
@@ -143,13 +155,18 @@ fn locked(path: &Path) -> CommandError {
     .with_details(json!({ "path": path.display().to_string() }))
 }
 
-fn open_journal(path: &Path, durability: Durability) -> Result<(Journal, Vec<u8>), CommandError> {
+fn open_journal(
+    path: &Path,
+    format: FormatId,
+    durability: Durability,
+) -> Result<(Journal, Vec<u8>), CommandError> {
     let jpath = journal::path_for(path);
     let (mut j, contents) = Journal::open_locked(&jpath, durability).map_err(|e| match e {
         OpenError::Locked => locked(path),
         OpenError::Io(e) => CommandError::io(&jpath, &e),
     })?;
     j.set_identity(Some(this_host().to_string()), Some(canonical(path)));
+    j.set_format(format);
     Ok((j, contents))
 }
 
@@ -227,8 +244,14 @@ impl Dispatcher {
         self.clock = clock;
     }
 
-    fn new_session(&self, doc: Document, path: Option<PathBuf>, style: SourceStyle) -> Session {
-        let mut s = Session::new(doc, path, style);
+    fn new_session(
+        &self,
+        doc: Document,
+        path: Option<PathBuf>,
+        format: FormatId,
+        style: SourceStyle,
+    ) -> Session {
+        let mut s = Session::new(doc, path, format, style);
         s.clock = self.clock.clone();
         s
     }
@@ -247,6 +270,12 @@ impl Dispatcher {
             Command::DocClose(p) => self.doc_close(p, by),
             Command::DocRevert(_) => self.doc_revert(by),
             Command::ExportPdf(p) => self.export_pdf(p, by),
+            Command::ExportFdx(p) => self.export_file(FormatId::Fdx, p, by),
+            Command::ExportFountain(p) => self.export_file(FormatId::Fountain, p, by),
+            Command::FileRepair(p) => self.file_repair(p, by),
+            Command::RecoveredList(p) => self.recovered_list(p),
+            Command::RecoveredRestore(p) => self.recovered_restore(p, by),
+            Command::RecoveredDelete(p) => self.recovered_delete(p, by),
             other => self
                 .session
                 .as_mut()
@@ -344,6 +373,7 @@ impl Dispatcher {
         self.refuse_if_dirty()?;
         let path = p.path.as_ref().map(PathBuf::from);
         let mut journal = None;
+        let mut format = FormatId::default();
         if let Some(path) = &path {
             if path.exists() {
                 return Err(CommandError::new(
@@ -351,9 +381,7 @@ impl Dispatcher {
                     format!("{} already exists; open it instead", path.display()),
                 ));
             }
-            if !is_fountain(path) {
-                return Err(unsupported(path));
-            }
+            format = FormatId::for_path(path).ok_or_else(|| unsupported(path))?;
             if let Some(own) = self.session.as_ref().and_then(|s| s.path.as_deref())
                 && same_path(own, path)
             {
@@ -365,7 +393,7 @@ impl Dispatcher {
             if self.opts.journal {
                 // A document made with doc.new and never saved lives only
                 // in its journal; never start over on top of one.
-                let (j, contents) = open_journal(path, self.durability())?;
+                let (j, contents) = open_journal(path, format, self.durability())?;
                 if !contents.is_empty() {
                     return Err(CommandError::new(
                         "already_exists",
@@ -405,7 +433,7 @@ impl Dispatcher {
                 "an untitled document is not protected by a crash journal until it is saved",
             ));
         }
-        let mut session = self.new_session(doc, path, SourceStyle::default());
+        let mut session = self.new_session(doc, path, format, SourceStyle::default());
         if let Some(mut j) = journal {
             j.start(&session.doc, None)
                 .map_err(|e| CommandError::io(j.path(), &e))?;
@@ -419,9 +447,7 @@ impl Dispatcher {
     fn doc_open(&mut self, p: DocOpen, by: &Author) -> Result<Value, CommandError> {
         self.close_for_switch()?;
         let path = PathBuf::from(&p.path);
-        if !is_fountain(&path) {
-            return Err(unsupported(&path));
-        }
+        let format = FormatId::for_path(&path).ok_or_else(|| unsupported(&path))?;
         // A file that was never saved can still have a crash journal
         // (docs/specs/journal.md, "A file that does not exist").
         let (bytes, missing) = match fs::read(&path) {
@@ -435,27 +461,24 @@ impl Dispatcher {
             }
             Err(e) => return Err(CommandError::io(&path, &e)),
         };
-        let decoded = io::decode(&bytes);
-        let parsed = coldopen_fountain::parse(&decoded.text);
-        let mut warnings: Vec<Value> = Vec::new();
-        warnings.extend(encoding_warnings(&decoded));
-        for d in &parsed.diagnostics {
-            warnings.push(json!({ "code": d.code, "message": d.message, "line": d.line }));
-        }
-
-        let disk_doc = Document::from_script(parsed.script);
-        let mut session = self.new_session(disk_doc.clone(), Some(path.clone()), decoded.style);
+        let ReadOut {
+            doc: disk_doc,
+            style,
+            mut warnings,
+            repaired,
+        } = format.get().read(&bytes)?;
+        let mut session = self.new_session(disk_doc.clone(), Some(path.clone()), format, style);
         let mut recovered = Value::Null;
 
         if self.opts.journal {
-            let (mut j, contents) = open_journal(&path, self.durability())?;
+            let (mut j, contents) = open_journal(&path, format, self.durability())?;
             let mut resumed = false;
             if !contents.is_empty() {
                 match p.recover {
                     Recover::Discard => {
                         if !by.is_writer()
                             && let Assessment::Replayed(r) =
-                                self.assess(&path, decoded.style, &contents, (&bytes, missing))
+                                self.assess(&path, format, style, &contents, (&bytes, missing))
                             && r.recover
                             && r.writer
                         {
@@ -464,20 +487,22 @@ impl Dispatcher {
                         let aside = j
                             .copy_aside(&contents, "discarded")
                             .map_err(|e| CommandError::io(j.path(), &e))?;
-                        warnings.push(warning(
+                        warnings.push(set_aside(
                             "journal_discarded",
                             format!("unsaved changes were set aside in {}", aside.display()),
+                            &aside,
                         ));
                     }
                     Recover::Auto | Recover::Apply => {
                         let jio = |e: std::io::Error, j: &Journal| CommandError::io(j.path(), &e);
-                        match self.assess(&path, decoded.style, &contents, (&bytes, missing)) {
+                        match self.assess(&path, format, style, &contents, (&bytes, missing)) {
                             Assessment::Unreadable(msg) => {
                                 let aside =
                                     j.copy_aside(&contents, "corrupt").map_err(|e| jio(e, &j))?;
-                                warnings.push(warning(
+                                warnings.push(set_aside(
                                     "journal_unreadable",
                                     format!("{msg}; it was kept in {}", aside.display()),
+                                    &aside,
                                 ));
                             }
                             Assessment::Replayed(r) => {
@@ -493,13 +518,14 @@ impl Dispatcher {
                                     let aside = j
                                         .copy_aside(&contents, Replayed::aside_tag(msg))
                                         .map_err(|e| jio(e, &j))?;
-                                    warnings.push(warning(
+                                    warnings.push(set_aside(
                                         "journal_partial",
                                         format!(
                                             "recovered {} of the journal's changes; {msg}; the journal was kept in {}",
                                             r.commands,
                                             aside.display()
                                         ),
+                                        &aside,
                                     ));
                                 }
                                 if r.recover {
@@ -532,13 +558,15 @@ impl Dispatcher {
         }
 
         session.disk = (!missing).then(|| Fingerprint::of(&bytes));
+        session.damaged = repaired.is_some();
         let result = json!({
             "path": path.display().to_string(),
-            "format": "fountain",
+            "format": format.name(),
             "blocks": session.doc.blocks.len(),
             "scenes": session.doc.scenes().len(),
             "warnings": warnings,
             "recovered": recovered,
+            "repaired": repaired,
         });
         self.session = Some(session);
         Ok(result)
@@ -550,11 +578,16 @@ impl Dispatcher {
         &self,
         read: &journal::ReadBack,
         path: &Path,
-        style: SourceStyle,
+        (format, style): (FormatId, SourceStyle),
         limit: usize,
     ) -> Replay {
         let mut r = Replay {
-            session: self.new_session(read.header.doc.clone(), Some(path.to_path_buf()), style),
+            session: self.new_session(
+                read.header.doc.clone(),
+                Some(path.to_path_buf()),
+                format,
+                style,
+            ),
             // Fingerprints the file may legitimately have: the header's, and
             // those of the saves the journal records.
             known_disk: read.header.disk.into_iter().collect(),
@@ -626,6 +659,7 @@ impl Dispatcher {
     fn assess(
         &self,
         path: &Path,
+        format: FormatId,
         style: SourceStyle,
         contents: &[u8],
         (disk_bytes, missing): (&[u8], bool),
@@ -635,12 +669,12 @@ impl Dispatcher {
             Err(msg) => return Assessment::Unreadable(msg),
         };
 
-        let mut r = self.replay(&read, path, style, read.entries.len());
+        let mut r = self.replay(&read, path, (format, style), read.entries.len());
         if r.diverged {
             // The diverged entry was applied before its result was compared.
             // Replay the trusted prefix again, so the document holds exactly
             // what the journal will be cut to (review finding F9).
-            r.session = self.replay(&read, path, style, r.applied).session;
+            r.session = self.replay(&read, path, (format, style), r.applied).session;
         }
         let Replay {
             session: mut replay,
@@ -657,9 +691,11 @@ impl Dispatcher {
         // The file already holds the replayed document only if writing it
         // is lossless and gives the same bytes. A lossy write can match the
         // file's text while the document differs, so it always recovers.
+        // It is written in the format the header names, so recovery compares
+        // like with like.
         let in_file = |doc: &Document| {
-            let written = coldopen_fountain::write(&doc.to_script());
-            written.losses.is_empty() && io::encode(&written.text, style) == disk_bytes
+            let Written { bytes, losses } = read.header.format.get().write(doc, style);
+            losses.is_empty() && bytes == disk_bytes
         };
         let external_change = if missing {
             !known_disk.is_empty()
@@ -714,18 +750,32 @@ impl Dispatcher {
             }
         };
         let format = match &p.format {
-            Some(f) => f.to_ascii_lowercase(),
-            None if is_fountain(&target) => "fountain".into(),
-            None => return Err(unsupported(&target)),
+            Some(f) => FormatId::from_name(f).ok_or_else(|| {
+                let f = f.to_ascii_lowercase();
+                CommandError::new(
+                    "unsupported_format",
+                    format!("\"{f}\" is not a supported format in this version; use \"fountain\""),
+                )
+            })?,
+            None => FormatId::for_path(&target).ok_or_else(|| unsupported(&target))?,
         };
-        if format != "fountain" {
+        // A file whose extension names another format would open as that
+        // format and fail, so the two must agree.
+        if let Some(named) = FormatId::for_path(&target)
+            && named != format
+        {
             return Err(CommandError::new(
                 "unsupported_format",
-                format!("\"{format}\" is not a supported format in this version; use \"fountain\""),
+                format!(
+                    "{} is a {} path; it cannot be saved as {}",
+                    target.display(),
+                    named.name(),
+                    format.name()
+                ),
             ));
         }
 
-        let written = coldopen_fountain::write(&session.doc.to_script());
+        let written = format.get().write(&session.doc, session.style);
         let mut losses = session.losses_json(&written.losses);
         // The file is written as UTF-8, which other programs show wrongly
         // if they still read it as Windows-1252 (review finding F6).
@@ -739,14 +789,17 @@ impl Dispatcher {
         if !losses.is_empty() && !p.allow_lossy {
             return Err(CommandError::new(
                 "lossy_format",
-                "Fountain cannot hold everything in this document; nothing was saved",
+                format!(
+                    "{} cannot hold everything in this document; nothing was saved",
+                    format.title()
+                ),
             )
             .with_details(json!({ "losses": losses })));
         }
         Ok(Rendered {
             target,
             format,
-            bytes: io::encode(&written.text, session.style),
+            bytes: written.bytes,
             losses,
         })
     }
@@ -784,10 +837,15 @@ impl Dispatcher {
         } else if !p.overwrite && target.exists() {
             return Err(exists(&target));
         }
+        let original = if same_file && session.damaged {
+            keep_original(&target)?
+        } else {
+            None
+        };
         // Save as: the target's lock is taken, and its journal judged,
         // before anything is written (docs/specs/journal.md, "Saving").
         let claimed = if opts.journal && !same_file {
-            Some(self.claim_target(&target, durability)?)
+            Some(self.claim_target(&target, format, durability)?)
         } else {
             None
         };
@@ -804,8 +862,14 @@ impl Dispatcher {
             .session
             .as_mut()
             .ok_or_else(CommandError::no_document)?;
+        // A conversion leaves the document in the new format's form before
+        // the journal starts again from it.
+        if session.format != format {
+            crate::format::adopt(&mut session.doc, format);
+        }
         if same_file {
             if let Some(j) = &mut session.journal {
+                j.set_format(format);
                 j.start(&session.doc, Some(fingerprint))
                     .map_err(|e| CommandError::io(j.path(), &e))?;
             }
@@ -822,11 +886,14 @@ impl Dispatcher {
         session.recovered = None;
         session.disk = Some(fingerprint);
         session.style = saved_style(session.style);
+        session.set_format(format);
+        session.damaged &= !same_file;
         Ok(json!({
             "path": target.display().to_string(),
-            "format": format,
+            "format": format.name(),
             "bytes": bytes.len(),
             "losses": losses,
+            "warnings": original_warnings(original.as_deref()),
         }))
     }
 
@@ -837,9 +904,10 @@ impl Dispatcher {
     fn claim_target(
         &self,
         target: &Path,
+        format: FormatId,
         durability: Durability,
     ) -> Result<(Journal, bool), CommandError> {
-        let (j, contents) = open_journal(target, durability)?;
+        let (j, contents) = open_journal(target, format, durability)?;
         if contents.is_empty() {
             return Ok((j, true));
         }
@@ -849,8 +917,8 @@ impl Dispatcher {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), true),
             Err(e) => return Err(CommandError::io(target, &e)),
         };
-        let style = io::decode(&disk).style;
-        match self.assess(target, style, &contents, (&disk, missing)) {
+        let style = format.get().style(&disk);
+        match self.assess(target, format, style, &contents, (&disk, missing)) {
             Assessment::Unreadable(_) => {
                 j.copy_aside(&contents, "corrupt").map_err(jio)?;
             }
@@ -904,6 +972,11 @@ impl Dispatcher {
         refuse_while_saving(session)?;
         let r = Self::render(session, p)?;
         refuse_if_changed(session, &r.target, p.overwrite)?;
+        let original = if session.damaged {
+            keep_original(&r.target)?
+        } else {
+            None
+        };
         let fingerprint = Fingerprint::of(&r.bytes);
         // A broken journal protects nothing, so it gets no marker; the
         // commit starts it again, which is the only way out of that state.
@@ -923,12 +996,13 @@ impl Dispatcher {
         Ok(PreparedSave {
             target: r.target,
             bytes: r.bytes,
-            format: r.format,
+            format: r.format.name().to_string(),
             losses: r.losses,
             rev: session.rev,
             fingerprint,
             session: session.id(),
             number: session.saves,
+            original,
         })
     }
 
@@ -968,6 +1042,7 @@ impl Dispatcher {
         // The file now holds these bytes, whether or not edits came since.
         session.disk = Some(prepared.fingerprint);
         session.style = saved_style(session.style);
+        session.damaged = false;
         let current = session.rev == prepared.rev;
         if current {
             if let Some(j) = &mut session.journal {
@@ -986,6 +1061,7 @@ impl Dispatcher {
             "bytes": prepared.bytes.len(),
             "losses": prepared.losses,
             "dirty": session.dirty,
+            "warnings": original_warnings(prepared.original.as_deref()),
         }))
     }
 
@@ -1077,6 +1153,220 @@ impl Dispatcher {
         }))
     }
 
+    /// `export.fdx` and `export.fountain`: a copy of the document in that
+    /// format; the session is not changed (docs/specs/commands.md).
+    fn export_file(
+        &mut self,
+        format: FormatId,
+        p: ExportFile,
+        by: &Author,
+    ) -> Result<Value, CommandError> {
+        if p.overwrite && !by.is_writer() {
+            return Err(writer_only("replace an existing file"));
+        }
+        if p.allow_lossy && !by.is_writer() {
+            return Err(writer_only("write with losses (allow_lossy)"));
+        }
+        let session = self
+            .session
+            .as_ref()
+            .ok_or_else(CommandError::no_document)?;
+        let target = PathBuf::from(&p.path);
+        if FormatId::for_path(&target) != Some(format) {
+            return Err(CommandError::new(
+                "unsupported_format",
+                format!(
+                    "{} is not a .{} path",
+                    target.display(),
+                    format.get().extensions().first().copied().unwrap_or("")
+                ),
+            ));
+        }
+        refuse_document_or_journal(session.path.as_deref(), &target)?;
+        if !p.overwrite && target.exists() {
+            return Err(exists(&target));
+        }
+        let written = format.get().write(&session.doc, SourceStyle::default());
+        let losses = session.losses_json(&written.losses);
+        if !losses.is_empty() && !p.allow_lossy {
+            return Err(CommandError::new(
+                "lossy_format",
+                format!(
+                    "{} cannot hold everything in this document; nothing was written",
+                    format.title()
+                ),
+            )
+            .with_details(json!({ "losses": losses })));
+        }
+        io::atomic_write(&target, &written.bytes).map_err(|e| CommandError::io(&target, &e))?;
+        Ok(json!({
+            "path": target.display().to_string(),
+            "format": format.name(),
+            "bytes": written.bytes.len(),
+            "losses": losses,
+        }))
+    }
+
+    /// `file.repair`: a repaired copy of an .fdx file; the input is never
+    /// written (docs/specs/fdx.md §17).
+    fn file_repair(&mut self, p: FileRepair, by: &Author) -> Result<Value, CommandError> {
+        if p.overwrite && !by.is_writer() {
+            return Err(writer_only("replace an existing file"));
+        }
+        let input = PathBuf::from(&p.path);
+        let out = PathBuf::from(&p.out);
+        if FormatId::for_path(&out) != Some(FormatId::Fdx) {
+            return Err(CommandError::new(
+                "unsupported_format",
+                format!("{} is not an .fdx path", out.display()),
+            ));
+        }
+        if same_path(&input, &out) || canonical(&input) == canonical(&out) {
+            return Err(CommandError::new(
+                "would_overwrite_input",
+                format!(
+                    "{} is the file being repaired; write the repaired copy somewhere else",
+                    out.display()
+                ),
+            )
+            .with_details(json!({ "path": out.display().to_string() })));
+        }
+        let open = self.session.as_ref().and_then(|s| s.path.as_deref());
+        refuse_document_or_journal(open, &out)?;
+        if !p.overwrite && out.exists() {
+            return Err(exists(&out));
+        }
+        let bytes = fs::read(&input).map_err(|e| CommandError::io(&input, &e))?;
+        let doc = coldopen_fdx::read(&bytes).map_err(|e| {
+            CommandError::new(
+                "unsupported_format",
+                format!("{} cannot be repaired: {e}", input.display()),
+            )
+        })?;
+        let text = doc.write_back().text;
+        let out_bytes = coldopen_fdx::encode(
+            &text,
+            coldopen_fdx::TextEncoding {
+                // What is not UTF-8 or UTF-16 is written as UTF-8.
+                encoding: match doc.encoding.encoding {
+                    e @ (coldopen_fdx::Encoding::Utf16Le | coldopen_fdx::Encoding::Utf16Be) => e,
+                    _ => coldopen_fdx::Encoding::Utf8,
+                },
+                bom: doc.encoding.bom,
+            },
+        );
+        io::atomic_write(&out, &out_bytes).map_err(|e| CommandError::io(&out, &e))?;
+        Ok(json!({
+            "out": out.display().to_string(),
+            "bytes": out_bytes.len(),
+            "repaired": doc.repaired(),
+            "issues": doc.report,
+        }))
+    }
+
+    /// `recovered.list` (docs/specs/commands.md).
+    fn recovered_list(&mut self, p: RecoveredList) -> Result<Value, CommandError> {
+        let script = match p.path {
+            Some(path) => PathBuf::from(path),
+            None => self
+                .session
+                .as_ref()
+                .ok_or_else(CommandError::no_document)?
+                .path
+                .clone()
+                .ok_or_else(|| {
+                    CommandError::new("no_path", "this document has no file, so no copies")
+                })?,
+        };
+        let copies: Vec<Value> = crate::recovered::of_script(&script)
+            .iter()
+            .map(|c| {
+                json!({
+                    "copy": c.copy.display().to_string(),
+                    "script": c.script.display().to_string(),
+                    "kind": c.kind,
+                    "at": c.at,
+                    "unread": false,
+                    "readable": crate::recovered::readable(c),
+                })
+            })
+            .collect();
+        Ok(json!({ "copies": copies }))
+    }
+
+    /// `recovered.restore`: a copy's document as a new, unsaved script
+    /// journaled at `path`; nothing is written over anything
+    /// (docs/specs/journal.md, "Recovered versions").
+    fn recovered_restore(
+        &mut self,
+        p: RecoveredRestore,
+        by: &Author,
+    ) -> Result<Value, CommandError> {
+        if !by.is_writer() {
+            return Err(writer_only("restore a recovered version"));
+        }
+        self.refuse_if_dirty()?;
+        let copy = recovered_copy(&p.copy)?;
+        let path = PathBuf::from(&p.path);
+        if path.exists() {
+            return Err(CommandError::new(
+                "already_exists",
+                format!("{} already exists; restore to a new path", path.display()),
+            ));
+        }
+        let format = FormatId::for_path(&path).ok_or_else(|| unsupported(&path))?;
+        let (doc, _) = crate::recovered::read(&copy).map_err(|why| {
+            CommandError::new(
+                "copy_unreadable",
+                format!("{} cannot be read: {why}", copy.copy.display()),
+            )
+            .with_details(json!({ "copy": copy.copy.display().to_string() }))
+        })?;
+        let mut journal = None;
+        if self.opts.journal {
+            let (mut j, contents) = open_journal(&path, format, self.durability())?;
+            if !contents.is_empty() {
+                return Err(CommandError::new(
+                    "already_exists",
+                    format!(
+                        "{} has a crash journal; restore to another path",
+                        path.display()
+                    ),
+                )
+                .with_details(json!({ "journal": j.path().display().to_string() })));
+            }
+            j.set_unsaved(true);
+            journal = Some(j);
+        }
+        self.shutdown();
+        let mut session = self.new_session(doc, Some(path.clone()), format, SourceStyle::default());
+        session.dirty = true;
+        if let Some(mut j) = journal {
+            j.start(&session.doc, None)
+                .map_err(|e| CommandError::io(j.path(), &e))?;
+            session.journal = Some(j);
+        }
+        let result = json!({
+            "path": path.display().to_string(),
+            "format": format.name(),
+            "blocks": session.doc.blocks.len(),
+            "scenes": session.doc.scenes().len(),
+            "warnings": [],
+        });
+        self.session = Some(session);
+        Ok(result)
+    }
+
+    /// `recovered.delete`: one set-aside copy, and nothing else.
+    fn recovered_delete(&mut self, p: RecoveredDelete, by: &Author) -> Result<Value, CommandError> {
+        if !by.is_writer() {
+            return Err(writer_only("delete a recovered version"));
+        }
+        let copy = recovered_copy(&p.copy)?;
+        fs::remove_file(&copy.copy).map_err(|e| CommandError::io(&copy.copy, &e))?;
+        Ok(json!({}))
+    }
+
     fn doc_close(&mut self, p: DocClose, by: &Author) -> Result<Value, CommandError> {
         let session = self
             .session
@@ -1104,9 +1394,10 @@ impl Dispatcher {
         let warnings: Vec<Value> = kept
             .iter()
             .map(|k| {
-                warning(
+                set_aside(
                     "journal_discarded",
                     format!("unsaved changes were set aside in {}", k.display()),
+                    k,
                 )
             })
             .collect();
@@ -1131,24 +1422,22 @@ impl Dispatcher {
             ));
         };
         let bytes = fs::read(&path).map_err(|e| CommandError::io(&path, &e))?;
-        let decoded = io::decode(&bytes);
-        let parsed = coldopen_fountain::parse(&decoded.text);
-        let mut warnings: Vec<Value> = Vec::new();
-        warnings.extend(encoding_warnings(&decoded));
-        for d in &parsed.diagnostics {
-            warnings.push(json!({ "code": d.code, "message": d.message, "line": d.line }));
-        }
+        let format = session.format;
+        let ReadOut {
+            doc,
+            style,
+            mut warnings,
+            repaired,
+        } = format.get().read(&bytes)?;
         // Ids are never reused within an open document, and agents may still
         // hold old ones: the file's blocks get fresh ids, so an old id fails
         // rather than naming another block (review finding F12).
-        let doc = Document::from_script(parsed.script)
-            .renumbered_from(session.doc.next_id)
-            .ok_or_else(|| {
-                CommandError::new(
-                    "internal_error",
-                    "this document has used every block id; close it and open it again",
-                )
-            })?;
+        let doc = doc.renumbered_from(session.doc.next_id).ok_or_else(|| {
+            CommandError::new(
+                "internal_error",
+                "this document has used every block id; close it and open it again",
+            )
+        })?;
         // A recovered header alone holds unsaved work with no entries, so
         // being dirty is enough to keep a copy (docs/specs/journal.md).
         let dirty = session.dirty;
@@ -1157,16 +1446,18 @@ impl Dispatcher {
                 if dirty || j.entries() > 0 {
                     let contents = j.contents()?;
                     let aside = j.copy_aside(&contents, "discarded")?;
-                    warnings.push(warning(
+                    warnings.push(set_aside(
                         "journal_discarded",
                         format!("unsaved changes were set aside in {}", aside.display()),
+                        &aside,
                     ));
                 }
                 j.start(&doc, Some(Fingerprint::of(&bytes)))
             };
             restart().map_err(|e| CommandError::io(j.path(), &e))?;
         }
-        let mut fresh = Session::new(doc, Some(path.clone()), decoded.style);
+        let mut fresh = Session::new(doc, Some(path.clone()), format, style);
+        fresh.damaged = repaired.is_some();
         fresh.clock = clock;
         fresh.journal = session.journal.take();
         fresh.rev = session.rev + 1;
@@ -1251,7 +1542,7 @@ impl Dispatcher {
                 "unknown_command",
                 format!("there is no command \"{name}\""),
             )
-            .with_details(json!({ "commands": Command::NAMES })));
+            .with_details(json!({ "commands": Command::NAMES.as_slice() })));
         }
         let params = match obj.get("params") {
             None | Some(Value::Null) => json!({}),
@@ -1304,14 +1595,84 @@ fn failure(id: Value, e: CommandError) -> Value {
     json!({ "v": 1, "id": id, "ok": false, "error": e })
 }
 
-fn unsupported(path: &Path) -> CommandError {
-    CommandError::new(
-        "unsupported_format",
-        format!(
-            "{} is not a Fountain file (.fountain, .spmd or .txt); other formats come later",
-            path.display()
-        ),
-    )
+/// A path that names a set-aside copy, which must be there.
+fn recovered_copy(path: &str) -> Result<crate::recovered::Copy, CommandError> {
+    let p = PathBuf::from(path);
+    let copy = crate::recovered::parse(&p).ok_or_else(|| {
+        CommandError::invalid_params(format!(
+            "{path} is not a recovered version (a copy recovered.list names)"
+        ))
+    })?;
+    if !p.is_file() {
+        return Err(CommandError::io(
+            &p,
+            &std::io::Error::from(std::io::ErrorKind::NotFound),
+        ));
+    }
+    Ok(copy)
+}
+
+/// The document a journal copy holds, replayed as recovery replays it,
+/// and the format its header names; nothing on disk is touched.
+pub(crate) fn replay_copy(script: &Path, contents: &[u8]) -> Result<(Document, FormatId), String> {
+    let format = journal::read(contents)?.header.format;
+    match Dispatcher::default().assess(
+        script,
+        format,
+        SourceStyle::default(),
+        contents,
+        (&[], true),
+    ) {
+        Assessment::Unreadable(why) => Err(why),
+        Assessment::Replayed(r) => Ok((r.session.doc, format)),
+    }
+}
+
+/// An output may never be written over the open document or its journal.
+fn refuse_document_or_journal(open: Option<&Path>, target: &Path) -> Result<(), CommandError> {
+    if let Some(doc) = open
+        && (same_path(doc, target) || same_path(&journal::path_for(doc), target))
+    {
+        return Err(CommandError::new(
+            "would_overwrite_document",
+            format!(
+                "{} is the open document or its crash journal; choose another path",
+                target.display()
+            ),
+        )
+        .with_details(json!({ "path": target.display().to_string() })));
+    }
+    Ok(())
+}
+
+/// Keeps a copy of a repaired file as it is, before the first save over it
+/// (docs/specs/journal.md, "Damaged originals"). A file that has gone has
+/// nothing to keep.
+fn keep_original(target: &Path) -> Result<Option<PathBuf>, CommandError> {
+    let bytes = match fs::read(target) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(CommandError::io(target, &e)),
+    };
+    let copy = journal::original_path(target);
+    io::write_new(&copy, &bytes).map_err(|e| CommandError::io(&copy, &e))?;
+    Ok(Some(copy))
+}
+
+fn original_warnings(original: Option<&Path>) -> Vec<Value> {
+    original
+        .map(|copy| {
+            json!({
+                "code": "original_kept",
+                "message": format!(
+                    "the file was repaired when it was opened; a copy of it as it was is kept in {}",
+                    copy.display()
+                ),
+                "details": { "copy": copy.display().to_string() },
+            })
+        })
+        .into_iter()
+        .collect()
 }
 
 /// A save in place refuses when the file is no longer what this session
@@ -1371,30 +1732,6 @@ fn saved_style(style: SourceStyle) -> SourceStyle {
     }
 }
 
-/// Warnings about how a file's bytes were read, for `doc.open` and
-/// `doc.revert`.
-fn encoding_warnings(decoded: &io::Decoded) -> Vec<Value> {
-    let mut out = Vec::new();
-    match decoded.style.encoding {
-        io::Encoding::Windows1252 => out.push(warning(
-            "not_utf8",
-            "the file is not UTF-8; it was read as Windows-1252, and saving it writes UTF-8",
-        )),
-        io::Encoding::Utf16Le | io::Encoding::Utf16Be => out.push(warning(
-            "utf16",
-            "the file is UTF-16; it is saved as UTF-16 again",
-        )),
-        io::Encoding::Utf8 => {}
-    }
-    if decoded.replaced {
-        out.push(warning(
-            "utf16_damaged",
-            "the UTF-16 text held invalid sequences; they were replaced with U+FFFD",
-        ));
-    }
-    out
-}
-
 /// One save at a time: while a save prepared off the UI thread is being
 /// written, every other save fails, so an older write can never land after
 /// a newer one (docs/specs/journal.md, "Saving off the UI thread").
@@ -1452,9 +1789,10 @@ pub struct RecoveryCheck {
 #[doc(hidden)]
 pub fn recovery_check(contents: &[u8], disk: Option<&[u8]>) -> RecoveryCheck {
     let bytes = disk.unwrap_or_default();
-    let style = io::decode(bytes).style;
+    let format = FormatId::Fountain;
+    let style = format.get().style(bytes);
     let path = Path::new("fuzz.fountain");
-    match Dispatcher::default().assess(path, style, contents, (bytes, disk.is_none())) {
+    match Dispatcher::default().assess(path, format, style, contents, (bytes, disk.is_none())) {
         Assessment::Unreadable(problem) => RecoveryCheck {
             doc: None,
             valid_len: 0,
@@ -1486,8 +1824,9 @@ pub fn journal_holds_work(path: &Path) -> bool {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), true),
         Err(_) => return false,
     };
-    let style = io::decode(&disk).style;
-    match Dispatcher::default().assess(path, style, &contents, (&disk, missing)) {
+    let format = FormatId::for_path(path).unwrap_or_default();
+    let style = format.get().style(&disk);
+    match Dispatcher::default().assess(path, format, style, &contents, (&disk, missing)) {
         Assessment::Unreadable(_) => false,
         Assessment::Replayed(r) => r.recover,
     }

@@ -1,7 +1,7 @@
 # Fountain: how Cold Open reads and writes it
 
 - **Date:** 2026-10-13
-- **Updated:** 2026-10-13 (phase 2): reversed scene heading prefixes (§4, §6.2, §9). 2026-10-15 (phase 3): the normal form's source map (§10). 2026-10-16: hidden-only lines inside an element (§5); time in proportion to the input (§1). 2026-10-17: an opening paragraph that starts with U+FEFF, and a dual-dialogue name that reads as a scene heading (§9).
+- **Updated:** 2026-10-13 (phase 2): reversed scene heading prefixes (§4, §6.2, §9). 2026-10-15 (phase 3): the normal form's source map (§10). 2026-10-16: hidden-only lines inside an element (§5); time in proportion to the input (§1); a document read from .fdx (§11). 2026-10-17: an opening paragraph that starts with U+FEFF, and a dual-dialogue name that reads as a scene heading (§9).
 - **Status:** implemented in `crates/fountain` (phase 1)
 - **Sources:**
   - The public Fountain syntax page, <https://fountain.io/syntax>, read 2026-10-13.
@@ -267,3 +267,19 @@ It matters more in phase 5, where script diff and tracked changes compare docume
 - a list of **segments**. Each segment is a byte range of the element's printed text, together with the source element and byte offset in that element's printed text that the range was copied from.
 
 Text the normal form adds has no segment: the `\n` that joins two merged elements. Text it removes appears in no segment: trimmed edge whitespace, and the empty lines that splitting an action turns into spacing. Segments are in order and never overlap. The plain `normalize_with_map` gives the same element indices.
+
+## 11. Writing a document read from .fdx
+
+Added 2026-10-16 (phase 4). Sources: `docs/specs/fdx.md`, `docs/specs/layout.md` §9.3, and the phase 4 decisions (`docs/progress/phase-4.md`).
+
+A document read from an .fdx file can hold what Fountain cannot, besides the element kinds of §9. Saving it as Fountain ("Save as" converts, `docs/specs/commands.md`) reports these losses too, before anything is written:
+
+| Code | Content | What the writer does |
+| --- | --- | --- |
+| `page_format` | A page format other than the default: page size, margins, element settings | Writes the script; a Fountain file always prints with the default format |
+| `paragraph_spacing` | A paragraph's space above, in points, that is not a whole number of lines | Writes the nearest whole number of blank lines. An override that is a whole number of lines is written as that many blank lines (`space_before`) and is not a loss |
+| `title_page_layout` | Title lines with their own positions | Writes them as title-page keys, as below; their positions are not kept |
+| `fdx_data` | The .fdx passthrough store: settings, smart-type lists, revision sets and everything else Cold Open keeps but does not use (`docs/specs/fdx.md` §13), listed by section name | Leaves it out |
+
+**Title lines as keys.** Lines are taken in order and grouped into blocks separated by empty lines. The first centered block is `Title`, one value per line. A centered block of one line ending in "by" (ignoring case and spaces) is `Credit`. The centered block after a credit is `Author`, and any other centered blocks are `Source`. Left-aligned blocks after the title are `Contact`, and right-aligned blocks are `Notes`. Styles in the lines are kept as emphasis (§8). This is a rule of thumb for English title pages, which is why `title_page_layout` is always reported.
+

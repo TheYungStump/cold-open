@@ -1,9 +1,9 @@
 Cold Open: test build
 =====================
 
-This is an unsigned build made by CI from the phase-3-editor-mcp branch,
-for testing. It is not a release. Your scripts are plain Fountain files,
-so nothing you write here is locked in.
+This is an unsigned build made by CI, for testing. It is not a release.
+Your scripts are plain Fountain or .fdx files, so nothing you write here
+is locked in.
 
 In this folder:
 - the app: "Cold Open.exe" (Windows), "Cold Open.app" (macOS) or
@@ -48,6 +48,17 @@ What to try
    and Ctrl+Z (Cmd+Z) undoes it. The status bar shows the agent while it
    is connected, with Disconnect and a switch to turn agent access off.
 5. Export a PDF: Ctrl+Shift+E (Cmd+Shift+E).
+6. Open an .fdx file, edit it, save it with Ctrl+S and open it again:
+   it stays an .fdx file and nothing in it should be lost, including
+   what Cold Open doesn't show. Save as converts between Fountain and
+   .fdx by the extension you choose, and asks first about anything the
+   other format can't hold. "Save a copy as .fdx" and "Save a copy as
+   Fountain" are in the palette. A damaged .fdx file opens with a report
+   of what was repaired; "Repair an .fdx file" in the palette writes a
+   repaired copy and never changes the original.
+7. Recovered versions (palette, start screen, or the button in the
+   message after "Don't save"): changes Cold Open set aside instead of
+   deleting, with a preview. Restore opens one as a new script.
 
 
 Settings and files
@@ -72,5 +83,6 @@ Reporting a problem
 -------------------
 
 Say which system you used, what you did, and what you expected. If work
-went missing, keep the "Unsaved" folder and any ".coldopen-journal" files
-next to your script: they hold what was typed.
+went missing, look in Recovered versions first. Keep the "Unsaved" folder
+and any ".coldopen-journal" files next to your script (hidden on
+Windows): they hold what was typed.

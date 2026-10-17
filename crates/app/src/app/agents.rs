@@ -2,16 +2,13 @@
 //! keeping the link server in step with the open script and the agent
 //! access setting, and running each agent request as a labelled step.
 
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use coldopen_core::command::Class;
-use coldopen_core::{Author, BlockId, Command, CommandError, Dispatcher};
-use coldopen_screenplay::Element;
+use coldopen_core::{CommandError, Dispatcher};
 use iced::Task;
 use serde_json::Value;
 
-use super::{App, Message};
+use super::{App, Message, Origin, Request};
 use crate::link::{LinkEvent, LinkServer, LinkWriter};
 
 /// An attached agent.
@@ -55,7 +52,7 @@ impl App {
                 Err(e) => {
                     self.link_failed = true;
                     self.banners
-                        .push(format!("Agents can't attach to this script: {e}"));
+                        .push(format!("Agents can't attach to this script: {e}").into());
                 }
             }
         }
@@ -72,7 +69,7 @@ impl App {
                 && let Err(e) = link.set_docs(docs)
             {
                 self.banners
-                    .push(format!("The agent link could not be updated: {e}"));
+                    .push(format!("The agent link could not be updated: {e}").into());
             }
         }
         let Some(link) = &self.link else { return };
@@ -177,56 +174,20 @@ impl App {
             Ok(c) => c,
             Err(e) => return (Dispatcher::response(id, Err(e)), false),
         };
-        if coldopen_link::refused(cmd.name(), &cmd.params()) {
-            let err = CommandError::new(
-                "not_allowed_attached",
-                format!(
-                    "{} is not allowed while attached to the writer's script in the app",
-                    cmd.name()
-                ),
-            );
-            return (Dispatcher::response(id, Err(err)), false);
-        }
-        if let Command::Batch(b) = &cmd
-            && b.commands.len() > coldopen_link::BATCH_LIMIT
-        {
-            let err = CommandError::invalid_params(format!(
-                "a batch over the link holds at most {} commands",
-                coldopen_link::BATCH_LIMIT
-            ));
-            return (Dispatcher::response(id, Err(err)), false);
-        }
-        let changes = matches!(cmd.class(), Class::Edit | Class::History);
-        let before: BTreeMap<BlockId, Element> = if changes {
-            self.d
-                .session()
-                .map(|s| {
-                    s.doc
-                        .blocks
-                        .iter()
-                        .map(|b| (b.id, b.element.clone()))
-                        .collect()
-                })
-                .unwrap_or_default()
-        } else {
-            BTreeMap::new()
-        };
-        let by = Author::agent(name, tool);
-        let outcome = self.d.execute_as(cmd.clone(), &by);
-        let edited = changes && outcome.is_ok();
-        if let Ok(result) = &outcome
-            && edited
-        {
-            self.editor.follow(&cmd, result);
-            if let Some(s) = self.d.session() {
-                for b in &s.doc.blocks {
-                    if before.get(&b.id) != Some(&b.element) {
-                        self.agent_marks.insert(b.id);
-                    }
-                }
-            }
-        }
-        (Dispatcher::response(id, outcome), edited)
+        let out = self.dispatch(
+            Request::Command(cmd),
+            Origin::Agent {
+                name: name.to_string(),
+                tool,
+            },
+        );
+        let response = out.response.unwrap_or_else(|| {
+            Err(CommandError::new(
+                "internal_error",
+                "the request was not answered",
+            ))
+        });
+        (Dispatcher::response(id, response), out.edited)
     }
 
     /// The status bar's agent line, while any agent is attached.
