@@ -2,11 +2,22 @@ name: Fuzz
 
 # Not part of the phase gate. Every Monday, two minutes of each cargo-fuzz
 # target (2026-10-16, review finding F17.5: the repository is public, so
-# Actions minutes are free); by hand from the Actions tab, ten minutes each.
+# Actions minutes are free); by hand from the Actions tab, ten minutes each,
+# or one target for as long as asked (2026-10-17: a 30-minute run before a
+# fix merges).
 on:
   schedule:
     - cron: "17 6 * * 1"
   workflow_dispatch:
+    inputs:
+      target:
+        description: "Run only this target (empty runs all eight)"
+        required: false
+        default: ""
+      seconds:
+        description: "Seconds per target"
+        required: false
+        default: "600"
 
 permissions:
   contents: read
@@ -24,19 +35,27 @@ jobs:
       fail-fast: false
       matrix:
         target: [fountain_roundtrip, envelope, journal_replay, fdx_read, fdx_roundtrip, fdx_write, link_line, app_config]
+    # With a `target` input, the other targets' steps are skipped.
+    env:
+      RUN: ${{ inputs.target == '' || inputs.target == null || inputs.target == matrix.target }}
     steps:
       - uses: actions/checkout@v5
+        if: env.RUN == 'true'
       - uses: dtolnay/rust-toolchain@nightly
+        if: env.RUN == 'true'
       - uses: Swatinem/rust-cache@v2
+        if: env.RUN == 'true'
         with:
           workspaces: fuzz
       - run: cargo install cargo-fuzz --locked
+        if: env.RUN == 'true'
       # `-timeout=2`: any input that takes over two seconds is reported as a
       # failure, so slow inputs are found, not only crashes (libFuzzer's own
       # limit is twenty minutes; review finding F15).
       - name: Fuzz ${{ matrix.target }}
+        if: env.RUN == 'true'
         working-directory: fuzz
-        run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=${{ github.event_name == 'schedule' && 120 || 600 }} -timeout=2
+        run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=${{ github.event_name == 'schedule' && 120 || inputs.seconds || 600 }} -timeout=2
       - name: Keep any crash input
         if: failure()
         uses: actions/upload-artifact@v4

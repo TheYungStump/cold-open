@@ -1,6 +1,6 @@
 //! Property tests for the round-trip guarantees in docs/specs/fountain.md §1.
 
-use coldopen_fountain::{normalize, parse, write};
+use coldopen_fountain::{Loss, normalize, parse, write};
 use coldopen_screenplay::{
     Element, ElementKind, RichText, Run, Script, Style, TitleField, TitlePage,
 };
@@ -111,12 +111,6 @@ fn fountain_line() -> impl Strategy<Value = String> {
     ]
 }
 
-fn has_packed_delimiters(s: &str) -> bool {
-    let c: Vec<char> = s.chars().collect();
-    c.windows(4)
-        .any(|w| w.iter().all(|&x| x == '*' || x == '_'))
-}
-
 fn fountain_text() -> impl Strategy<Value = String> {
     (
         prop::collection::vec(fountain_line(), 0..40),
@@ -143,24 +137,25 @@ proptest! {
     }
 
     /// The parser's output is already in normal form, and writing it loses
-    /// nothing and reads back identically.
+    /// nothing it does not report and reads back identically.
     #[test]
     fn parse_write_parse_is_stable(s in fountain_text()) {
         let first = parse(&s).script;
         prop_assert_eq!(&normalize(&first), &first, "parser output is not in normal form");
         let w = write(&first);
-        // Spec §9: emphasis built from four or more packed delimiters may
-        // have no writable form; that, and only that, may be reported.
-        if !w.losses.is_empty()
-            && w.losses.iter().all(|l| l.code == "style")
-            && has_packed_delimiters(&s)
-        {
-            return Ok(());
-        }
-        prop_assert!(w.losses.is_empty(), "losses {:?}\n--- input\n{}\n--- written\n{}", w.losses, s, w.text);
         let second = parse(&w.text).script;
-        prop_assert_eq!(&second, &first, "\n--- input\n{}\n--- written\n{}", s, w.text);
-        prop_assert_eq!(write(&second).text, w.text);
+        // Spec §9: a reported style loss may change styles where it was
+        // reported, and nothing else.
+        prop_assert_eq!(
+            coldopen_fountain::fuzzing::reads_back_as_reported(&first, &second, &w.losses),
+            Ok(()),
+            "\n--- input\n{}\n--- written\n{}", s, w.text
+        );
+        // As in the fuzz check: after a reported loss the next write may
+        // spell the read-back text differently.
+        if w.losses.is_empty() {
+            prop_assert_eq!(write(&second).text, w.text);
+        }
     }
 }
 
@@ -497,4 +492,506 @@ fn a_title_value_trimmed_after_emphasis_is_in_normal_form() {
             String::from_utf8_lossy(input)
         );
     }
+}
+
+/// Found by the `fountain_roundtrip` fuzz target (run 39083887560,
+/// 2026-10-17): "unexpected losses: style". Underline, then italic and
+/// underline, then italic, next to characters the flanking rules count as
+/// punctuation (U+FFFD from invalid UTF-8). The input itself spells it, so
+/// the writer must too, with no loss: the ordered arrangement (spec §9).
+#[test]
+fn mixed_markers_next_to_punctuation_write_back() {
+    for input in [
+        &b"\xff\xff\xff\xff\xdd~_*_\xd6_*\xff\xdd\xab_*_\xd6_\x89*\xd6*"[..],
+        "_\u{76b}_*_\u{fffd}_\u{fffd}*".as_bytes(),
+    ] {
+        let text = String::from_utf8_lossy(input);
+        let w = write(&parse(&text).script);
+        assert!(w.losses.is_empty(), "{text:?}: {:?}", w.losses);
+        assert_eq!(
+            coldopen_fountain::fuzzing::round_trip(&text),
+            Ok(()),
+            "{text:?}"
+        );
+    }
+}
+
+// ---- Styled prose ----
+
+/// Ordinary words, some with accented letters or an apostrophe.
+const PROSE_WORDS: &[&str] = &[
+    "Maya", "Theo", "Zoë", "José", "the", "a", "door", "rain", "night", "slowly", "opens", "looks",
+    "back", "café", "naïve", "résumé", "señor", "déjà", "vu", "über", "façade", "don't", "it's",
+    "o'clock", "42", "well", "--",
+];
+
+/// One word with the punctuation around it: (before, word, after).
+fn prose_word() -> impl Strategy<Value = (&'static str, &'static str, &'static str)> {
+    (
+        prop_oneof![8 => Just(""), 1 => Just("\""), 1 => Just("("), 1 => Just("'")],
+        prop::sample::select(PROSE_WORDS),
+        prop_oneof![
+            12 => Just(""),
+            2 => Just("."),
+            2 => Just(","),
+            1 => Just("!"),
+            1 => Just("?"),
+            1 => Just("..."),
+            1 => Just(":"),
+            1 => Just(";"),
+            1 => Just("\""),
+            1 => Just(")"),
+            1 => Just(".\""),
+            1 => Just("'s"),
+        ],
+    )
+}
+
+/// One line of prose: words separated by single spaces, with bold, italic
+/// or underline applied to whole words or phrases, the way an editor
+/// applies them to a selection. Spans may nest, touch or overlap. A span
+/// includes the punctuation inside it, and the punctuation at its ends only
+/// when `lead` or `trail` says so.
+fn prose_line() -> impl Strategy<Value = Vec<Run>> {
+    (
+        prop::collection::vec(prose_word(), 1..12),
+        prop::collection::vec(
+            (
+                0..3u8,
+                any::<prop::sample::Index>(),
+                any::<prop::sample::Index>(),
+                any::<bool>(),
+                any::<bool>(),
+            ),
+            0..4,
+        ),
+    )
+        .prop_map(|(words, spans)| {
+            let n = words.len();
+            let spans: Vec<(u8, usize, usize, bool, bool)> = spans
+                .into_iter()
+                .map(|(flag, s, len, lead, trail)| {
+                    let s = s.index(n);
+                    let e = s + len.index(n - s);
+                    (flag, s, e, lead, trail)
+                })
+                .collect();
+            let set = |st: &mut Style, flag: u8| match flag {
+                0 => st.bold = true,
+                1 => st.italic = true,
+                _ => st.underline = true,
+            };
+            let mut runs = Vec::new();
+            for (i, (before, word, after)) in words.into_iter().enumerate() {
+                let (mut b, mut w, mut a, mut gap) =
+                    (Style::PLAIN, Style::PLAIN, Style::PLAIN, Style::PLAIN);
+                for &(flag, s, e, lead, trail) in &spans {
+                    if (s..=e).contains(&i) {
+                        set(&mut w, flag);
+                        if i > s || lead {
+                            set(&mut b, flag);
+                        }
+                        if i < e || trail {
+                            set(&mut a, flag);
+                        }
+                    }
+                    if s <= i && i < e {
+                        set(&mut gap, flag);
+                    }
+                }
+                runs.push(Run::styled(before, b));
+                runs.push(Run::styled(word, w));
+                runs.push(Run::styled(after, a));
+                if i + 1 < n {
+                    runs.push(Run::styled(" ", gap));
+                }
+            }
+            runs
+        })
+}
+
+/// A script of styled prose: action, centered action, dialogue, lyrics
+/// and a title page.
+fn prose_script() -> impl Strategy<Value = Script> {
+    let lines = || prop::collection::vec(prose_line(), 1..3);
+    let block = prop_oneof![
+        lines().prop_map(|l| vec![Element::new(ElementKind::Action, rich(l))]),
+        prose_line().prop_map(|l| {
+            let mut e = Element::new(ElementKind::Action, rich(vec![l]));
+            e.centered = true;
+            vec![e]
+        }),
+        lines().prop_map(|l| vec![
+            Element::new(ElementKind::Character, "MAYA"),
+            Element::new(ElementKind::Dialogue, rich(l)),
+        ]),
+        lines().prop_map(|l| {
+            let mut e = Element::new(ElementKind::Lyric, rich(l));
+            e.space_before = Some(1);
+            vec![e]
+        }),
+    ];
+    (
+        prop::option::of(prose_line()),
+        prop::collection::vec(block, 1..5),
+    )
+        .prop_map(|(title, blocks)| Script {
+            title_page: TitlePage {
+                fields: title
+                    .map(|l| vec![TitleField::new("Title", vec![rich(vec![l])])])
+                    .unwrap_or_default(),
+            },
+            elements: blocks.into_iter().flatten().collect(),
+        })
+}
+
+/// One printed character and its style.
+type Cell = (char, Style);
+
+/// The printed characters of rich text with their styles, line by line.
+fn styled_lines(t: &RichText) -> Vec<Vec<Cell>> {
+    let mut lines = vec![Vec::new()];
+    for r in t.runs() {
+        if let Run::Text { text, style } = r {
+            for c in text.chars() {
+                if c == '\n' {
+                    lines.push(Vec::new());
+                } else if let Some(l) = lines.last_mut() {
+                    l.push((c, *style));
+                }
+            }
+        }
+    }
+    lines
+}
+
+fn on(s: &Style, f: usize) -> bool {
+    [s.bold, s.italic, s.underline][f]
+}
+
+/// The spans of style `f` in `cells`, as index ranges.
+fn spans(cells: &[Cell], f: usize) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut k = 0;
+    while k < cells.len() {
+        if on(&cells[k].1, f) {
+            let start = k;
+            while k < cells.len() && on(&cells[k].1, f) {
+                k += 1;
+            }
+            out.push((start, k));
+        } else {
+            k += 1;
+        }
+    }
+    out
+}
+
+/// Whether two different styles cross: each starts inside the other's
+/// span and ends outside it.
+fn styles_cross(cells: &[Cell]) -> bool {
+    let all = [spans(cells, 0), spans(cells, 1), spans(cells, 2)];
+    (0..3).any(|f| {
+        (0..3).filter(|&g| g != f).any(|g| {
+            all[f]
+                .iter()
+                .any(|&(a0, a1)| all[g].iter().any(|&(b0, b1)| a0 < b0 && b0 < a1 && a1 < b1))
+        })
+    })
+}
+
+/// Whether a style starts or ends between two punctuation marks, as a
+/// bold `--` inside an italic `"--"` does.
+fn style_edge_between_punctuation(cells: &[Cell]) -> bool {
+    let punct = |c: char| !c.is_alphanumeric() && !c.is_whitespace();
+    cells.windows(2).any(|w| {
+        let ((a, sa), (b, sb)) = (w[0], w[1]);
+        punct(a) && punct(b) && (0..3).any(|f| on(&sa, f) != on(&sb, f))
+    })
+}
+
+/// Which characters belong to a word in which two styles cross once
+/// whitespace carries none: the in-word case (spec §9).
+fn in_crossing_word(cells: &[Cell]) -> Vec<bool> {
+    let mut out = vec![false; cells.len()];
+    let mut k = 0;
+    while k < cells.len() {
+        if cells[k].0.is_whitespace() {
+            k += 1;
+            continue;
+        }
+        let start = k;
+        while k < cells.len() && !cells[k].0.is_whitespace() {
+            k += 1;
+        }
+        if styles_cross(&cells[start..k]) {
+            out[start..k].fill(true);
+        }
+    }
+    out
+}
+
+/// What writing did to a line that Fountain cannot spell as it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Outcome {
+    /// It reads back exactly.
+    Exact,
+    /// Bold or italic came off whitespace, where they do not print.
+    SpacesBoldItalic,
+    /// Underline came off whitespace (reported).
+    SpacesUnderline,
+    /// A crossing style came off a word (reported).
+    InWord,
+}
+
+/// Checks how a line that Fountain cannot spell as it is reads back: only
+/// bold or italic on whitespace may change unreported, and with a reported
+/// style loss also underline on whitespace and the styles of a word in
+/// which two styles cross. No style may be added.
+fn crossing_line(want: &[Cell], back: &[Cell], reported: bool) -> Result<Outcome, String> {
+    let words = in_crossing_word(want);
+    let mut outcome = Outcome::Exact;
+    for (k, (&(c, w), &(_, b))) in want.iter().zip(back).enumerate() {
+        if (0..3).any(|f| on(&b, f) && !on(&w, f)) {
+            return Err(format!("a style was added at {k}"));
+        }
+        if w == b {
+            continue;
+        }
+        let step = if c.is_whitespace() && w.underline == b.underline {
+            Outcome::SpacesBoldItalic
+        } else if c.is_whitespace() {
+            Outcome::SpacesUnderline
+        } else if words[k] {
+            Outcome::InWord
+        } else {
+            return Err(format!(
+                "a style came off {c:?} at {k}, outside a crossing word"
+            ));
+        };
+        if step > Outcome::SpacesBoldItalic && !reported {
+            return Err(format!("{step:?} at {k} was not reported"));
+        }
+        outcome = outcome.max(step);
+    }
+    Ok(outcome)
+}
+
+/// `t` with every style removed.
+fn unstyled(t: &RichText) -> RichText {
+    RichText::new(
+        t.runs()
+            .iter()
+            .map(|r| match r {
+                Run::Text { text, .. } => Run::plain(text.clone()),
+                hidden => hidden.clone(),
+            })
+            .collect(),
+    )
+}
+
+/// Checks a written prose script against its normal form `want`. Lines
+/// Fountain can spell (no styles that cross, and no style edge between two
+/// punctuation marks) must read back exactly, and an element made only of
+/// them must report no loss. Other lines are checked by [`crossing_line`].
+/// Returns the outcome for each of those other lines.
+fn check_prose(want: &Script, back: &Script, losses: &[Loss]) -> Result<Vec<Outcome>, String> {
+    if let Some(l) = losses.iter().find(|l| l.code != "style") {
+        return Err(format!("unexpected loss {l:?}"));
+    }
+    let mut texts: Vec<(Option<usize>, &RichText, &RichText)> = Vec::new();
+    let keys = |s: &Script| -> Vec<(String, usize)> {
+        s.title_page
+            .fields
+            .iter()
+            .map(|f| (f.key.clone(), f.values.len()))
+            .collect()
+    };
+    if keys(want) != keys(back) {
+        return Err("the title page reads back differently".into());
+    }
+    for (a, b) in want.title_page.fields.iter().zip(&back.title_page.fields) {
+        texts.extend(a.values.iter().zip(&b.values).map(|(x, y)| (None, x, y)));
+    }
+    if want.elements.len() != back.elements.len() {
+        return Err("the elements read back differently".into());
+    }
+    for (i, (a, b)) in want.elements.iter().zip(&back.elements).enumerate() {
+        let (mut x, mut y) = (a.clone(), b.clone());
+        x.text = RichText::empty();
+        y.text = RichText::empty();
+        if x != y {
+            return Err(format!("element {i} reads back differently"));
+        }
+        texts.push((Some(i), &a.text, &b.text));
+    }
+    let mut outcomes = Vec::new();
+    for (at, a, b) in texts {
+        if unstyled(a) != unstyled(b) {
+            return Err(format!("the text of {at:?} reads back differently"));
+        }
+        let reported = losses.iter().any(|l| l.element == at);
+        let mut all_spellable = true;
+        for (x, y) in styled_lines(a).iter().zip(&styled_lines(b)) {
+            if styles_cross(x) || style_edge_between_punctuation(x) {
+                all_spellable = false;
+                outcomes.push(crossing_line(x, y, reported).map_err(|e| format!("{at:?}: {e}"))?);
+            } else if x != y {
+                return Err(format!(
+                    "a line of {at:?} Fountain can spell reads back differently"
+                ));
+            }
+        }
+        if all_spellable && reported {
+            return Err(format!(
+                "a loss reported for {at:?}, which Fountain can spell"
+            ));
+        }
+    }
+    Ok(outcomes)
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
+
+    /// Ordinary prose, with bold, italic and underline on whole words and
+    /// phrases. What Fountain can spell writes with no loss and reads back
+    /// exactly; crossing styles lose only what spec §9 lists.
+    #[test]
+    fn styled_prose_writes_back(s in prose_script()) {
+        let w = write(&s);
+        let back = parse(&w.text).script;
+        let checked = check_prose(&normalize(&s), &back, &w.losses);
+        prop_assert!(checked.is_ok(), "{:?}\nlosses {:?}\n--- written\n{}", checked, w.losses, w.text);
+    }
+}
+
+/// Pieces of lines built from packed and mixed emphasis and boneyard
+/// markers, the class three fuzz findings came from (2026-10-16 and -17):
+/// markers next to letters, non-ASCII letters, punctuation, spaces and
+/// invalid UTF-8 (read as U+FFFD, which counts as punctuation).
+const MARKER_PIECES: &[&[u8]] = &[
+    b"*",
+    b"**",
+    b"***",
+    b"_",
+    b"__",
+    b"*_",
+    b"_*",
+    b"_*_",
+    b"*_*",
+    b"/*",
+    b"*/",
+    b"/**/",
+    b"/* x */",
+    b"\\",
+    b"a",
+    b"bc",
+    "\u{76b}".as_bytes(),
+    "\u{e9}".as_bytes(),
+    b".",
+    b"-",
+    b"'",
+    b" ",
+    b"  ",
+    b"\xff",
+    b"\xd6",
+];
+
+/// Where a generated line goes: an action line, a title page value, a line
+/// of dialogue and a lyric.
+const MARKER_CONTEXTS: &[&[u8]] = &[b"", b"z: ", b"BOB\n", b"~"];
+
+fn marker_line() -> impl Strategy<Value = Vec<u8>> {
+    (
+        prop::sample::select(MARKER_CONTEXTS),
+        prop::collection::vec(prop::sample::select(MARKER_PIECES), 1..16),
+    )
+        .prop_map(|(context, pieces)| {
+            let mut data = context.to_vec();
+            for p in pieces {
+                data.extend_from_slice(p);
+            }
+            data
+        })
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
+
+    /// Packed and mixed markers may lose styles that cannot be spelled,
+    /// but never silently: the fuzz target's check. How often styles are
+    /// lost is measured by `styling_rates`, not gated.
+    #[test]
+    fn packed_and_mixed_markers_lose_nothing_silently(data in marker_line()) {
+        prop_assert_eq!(
+            coldopen_fountain::fuzzing::round_trip_bytes(&data),
+            Ok(()),
+            "{:?}",
+            String::from_utf8_lossy(&data)
+        );
+    }
+}
+
+/// How often the writer cannot spell styles, per 100,000 generated cases
+/// (recorded in docs/progress/phase-4.md, "Deferred"). Run by hand:
+/// `cargo test --release -p coldopen-fountain --test properties
+/// styling_rates -- --ignored --nocapture`. Set `PROPTEST_CASES` for
+/// another count.
+#[test]
+#[ignore]
+fn styling_rates() {
+    use proptest::strategy::ValueTree;
+    use proptest::test_runner::TestRunner;
+    let n: usize = std::env::var("PROPTEST_CASES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(100_000);
+    let per = |k: usize| k as f64 * 100_000.0 / n as f64;
+
+    let mut runner = TestRunner::deterministic();
+    let strategy = prose_script();
+    let mut counts = std::collections::BTreeMap::<Outcome, usize>::new();
+    for _ in 0..n {
+        let s = strategy.new_tree(&mut runner).unwrap().current();
+        let w = write(&s);
+        let back = parse(&w.text).script;
+        let outcomes = check_prose(&normalize(&s), &back, &w.losses)
+            .unwrap_or_else(|e| panic!("{e}\n--- written\n{}", w.text));
+        for o in outcomes {
+            *counts.entry(o).or_default() += 1;
+        }
+    }
+    println!(
+        "styled prose, {n} scripts; lines Fountain cannot spell as they are, per 100,000 scripts:"
+    );
+    for (o, k) in &counts {
+        println!("  {o:?}: {k} ({:.1})", per(*k));
+    }
+
+    let mut runner = TestRunner::deterministic();
+    let strategy = marker_line();
+    let (mut unreported, mut reported) = (0, 0);
+    for _ in 0..n {
+        let data = strategy.new_tree(&mut runner).unwrap().current();
+        let text = String::from_utf8_lossy(&data);
+        assert_eq!(
+            coldopen_fountain::fuzzing::round_trip(&text),
+            Ok(()),
+            "{text:?}"
+        );
+        let first = parse(&text).script;
+        let w = write(&first);
+        if !w.losses.is_empty() {
+            reported += 1;
+        } else if parse(&w.text).script != first {
+            unreported += 1;
+        }
+    }
+    println!("packed and mixed markers, {n} cases, per 100,000:");
+    println!(
+        "  bold or italic off whitespace only: {unreported} ({:.1})",
+        per(unreported)
+    );
+    println!("  reported style loss: {reported} ({:.1})", per(reported));
 }

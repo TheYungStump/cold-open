@@ -251,6 +251,115 @@ fn drop_edge_ws_styles(line: &[Run]) -> RLine {
     })
 }
 
+/// Bold and italic, and with `underline` underline too, cleared from every
+/// whitespace character of a line. The writer falls back on this for a line
+/// it cannot write as it is (spec §9): it extends `drop_edge_ws_styles` from
+/// the edges of a span to the whole line.
+pub(crate) fn clear_ws_styles(line: &[Run], underline: bool) -> RLine {
+    let styled = line.iter().any(|r| {
+        matches!(r, Run::Text { text, style }
+            if (style.bold || style.italic || (underline && style.underline))
+                && text.contains(char::is_whitespace))
+    });
+    if !styled {
+        return unchanged(line);
+    }
+    with_cells(line, |c| {
+        for x in c.iter_mut() {
+            if let Cell::C(ch, s) = x
+                && ch.is_whitespace()
+            {
+                s.bold = false;
+                s.italic = false;
+                if underline {
+                    s.underline = false;
+                }
+            }
+        }
+    })
+}
+
+/// `script` with bold and italic cleared from whitespace, which does not
+/// print: what the writer's read-back check compares (spec §9).
+pub(crate) fn without_ws_emphasis(script: &Script) -> Script {
+    let clear = |t: &RichText| RichText::new(clear_ws_styles(t.runs(), false));
+    let mut s = script.clone();
+    for v in s
+        .title_page
+        .fields
+        .iter_mut()
+        .flat_map(|f| f.values.iter_mut())
+    {
+        *v = clear(v);
+    }
+    for e in &mut s.elements {
+        e.text = clear(&e.text);
+    }
+    s
+}
+
+/// The writer's last resort before plain text (spec §9): where two styles
+/// cross inside a word, so that neither holds the other, the one that
+/// starts later is dropped from the whole word.
+pub(crate) fn untangle_words(line: &[Run]) -> RLine {
+    fn on(s: &Style, f: usize) -> bool {
+        [s.bold, s.italic, s.underline][f]
+    }
+    // The style to drop from `word` (character positions in `c`), if two
+    // of its styles cross.
+    fn crossing(c: &[Cell], word: &[usize]) -> Option<usize> {
+        let spans = |f: usize| {
+            let mut out = Vec::new();
+            let mut k = 0;
+            while k < word.len() {
+                if matches!(&c[word[k]], Cell::C(_, s) if on(s, f)) {
+                    let start = k;
+                    while k < word.len() && matches!(&c[word[k]], Cell::C(_, s) if on(s, f)) {
+                        k += 1;
+                    }
+                    out.push((start, k));
+                } else {
+                    k += 1;
+                }
+            }
+            out
+        };
+        let all = [spans(0), spans(1), spans(2)];
+        for f in 0..3 {
+            for g in (0..3).filter(|&g| g != f) {
+                for &(a0, a1) in &all[f] {
+                    if all[g].iter().any(|&(b0, b1)| a0 < b0 && b0 < a1 && a1 < b1) {
+                        return Some(g);
+                    }
+                }
+            }
+        }
+        None
+    }
+    with_cells(line, |c| {
+        let chars: Vec<usize> = (0..c.len())
+            .filter(|&i| matches!(c[i], Cell::C(..)))
+            .collect();
+        let words: Vec<Vec<usize>> = chars
+            .split(|&i| is_ws_cell(&c[i]))
+            .map(<[usize]>::to_vec)
+            .collect();
+        for word in &words {
+            while let Some(g) = crossing(c, word) {
+                for &i in word {
+                    if let Cell::C(_, s) = &mut c[i] {
+                        match g {
+                            0 => s.bold = false,
+                            1 => s.italic = false,
+                            _ => s.underline = false,
+                        }
+                    }
+                }
+            }
+        }
+    })
+}
+
 /// Joins hidden-only lines to the previous line (or the next, if first), as
 /// the reader does (spec §5).
 pub(crate) fn merge_hidden_only(lines: Vec<RLine>) -> Vec<RLine> {

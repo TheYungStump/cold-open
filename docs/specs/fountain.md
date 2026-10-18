@@ -1,7 +1,7 @@
 # Fountain: how Cold Open reads and writes it
 
 - **Date:** 2026-10-13
-- **Updated:** 2026-10-13 (phase 2): reversed scene heading prefixes (§4, §6.2, §9). 2026-10-15 (phase 3): the normal form's source map (§10). 2026-10-16: hidden-only lines inside an element (§5); time in proportion to the input (§1); a document read from .fdx (§11). 2026-10-17: an opening paragraph that starts with U+FEFF, and a dual-dialogue name that reads as a scene heading (§9); title values brought to normal form after emphasis (§4).
+- **Updated:** 2026-10-13 (phase 2): reversed scene heading prefixes (§4, §6.2, §9). 2026-10-15 (phase 3): the normal form's source map (§10). 2026-10-16: hidden-only lines inside an element (§5); time in proportion to the input (§1); a document read from .fdx (§11). 2026-10-17: an opening paragraph that starts with U+FEFF, and a dual-dialogue name that reads as a scene heading (§9); title values brought to normal form after emphasis (§4); the ordered emphasis arrangement, styles that emphasis cannot spell and the round-trip check (§9, §10).
 - **Status:** implemented in `crates/fountain` (phase 1)
 - **Sources:**
   - The public Fountain syntax page, <https://fountain.io/syntax>, read 2026-10-13.
@@ -223,6 +223,25 @@ Empty lines inside dialogue or a note are written as two spaces.
   - `\[` before `[[`;
   - `\/` before `*`, so a literal `/*` never opens boneyard (escaping the `/` works even when the `*` is an emphasis marker).
 - **Emphasis around notes and boneyard.** Markers are placed in the first of several arrangements that reads back exactly. A style that carries on past a note stays open across it (`**a [[n]] b**`). **Resolution (2026-10-14):** when the style changes right after a note or boneyard, closing the old style there can put two delimiter runs side by side (`**bold[[n]]***it*`), which reads back differently. The writer then also tries closing the old style before the hidden span (`**bold**[[n]]*it*`). It tries that last, so lines that already read back keep their written form. Found by the round-trip property test with a multi-line note.
+- **Resolution (2026-10-17): the ordered arrangement.**
+  - Which arrangement reads back depends on the characters next to the markers. The flanking rules (§8) treat punctuation differently from letters, and U+FFFD, the character invalid UTF-8 is read as, counts as punctuation. So the same styles, underline, then italic and underline, then italic, read back from `_a*b*_*c*` between letters but need `_é_*_�_�*` between punctuation.
+  - The writer therefore also tries an **ordered** arrangement. At every run the longest-lasting style is outermost, and a shorter style already open is closed and reopened inside it. It comes after the other arrangements, so a line that already read back keeps its written form.
+  - Found by the `fountain_roundtrip` fuzz target.
+- **Resolution (2026-10-17): styles emphasis cannot spell.**
+  - Emphasis must nest, so some styling an editor can apply has no spelling that reads back:
+    - **Crossing phrases.** With bold on `a b c` and italic on `b c d`, the space after `c` would have to be italic without being bold.
+    - **A style edge between two punctuation marks inside another style**, such as a bold `--` inside an italic `"--"`. A marker between two punctuation marks can both open and close, so it ends the outer style early.
+    - **Two styles that cross inside a word**, such as italic on `"déjà` and bold on `déjà?`.
+  - When no arrangement reads the line back exactly, the writer rewrites the line in fixed steps, trying the usual arrangements after each, before it writes the line plain. There is no search.
+    1. Bold and italic come off every whitespace character of the line. They do not print there, so this is not a loss and is not reported. It extends the normal form's rule for edge whitespace (§10). It goes first because it loses nothing.
+    2. Underline comes off the whitespace at the ends of each underlined stretch (reported).
+    3. Underline comes off every whitespace character as well (reported, since underline prints).
+    4. Where two styles cross inside a word, the one that starts later comes off that whole word (reported). The rest of the line keeps its styles.
+    5. The line is written as plain text (reported).
+  - The writer's own read-back check (§1, goal 3) and the round-trip check set aside bold and italic on whitespace for the same reason.
+  - **The round-trip check** (the `fountain_roundtrip` fuzz target and the property tests) passes a style loss when it was reported for that element, or for the title page, and the text reads back otherwise identical. It fails on any other difference that was not reported, and on any change to the text itself. Before 2026-10-17 it allowed a style loss only when the input held four or more `*` and `_` side by side, and it then read nothing back. Only a lossless write must come out the same when written again: after a reported loss, the next write may spell the read-back text differently (an escape it no longer needs).
+  - A property test of ordinary prose, with styles on whole words and phrases, holds the writer to this. What emphasis can spell writes with no loss and reads back exactly. Crossing styles lose only what the steps above say. The rates are recorded in `docs/progress/phase-4.md` under "Deferred".
+  - Found by that property test, written after three emphasis findings by the `fountain_roundtrip` fuzz target in two days.
 - If the script has no title page but its first paragraph would read as one, that paragraph is forced.
 - **Resolution (2026-10-17):** the same holds when, with no title page, the first paragraph starts with U+FEFF. A reader removes that character as a byte-order mark (§3), so the paragraph is forced and the character stays its text (`!` before an action). Only a U+FEFF that is not at the start of the input reaches the model, as in a blank line followed by the character. Found by the `fountain_roundtrip` fuzz target.
 - A line inside an element that holds only notes or boneyard would join the line next to it when read back (§5). The writer wraps it in an empty emphasis pair, `*[[note]]*`, which prints nothing but keeps it a line of its own.
@@ -237,8 +256,9 @@ Empty lines inside dialogue or a note are written as two spaces.
 | A scene heading whose text doesn't start with a letter or digit, and that has no prefix | Written anyway; reads back as Action |
 | A parenthetical not wrapped in brackets | Written as is |
 | `]]` inside a note, or `*/` inside a boneyard | Written as is |
-| Styles that emphasis syntax cannot express (underlined edge whitespace, mid-word underline) | Written as plain text |
-| Emphasis that came from four or more delimiter characters packed together (such as `******`), when no writable form reproduces it | Written with the closest styles found |
+| Underline on whitespace that emphasis cannot keep: at the ends of an underlined stretch, or where two styles cross at a space (2026-10-17: the second) | Underline taken off that whitespace |
+| Two styles that cross inside a word (2026-10-17) | The style that starts later taken off that word |
+| Other styles emphasis syntax cannot express: mid-word underline, and emphasis that only packed or mixed `*` and `_` can spell (2026-10-17; before, "emphasis that came from four or more delimiter characters packed together") | Written with the closest styles the steps above find, or as plain text |
 | Spacing the reader cannot reproduce (for example, a gap of 0 before a scene heading) | Written with the nearest spacing the reader can reproduce |
 
 ## 10. Normal form
@@ -248,6 +268,8 @@ The writer's output for a script `s` reads back as `s` exactly when `s` is in **
 - No element on the loss list above.
 - Text runs merged where their styles match.
 - No leading or trailing whitespace except on Action lines.
+- No bold or italic on whitespace at the ends of a bold or italic stretch. It cannot be written and does not print. Underline, which prints, stays.
+  - **Extended by the writer (2026-10-17):** on a line it cannot otherwise write, the writer takes bold and italic off all of the line's whitespace (§9). That line reads back without them, and nothing is reported, since nothing that prints changed. The read-back checks compare with bold and italic on whitespace set aside.
 - No empty lines inside Action.
 - No two adjacent elements that the reader would merge, such as two dialogue elements with no gap, or two non-centered action elements with gap 0.
 
