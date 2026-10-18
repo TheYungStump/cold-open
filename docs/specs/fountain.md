@@ -1,7 +1,7 @@
 # Fountain: how Cold Open reads and writes it
 
 - **Date:** 2026-10-13
-- **Updated:** 2026-10-13 (phase 2): reversed scene heading prefixes (§4, §6.2, §9). 2026-10-15 (phase 3): the normal form's source map (§10). 2026-10-16: hidden-only lines inside an element (§5); time in proportion to the input (§1); a document read from .fdx (§11). 2026-10-17: an opening paragraph that starts with U+FEFF, and a dual-dialogue name that reads as a scene heading (§9).
+- **Updated:** 2026-10-13 (phase 2): reversed scene heading prefixes (§4, §6.2, §9). 2026-10-15 (phase 3): the normal form's source map (§10). 2026-10-16: hidden-only lines inside an element (§5); time in proportion to the input (§1); a document read from .fdx (§11). 2026-10-17: an opening paragraph that starts with U+FEFF, and a dual-dialogue name that reads as a scene heading (§9); title values brought to normal form after emphasis (§4).
 - **Status:** implemented in `crates/fountain` (phase 1)
 - **Sources:**
   - The public Fountain syntax page, <https://fountain.io/syntax>, read 2026-10-13.
@@ -57,6 +57,8 @@ The title page is looked for in the first paragraph of the file, after skipping 
 - The first line is not a scene heading by prefix (§6.2 rule 5). This uses the reader's full prefix list, reversed forms included, so a file that opens with `EXT/INT. CAR: DAY` has no title page.
 
 Each key keeps its spelling and its position. Its values are the inline value (if not empty) followed by each continuation value, each trimmed and parsed for emphasis. Keys are not interpreted. The usual ones (Title, Credit, Author/Authors, Source, Draft date, Contact) are matched without regard to case by code that needs them. Unknown keys are kept.
+
+**Resolution (2026-10-17):** emphasis can take up its markers and leave whitespace at a value's edge. In `z: */**/* *` the `*` before and after an empty boneyard close as an empty italic, leaving " *". So each value is brought to its normal form (§10) after it is parsed, as element text is: trimmed again and cleared of bold or italic on edge whitespace, with hidden runs kept. A value left with nothing is dropped. When that leaves no key with a value, the paragraph is not a title page. Found by the `fountain_roundtrip` fuzz target.
 
 **Resolution:** The title page ends at its first blank line. The script starts after it.
 

@@ -62,10 +62,17 @@ pub(crate) fn detect(lines: &[&str]) -> Option<(TitlePage, usize)> {
         return None;
     }
 
-    let fields = raw
+    let fields: Vec<TitleField> = raw
         .into_iter()
         .map(|(k, vs)| TitleField::new(k, vs.into_iter().map(value).collect()))
         .collect();
+    // Emphasis can take up its markers and expose edge whitespace, so the
+    // values are brought to normal form only now, as element text is
+    // (spec §4, §10). A key needs a value left after that.
+    let fields = crate::norm::normalize_title(&fields);
+    if fields.iter().all(|f| f.values.is_empty()) {
+        return None;
+    }
     Some((TitlePage { fields }, end))
 }
 

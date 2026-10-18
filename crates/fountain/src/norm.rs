@@ -298,7 +298,7 @@ pub(crate) fn normalize_text(e: &Element) -> RichText {
     join(merge_hidden_only(lines))
 }
 
-fn normalize_title(fields: &[TitleField]) -> Vec<TitleField> {
+pub(crate) fn normalize_title(fields: &[TitleField]) -> Vec<TitleField> {
     fields
         .iter()
         .map(|f| TitleField {
