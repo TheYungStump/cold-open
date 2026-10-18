@@ -227,14 +227,24 @@ pub(crate) fn parse(text: &str, report: &mut Report) -> Result<Tree, FdxError> {
                     .all(crate::write::valid_xml_char)
                 {
                     let at = b.locator.locate(start);
-                    report.push_at(
-                        codes::INVALID_CHAR,
-                        "the XML declaration held characters XML does not allow; a plain one \
-                         is written in its place"
-                            .to_string(),
-                        None,
-                        at,
-                    );
+                    // Inside an element no declaration belongs: it is left
+                    // out, and the elements around it are written from the
+                    // tree (§9, `invalid_char`).
+                    let (message, para) = if b.stack.is_empty() {
+                        (
+                            "the XML declaration held characters XML does not allow; a plain \
+                             one is written in its place",
+                            None,
+                        )
+                    } else {
+                        (
+                            "an XML declaration inside an element held characters XML does not \
+                             allow and was left out",
+                            b.current_paragraph(),
+                        )
+                    };
+                    report.push_at(codes::INVALID_CHAR, message.to_string(), para, at);
+                    b.mark_repaired();
                 }
             }
             Ok(Event::Eof) => break,

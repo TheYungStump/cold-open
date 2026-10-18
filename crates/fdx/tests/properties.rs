@@ -177,6 +177,10 @@ fn markup_holding_a_character_xml_forbids_is_left_out_whole() {
         "<FinalDraft><PageLayout><?p \0?></PageLayout></FinalDraft>",
         // Found by the property tests at 20,000 cases: in the declaration.
         "<?xml version=\"1.\0\"?><FinalDraft></FinalDraft>",
+        // Found by the fuzz target (run 39030169983): a declaration inside
+        // an element, which was copied with the element.
+        "<FinalDraft><><?xml\t\u{6}?></>",
+        "<FinalDraft><PageLayout><?xml \u{6}?></PageLayout></FinalDraft>",
     ] {
         check(input.as_bytes()).unwrap_or_else(|e| panic!("{input:?}: {e}"));
         let doc = coldopen_fdx::read(input.as_bytes()).unwrap();
