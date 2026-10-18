@@ -475,6 +475,9 @@ dependencies = [
  "coldopen-layout",
  "coldopen-screenplay",
  "gethostname",
+ "getrandom 0.3.4",
+ "miniz_oxide",
+ "rawzip",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -2108,6 +2111,12 @@ name = "raw-window-handle"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
+
+[[package]]
+name = "rawzip"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac9999039f74cd73c03158cddfe4362991703c74efe5ce5c8073026f80a5e48c"
 
 [[package]]
 name = "read-fonts"

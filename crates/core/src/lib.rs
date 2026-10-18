@@ -11,6 +11,7 @@
 )]
 
 pub mod author;
+pub mod bundle;
 pub mod changes;
 pub mod command;
 pub mod complete;

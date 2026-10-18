@@ -48,6 +48,10 @@ subsetter = { version = "0.2.6", default-features = false }
 miniz_oxide = "0.9"
 # XML for .fdx (docs/spec.md, "Technology"); no default features.
 quick-xml = "0.42"
+# The .coldopen bundle's zip archive (docs/specs/bundle.md): MIT, pure Rust,
+# no unsafe code and no dependencies of its own, with its own CRC-32.
+# Deflate comes from miniz_oxide, already used for PDF.
+rawzip = "0.5.2"
 
 # The desktop app (docs/spec.md: iced, chosen in phase 1). Only the
 # tiny-skia CPU renderer by default; the `gpu` feature of coldopen-app adds

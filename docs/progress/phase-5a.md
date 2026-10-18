@@ -14,9 +14,9 @@ Phase 5 is split in two. **5a** (this phase) brings the `.coldopen` project bund
 | 2 | Specs before code: `bundle.md` and `changes.md` (new); `journal.md`, `commands.md`, `fountain.md`, `fdx.md`, `layout.md`, `editor.md`, `mcp.md`; the corpus-copies rule in `CLAUDE.md` | done |
 | 3 | Model: marks in text runs, block marks, the change table, tracking switches, `doc_id`; new operations; header checks | done |
 | 4 | Semantics: the `tracked` param, `semantics` 2, change grouping, author rules, `changes.list`, `changes.accept`, `changes.reject`, `changes.track`; replay; property tests | done |
-| 5 | The bundle behind `Format`: rawzip and miniz_oxide, deterministic bytes, a tolerant reader, `doc_id`, the journal header's reference to the change data, recovery; fuzz targets | next |
+| 5 | The bundle behind `Format`: rawzip and miniz_oxide, deterministic bytes, a tolerant reader, `doc_id`, the journal header's reference to the change data, recovery; fuzz targets | done |
 | 6 | Losses: `tracked_changes` on Fountain and .fdx; F21's `normalized` class | done, with step 4 (the agent tests needed it) |
-| 7 | Layout and PDF: marked and accepted print forms, author colors, `export.pdf` `changes` | |
+| 7 | Layout and PDF: marked and accepted print forms, author colors, `export.pdf` `changes` | next |
 | 8 | MCP tools and resource; the session file's `documents`; agent tests through the real link and `coldopen mcp` | |
 | 9 | App: marks on the page, caret over them, keys and palette, the changes panel, the writer's name, the per-script agent switch, "Save as Cold Open project" | |
 | 10 | Gates: crash gate (tracked edits, accept and reject, bundle saves), phase 4 journal fixtures, corpus round trip, reference gate, CI on three OSes, fuzzing, measurements | |
@@ -61,6 +61,14 @@ Phase 5 is split in two. **5a** (this phase) brings the `.coldopen` project bund
 21. **The writer's name is part of the author**: `Author::Writer { name }`. The journal writes `by` for a named writer; the plain writer is still left out, so old journals are unchanged. `coldopen run` and `serve --stdio` take `--author NAME`.
 22. **After "Save anyway" to Fountain or .fdx, the open script keeps its marks**, but the file is the record: reopening it, after a close or a crash, gives the file's text, as for any loss the writer accepted. Rewriting the open document into its accepted form would change blocks under the undo history (`changes.md` §9).
 23. **F21's normalisations are a separate list from the Fountain crate** (`Written::normalized`), so the crate's `losses` keep their meaning for its own property tests and fuzz checks; core gives them the class `normalized`. Each names its block and the case. The recovery check counts only `lost` losses, exactly as it counted none of these before.
+24. **The bundle records no times.** rawzip writes a timestamp extra field whenever an entry is given a time, so entries are given none: their date and time fields are zero and there are no extra fields (`bundle.md` §2, corrected from "1980-01-01").
+25. **Who makes `doc_id`.** The dispatcher, never the writer of the bytes, so writing stays deterministic: `doc.new` at a `.coldopen` path, and a save that first writes a bundle at a path (Save as, a conversion), make a new one; a save in place keeps it; a conversion to Fountain or .fdx drops it (`format::adopt`). A bundle whose `meta.json` is unreadable gets a new one when read.
+26. **Recovery of a bundle's journal** reads the bundle on disk for the table its header names (`ReadBack::use_table`). Until then the header's table stands as that many entries of an unknown author, so replay hands out the same change ids. A missing table (`change_data_missing`), another `doc_id`, or an unreadable bundle all count as a change by another program.
+27. **`doc.export` refuses `coldopen`**: a bundle is a zip, not text; `json` gives its blocks.
+28. **A join that is no longer possible keeps both blocks** (found by the `changes` fuzz check): a join is checked when it is proposed, but the block before can become a note afterwards. Accepting it, or rejecting a split whose join back is no longer possible, takes the mark off, keeps the blocks, and lists the change in `skipped` (`change_conflict` by `id`). Joins run from the first block to the last, as the accepted form gathers them (the fuzz check found the two disagreeing on a run of joined blocks).
+29. **`Dispatcher::journal_bytes`**, hidden from the docs: the journal is locked while a session is open, and on Windows a locked file cannot be read from outside, so tests read it through the lock.
+30. **The fuzz targets** `bundle_read` and `changes` join the weekly workflow (ten targets). Their checks also run on every build as property tests, with real bundles cut short or with a byte changed.
+
 
 ## Measurements
 

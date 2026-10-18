@@ -101,6 +101,8 @@ struct Replayed {
     /// Set when the header names another computer or another path: the
     /// journal was synced or copied here. Details for `journal_foreign`.
     foreign: Option<Value>,
+    /// Warnings recovery adds, such as `change_data_missing`.
+    notes: Vec<Value>,
 }
 
 impl Replayed {
@@ -262,6 +264,14 @@ impl Dispatcher {
 
     pub fn session(&self) -> Option<&Session> {
         self.session.as_ref()
+    }
+
+    /// The open journal's bytes, read through its lock, for tests and
+    /// diagnostics: on Windows the file cannot be read from outside while
+    /// it is locked.
+    #[doc(hidden)]
+    pub fn journal_bytes(&mut self) -> Option<Vec<u8>> {
+        self.session.as_mut()?.journal.as_mut()?.contents().ok()
     }
 
     /// Replaces the clock used to group typing into undo steps, for tests.
@@ -446,6 +456,7 @@ impl Dispatcher {
         self.shutdown();
         let mut doc = Document {
             next_id: 1,
+            doc_id: (format == FormatId::Bundle).then(crate::bundle::new_doc_id),
             ..Default::default()
         };
         if let Some(kind) = p.start
@@ -559,6 +570,7 @@ impl Dispatcher {
                                     ));
                                 }
                                 if r.recover {
+                                    warnings.extend(r.notes.iter().cloned());
                                     j.resume(r.valid_len, r.applied).map_err(|e| jio(e, &j))?;
                                     recovered = json!({
                                         "commands": r.commands,
@@ -696,10 +708,33 @@ impl Dispatcher {
         contents: &[u8],
         (disk_bytes, missing): (&[u8], bool),
     ) -> Assessment {
-        let read = match journal::read(contents) {
+        let mut read = match journal::read(contents) {
             Ok(r) => r,
             Err(msg) => return Assessment::Unreadable(msg),
         };
+        // A bundle's journal names its change table, which the bundle on
+        // disk holds; and a bundle that is another document, or none, is a
+        // change by another program (docs/specs/journal.md, "Recovery on
+        // open").
+        let mut notes = Vec::new();
+        let mut elsewhere = false;
+        if read.header.format == FormatId::Bundle && !missing {
+            let found = crate::bundle::identity(disk_bytes);
+            let table = found.as_ref().and_then(|(_, t)| t.as_ref());
+            if read.header.changes_ref.is_some() && !table.is_some_and(|t| read.use_table(t)) {
+                notes.push(warning(
+                    "change_data_missing",
+                    "the project on disk does not hold the change table the crash journal names; the changes it lacks show the author \"Unknown\"",
+                ));
+                elsewhere = true;
+            }
+            let disk_id = found.as_ref().and_then(|(id, _)| id.as_deref());
+            if found.is_none()
+                || (read.header.doc_id.is_some() && disk_id != read.header.doc_id.as_deref())
+            {
+                elsewhere = true;
+            }
+        }
 
         let mut r = self.replay(&read, path, (format, style), read.entries.len());
         if r.diverged {
@@ -729,11 +764,12 @@ impl Dispatcher {
             let written = read.header.format.get().write(doc, style);
             !written.is_lossy() && written.bytes == disk_bytes
         };
-        let external_change = if missing {
-            !known_disk.is_empty()
-        } else {
-            !known_disk.contains(&Fingerprint::of(disk_bytes))
-        };
+        let external_change = elsewhere
+            || if missing {
+                !known_disk.is_empty()
+            } else {
+                !known_disk.contains(&Fingerprint::of(disk_bytes))
+            };
         let recover = if missing {
             true
         } else if commands == 0 {
@@ -756,6 +792,7 @@ impl Dispatcher {
             .then(|| json!({ "host": host, "path": at }));
         Assessment::Replayed(Box::new(Replayed {
             foreign,
+            notes,
             session: replay,
             valid_len,
             applied: applied as u64,
@@ -858,13 +895,23 @@ impl Dispatcher {
         let Rendered {
             target,
             format,
-            bytes,
+            mut bytes,
             losses,
         } = Self::render(session, &p)?;
         let same_file = session
             .path
             .as_ref()
             .is_some_and(|old| same_path(old, &target));
+        // A bundle first written at a path gets an identity of its own
+        // (docs/specs/bundle.md §8); a save in place keeps it.
+        let new_id = (format == FormatId::Bundle
+            && (!same_file || session.format != FormatId::Bundle || session.doc.doc_id.is_none()))
+        .then(crate::bundle::new_doc_id);
+        if let Some(id) = &new_id {
+            let mut doc = session.doc.clone();
+            doc.doc_id = Some(id.clone());
+            bytes = format.get().write(&doc, session.style).bytes;
+        }
         if same_file {
             refuse_if_changed(session, &target, p.overwrite)?;
         } else if !p.overwrite && target.exists() {
@@ -895,6 +942,9 @@ impl Dispatcher {
             .session
             .as_mut()
             .ok_or_else(CommandError::no_document)?;
+        if let Some(id) = new_id {
+            session.doc.doc_id = Some(id);
+        }
         // A conversion leaves the document in the new format's form before
         // the journal starts again from it.
         if session.format != format {

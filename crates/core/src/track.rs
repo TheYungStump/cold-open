@@ -380,9 +380,9 @@ pub fn settle(doc: &Document, how: Settle, sel: &Selection) -> Settled {
             remove_where(&mut work, &mut ops, &|b| {
                 in_scope(b.id) && b.marks.deleted.is_some_and(picked)
             });
-            join_where(&mut work, &mut ops, &|b| {
+            skipped.extend(join_where(&mut work, &mut ops, &|b| {
                 in_scope(b.id) && b.marks.joined.is_some_and(picked)
-            });
+            }));
         }
         Settle::Reject => {
             // 2. Structure is put back change by change, newest first, as
@@ -413,9 +413,9 @@ pub fn settle(doc: &Document, how: Settle, sel: &Selection) -> Settled {
                 remove_where(&mut work, &mut ops, &|b| {
                     in_scope(b.id) && b.marks.inserted == Some(c)
                 });
-                join_where(&mut work, &mut ops, &|b| {
+                skipped.extend(join_where(&mut work, &mut ops, &|b| {
                     in_scope(b.id) && b.marks.split == Some(c)
-                });
+                }));
                 restore_retypes(&mut work, &mut ops, c, &in_scope);
             }
         }
@@ -448,16 +448,28 @@ fn remove_where(work: &mut Document, ops: &mut Vec<Op>, which: &dyn Fn(&Block) -
     }
 }
 
-/// Joins every block `which` picks to the block before it, from the last
-/// to the first. The first block has nothing to join: its marks go.
-fn join_where(work: &mut Document, ops: &mut Vec<Op>, which: &dyn Fn(&Block) -> bool) {
-    for index in (0..work.blocks.len()).rev() {
+/// Joins every block `which` picks to the block before it, from the first
+/// to the last, so a run of joined blocks gathers into the block before it
+/// as the accepted form gathers them. A block with nothing before it, or
+/// whose join would break a model rule (the block before it has since
+/// become a note, say), stays as it is: its join mark goes, and its change
+/// is returned as skipped.
+fn join_where(
+    work: &mut Document,
+    ops: &mut Vec<Op>,
+    which: &dyn Fn(&Block) -> bool,
+) -> Vec<ChangeId> {
+    let mut skipped = Vec::new();
+    let mut index = 0;
+    while index < work.blocks.len() {
         if !which(&work.blocks[index]) {
+            index += 1;
             continue;
         }
-        if index > 0 {
-            let mut prev = work.blocks[index - 1].element.clone();
-            prev.text = prev.text.concat(&work.blocks[index].element.text);
+        let merged = index.checked_sub(1).and_then(|p| {
+            crate::changes::joined(&work.blocks[p].element, &work.blocks[index].element.text)
+        });
+        if let Some(prev) = merged {
             apply(
                 work,
                 Op::Replace {
@@ -469,11 +481,13 @@ fn join_where(work: &mut Document, ops: &mut Vec<Op>, which: &dyn Fn(&Block) -> 
             apply(work, Op::Remove { index }, ops);
         } else {
             let mut marks = work.blocks[index].marks.clone();
-            marks.joined = None;
-            marks.split = None;
+            skipped.extend(marks.joined.take());
+            skipped.extend(marks.split.take());
             apply(work, Op::Mark { index, marks }, ops);
+            index += 1;
         }
     }
+    skipped
 }
 
 /// Moves the scenes change `c` moved back to where they stood. Returns

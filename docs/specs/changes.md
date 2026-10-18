@@ -173,10 +173,11 @@ Writers are never refused for whose marks an edit touches: the writer may edit a
 
 - **By scene** settles the marks inside that scene's blocks only. A change that also has marks elsewhere stays pending there.
 - **Order.** Text marks are settled first; their order does not matter.
-  - **Accepting** then removes deleted blocks, from the last to the first, and only then joins joined blocks, each to the block kept before it, as the accepted form does (§9).
+  - **Accepting** then removes deleted blocks, from the last to the first, and only then joins joined blocks, from the first to the last, each to the block kept before it, as the accepted form does (§9).
   - **Rejecting** then puts structure back change by change, newest first, as undo would: for each change, its moves are undone, its inserted blocks removed, its splits joined back and its retypes restored. A later change that reshaped a scene is therefore undone before an earlier move of that scene.
   - The same document and request always give the same result.
 - **A move whose place is gone.** When the block a moved scene stood before no longer exists, or no longer starts a scene or section, the move cannot be undone. Rejecting it by `id` fails with `change_conflict` and changes nothing; by `scene` or `all`, the other changes settle and the move stays pending, listed in the result's `skipped`.
+- **A join that is no longer possible** (2026-10-18). A join is checked when it is proposed, as an untracked join is, but the block before can change afterwards: it may become a note, which cannot hold styled text. Accepting such a join, or rejecting a split whose join back is no longer possible, keeps both blocks as they are. By `id` it fails with `change_conflict`; by `scene` or `all` the mark comes off and the change is listed in `skipped`. The accepted form (§9) keeps the blocks apart the same way. Found by the `changes` fuzz check.
 - **Undo.** Settling is an edit: one undo step, journaled, and undo gives every mark back.
 
 **Who may settle what** (decided with the project's owner, 2026-10-18):

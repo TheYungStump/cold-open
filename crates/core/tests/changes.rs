@@ -691,15 +691,17 @@ proptest! {
         let marked = blocks(&mut d);
         let current = plain(&marked);
 
-        // Accepting every change leaves the current text, with no marks.
-        // Joined blocks are joined then, and deleted blocks go.
+        // Accepting every change leaves the current text, with no marks,
+        // exactly as the accepted form has it: joined blocks are joined
+        // (where they still can be), and deleted blocks go.
         let n = changes(&mut d).len();
+        let form = serde_json::to_value(&d.session().unwrap().doc.accepted().blocks).unwrap();
         let r = run(&mut d, &writer(), "changes.accept", json!({"all": true}));
         if n > 0 {
-            let r = r.unwrap();
-            prop_assert!(r["skipped"].as_array().unwrap().is_empty());
+            prop_assert!(r.is_ok());
         }
         let accepted = blocks(&mut d);
+        prop_assert_eq!(&Value::Array(accepted.clone()), &form);
         prop_assert!(changes(&mut d).is_empty());
         prop_assert!(!accepted.iter().any(|b| b.get("change").is_some()));
         let expected: Vec<Value> = current
@@ -746,13 +748,18 @@ proptest! {
         steps in proptest::collection::vec((0..4usize, step()), 1..12)
     ) {
         let dir = tempfile::tempdir().unwrap();
-        let (mut d, p) = open(dir.path());
+        let (mut d, _) = open(dir.path());
+        // A bundle, which keeps everything, so saves come into it too.
+        let p = dir.path().join("s.coldopen");
+        ok(&mut d, &writer(), "doc.save", json!({"path": p}));
         let authors = authors();
-        for (who, s) in &steps {
+        for (k, (who, s)) in steps.iter().enumerate() {
             match who {
-                3 => {
-                    // Settle something now and then.
+                3 if k % 2 == 0 => {
                     let _ = run(&mut d, &writer(), "changes.reject", json!({"id": "c_1"}));
+                }
+                3 => {
+                    ok(&mut d, &writer(), "doc.save", json!({}));
                 }
                 w => apply(&mut d, &authors[*w], s),
             }
@@ -763,5 +770,43 @@ proptest! {
         ok(&mut d, &writer(), "doc.open", json!({"path": p}));
         prop_assert_eq!((blocks(&mut d), changes(&mut d)), before);
         d.discard();
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: std::env::var("PROPTEST_CASES").ok().and_then(|v| v.parse().ok()).unwrap_or(256),
+        ..ProptestConfig::default()
+    })]
+
+    /// The `changes` fuzz target's check, on stable.
+    #[test]
+    fn fuzz_changes_check(data in proptest::collection::vec(any::<u8>(), 0..160)) {
+        prop_assert_eq!(coldopen_core::fuzzing::changes(&data), Ok(()));
+    }
+
+    /// The `bundle_read` fuzz target's check, on stable: arbitrary bytes,
+    /// and real bundles cut short or with a byte changed.
+    #[test]
+    fn fuzz_bundle_check(
+        data in proptest::collection::vec(any::<u8>(), 0..300),
+        cut in any::<usize>(),
+        flip in any::<usize>(),
+        byte in any::<u8>(),
+    ) {
+        prop_assert_eq!(coldopen_core::fuzzing::bundle_read(&data), Ok(()));
+        let dir = tempfile::tempdir().unwrap();
+        let (mut d, _) = open(dir.path());
+        ok(&mut d, &agent(), "text.replace", json!({"find": "toast", "with": "eggs"}));
+        let p = dir.path().join("s.coldopen");
+        ok(&mut d, &writer(), "doc.save", json!({"path": p}));
+        d.shutdown();
+        let mut bytes = fs::read(&p).unwrap();
+        prop_assert_eq!(coldopen_core::fuzzing::bundle_read(&bytes), Ok(()));
+        let i = flip % bytes.len();
+        bytes[i] = byte;
+        prop_assert_eq!(coldopen_core::fuzzing::bundle_read(&bytes), Ok(()));
+        bytes.truncate(cut % (bytes.len() + 1));
+        prop_assert_eq!(coldopen_core::fuzzing::bundle_read(&bytes), Ok(()));
     }
 }

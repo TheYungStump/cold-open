@@ -38,7 +38,7 @@ A bundle is a zip archive (APPNOTE.TXT) holding these entries, each at most once
 **Cold Open's own writer**, which other tools need not copy:
 
 - **Compression.** Deflate at level 6, through miniz_oxide.
-- **Times.** Every entry's time is 1980-01-01 00:00, the earliest the format can record, so the time a file was saved never changes its bytes.
+- **Times.** No entry records a time: the date and time fields are zero and there is no timestamp extra field, so the time a file was saved never changes its bytes. Tools that show a time show the format's earliest.
 - **No extra fields** and no archive comment.
 
 The same document therefore always gives the same bytes. **Resolution:** a newer miniz_oxide could compress differently. That changes only the bytes, never what a reader gets, and would at most make recovery offer a journal whose work the file already holds.

@@ -34,7 +34,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [fountain_roundtrip, envelope, journal_replay, fdx_read, fdx_roundtrip, fdx_write, link_line, app_config]
+        target: [fountain_roundtrip, envelope, journal_replay, fdx_read, fdx_roundtrip, fdx_write, link_line, app_config, bundle_read, changes]
     # With a `target` input, the other targets' steps are skipped.
     env:
       RUN: ${{ inputs.target == '' || inputs.target == null || inputs.target == matrix.target }}

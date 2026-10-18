@@ -27,17 +27,22 @@ pub enum FormatId {
     #[default]
     Fountain,
     Fdx,
+    /// The `.coldopen` project bundle (docs/specs/bundle.md), written
+    /// `"coldopen"` in journal headers.
+    #[serde(rename = "coldopen")]
+    Bundle,
 }
 
 impl FormatId {
     /// Every format, in the order messages list them.
-    pub const ALL: [FormatId; 2] = [FormatId::Fountain, FormatId::Fdx];
+    pub const ALL: [FormatId; 3] = [FormatId::Fountain, FormatId::Fdx, FormatId::Bundle];
 
     /// The name commands use, such as `"fountain"`.
     pub fn name(self) -> &'static str {
         match self {
             FormatId::Fountain => "fountain",
             FormatId::Fdx => "fdx",
+            FormatId::Bundle => "coldopen",
         }
     }
 
@@ -46,6 +51,7 @@ impl FormatId {
         match self {
             FormatId::Fountain => "Fountain",
             FormatId::Fdx => "An .fdx file",
+            FormatId::Bundle => "A Cold Open project",
         }
     }
 
@@ -72,13 +78,14 @@ impl FormatId {
         match self {
             FormatId::Fountain => &Fountain,
             FormatId::Fdx => &Fdx,
+            FormatId::Bundle => &crate::bundle::Bundle,
         }
     }
 
     /// Whether the format's files keep tracked changes and their table, so
     /// a journal header names the table instead of copying it.
     pub fn holds_changes(self) -> bool {
-        false
+        self == FormatId::Bundle
     }
 
     /// For `skip_serializing_if`: Fountain is the default and is not written.
@@ -88,6 +95,7 @@ impl FormatId {
 }
 
 /// A file read into a document.
+#[derive(Debug)]
 pub struct ReadOut {
     pub doc: Document,
     /// How the bytes stored their text, so a save can keep it.
@@ -338,7 +346,13 @@ fn fountain_script(doc: &Document) -> (Script, Vec<Loss>) {
 /// can, so later saves do not ask again (docs/specs/commands.md,
 /// "Converting"). None of these parts is changed by an undoable command.
 pub fn adopt(doc: &mut Document, format: FormatId) {
+    // The identity belongs to a bundle; another file is another document.
+    if format != FormatId::Bundle {
+        doc.doc_id = None;
+    }
     match format {
+        // A bundle holds everything.
+        FormatId::Bundle => {}
         FormatId::Fountain => {
             doc.fdx = None;
             doc.page_format = None;
@@ -597,7 +611,7 @@ pub fn unsupported(path: &Path) -> CommandError {
     CommandError::new(
         "unsupported_format",
         format!(
-            "{} is not a script Cold Open opens: a Fountain file (.fountain, .spmd or .txt) or an .fdx file",
+            "{} is not a script Cold Open opens: a Fountain file (.fountain, .spmd or .txt), an .fdx file or a Cold Open project (.coldopen)",
             path.display()
         ),
     )

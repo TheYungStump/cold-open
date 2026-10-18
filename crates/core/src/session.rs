@@ -332,6 +332,10 @@ impl Session {
                 FormatId::from_name(&p.format),
                 p.format.to_ascii_lowercase().as_str(),
             ) {
+                (Some(FormatId::Bundle), _) => Err(CommandError::new(
+                    "unsupported_format",
+                    "a Cold Open project is a zip file, not text; save it with doc.save, or use \"json\" for its blocks",
+                )),
                 (Some(id), _) => {
                     // Text is UTF-8 with LF line ends, whatever the file uses.
                     let written = id.get().write(&self.doc, SourceStyle::default());
@@ -1629,6 +1633,10 @@ impl Session {
         let prev = &self.doc.blocks[index - 1];
         let at = prev.element.text.char_len();
         let prev_id = prev.id;
+        // A join is checked when it is proposed, as when it is done.
+        let mut merged = prev.element.clone();
+        merged.text = merged.text.concat(&self.doc.blocks[index].element.text);
+        Self::check(&merged)?;
         if let Some(ctx) = ctx {
             let marks = &self.doc.blocks[index].marks;
             if !self.only_own_insert(ctx, marks) {
@@ -1645,10 +1653,6 @@ impl Session {
                 ));
             }
         }
-        let prev = &self.doc.blocks[index - 1];
-        let mut merged = prev.element.clone();
-        merged.text = merged.text.concat(&self.doc.blocks[index].element.text);
-        Self::check(&merged)?;
         let mut ops = self.replace_op(index - 1, merged).0;
         ops.push(Op::Remove { index });
         Ok((Transaction(ops), json!({ "id": prev_id, "at": at })))
@@ -1720,7 +1724,7 @@ impl Session {
             return Err(CommandError::new(
                 "change_conflict",
                 format!(
-                    "{id} moved a scene from a place that is gone, so it cannot be moved back; accept it, or move the scene yourself"
+                    "{id} cannot be carried out as it stands: a scene it moved has lost its old place, or blocks it would join no longer can be; settle it the other way, or edit the script yourself"
                 ),
             )
             .with_details(json!({ "id": id })));

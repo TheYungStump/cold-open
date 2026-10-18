@@ -1,7 +1,7 @@
 //! Tracked changes (docs/specs/changes.md): the change table, block marks,
 //! the tracking switches, and the two print forms of a document.
 
-use coldopen_screenplay::{ElementKind, Marks, RichText, Run, Settle};
+use coldopen_screenplay::{Element, ElementKind, Marks, RichText, Run, Settle};
 use serde::{Deserialize, Serialize};
 
 use crate::author::Author;
@@ -297,6 +297,16 @@ impl BlockMarks {
     }
 }
 
+/// The block `prev` with `text` joined onto its end, or `None` when that
+/// would break a model rule, such as styled text joined into a note: a join
+/// proposed before the block before it changed may no longer be possible
+/// (docs/specs/changes.md §6).
+pub fn joined(prev: &Element, text: &RichText) -> Option<Element> {
+    let mut e = prev.clone();
+    e.text = e.text.concat(text);
+    e.problems().is_empty().then_some(e)
+}
+
 /// Every change id the text's runs name.
 pub fn text_ids(text: &RichText) -> impl Iterator<Item = ChangeId> + '_ {
     text.runs()
@@ -354,8 +364,9 @@ impl Document {
             let text = b.element.text.settle(Settle::Accept, &|_| true);
             if b.marks.joined.is_some()
                 && let Some(prev) = out.blocks.last_mut()
+                && let Some(e) = joined(&prev.element, &text)
             {
-                prev.element.text = prev.element.text.concat(&text);
+                prev.element = e;
                 continue;
             }
             let mut element = b.element.clone();

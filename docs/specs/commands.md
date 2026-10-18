@@ -408,6 +408,6 @@ Undo is unlimited. A new edit clears the redo history.
 | `not_allowed_attached` | A command an agent may not send over the app's agent link, such as `doc.open` (`docs/specs/mcp.md`). |
 | `change_not_found` | (2026-10-18) No pending change with that id. |
 | `change_pending` | (2026-10-18) The block is a pending deletion; settle its change first (`details`: `id`, `change`). |
-| `change_conflict` | (2026-10-18) A moved scene cannot be moved back, because the block it stood before is gone. |
+| `change_conflict` | (2026-10-18) A change cannot be carried out as it stands: a moved scene cannot be moved back, because the block it stood before is gone, or blocks it would join can no longer be joined. |
 | `not_your_change` | (2026-10-18) An agent tried to reject another author's change, or an edit would remove or change another author's mark (`docs/specs/changes.md` §5.4, §6). |
 | `internal_error` | Something that should never happen, such as damaged bundled fonts. |
