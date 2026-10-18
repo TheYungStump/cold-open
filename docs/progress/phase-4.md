@@ -87,6 +87,21 @@ Most files keep only a handful of paragraphs as raw text: jumpcut's Big Fish kee
   - Both have regression tests that failed first with the fuzzer's reasons. The property tests pass at 100,000 cases.
   - The fuzz workflow run by hand on the branch (run 39083887560, ten minutes per target): seven of eight targets passed, `fdx_roundtrip` and `fdx_write` among them.
   - `fountain_roundtrip` found a new input there, not one of the two above: 24 bytes, mostly invalid UTF-8, with `_*_` and `_*` markers mixed together, and "unexpected losses: style". It minimises to `_ݫ_*_�_�*`, a line the writer cannot spell back although the input is one way to spell it. Left for its own PR (`fix-fountain-emphasis-writer`).
+- **The emphasis writer** (TheYungStump/cold-open#7, 2026-10-17), for that input:
+  - **Cause:** a writer gap, not a check that was too strict. U+FFFD counts as punctuation for the flanking rules, and none of the twelve arrangements spelled the line between punctuation. An ordered arrangement fixes it (`fountain.md` §9). No expected output changed in the conformance suite, the Fountain corpus or the layout goldens.
+  - **The round-trip check now gates silent loss:** a style loss passes only when reported for that element and everything else reads back identical. Bold and italic on whitespace are set aside.
+  - **Styles emphasis cannot spell** (crossing phrases, a style edge between two punctuation marks inside another style, two styles crossing inside a word) go through fixed steps before a line goes plain (§9).
+  - **Rates per 100,000**, from `styling_rates` (deterministic, run by hand). These are measurements, not gates.
+    - Packed and mixed markers, the class of the three emphasis findings:
+      - Before the fix, 13 failed the old check.
+      - With the ordered arrangement, a stricter check that searched for spellings without packed runs failed 44 in 300,000 (14.7 per 100,000): 8 writer gaps it found, and 36 lines too long to search.
+      - Under the new check none fail. 35 report a style loss, and 6 lose only bold or italic on whitespace.
+    - Styled prose, 100,000 scripts:
+      - Every line emphasis can spell writes with no loss.
+      - Of the 31,522 lines it cannot spell as they are, 14,356 still read back exactly, 16,700 lose only bold or italic on spaces (not reported), 43 lose underline on a space and 423 lose a crossing style from one word (both reported).
+      - None go plain. Before these steps, 15,824 of the 100,000 scripts lost styles on such a line, and a line no arrangement could spell was written plain.
+  - The property tests pass at 100,000 cases.
+  - **`fountain_roundtrip` run by hand for 30 minutes on the branch** (run 39088474226): passed, 1,259,996 inputs in 1,801 seconds with no failure. The workflow can now run one target for a chosen time.
 - **Smaller items:**
   - Why the 2012 Final Draft files keep more paragraphs raw (it costs journal size, nothing else).
   - The recovery dialog's list of changed scenes treats an unreadable file as empty (`disk_document`).
