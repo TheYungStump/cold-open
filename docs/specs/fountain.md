@@ -1,7 +1,7 @@
 # Fountain: how Cold Open reads and writes it
 
 - **Date:** 2026-10-13
-- **Updated:** 2026-10-13 (phase 2): reversed scene heading prefixes (§4, §6.2, §9). 2026-10-15 (phase 3): the normal form's source map (§10). 2026-10-16: hidden-only lines inside an element (§5); time in proportion to the input (§1); a document read from .fdx (§11). 2026-10-17: an opening paragraph that starts with U+FEFF, and a dual-dialogue name that reads as a scene heading (§9); title values brought to normal form after emphasis (§4).
+- **Updated:** 2026-10-13 (phase 2): reversed scene heading prefixes (§4, §6.2, §9). 2026-10-15 (phase 3): the normal form's source map (§10). 2026-10-16: hidden-only lines inside an element (§5); time in proportion to the input (§1); a document read from .fdx (§11). 2026-10-17: an opening paragraph that starts with U+FEFF, and a dual-dialogue name that reads as a scene heading (§9); title values brought to normal form after emphasis (§4); the ordered emphasis arrangement (§9).
 - **Status:** implemented in `crates/fountain` (phase 1)
 - **Sources:**
   - The public Fountain syntax page, <https://fountain.io/syntax>, read 2026-10-13.
@@ -223,6 +223,10 @@ Empty lines inside dialogue or a note are written as two spaces.
   - `\[` before `[[`;
   - `\/` before `*`, so a literal `/*` never opens boneyard (escaping the `/` works even when the `*` is an emphasis marker).
 - **Emphasis around notes and boneyard.** Markers are placed in the first of several arrangements that reads back exactly. A style that carries on past a note stays open across it (`**a [[n]] b**`). **Resolution (2026-10-14):** when the style changes right after a note or boneyard, closing the old style there can put two delimiter runs side by side (`**bold[[n]]***it*`), which reads back differently. The writer then also tries closing the old style before the hidden span (`**bold**[[n]]*it*`). It tries that last, so lines that already read back keep their written form. Found by the round-trip property test with a multi-line note.
+- **Resolution (2026-10-17): the ordered arrangement.**
+  - Which arrangement reads back depends on the characters next to the markers. The flanking rules (§8) treat punctuation differently from letters, and U+FFFD, the character invalid UTF-8 is read as, counts as punctuation. So the same styles, underline, then italic and underline, then italic, read back from `_a*b*_*c*` between letters but need `_é_*_�_�*` between punctuation.
+  - The writer therefore also tries an **ordered** arrangement. At every run the longest-lasting style is outermost, and a shorter style already open is closed and reopened inside it. It comes after the other arrangements, so a line that already read back keeps its written form.
+  - Found by the `fountain_roundtrip` fuzz target.
 - If the script has no title page but its first paragraph would read as one, that paragraph is forced.
 - **Resolution (2026-10-17):** the same holds when, with no title page, the first paragraph starts with U+FEFF. A reader removes that character as a byte-order mark (§3), so the paragraph is forced and the character stays its text (`!` before an action). Only a U+FEFF that is not at the start of the input reaches the model, as in a blank line followed by the character. Found by the `fountain_roundtrip` fuzz target.
 - A line inside an element that holds only notes or boneyard would join the line next to it when read back (§5). The writer wraps it in an empty emphasis pair, `*[[note]]*`, which prints nothing but keeps it a line of its own.

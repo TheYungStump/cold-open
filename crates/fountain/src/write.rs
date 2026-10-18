@@ -180,6 +180,11 @@ enum Nesting {
     Flat,
     /// Close everything at each style change; open italic, bold, underline.
     FlatReversed,
+    /// Like `Nested`, but the styles stay in longest-lasting order at every
+    /// run: an open style that ends before one about to open is closed and
+    /// reopened inside it (`_a_*_b_c*`). Which of these reads back depends
+    /// on the characters next to the markers (spec §9).
+    Ordered,
 }
 
 /// One way to place markers: the nesting, whether literal `*` and `_` are
@@ -196,7 +201,7 @@ struct Plan {
 /// last so lines that already read back keep their written form; it is
 /// needed when the style change after a note would otherwise put two
 /// delimiter runs together (`**bold[[n]]***it*`).
-const PLANS: [Plan; 12] = {
+const PLANS: [Plan; 16] = {
     const fn p(nesting: Nesting, escape_delims: bool, close_before_hidden: bool) -> Plan {
         Plan {
             nesting,
@@ -217,6 +222,10 @@ const PLANS: [Plan; 12] = {
         p(Nesting::Flat, true, true),
         p(Nesting::FlatReversed, false, true),
         p(Nesting::FlatReversed, true, true),
+        p(Nesting::Ordered, false, false),
+        p(Nesting::Ordered, true, false),
+        p(Nesting::Ordered, false, true),
+        p(Nesting::Ordered, true, true),
     ]
 };
 
@@ -241,9 +250,27 @@ fn render(line: &[Run], plan: Plan, after: Option<char>, escape_at: &[usize]) ->
             .take_while(|&has| has)
             .count()
     };
-    // Which open styles must close before `want` applies.
-    let closing_from = |stack: &[Flag], want: &[Flag]| match nesting {
+    // The order `want` should stand in from outermost, for the run at `r`:
+    // longest-lasting first, open styles before new ones among equals.
+    let ordered = |stack: &[Flag], want: &[Flag], r: usize| -> Vec<Flag> {
+        let mut w = want.to_vec();
+        w.sort_by_key(|f| {
+            let open = stack.iter().position(|s| s == f).unwrap_or(usize::MAX);
+            (std::cmp::Reverse(lasts(r, *f)), open)
+        });
+        w
+    };
+    // Which open styles must close before `want` applies at run `r`.
+    let closing_from = |stack: &[Flag], want: &[Flag], r: usize| match nesting {
         Nesting::Nested => stack.iter().position(|f| !want.contains(f)),
+        Nesting::Ordered => {
+            let order = ordered(stack, want, r);
+            stack
+                .iter()
+                .zip(&order)
+                .position(|(s, o)| s != o)
+                .or_else(|| (stack.len() > order.len()).then_some(order.len()))
+        }
         Nesting::Flat | Nesting::FlatReversed => {
             let same = stack.len() == want.len() && stack.iter().all(|f| want.contains(f));
             if same { None } else { Some(0) }
@@ -251,14 +278,15 @@ fn render(line: &[Run], plan: Plan, after: Option<char>, escape_at: &[usize]) ->
     };
     for (r, run) in line.iter().enumerate() {
         if close_before_hidden && matches!(run, Run::Note(_) | Run::Boneyard(_)) {
-            let next: Vec<Flag> = line[r + 1..]
+            let (next_r, next): (usize, Vec<Flag>) = line[r + 1..]
                 .iter()
-                .find_map(|x| match x {
-                    Run::Text { style, .. } => Some(Flag::of(*style)),
+                .enumerate()
+                .find_map(|(k, x)| match x {
+                    Run::Text { style, .. } => Some((r + 1 + k, Flag::of(*style))),
                     _ => None,
                 })
-                .unwrap_or_default();
-            if let Some(pos) = closing_from(&stack, &next) {
+                .unwrap_or((line.len(), Vec::new()));
+            if let Some(pos) = closing_from(&stack, &next, next_r) {
                 for f in stack.drain(pos..).rev() {
                     pieces.push(Piece::Mark(f.marker()));
                 }
@@ -269,7 +297,7 @@ fn render(line: &[Run], plan: Plan, after: Option<char>, escape_at: &[usize]) ->
             Run::Boneyard(b) => pieces.push(Piece::Raw(format!("/*{b}*/"))),
             Run::Text { text, style } => {
                 let want = Flag::of(*style);
-                if let Some(pos) = closing_from(&stack, &want) {
+                if let Some(pos) = closing_from(&stack, &want, r) {
                     for f in stack.drain(pos..).rev() {
                         pieces.push(Piece::Mark(f.marker()));
                     }
@@ -278,7 +306,9 @@ fn render(line: &[Run], plan: Plan, after: Option<char>, escape_at: &[usize]) ->
                     want.into_iter().filter(|f| !stack.contains(f)).collect();
                 match nesting {
                     // Stable sort keeps underline, bold, italic order among equals.
-                    Nesting::Nested => opening.sort_by_key(|&f| std::cmp::Reverse(lasts(r, f))),
+                    Nesting::Nested | Nesting::Ordered => {
+                        opening.sort_by_key(|&f| std::cmp::Reverse(lasts(r, f)));
+                    }
                     Nesting::Flat => {}
                     Nesting::FlatReversed => opening.reverse(),
                 }

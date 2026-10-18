@@ -498,3 +498,25 @@ fn a_title_value_trimmed_after_emphasis_is_in_normal_form() {
         );
     }
 }
+
+/// Found by the `fountain_roundtrip` fuzz target (run 39083887560,
+/// 2026-10-17): "unexpected losses: style". Underline, then italic and
+/// underline, then italic, next to characters the flanking rules count as
+/// punctuation (U+FFFD from invalid UTF-8). The input itself spells it, so
+/// the writer must too, with no loss: the ordered arrangement (spec §9).
+#[test]
+fn mixed_markers_next_to_punctuation_write_back() {
+    for input in [
+        &b"\xff\xff\xff\xff\xdd~_*_\xd6_*\xff\xdd\xab_*_\xd6_\x89*\xd6*"[..],
+        "_\u{76b}_*_\u{fffd}_\u{fffd}*".as_bytes(),
+    ] {
+        let text = String::from_utf8_lossy(input);
+        let w = write(&parse(&text).script);
+        assert!(w.losses.is_empty(), "{text:?}: {:?}", w.losses);
+        assert_eq!(
+            coldopen_fountain::fuzzing::round_trip(&text),
+            Ok(()),
+            "{text:?}"
+        );
+    }
+}
