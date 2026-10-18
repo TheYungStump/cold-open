@@ -75,6 +75,12 @@ impl FormatId {
         }
     }
 
+    /// Whether the format's files keep tracked changes and their table, so
+    /// a journal header names the table instead of copying it.
+    pub fn holds_changes(self) -> bool {
+        false
+    }
+
     /// For `skip_serializing_if`: Fountain is the default and is not written.
     pub fn is_fountain(&self) -> bool {
         *self == FormatId::Fountain
@@ -101,6 +107,66 @@ pub struct Loss {
     /// Stable machine-readable code, such as `shot_element`.
     pub code: String,
     pub message: String,
+    pub class: LossClass,
+}
+
+/// What a loss means for a save (docs/specs/commands.md, "Losses").
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LossClass {
+    /// The format cannot hold it: a save refuses without `allow_lossy`.
+    #[default]
+    Lost,
+    /// Written in the format's normal form, which prints the same: never a
+    /// reason to refuse.
+    Normalized,
+}
+
+impl LossClass {
+    pub fn name(self) -> &'static str {
+        match self {
+            LossClass::Lost => "lost",
+            LossClass::Normalized => "normalized",
+        }
+    }
+}
+
+impl Loss {
+    fn lost(element: Option<usize>, code: impl Into<String>, message: impl Into<String>) -> Loss {
+        Loss {
+            element,
+            code: code.into(),
+            message: message.into(),
+            class: LossClass::Lost,
+        }
+    }
+}
+
+impl Written {
+    /// Whether anything the format could not hold was left out or changed:
+    /// what refuses a save, and what the recovery check counts.
+    pub fn is_lossy(&self) -> bool {
+        self.losses.iter().any(|l| l.class == LossClass::Lost)
+    }
+}
+
+/// The document a format that cannot hold tracked changes writes: as
+/// accepting every change leaves it, with a loss saying so
+/// (docs/specs/changes.md §9).
+fn without_changes(doc: &Document) -> Option<(Document, Loss)> {
+    if !doc.has_changes() {
+        return None;
+    }
+    let n = doc.pending().len();
+    let loss = Loss::lost(
+        None,
+        "tracked_changes",
+        format!(
+            "{n} pending tracked change{} cannot be kept, so the script is written as accepting {} leaves it",
+            if n == 1 { "" } else { "s" },
+            if n == 1 { "it" } else { "them all" }
+        ),
+    );
+    Some((doc.accepted(), loss))
 }
 
 /// A document written out.
@@ -171,18 +237,23 @@ impl Format for Fountain {
     }
 
     fn write(&self, doc: &Document, style: SourceStyle) -> Written {
+        let accepted = without_changes(doc);
+        let doc = accepted.as_ref().map_or(doc, |(d, _)| d);
         let (script, mut losses) = fountain_script(doc);
         let written = coldopen_fountain::write(&script);
         let mut all: Vec<Loss> = written
             .losses
             .into_iter()
-            .map(|l| Loss {
-                element: l.element,
-                code: l.code.to_string(),
-                message: l.message,
-            })
+            .map(|l| Loss::lost(l.element, l.code, l.message))
             .collect();
         all.append(&mut losses);
+        all.extend(accepted.map(|(_, l)| l));
+        all.extend(written.normalized.into_iter().map(|l| Loss {
+            element: l.element,
+            code: l.code.to_string(),
+            message: l.message,
+            class: LossClass::Normalized,
+        }));
         Written {
             bytes: io::encode(&written.text, style),
             losses: all,
@@ -206,11 +277,11 @@ fn fountain_script(doc: &Document) -> (Script, Vec<Loss>) {
         .as_deref()
         .is_some_and(|f| *f != PageFormat::default())
     {
-        losses.push(Loss {
-            element: None,
-            code: "page_format".into(),
-            message: "the page and element settings are not kept; Fountain always prints with the default format".into(),
-        });
+        losses.push(Loss::lost(
+            None,
+            "page_format",
+            "the page and element settings are not kept; Fountain always prints with the default format",
+        ));
     }
     let line = doc
         .page_format
@@ -229,29 +300,27 @@ fn fountain_script(doc: &Document) -> (Script, Vec<Loss>) {
         let lines = u8::try_from((pt.0.max(0) + line / 2) / line).unwrap_or(u8::MAX);
         e.space_before = Some(lines);
         if pt.0 % line != 0 {
-            losses.push(Loss {
-                element: Some(i),
-                code: "paragraph_spacing".into(),
-                message: "space above that is not a whole number of lines is written as the nearest number of blank lines".into(),
-            });
+            losses.push(Loss::lost(
+                Some(i),
+                "paragraph_spacing",
+                "space above that is not a whole number of lines is written as the nearest number of blank lines",
+            ));
         }
     }
     if !doc.title_lines.is_empty() && doc.title_page.is_empty() {
         script.title_page = title_keys(&doc.title_lines);
-        losses.push(Loss {
-            element: None,
-            code: "title_page_layout".into(),
-            message:
-                "the title page's positions are not kept; its lines are written as title-page keys"
-                    .into(),
-        });
+        losses.push(Loss::lost(
+            None,
+            "title_page_layout",
+            "the title page's positions are not kept; its lines are written as title-page keys",
+        ));
     }
     if let Some(kept) = &doc.fdx {
         let names = kept.section_names();
-        losses.push(Loss {
-            element: None,
-            code: "fdx_data".into(),
-            message: if names.is_empty() {
+        losses.push(Loss::lost(
+            None,
+            "fdx_data",
+            if names.is_empty() {
                 "data the .fdx file holds for other apps is not kept".into()
             } else {
                 format!(
@@ -259,7 +328,7 @@ fn fountain_script(doc: &Document) -> (Script, Vec<Loss>) {
                     names.join(", ")
                 )
             },
-        });
+        ));
     }
     (script, losses)
 }
@@ -404,10 +473,7 @@ impl Format for Fdx {
             .elements
             .into_iter()
             .enumerate()
-            .map(|(i, element)| Block {
-                id: BlockId(i as u64 + 1),
-                element,
-            })
+            .map(|(i, element)| Block::new(BlockId(i as u64 + 1), element))
             .collect();
         let spacing: BTreeMap<BlockId, Pt> = read
             .overrides
@@ -422,6 +488,7 @@ impl Format for Fdx {
             title_lines: read.title_lines,
             spacing,
             fdx: Some(Box::new(read.kept)),
+            ..Document::default()
         };
         Ok(ReadOut {
             doc,
@@ -436,19 +503,21 @@ impl Format for Fdx {
     }
 
     fn write(&self, doc: &Document, style: SourceStyle) -> Written {
+        let accepted = without_changes(doc);
+        let doc = accepted.as_ref().map_or(doc, |(d, _)| d);
         let format = doc.page_format.as_deref().cloned().unwrap_or_default();
-        let mut losses = Vec::new();
+        let mut losses: Vec<Loss> = accepted.iter().map(|(_, l)| l.clone()).collect();
         // A Fountain title page is written as the lines it prints as
         // (docs/specs/fdx.md §14.3).
         let converted;
         let title_lines: &[TitleLine] = if doc.title_lines.is_empty() && !doc.title_page.is_empty()
         {
             converted = coldopen_layout::title_lines(&doc.title_page, &format);
-            losses.push(Loss {
-                element: None,
-                code: "title_page_keys".into(),
-                message: "the title page's key names (Title, Author...) have no place in .fdx; its lines are kept".into(),
-            });
+            losses.push(Loss::lost(
+                None,
+                "title_page_keys",
+                "the title page's key names (Title, Author...) have no place in .fdx; its lines are kept",
+            ));
             &converted
         } else {
             &doc.title_lines
@@ -469,10 +538,12 @@ impl Format for Fdx {
             kept: doc.fdx.as_deref(),
             declare_utf8: style.encoding == io::Encoding::Windows1252,
         });
-        losses.extend(written.losses.into_iter().map(|l| Loss {
-            element: l.block.and_then(|id| doc.index_of(BlockId(id))),
-            code: l.code.to_string(),
-            message: l.message,
+        losses.extend(written.losses.into_iter().map(|l| {
+            Loss::lost(
+                l.block.and_then(|id| doc.index_of(BlockId(id))),
+                l.code,
+                l.message,
+            )
         }));
         Written {
             bytes: io::encode(

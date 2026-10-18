@@ -274,6 +274,10 @@ pub fn command_title(name: &str) -> &'static str {
         "redo" => "Redo",
         "batch" => "Run several edits as one",
         "history.list" => "List the undo history",
+        "changes.list" => "List tracked changes",
+        "changes.accept" => "Accept tracked changes by id, scene or all",
+        "changes.reject" => "Reject tracked changes by id, scene or all",
+        "changes.track" => "Choose which edits are tracked",
         _ => "Command",
     }
 }

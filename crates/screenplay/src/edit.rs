@@ -4,11 +4,12 @@
 //! Offsets count Unicode scalar values of the printed text. Hidden runs
 //! (notes and boneyard) take no offsets; an offset names the point just
 //! after the printed character before it, so hidden runs sitting there
-//! belong to the text that follows.
+//! belong to the text that follows. Pending deletions (docs/specs/changes.md
+//! §2.1) are treated like hidden runs.
 
 use std::fmt;
 
-use crate::text::{RichText, Run, Style};
+use crate::text::{ChangeId, Marks, RichText, Run, Style};
 
 /// An offset or range that does not fit the text.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -49,8 +50,26 @@ impl StyleChange {
     }
 }
 
+/// What settling a change does to text (docs/specs/changes.md §6).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Settle {
+    Accept,
+    Reject,
+}
+
+/// One stretch of marked text, for listing changes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MarkedSpan {
+    pub change: ChangeId,
+    /// True for a pending deletion, false for a pending insertion.
+    pub deleted: bool,
+    pub text: String,
+}
+
 enum Cell {
-    C(char, Style),
+    /// A character of the current text.
+    C(char, Style, Marks),
+    /// A hidden run or a pending deletion, kept whole.
     H(Run),
 }
 
@@ -58,7 +77,9 @@ fn cells(rt: &RichText) -> Vec<Cell> {
     let mut out = Vec::new();
     for r in rt.runs() {
         match r {
-            Run::Text { text, style } => out.extend(text.chars().map(|c| Cell::C(c, *style))),
+            Run::Text { text, style, marks } if !marks.is_deleted() => {
+                out.extend(text.chars().map(|c| Cell::C(c, *style, *marks)))
+            }
             h => out.push(Cell::H(h.clone())),
         }
     }
@@ -69,25 +90,27 @@ fn rebuild(cells: impl IntoIterator<Item = Cell>) -> RichText {
     let mut runs = Vec::new();
     let mut text = String::new();
     let mut style = Style::PLAIN;
+    let mut marks = Marks::NONE;
     for cell in cells {
         match cell {
-            Cell::C(c, s) => {
-                if s != style && !text.is_empty() {
-                    runs.push(Run::styled(std::mem::take(&mut text), style));
+            Cell::C(c, s, m) => {
+                if (s != style || m != marks) && !text.is_empty() {
+                    runs.push(Run::marked(std::mem::take(&mut text), style, marks));
                 }
                 style = s;
+                marks = m;
                 text.push(c);
             }
             Cell::H(h) => {
                 if !text.is_empty() {
-                    runs.push(Run::styled(std::mem::take(&mut text), style));
+                    runs.push(Run::marked(std::mem::take(&mut text), style, marks));
                 }
                 runs.push(h);
             }
         }
     }
     if !text.is_empty() {
-        runs.push(Run::styled(text, style));
+        runs.push(Run::marked(text, style, marks));
     }
     RichText::new(runs)
 }
@@ -116,7 +139,7 @@ impl RichText {
         self.runs()
             .iter()
             .map(|r| match r {
-                Run::Text { text, .. } => text.chars().count(),
+                Run::Text { text, marks, .. } if !marks.is_deleted() => text.chars().count(),
                 _ => 0,
             })
             .sum()
@@ -146,7 +169,9 @@ impl RichText {
         let mut first = None;
         let mut v = 0;
         for r in self.runs() {
-            if let Run::Text { text, style } = r {
+            if let Run::Text { text, style, marks } = r
+                && !marks.is_deleted()
+            {
                 for _ in text.chars() {
                     if first.is_none() {
                         first = Some(*style);
@@ -172,17 +197,30 @@ impl RichText {
         text: &str,
         style: Option<Style>,
     ) -> Result<RichText, RangeError> {
+        self.insert_marked(at, text, style, Marks::NONE)
+    }
+
+    /// Inserts `text` at offset `at` with the given marks, in `style` or the
+    /// style at that point.
+    pub fn insert_marked(
+        &self,
+        at: usize,
+        text: &str,
+        style: Option<Style>,
+        marks: Marks,
+    ) -> Result<RichText, RangeError> {
         self.check(at, at)?;
         let style = style.unwrap_or_else(|| self.style_at(at));
         let mut cs = cells(self);
         let i = insert_index(&cs, at).unwrap_or(cs.len());
-        let new: Vec<Cell> = text.chars().map(|c| Cell::C(c, style)).collect();
+        let new: Vec<Cell> = text.chars().map(|c| Cell::C(c, style, marks)).collect();
         cs.splice(i..i, new);
         Ok(rebuild(cs))
     }
 
     /// Deletes the printed characters from `from` up to `to`. Hidden runs
-    /// inside the range are kept, so they end up at `from`.
+    /// and pending deletions inside the range are kept, so they end up at
+    /// `from`.
     pub fn delete(&self, from: usize, to: usize) -> Result<RichText, RangeError> {
         self.check(from, to)?;
         let mut v = 0;
@@ -197,6 +235,46 @@ impl RichText {
         Ok(rebuild(kept))
     }
 
+    /// A tracked deletion of the printed characters from `from` up to `to`
+    /// (docs/specs/changes.md §5.1): a character inserted by a change for
+    /// which `own` is true is removed outright, and every other one is
+    /// marked deleted by `change`.
+    pub fn delete_tracked(
+        &self,
+        from: usize,
+        to: usize,
+        change: ChangeId,
+        own: &dyn Fn(ChangeId) -> bool,
+    ) -> Result<RichText, RangeError> {
+        self.check(from, to)?;
+        let mut v = 0;
+        let mut out = Vec::new();
+        for c in cells(self) {
+            match c {
+                Cell::C(ch, s, m) => {
+                    let inside = v >= from && v < to;
+                    v += 1;
+                    if !inside {
+                        out.push(Cell::C(ch, s, m));
+                    } else if m.ins.is_some_and(own) {
+                        // Never in the accepted text: gone.
+                    } else {
+                        out.push(Cell::H(Run::marked(
+                            ch.to_string(),
+                            s,
+                            Marks {
+                                del: Some(change),
+                                ..m
+                            },
+                        )));
+                    }
+                }
+                h => out.push(h),
+            }
+        }
+        Ok(rebuild(out))
+    }
+
     /// Changes the styles of the printed characters from `from` up to `to`.
     pub fn restyle(
         &self,
@@ -207,14 +285,14 @@ impl RichText {
         self.check(from, to)?;
         let mut v = 0;
         let changed = cells(self).into_iter().map(|c| match c {
-            Cell::C(ch, s) => {
+            Cell::C(ch, s, m) => {
                 let s = if v >= from && v < to {
                     change.apply(s)
                 } else {
                     s
                 };
                 v += 1;
-                Cell::C(ch, s)
+                Cell::C(ch, s, m)
             }
             h => h,
         });
@@ -241,6 +319,151 @@ impl RichText {
         runs.extend(other.runs().iter().cloned());
         RichText::new(runs)
     }
+
+    /// The insertion marks next to offset `at`: of the printed character
+    /// before it, and of the one at it.
+    pub fn ins_around(&self, at: usize) -> (Option<ChangeId>, Option<ChangeId>) {
+        let mut before = None;
+        let mut after = None;
+        let mut v = 0;
+        for r in self.runs() {
+            if let Run::Text { text, marks, .. } = r
+                && !marks.is_deleted()
+            {
+                for _ in text.chars() {
+                    if v + 1 == at {
+                        before = marks.ins;
+                    }
+                    if v == at {
+                        after = marks.ins;
+                    }
+                    v += 1;
+                }
+            }
+        }
+        (before, after)
+    }
+
+    /// The changes of pending deletions that sit at offset `from` or at
+    /// offset `to`, in text order.
+    pub fn del_touching(&self, from: usize, to: usize) -> Vec<ChangeId> {
+        let mut out = Vec::new();
+        let mut v = 0;
+        for r in self.runs() {
+            match r {
+                Run::Text { text, marks, .. } if !marks.is_deleted() => v += text.chars().count(),
+                Run::Text { marks, .. } => {
+                    if (v == from || v == to)
+                        && let Some(d) = marks.del
+                    {
+                        out.push(d);
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
+    /// The text with the marks of the changes `which` picks settled, as
+    /// accepting or rejecting them does (docs/specs/changes.md §6). Other
+    /// marks stay.
+    pub fn settle(&self, how: Settle, which: &dyn Fn(ChangeId) -> bool) -> RichText {
+        let mut runs = Vec::with_capacity(self.runs().len());
+        for r in self.runs() {
+            match r {
+                Run::Text { text, style, marks } => {
+                    let ins = marks.ins.filter(|&c| which(c));
+                    let del = marks.del.filter(|&c| which(c));
+                    let removed = match how {
+                        Settle::Accept => del.is_some(),
+                        Settle::Reject => ins.is_some(),
+                    };
+                    if removed {
+                        continue;
+                    }
+                    let mut m = *marks;
+                    if ins.is_some() {
+                        m.ins = None;
+                    }
+                    if del.is_some() {
+                        m.del = None;
+                    }
+                    runs.push(Run::marked(text.clone(), *style, m));
+                }
+                h => runs.push(h.clone()),
+            }
+        }
+        RichText::new(runs)
+    }
+
+    /// The text with every mark removed and every pending deletion left out:
+    /// the current text, as accepting every change leaves it.
+    pub fn accepted(&self) -> RichText {
+        self.settle(Settle::Accept, &|_| true)
+    }
+
+    /// The text as a print form shows it: pending deletions count as
+    /// printed text, so they take their place on the page, struck through
+    /// (docs/specs/changes.md §9).
+    pub fn shown(&self) -> RichText {
+        let runs = self
+            .runs()
+            .iter()
+            .map(|r| match r {
+                Run::Text { text, style, marks } if marks.del.is_some() => Run::marked(
+                    text.clone(),
+                    *style,
+                    Marks {
+                        show: true,
+                        ..*marks
+                    },
+                ),
+                other => other.clone(),
+            })
+            .collect();
+        RichText::new(runs)
+    }
+
+    /// The text as a command's input stands for it: a run marked deleted is
+    /// left out and insertion marks are dropped, since marks are only ever
+    /// made by tracked edits (docs/specs/commands.md, "Blocks in JSON").
+    pub fn as_input(&self) -> RichText {
+        let runs = self
+            .runs()
+            .iter()
+            .filter(|r| !matches!(r, Run::Text { marks, .. } if marks.del.is_some()))
+            .map(|r| match r {
+                Run::Text { text, style, .. } => Run::styled(text.clone(), *style),
+                other => other.clone(),
+            })
+            .collect();
+        RichText::new(runs)
+    }
+
+    /// The marked stretches of the text, in order.
+    pub fn marked_spans(&self) -> Vec<MarkedSpan> {
+        let mut out = Vec::new();
+        for r in self.runs() {
+            if let Run::Text { text, marks, .. } = r {
+                if let Some(c) = marks.ins {
+                    out.push(MarkedSpan {
+                        change: c,
+                        deleted: false,
+                        text: text.clone(),
+                    });
+                }
+                if let Some(c) = marks.del {
+                    out.push(MarkedSpan {
+                        change: c,
+                        deleted: true,
+                        text: text.clone(),
+                    });
+                }
+            }
+        }
+        out
+    }
 }
 
 #[cfg(test)]
@@ -255,6 +478,20 @@ mod tests {
 
     fn note(s: &str) -> Run {
         Run::Note(s.into())
+    }
+
+    fn ins(c: u64) -> Marks {
+        Marks {
+            ins: Some(ChangeId(c)),
+            ..Marks::NONE
+        }
+    }
+
+    fn del(c: u64) -> Marks {
+        Marks {
+            del: Some(ChangeId(c)),
+            ..Marks::NONE
+        }
     }
 
     #[test]
@@ -351,5 +588,101 @@ mod tests {
         let (a, b) = rt.split_at(4).unwrap();
         assert_eq!(a, rt);
         assert!(b.is_empty());
+    }
+
+    #[test]
+    fn pending_deletions_take_no_offsets() {
+        let rt = RichText::new(vec![
+            Run::plain("the "),
+            Run::marked("big ", Style::PLAIN, del(1)),
+            Run::plain("dog"),
+        ]);
+        assert_eq!(rt.plain_text(), "the dog");
+        assert_eq!(rt.char_len(), 7);
+        // Text typed where the deletion sits goes before it.
+        let t = rt.insert(4, "red ", None).unwrap();
+        assert_eq!(t.plain_text(), "the red dog");
+        assert_eq!(t.runs()[0], Run::plain("the red "));
+        assert!(t.runs()[1].is_deleted());
+        // An untracked delete keeps the deletion, as it keeps notes.
+        let t = rt.delete(0, 7).unwrap();
+        assert_eq!(t.runs(), &[Run::marked("big ", Style::PLAIN, del(1))]);
+        assert!(t.has_marks());
+    }
+
+    #[test]
+    fn tracked_deletes_remove_own_insertions_and_mark_the_rest() {
+        let rt = RichText::new(vec![
+            Run::plain("ab"),
+            Run::marked("cd", Style::PLAIN, ins(1)),
+            Run::marked("ef", Style::PLAIN, ins(2)),
+        ]);
+        let own = |c: ChangeId| c == ChangeId(1);
+        let t = rt.delete_tracked(1, 5, ChangeId(3), &own).unwrap();
+        assert_eq!(t.plain_text(), "af");
+        assert_eq!(
+            t.runs(),
+            &[
+                Run::plain("a"),
+                Run::marked("b", Style::PLAIN, del(3)),
+                Run::marked(
+                    "e",
+                    Style::PLAIN,
+                    Marks {
+                        ins: Some(ChangeId(2)),
+                        del: Some(ChangeId(3)),
+                        show: false
+                    }
+                ),
+                Run::marked("f", Style::PLAIN, ins(2)),
+            ]
+        );
+        // Accepting change 2 keeps its text, which change 3 still deletes.
+        let a = t.settle(Settle::Accept, &|c| c == ChangeId(2));
+        assert_eq!(a.plain_text(), "af");
+        // Rejecting change 2 takes its text away, deleted or not.
+        let r = t.settle(Settle::Reject, &|c| c == ChangeId(2));
+        assert_eq!(r.plain_text(), "a");
+        assert_eq!(r.runs().len(), 2);
+        // Accepting the deletion removes the struck text.
+        assert_eq!(
+            t.settle(Settle::Accept, &|c| c == ChangeId(3)).plain_text(),
+            "af"
+        );
+        assert_eq!(
+            t.settle(Settle::Reject, &|c| c == ChangeId(3)).plain_text(),
+            "abef"
+        );
+        assert_eq!(t.accepted(), RichText::new(vec![Run::plain("af")]));
+    }
+
+    #[test]
+    fn marks_around_a_point_and_a_range() {
+        let rt = RichText::new(vec![
+            Run::marked("ab", Style::PLAIN, ins(1)),
+            Run::marked("x", Style::PLAIN, del(2)),
+            Run::plain("cd"),
+        ]);
+        assert_eq!(rt.ins_around(2), (Some(ChangeId(1)), None));
+        assert_eq!(rt.ins_around(1), (Some(ChangeId(1)), Some(ChangeId(1))));
+        assert_eq!(rt.ins_around(0), (None, Some(ChangeId(1))));
+        assert_eq!(rt.del_touching(2, 3), vec![ChangeId(2)]);
+        assert_eq!(rt.del_touching(0, 1), Vec::<ChangeId>::new());
+    }
+
+    #[test]
+    fn shown_text_prints_deletions_and_input_drops_them() {
+        let rt = RichText::new(vec![
+            Run::plain("a"),
+            Run::marked("b", Style::PLAIN, del(1)),
+            Run::marked("c", Style::PLAIN, ins(2)),
+        ]);
+        assert_eq!(rt.plain_text(), "ac");
+        assert_eq!(rt.shown().plain_text(), "abc");
+        assert_eq!(rt.shown().char_len(), 3);
+        assert_eq!(rt.as_input(), RichText::plain("ac"));
+        let spans = rt.marked_spans();
+        assert_eq!(spans.len(), 2);
+        assert!(spans[0].deleted && spans[0].text == "b");
     }
 }

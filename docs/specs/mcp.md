@@ -21,11 +21,12 @@
 ## 2. Running the server
 
 ```bash
-coldopen mcp [--doc PATH] [--no-attach]
+coldopen mcp [--doc PATH] [--no-attach] [--untracked]
 ```
 
 - **Transport.** The server speaks MCP over standard input and output (the stdio transport), built on the `rmcp` SDK. It supports the protocol revisions that `rmcp` supports, and is tested against the latest.
 - **Starting with a script.** With `--doc`, the server opens or attaches to that script before serving, as `doc_open` would. `--no-attach` never attaches (§5) and always opens the file in this process.
+- **`--untracked`** (2026-10-18) records the agent's edits untracked in scripts the server opens itself (§6.1).
 - **One client per process.** Over stdio each server process has exactly one client, so the open document is that process's state. Tools act on it, and `doc_open` switches it. **Resolution:** the protocol has no sessions, so its advice is to pass state handles explicitly. That advice is aimed at shared servers; a stdio server is never shared, so tools take no document handle.
 - **Server instructions.** The server's instructions tell the agent:
   - to start with `doc_open`;
@@ -181,6 +182,7 @@ Added 2026-10-18 (phase 5a). Sources: `docs/spec.md` ("Agents edit in the open")
 - **By default.** Each document's `tracking.agents` switch is on unless the writer turns it off for that script (`changes.track`, `docs/specs/editor.md` §12). While it is on, every edit an agent makes, attached or not, lands as a tracked change under the agent's name: the client's name from the MCP handshake, or "agent" when it gives none (§5.3). This is decided in core, from the command's author, so the link and `coldopen mcp`'s own dispatcher behave the same, and no client can turn it off: an agent's `tracked: false` fails with `writer_only`.
 - **Settling.** An agent can list changes, and reject its own (`changes_reject`), which withdraws its suggestion. It cannot accept any change, nor reject the writer's or another agent's (`writer_only`, `not_your_change`; `docs/specs/changes.md` §6). It cannot edit away another author's pending marks either (`not_your_change`, §5.4 there).
 - **Undo** is unchanged: an agent may undo its own steps, which removes its marks with them.
+- **Without the app** (§6). A .fountain or .fdx file cannot hold tracked changes, so an agent working on one alone cannot save its tracked edits there: the save is lossy, and accepting a loss is the writer's (`writer_only`). It can save the script as a `.coldopen` bundle at a new path, which keeps them, or leave them in the journal for the writer to recover in the app. **Resolution:** for people who use an agent on a Fountain file without the app, `coldopen mcp --untracked` records the agent's edits untracked in scripts the server opens itself, whatever the script's switch says. The person who configures the MCP server chooses this in their client's settings; an agent cannot change the command line it was started with. It is not document state: each edit's journal entry says whether it was tracked. Attached to the app, the app's switch decides.
 - **Server instructions** add one line: edits are tracked changes the writer reviews, and `text` in blocks is the current text.
 
 ## 7. Security

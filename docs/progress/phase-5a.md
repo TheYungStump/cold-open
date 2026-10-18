@@ -12,10 +12,10 @@ Phase 5 is split in two. **5a** (this phase) brings the `.coldopen` project bund
 | --- | --- | --- |
 | 1 | Branch, and this file | done |
 | 2 | Specs before code: `bundle.md` and `changes.md` (new); `journal.md`, `commands.md`, `fountain.md`, `fdx.md`, `layout.md`, `editor.md`, `mcp.md`; the corpus-copies rule in `CLAUDE.md` | done |
-| 3 | Model: marks in text runs, block marks, the change table, tracking switches, `doc_id`; new operations; header checks | next |
-| 4 | Semantics: the `tracked` param, `semantics` 2, change grouping, author rules, `changes.list`, `changes.accept`, `changes.reject`, `changes.track`; replay; property tests | |
-| 5 | The bundle behind `Format`: rawzip and miniz_oxide, deterministic bytes, a tolerant reader, `doc_id`, the journal header's reference to the change data, recovery; fuzz targets | |
-| 6 | Losses: `tracked_changes` on Fountain and .fdx; F21's `normalized` class | |
+| 3 | Model: marks in text runs, block marks, the change table, tracking switches, `doc_id`; new operations; header checks | done |
+| 4 | Semantics: the `tracked` param, `semantics` 2, change grouping, author rules, `changes.list`, `changes.accept`, `changes.reject`, `changes.track`; replay; property tests | done |
+| 5 | The bundle behind `Format`: rawzip and miniz_oxide, deterministic bytes, a tolerant reader, `doc_id`, the journal header's reference to the change data, recovery; fuzz targets | next |
+| 6 | Losses: `tracked_changes` on Fountain and .fdx; F21's `normalized` class | done, with step 4 (the agent tests needed it) |
 | 7 | Layout and PDF: marked and accepted print forms, author colors, `export.pdf` `changes` | |
 | 8 | MCP tools and resource; the session file's `documents`; agent tests through the real link and `coldopen mcp` | |
 | 9 | App: marks on the page, caret over them, keys and palette, the changes panel, the writer's name, the per-script agent switch, "Save as Cold Open project" | |
@@ -50,6 +50,17 @@ Phase 5 is split in two. **5a** (this phase) brings the `.coldopen` project bund
 10. **Writers with different names are different authors for tracked changes** (a change joins only its own author's marks) and the same author for undo grouping and permissions.
 11. **A bundle is laid out as its blocks stand**, as .fdx is. A script read from Fountain is already in normal form, so its pages do not change when it becomes a bundle.
 12. **The lossy-save question defaults to Save as Cold Open project** when tracked changes are among the losses.
+13. **Marks are fields of text runs** (`Run::Text { text, style, marks }` in `crates/screenplay`), with a third, print-only flag, `show`, that the marked print form sets so a deletion counts as printed text for the Fountain normaliser, layout and the source map. It is never stored or read from JSON, and a document holding it fails its checks.
+14. **Note and boneyard blocks may carry marks.** Their rule was "plain text only"; it is now "no styles and no hidden runs", so a tracked edit of a note block is tracked like any other (`changes.md` §10).
+15. **A change is made only when a mark needs it.** A tracked delete that only takes back the author's own insertion leaves no mark, so it makes no change and its result names none; the table entry it would have added is never written.
+16. **Every move and every retype is kept as its own entry** (`retyped` and `moved` are lists), and a move records the last block it took. Found by the property test at 20,000 cases: a scene moved twice, or a retype that changed a scene's extent between two moves, could not be put back. Rejecting now undoes structure change by change, newest first, as undo would; accepting removes deleted blocks before it joins joined ones.
+17. **A block is deleted or joined outright only when its only mark is the author's own insertion.** Joining an own split block outright, after its scene had moved, lost its marks (property test).
+18. **A tracked replacement leaves what sits inside the match in place.** An untracked replace moves notes to the end of a match; a tracked one keeps the old text struck where it was, so moving a pending deletion past it scrambled the text on reject (property test).
+19. **Agent tracking is decided in core, by author, on every front end.** With it on by default, an agent alone on a .fountain or .fdx file cannot save its tracked edits there (a lossy save is the writer's call). The three phase 3 and 4 agent-gate tests that were about saving, not tracking, now run `coldopen mcp --untracked`, or have the writer turn agent tracking off first.
+20. **`coldopen mcp --untracked`**: for people who use an agent on a Fountain file without the app. It is set in the MCP client's configuration by the person, never by the agent, and overrides the switch only in scripts the server opens itself. It is a dispatcher setting, not document state; every edit journals the `tracked` it took (`mcp.md` §6.1).
+21. **The writer's name is part of the author**: `Author::Writer { name }`. The journal writes `by` for a named writer; the plain writer is still left out, so old journals are unchanged. `coldopen run` and `serve --stdio` take `--author NAME`.
+22. **After "Save anyway" to Fountain or .fdx, the open script keeps its marks**, but the file is the record: reopening it, after a close or a crash, gives the file's text, as for any loss the writer accepted. Rewriting the open document into its accepted form would change blocks under the undo history (`changes.md` §9).
+23. **F21's normalisations are a separate list from the Fountain crate** (`Written::normalized`), so the crate's `losses` keep their meaning for its own property tests and fuzz checks; core gives them the class `normalized`. Each names its block and the case. The recovery check counts only `lost` losses, exactly as it counted none of these before.
 
 ## Measurements
 

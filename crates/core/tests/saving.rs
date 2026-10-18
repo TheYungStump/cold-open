@@ -229,7 +229,7 @@ fn assert_clean_means_saved(d: &mut Dispatcher, p: &Path) {
 #[test]
 fn a_save_cannot_overlap_a_save_in_progress() {
     for by in [
-        Author::Writer,
+        Author::writer(),
         Author::agent("claude-code", Some("doc_save".into())),
     ] {
         let dir = tempfile::tempdir().unwrap();

@@ -82,7 +82,7 @@ Every applied edit, `undo` and `redo` has an **author** (added 2026-10-15):
 
 | `by` | Who |
 | --- | --- |
-| `{"kind": "writer", "name"?: "..."}` | A person: the desktop app, the CLI, a `serve --stdio` client. This is the default. `name` (2026-10-18) is the writer's name for tracked changes: the app's setting (`docs/specs/editor.md` §11), or the CLI's `--author`. Without one, changes show "Writer". |
+| `{"kind": "writer", "name"?: "..."}` | A person: the desktop app, the CLI, a `serve --stdio` client. This is the default. `name` (2026-10-18) is the writer's name for tracked changes: the app's setting (`docs/specs/editor.md` §11), or `--author NAME` for `coldopen run` and `coldopen serve --stdio`. Without one, changes show "Writer". |
 | `{"kind": "agent", "name": "...", "tool": "..."}` | An agent through MCP. `name` is the client's name from the MCP handshake; `tool` is the MCP tool it called (`docs/specs/mcp.md`). |
 
 The JSON envelope has no way to claim an author: a stdio client is always a writer, and agent authors are set only by the MCP server and the app's agent link. Writers with different names are different authors for tracked changes (`docs/specs/changes.md` §5) and the same author for everything else.

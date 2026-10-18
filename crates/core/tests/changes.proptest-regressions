@@ -1,0 +1,12 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc abefe65a5da603f7242c3cab1eaede4424567207da01c40687c29a64085f5bc9 # shrinks to steps = [(0, Split { at: 7, off: 0 }), (0, NewBlock { at: 7, text: "a" })]
+cc 131159d3cd7f05f4806a18395f2317e92f9e088a53356d5057bb8f965fa73c89 # shrinks to steps = [(0, Split { at: 4, off: 0 }), (0, Move { from: 0, to: 2 })]
+cc c9c19450b3d74a608f6475b3b73b382172e59b4b39778d2e312a15abb1499d9e # shrinks to steps = [(0, Retype { at: 1, kind: 3 }), (0, Move { from: 2, to: 1 })]
+cc 662406b02daaf3cc90bc2d79c47f946e5303a3df236d54c4f2f4e71f8ede2f4f # shrinks to steps = [(0, Move { from: 1, to: 3 }), (0, Move { from: 2, to: 3 }), (0, Move { from: 2, to: 1 }), (0, Move { from: 2, to: 0 })]
+cc 6c420d3da3bc69dfe0097fac6c9599056afcf10922e983cd753c7211672649b4 # shrinks to steps = [(0, Delete { at: 9, off: 3, len: 3 }), (0, Replace { word: 3, with: "" })]
+cc 7a655c09c6d36f9dbfff43c4c82e1bff1b3ebd4d0c7d9899ea798a6ed0565ba9 # shrinks to steps = [(0, Split { at: 6, off: 0 }), (0, Move { from: 3, to: 1 }), (0, Join { at: 4 })]

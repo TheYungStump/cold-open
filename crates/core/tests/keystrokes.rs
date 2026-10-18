@@ -38,14 +38,14 @@ impl Harness {
     }
 
     fn ok(&mut self, command: &str, params: Value) -> Value {
-        match self.run(command, params, &Author::Writer) {
+        match self.run(command, params, &Author::writer()) {
             Ok(v) => v,
             Err(e) => panic!("{command} failed: {e}"),
         }
     }
 
     fn err(&mut self, command: &str, params: Value) -> String {
-        match self.run(command, params, &Author::Writer) {
+        match self.run(command, params, &Author::writer()) {
             Ok(v) => panic!("{command} should fail, got {v}"),
             Err(e) => e,
         }

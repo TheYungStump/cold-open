@@ -5,6 +5,7 @@ use coldopen_screenplay::{ElementKind, ElementRepr, Run, Style};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
+use crate::changes::{ChangeId, PrintForm};
 use crate::document::BlockId;
 
 /// Every command, as sent by any front end. The serde form is the JSON
@@ -78,6 +79,14 @@ pub enum Command {
     RecoveredRestore(RecoveredRestore),
     #[serde(rename = "recovered.delete")]
     RecoveredDelete(RecoveredDelete),
+    #[serde(rename = "changes.list")]
+    ChangesList(ChangesList),
+    #[serde(rename = "changes.accept")]
+    ChangesAccept(ChangesSettle),
+    #[serde(rename = "changes.reject")]
+    ChangesReject(ChangesSettle),
+    #[serde(rename = "changes.track")]
+    ChangesTrack(ChangesTrack),
 }
 
 /// How a command interacts with undo and the journal.
@@ -97,7 +106,7 @@ pub enum Class {
 
 impl Command {
     /// Every command name, in a stable order (for a command palette).
-    pub const NAMES: [&'static str; 33] = [
+    pub const NAMES: [&'static str; 37] = [
         "doc.new",
         "doc.open",
         "doc.save",
@@ -131,6 +140,10 @@ impl Command {
         "recovered.list",
         "recovered.restore",
         "recovered.delete",
+        "changes.list",
+        "changes.accept",
+        "changes.reject",
+        "changes.track",
     ];
 
     pub fn name(&self) -> &'static str {
@@ -168,6 +181,10 @@ impl Command {
             Command::RecoveredList(_) => "recovered.list",
             Command::RecoveredRestore(_) => "recovered.restore",
             Command::RecoveredDelete(_) => "recovered.delete",
+            Command::ChangesList(_) => "changes.list",
+            Command::ChangesAccept(_) => "changes.accept",
+            Command::ChangesReject(_) => "changes.reject",
+            Command::ChangesTrack(_) => "changes.track",
         }
     }
 
@@ -183,7 +200,8 @@ impl Command {
             | Command::SceneList(_)
             | Command::TextFind(_)
             | Command::TextComplete(_)
-            | Command::HistoryList(_) => Class::Query,
+            | Command::HistoryList(_)
+            | Command::ChangesList(_) => Class::Query,
             Command::Undo(_) | Command::Redo(_) => Class::History,
             Command::ExportPdf(_) | Command::ExportFdx(_) | Command::ExportFountain(_) => {
                 Class::Output
@@ -206,7 +224,10 @@ impl Command {
             | Command::TextStyle(_)
             | Command::BlockSplit(_)
             | Command::BlockJoin(_)
-            | Command::Batch(_) => Class::Edit,
+            | Command::Batch(_)
+            | Command::ChangesAccept(_)
+            | Command::ChangesReject(_)
+            | Command::ChangesTrack(_) => Class::Edit,
         }
     }
 
@@ -214,6 +235,43 @@ impl Command {
     pub fn from_parts(name: &str, params: serde_json::Value) -> Result<Command, String> {
         let v = serde_json::json!({ "command": name, "params": params });
         serde_json::from_value(v).map_err(|e| e.to_string())
+    }
+
+    /// The `tracked` param of an edit that takes one: `Some(None)` when it
+    /// takes one and it is absent, `None` for every other command
+    /// (docs/specs/changes.md §7).
+    pub fn tracked(&self) -> Option<Option<bool>> {
+        Some(match self {
+            Command::BlockInsert(p) => p.tracked,
+            Command::BlockSetType(p) => p.tracked,
+            Command::BlockSetText(p) => p.tracked,
+            Command::BlockDelete(p) => p.tracked,
+            Command::BlockSplit(p) => p.tracked,
+            Command::BlockJoin(p) => p.tracked,
+            Command::TextInsert(p) => p.tracked,
+            Command::TextDelete(p) => p.tracked,
+            Command::TextReplace(p) => p.tracked,
+            Command::SceneMove(p) => p.tracked,
+            _ => return None,
+        })
+    }
+
+    /// The command with its `tracked` param set, for one that takes it.
+    pub fn with_tracked(&self, tracked: bool) -> Command {
+        let t = Some(tracked);
+        match self.clone() {
+            Command::BlockInsert(p) => Command::BlockInsert(BlockInsert { tracked: t, ..p }),
+            Command::BlockSetType(p) => Command::BlockSetType(BlockSetType { tracked: t, ..p }),
+            Command::BlockSetText(p) => Command::BlockSetText(BlockSetText { tracked: t, ..p }),
+            Command::BlockDelete(p) => Command::BlockDelete(BlockDelete { tracked: t, ..p }),
+            Command::BlockSplit(p) => Command::BlockSplit(BlockSplit { tracked: t, ..p }),
+            Command::BlockJoin(p) => Command::BlockJoin(BlockJoin { tracked: t, ..p }),
+            Command::TextInsert(p) => Command::TextInsert(TextInsert { tracked: t, ..p }),
+            Command::TextDelete(p) => Command::TextDelete(TextDelete { tracked: t, ..p }),
+            Command::TextReplace(p) => Command::TextReplace(TextReplace { tracked: t, ..p }),
+            Command::SceneMove(p) => Command::SceneMove(SceneMove { tracked: t, ..p }),
+            other => other,
+        }
     }
 
     /// The params as JSON, as written to the journal.
@@ -272,6 +330,9 @@ impl Command {
             "batch" => of::<Batch>(),
             "text.find" => of::<TextFind>(),
             "text.complete" => of::<TextComplete>(),
+            "changes.list" => of::<ChangesList>(),
+            "changes.accept" | "changes.reject" => of::<ChangesSettle>(),
+            "changes.track" => of::<ChangesTrack>(),
             "doc.get" | "scene.list" | "undo" | "redo" | "doc.revert" | "history.list" => {
                 of::<Empty>()
             }
@@ -383,6 +444,10 @@ pub struct BlockInsert {
     pub depth: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub space_before: Option<u8>,
+    /// Record the edit as a tracked change (docs/specs/changes.md §7).
+    /// Absent: the document's tracking switch for the author decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tracked: Option<bool>,
 }
 
 impl BlockInsert {
@@ -399,6 +464,7 @@ impl BlockInsert {
             centered: false,
             depth: None,
             space_before: None,
+            tracked: None,
         }
     }
 
@@ -423,6 +489,10 @@ pub struct BlockSetType {
     pub id: BlockId,
     #[serde(rename = "type")]
     pub kind: ElementKind,
+    /// Record the edit as a tracked change (docs/specs/changes.md §7).
+    /// Absent: the document's tracking switch for the author decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tracked: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -434,6 +504,10 @@ pub struct BlockSetText {
     pub text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runs: Option<Vec<Run>>,
+    /// Record the edit as a tracked change (docs/specs/changes.md §7).
+    /// Absent: the document's tracking switch for the author decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tracked: Option<bool>,
 }
 
 /// Distinguishes an absent field (`None`) from an explicit `null`
@@ -476,6 +550,10 @@ pub struct BlockSetAttrs {
 #[serde(deny_unknown_fields)]
 pub struct BlockDelete {
     pub id: BlockId,
+    /// Record the edit as a tracked change (docs/specs/changes.md §7).
+    /// Absent: the document's tracking switch for the author decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tracked: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -502,6 +580,10 @@ pub struct TextReplace {
     /// Replace only the match starting here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub at: Option<ReplaceAt>,
+    /// Record the edit as a tracked change (docs/specs/changes.md §7).
+    /// Absent: the document's tracking switch for the author decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tracked: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -519,6 +601,10 @@ pub struct SceneMove {
     pub id: BlockId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub before: Option<BlockId>,
+    /// Record the edit as a tracked change (docs/specs/changes.md §7).
+    /// Absent: the document's tracking switch for the author decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tracked: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -532,9 +618,17 @@ pub struct ExportPdf {
     pub scene_numbers: bool,
     #[serde(default = "yes")]
     pub title_page: bool,
+    /// Print pending tracked changes marked (the default) or accepted
+    /// (docs/specs/changes.md §9).
+    #[serde(default, skip_serializing_if = "is_marked")]
+    pub changes: PrintForm,
     /// Replace a file already at `path`. Writers only.
     #[serde(default, skip_serializing_if = "is_false")]
     pub overwrite: bool,
+}
+
+fn is_marked(f: &PrintForm) -> bool {
+    *f == PrintForm::Marked
 }
 
 /// Params for `export.fdx` and `export.fountain`: a copy of the document
@@ -638,6 +732,10 @@ pub struct TextInsert {
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub style: Option<StyleSpec>,
+    /// Record the edit as a tracked change (docs/specs/changes.md §7).
+    /// Absent: the document's tracking switch for the author decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tracked: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -647,6 +745,10 @@ pub struct TextDelete {
     pub id: BlockId,
     pub from: usize,
     pub to: usize,
+    /// Record the edit as a tracked change (docs/specs/changes.md §7).
+    /// Absent: the document's tracking switch for the author decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tracked: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -672,6 +774,10 @@ pub struct BlockSplit {
     pub at: usize,
     #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<ElementKind>,
+    /// Record the edit as a tracked change (docs/specs/changes.md §7).
+    /// Absent: the document's tracking switch for the author decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tracked: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -679,6 +785,10 @@ pub struct BlockSplit {
 #[serde(deny_unknown_fields)]
 pub struct BlockJoin {
     pub id: BlockId,
+    /// Record the edit as a tracked change (docs/specs/changes.md §7).
+    /// Absent: the document's tracking switch for the author decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tracked: Option<bool>,
 }
 
 fn empty_object() -> Value {
@@ -732,6 +842,42 @@ pub struct TextComplete {
     pub at: usize,
 }
 
+/// Params for `changes.list`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct ChangesList {
+    /// Only changes with a mark in this scene.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene: Option<BlockId>,
+}
+
+/// Params for `changes.accept` and `changes.reject`: exactly one of `id`,
+/// `scene` and `all`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct ChangesSettle {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<ChangeId>,
+    /// The marks inside this scene.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene: Option<BlockId>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub all: bool,
+}
+
+/// Params for `changes.track`: the switches to set.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct ChangesTrack {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub writer: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agents: Option<bool>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -774,6 +920,7 @@ mod tests {
                 "block.join" => json!({"id": "b_1"}),
                 "batch" => json!({"commands": []}),
                 "text.find" => json!({"find": "x"}),
+                "changes.accept" | "changes.reject" => json!({"all": true}),
                 _ => json!({}),
             };
             let cmd = Command::from_parts(name, params).unwrap();
@@ -824,6 +971,7 @@ mod tests {
             scope: None,
             match_case: true,
             at: None,
+            tracked: None,
         });
         let back = Command::from_parts(cmd.name(), cmd.params()).unwrap();
         assert_eq!(back, cmd);

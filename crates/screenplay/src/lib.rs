@@ -18,11 +18,11 @@ mod format;
 mod script;
 mod text;
 
-pub use edit::{RangeError, StyleChange};
+pub use edit::{MarkedSpan, RangeError, Settle, StyleChange};
 pub use element::{Element, ElementKind, ElementRepr};
 pub use format::{
     Align, DualColumn, DualFormat, ElementFormat, Elements, MAX_INSERT, MAX_PAGE_SUFFIX,
     PageFormat, PageNumbers, Pt, SceneContinueds, SplitMode, TitleLine,
 };
 pub use script::{Script, TitleField, TitlePage};
-pub use text::{RichText, Run, Style, TextRepr};
+pub use text::{ChangeId, Marks, RichText, Run, Style, TextRepr};

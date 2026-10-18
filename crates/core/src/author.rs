@@ -7,12 +7,16 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 
 /// The author of an edit, `undo` or `redo`.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Author {
-    /// A person: the desktop app, the CLI, a stdio client.
-    #[default]
-    Writer,
+    /// A person: the desktop app, the CLI, a stdio client. `name` is the
+    /// name their tracked changes carry (2026-10-18); without one they
+    /// show "Writer".
+    Writer {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+    },
     /// An agent through MCP: its client name and the tool it called.
     Agent {
         name: String,
@@ -21,7 +25,25 @@ pub enum Author {
     },
 }
 
+impl Default for Author {
+    fn default() -> Author {
+        Author::writer()
+    }
+}
+
 impl Author {
+    /// A writer with no name.
+    pub fn writer() -> Author {
+        Author::Writer { name: None }
+    }
+
+    /// A writer whose tracked changes carry `name`.
+    pub fn named_writer(name: impl Into<String>) -> Author {
+        Author::Writer {
+            name: Some(name.into()),
+        }
+    }
+
     pub fn agent(name: impl Into<String>, tool: Option<String>) -> Author {
         Author::Agent {
             name: name.into(),
@@ -30,13 +52,20 @@ impl Author {
     }
 
     pub fn is_writer(&self) -> bool {
-        matches!(self, Author::Writer)
+        matches!(self, Author::Writer { .. })
     }
 
-    /// The same person or agent, whatever tool it used.
+    /// The writer with no name, which the journal leaves out.
+    pub fn is_plain_writer(&self) -> bool {
+        matches!(self, Author::Writer { name: None })
+    }
+
+    /// The same person or agent, whatever tool it used. Any two writers are
+    /// the same here: names matter only for tracked changes
+    /// (docs/specs/commands.md, "Authors and undo steps").
     pub fn same_actor(&self, other: &Author) -> bool {
         match (self, other) {
-            (Author::Writer, Author::Writer) => true,
+            (Author::Writer { .. }, Author::Writer { .. }) => true,
             (Author::Agent { name: a, .. }, Author::Agent { name: b, .. }) => a == b,
             _ => false,
         }
@@ -46,7 +75,7 @@ impl Author {
 impl fmt::Display for Author {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Author::Writer => f.write_str("writer"),
+            Author::Writer { .. } => f.write_str("writer"),
             Author::Agent {
                 name,
                 tool: Some(t),
@@ -92,9 +121,17 @@ mod tests {
     #[test]
     fn json_shape() {
         assert_eq!(
-            serde_json::to_string(&Author::Writer).unwrap(),
+            serde_json::to_string(&Author::writer()).unwrap(),
             r#"{"kind":"writer"}"#
         );
+        assert_eq!(
+            serde_json::from_str::<Author>(r#"{"kind":"writer"}"#).unwrap(),
+            Author::writer()
+        );
+        let named = Author::named_writer("Maya");
+        let json = serde_json::to_string(&named).unwrap();
+        assert_eq!(json, r#"{"kind":"writer","name":"Maya"}"#);
+        assert_eq!(serde_json::from_str::<Author>(&json).unwrap(), named);
         let a = Author::agent("claude-code", Some("block_insert".into()));
         let json = serde_json::to_string(&a).unwrap();
         assert_eq!(
@@ -111,6 +148,7 @@ mod tests {
         let b = Author::agent("x", Some("text_insert".into()));
         assert!(a.same_actor(&b));
         assert!(!a.same_actor(&Author::agent("y", None)));
-        assert!(!a.same_actor(&Author::Writer));
+        assert!(!a.same_actor(&Author::writer()));
+        assert!(Author::writer().same_actor(&Author::named_writer("Maya")));
     }
 }

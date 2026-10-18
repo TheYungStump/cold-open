@@ -47,16 +47,16 @@ An agent therefore never meets struck text unless it reads `runs`. **Resolution:
 
 ### 2.2 On blocks
 
-A block can carry one mark of each of these kinds, written as `"change"` in its JSON:
+A block can carry one mark of each of these kinds (any number of `retyped` and `moved` entries), written as `"change"` in its JSON:
 
 | Mark | JSON | What it records |
 | --- | --- | --- |
 | `inserted` | `{"inserted": "c_5"}` | The block is a pending insertion. |
 | `deleted` | `{"deleted": "c_6"}` | The block is a pending deletion. It stays in the document, its text all marked `del`, until the change is settled. |
-| `retyped` | `{"retyped": {"change": "c_7", "from": "action", "scene_number": "4"}}` | The block's type was changed from `from`. The attributes the change cleared (`scene_number`, `dual`, `centered`, `depth`) are kept here, so rejecting it gives them back. |
+| `retyped` | `{"retyped": [{"change": "c_7", "from": "action", "scene_number": "4"}]}` | The block's type was changed from `from`, once for each entry, oldest first. The attributes a retype cleared (`scene_number`, `dual`, `centered`, `depth`) are kept in its entry, so rejecting it gives them back. |
 | `split` | `{"split": "c_8"}` | The block was split off the end of the block before it. |
 | `joined` | `{"joined": "c_9"}` | The block is to be joined to the block before it. It stays a block of its own until the change is accepted. |
-| `moved` | `{"moved": {"change": "c_10", "before": "b_40"}}` | On a scene heading: the scene was moved. Before the move it stood before `b_40`, or at the end when `before` is null. |
+| `moved` | `{"moved": [{"change": "c_10", "before": "b_40", "last": "b_33"}]}` | On a scene heading: the scene was moved, once for each entry. Before the move it stood before `b_40`, or at the end when `before` is null, and the move took the blocks up to `last`. |
 
 A block's marks are written together, as in `{"change": {"inserted": "c_5", "retyped": {...}}}`, and the field is absent when the block has none.
 
@@ -123,19 +123,19 @@ Here *the author* is the edit's author (`docs/specs/commands.md`, "Authors and u
 
 - **`block.insert`.** The block is marked `inserted`, and its text `ins`.
 - **`block.delete`.**
-  - The author's own pending inserted block, whose text is all the author's own pending insertion, is removed outright.
+  - The author's own pending inserted block, whose only mark is that insertion and whose text is all the author's own pending insertion, is removed outright.
   - Any other block is marked `deleted`. Its text is deleted as `text.delete` deletes it: the author's own pending insertions go, and the rest is marked `del`.
 - **`block.set_type`.**
   - The author's own pending inserted block simply changes type.
-  - Otherwise the block is marked `retyped`, with the type it had and the attributes the change clears. When it already carries the author's own `retyped` mark, the mark keeps its original `from`. Changing the block back to `from` takes the mark off and puts the kept attributes back.
+  - Otherwise the block is marked `retyped`, with the type it had and the attributes the change clears. Every retype is kept as its own entry, oldest first, so rejecting undoes them in turn, even when the block is changed back to its first type.
 - **`block.split`.**
   - At the end of the text, with nothing moving to the new block, the new block is an insertion, marked `inserted`. This is what Enter at the end of a line sends.
   - Anywhere else, the new block is marked `split`, and the text it takes keeps its marks.
   - A split of the author's own pending inserted block makes another inserted block.
 - **`block.join`.**
-  - The author's own pending inserted or split block is joined outright, its text keeping its marks.
+  - The author's own pending inserted block, whose only mark is that insertion, is joined outright, its text keeping its marks.
   - Any other block is marked `joined` and stays a block of its own. The result's `id` and `at` name the end of the block before it, where an editor puts the caret.
-- **`scene.move`.** The scene heading is marked `moved`, with the block the scene stood before. When the scene already carries the author's own `moved` mark, the mark keeps its original place. Moving the scene back there takes the mark off.
+- **`scene.move`.** The scene heading is marked `moved`, with the block the scene stood before and the last block the move took. Every move is kept as its own entry, oldest first, so rejecting undoes them in turn.
 
 ### 5.3 Which change an edit records into
 
@@ -172,7 +172,10 @@ Writers are never refused for whose marks an edit touches: the writer may edit a
 | `moved` | The mark comes off. | The scene moves back before `before`, or to the end when it is null. |
 
 - **By scene** settles the marks inside that scene's blocks only. A change that also has marks elsewhere stays pending there.
-- **Order.** Text marks are settled first. Then blocks are removed or joined, from the last to the first, and types restored. Moves are undone last, newest first. The same document and request always give the same result.
+- **Order.** Text marks are settled first; their order does not matter.
+  - **Accepting** then removes deleted blocks, from the last to the first, and only then joins joined blocks, each to the block kept before it, as the accepted form does (§9).
+  - **Rejecting** then puts structure back change by change, newest first, as undo would: for each change, its moves are undone, its inserted blocks removed, its splits joined back and its retypes restored. A later change that reshaped a scene is therefore undone before an earlier move of that scene.
+  - The same document and request always give the same result.
 - **A move whose place is gone.** When the block a moved scene stood before no longer exists, or no longer starts a scene or section, the move cannot be undone. Rejecting it by `id` fails with `change_conflict` and changes nothing; by `scene` or `all`, the other changes settle and the move stays pending, listed in the result's `skipped`.
 - **Undo.** Settling is an edit: one undo step, journaled, and undo gives every mark back.
 
@@ -228,12 +231,14 @@ A document with pending changes has two print forms:
 
 **Writing other formats.** Fountain and .fdx cannot hold marks, so they are written from the accepted form, and a save or export reports a `tracked_changes` loss through the usual question (`docs/specs/commands.md`, "Losses"). A bundle keeps everything (`docs/specs/bundle.md`).
 
+**Resolution: after "Save anyway".** A save that wrote the accepted form leaves the open script as it was, marks included, so the writer can still review and undo; but the file is now the record. Reopening the file, after a close or after a crash, gives the file's text, as for any other loss the writer accepted (`docs/specs/journal.md`, "Nothing to recover?": the file is the version the journal's header names). Rewriting the open document into its accepted form on such a save would change its blocks under the undo history, so it is not done.
+
 **Resolution: no .fdx mapping.** No publicly shared .fdx file we have shows how marked runs are stored (`docs/specs/fdx.md` §11), so the clean room gives us nothing to write them from. If one turns up, mapping them becomes its own task.
 
 ## 10. Not tracked in phase 5a
 
 - Styles (`text.style`) and block attributes (`block.set_attrs`): they change how text looks, not what it says.
-- Notes and boneyard, inline or as blocks: they never print.
+- Notes and boneyard inside a line: they never print, and a run of them carries no marks. Note and boneyard blocks are tracked like any other block, so their text can carry marks.
 - The title page, the page format and paragraph spacing: no command changes them yet.
 
 ## 11. Testing

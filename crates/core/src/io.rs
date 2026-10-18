@@ -184,7 +184,7 @@ impl Fingerprint {
     }
 }
 
-mod hex64 {
+pub(crate) mod hex64 {
     use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S: Serializer>(v: &u64, s: S) -> Result<S::Ok, S::Error> {

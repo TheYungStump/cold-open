@@ -5,6 +5,7 @@
 use coldopen_screenplay::Element;
 use serde::{Deserialize, Serialize};
 
+use crate::changes::{BlockMarks, Tracking};
 use crate::document::{Block, Document};
 
 /// Serialized, as in a journal entry that carries a step from before the
@@ -29,6 +30,15 @@ pub enum Op {
         from: usize,
         len: usize,
         to: usize,
+    },
+    /// Replaces a block's structural tracked-change marks (2026-10-18).
+    Mark {
+        index: usize,
+        marks: BlockMarks,
+    },
+    /// Replaces the document's tracking switches (2026-10-18).
+    Track {
+        tracking: Tracking,
     },
 }
 
@@ -63,6 +73,14 @@ impl Op {
                     len,
                     to: from,
                 }
+            }
+            Op::Mark { index, marks } if index < n => {
+                let old = std::mem::replace(&mut doc.blocks[index].marks, marks);
+                Op::Mark { index, marks: old }
+            }
+            Op::Track { tracking } => {
+                let old = std::mem::replace(&mut doc.tracking, tracking);
+                Op::Track { tracking: old }
             }
             _ => Op::Move {
                 from: 0,
@@ -99,9 +117,11 @@ mod tests {
     fn doc(n: u64) -> Document {
         Document {
             blocks: (1..=n)
-                .map(|i| Block {
-                    id: BlockId(i),
-                    element: Element::new(ElementKind::Action, format!("{i}")),
+                .map(|i| {
+                    Block::new(
+                        BlockId(i),
+                        Element::new(ElementKind::Action, format!("{i}")),
+                    )
                 })
                 .collect(),
             next_id: n + 1,
@@ -118,9 +138,19 @@ mod tests {
         let ops = vec![
             Op::Insert {
                 index: 1,
-                block: Block {
-                    id: BlockId(9),
-                    element: Element::new(ElementKind::Dialogue, "x"),
+                block: Block::new(BlockId(9), Element::new(ElementKind::Dialogue, "x")),
+            },
+            Op::Mark {
+                index: 0,
+                marks: BlockMarks {
+                    deleted: Some(crate::changes::ChangeId(1)),
+                    ..Default::default()
+                },
+            },
+            Op::Track {
+                tracking: Tracking {
+                    writer: true,
+                    agents: false,
                 },
             },
             Op::Remove { index: 0 },

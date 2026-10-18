@@ -27,6 +27,10 @@ pub struct McpOptions {
     pub no_attach: bool,
     /// Where the app's session files are; `None` means never attach.
     pub run_dir: Option<PathBuf>,
+    /// Do not track the agent's edits in scripts this server opens itself
+    /// (docs/specs/mcp.md §6.1). The person who configures the server
+    /// chooses this; attached to the app, the app's switch decides.
+    pub untracked: bool,
 }
 
 /// Serves MCP over standard input and output until the client goes away.
@@ -54,5 +58,7 @@ pub fn backend_for(opts: &McpOptions) -> Backend {
     } else {
         opts.run_dir.clone()
     };
-    Backend::new(run, opts.doc.clone().map(|d| (d, !opts.no_attach)))
+    let mut b = Backend::new(run, opts.doc.clone().map(|d| (d, !opts.no_attach)));
+    b.untracked = opts.untracked;
+    b
 }

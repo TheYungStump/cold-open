@@ -219,7 +219,11 @@ impl Builder {
 pub(crate) fn build(rich: &RichText, caps: bool, extra: Look) -> (Text, Notes) {
     let mut b = Builder::new(caps, extra);
     for run in rich.runs() {
-        if let Run::Text { text, style } = run {
+        // A pending deletion prints only in a print form that shows it
+        // (docs/specs/layout.md §17); otherwise it is not part of the text.
+        if let Run::Text { text, style, marks } = run
+            && !marks.is_deleted()
+        {
             let look = Look::from_style(*style);
             for c in text.chars() {
                 b.push_char(c, look);

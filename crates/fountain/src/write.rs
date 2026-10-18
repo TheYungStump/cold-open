@@ -15,7 +15,8 @@ use crate::classify::{
     split_scene_number, strip_dual,
 };
 use crate::norm::{
-    RLine, clear_ws_styles, normalize_with_map, split, untangle_words, visible, without_ws_emphasis,
+    RLine, clear_ws_styles, normalizations, normalize_with_map, split, untangle_words, visible,
+    without_ws_emphasis,
 };
 use crate::{inline, line, scan, title};
 
@@ -35,6 +36,10 @@ pub struct Written {
     pub text: String,
     /// Empty when the text reads back as the script's normal form.
     pub losses: Vec<Loss>,
+    /// Where the normal form changed the script in ways that print the
+    /// same (spec §10, review finding F21), code `normalized`: never a
+    /// reason to refuse a save.
+    pub normalized: Vec<Loss>,
 }
 
 /// Writes a script as canonical Fountain.
@@ -78,7 +83,19 @@ pub fn write(script: &Script) -> Written {
             });
         }
     }
-    Written { text, losses }
+    let normalized = normalizations(script, &norm, &map)
+        .into_iter()
+        .map(|(i, reason)| Loss {
+            element: Some(i),
+            code: "normalized",
+            message: format!("{reason}; it prints the same"),
+        })
+        .collect();
+    Written {
+        text,
+        losses,
+        normalized,
+    }
 }
 
 // ---- Inline text ----
@@ -145,7 +162,7 @@ fn hoist_underline(line: &[Run]) -> RLine {
     let mut out: Vec<Run> = Vec::new();
     for r in line {
         match r {
-            Run::Text { text, style } if style.underline => {
+            Run::Text { text, style, .. } if style.underline => {
                 let core = text.trim();
                 if core.is_empty() {
                     out.push(Run::styled(
@@ -299,7 +316,7 @@ fn render(line: &[Run], plan: Plan, after: Option<char>, escape_at: &[usize]) ->
         match run {
             Run::Note(n) => pieces.push(Piece::Raw(format!("[[{}]]", note_body(n)))),
             Run::Boneyard(b) => pieces.push(Piece::Raw(format!("/*{b}*/"))),
-            Run::Text { text, style } => {
+            Run::Text { text, style, .. } => {
                 let want = Flag::of(*style);
                 if let Some(pos) = closing_from(&stack, &want, r) {
                     for f in stack.drain(pos..).rev() {
@@ -385,7 +402,7 @@ fn write_inline(line: &[Run], after: Option<char>, escape_at: &[usize]) -> (Stri
     let target = coldopen_screenplay::RichText::new(line.to_vec()).into_runs();
     // Fast path: most lines are plain text with nothing that needs escaping.
     if escape_at.is_empty()
-        && let [Run::Text { text, style }] = &target[..]
+        && let [Run::Text { text, style, .. }] = &target[..]
         && style.is_plain()
         && !text.contains(['*', '_', '\\', '[', '/'])
     {
@@ -1226,7 +1243,7 @@ mod tests {
             .unwrap_or_default()
             .into_iter()
             .filter_map(|r| match r {
-                Run::Text { text, style } => Some((text, style)),
+                Run::Text { text, style, .. } => Some((text, style)),
                 _ => None,
             })
             .filter(|(t, _)| !t.trim().is_empty())

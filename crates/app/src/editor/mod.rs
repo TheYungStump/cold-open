@@ -387,6 +387,7 @@ impl Editor {
                 id: from,
                 from: 0,
                 to: 2,
+                tracked: None,
             });
             self.run(d, vec![cmd]);
             if let Some(s) = d.session() {
@@ -593,6 +594,7 @@ impl Editor {
                 id: a.block,
                 from: a.offset,
                 to: b.offset,
+                tracked: None,
             })];
         }
         let (Some(ia), Some(ib)) = (doc.index_of(a.block), doc.index_of(b.block)) else {
@@ -602,19 +604,27 @@ impl Editor {
             id: a.block,
             from: a.offset,
             to: len_of(doc, a.block),
+            tracked: None,
         })];
         for blk in &doc.blocks[ia + 1..ib] {
-            cmds.push(Command::BlockDelete(BlockDelete { id: blk.id }));
+            cmds.push(Command::BlockDelete(BlockDelete {
+                id: blk.id,
+                tracked: None,
+            }));
         }
         cmds.push(Command::TextDelete(TextDelete {
             id: b.block,
             from: 0,
             to: b.offset,
+            tracked: None,
         }));
         let both_print =
             doc.blocks[ia].element.kind.is_printing() && doc.blocks[ib].element.kind.is_printing();
         if both_print {
-            cmds.push(Command::BlockJoin(BlockJoin { id: b.block }));
+            cmds.push(Command::BlockJoin(BlockJoin {
+                id: b.block,
+                tracked: None,
+            }));
         }
         cmds
     }
@@ -660,12 +670,14 @@ impl Editor {
             cmds.push(Command::BlockSetType(BlockSetType {
                 id: start.block,
                 kind: ElementKind::Parenthetical,
+                tracked: None,
             }));
             cmds.push(Command::TextInsert(TextInsert {
                 id: start.block,
                 at: 0,
                 text: "()".into(),
                 style: None,
+                tracked: None,
             }));
             if self.run(d, cmds).is_some() {
                 // The writer typed these brackets: they are never removed.
@@ -685,6 +697,7 @@ impl Editor {
             at: start.offset,
             text: text.clone(),
             style: self.pending_style.map(StyleSpec::from),
+            tracked: None,
         }));
         if self.run(d, cmds).is_some() {
             self.set_caret(
@@ -723,6 +736,7 @@ impl Editor {
                 vec![Command::BlockSetType(BlockSetType {
                     id,
                     kind: ElementKind::SceneHeading,
+                    tracked: None,
                 })],
             );
         }
@@ -758,7 +772,12 @@ impl Editor {
                     .copied()
                     .unwrap_or(0)
             };
-            let cmd = Command::TextDelete(TextDelete { id, from, to: off });
+            let cmd = Command::TextDelete(TextDelete {
+                id,
+                from,
+                to: off,
+                tracked: None,
+            });
             if self.run(d, vec![cmd]).is_some() {
                 self.set_caret(
                     Caret {
@@ -778,7 +797,12 @@ impl Editor {
                     .copied()
                     .unwrap_or(len)
             };
-            let cmd = Command::TextDelete(TextDelete { id, from: off, to });
+            let cmd = Command::TextDelete(TextDelete {
+                id,
+                from: off,
+                to,
+                tracked: None,
+            });
             self.run(d, vec![cmd]);
         } else if !forward {
             self.join_back(d, &doc, i);
@@ -813,12 +837,24 @@ impl Editor {
             offset: prev.element.text.char_len(),
         };
         if prev.element.kind == ElementKind::PageBreak {
-            self.run(d, vec![Command::BlockDelete(BlockDelete { id: prev.id })]);
+            self.run(
+                d,
+                vec![Command::BlockDelete(BlockDelete {
+                    id: prev.id,
+                    tracked: None,
+                })],
+            );
             return;
         }
         if b.element.text.is_empty() {
             if self
-                .run(d, vec![Command::BlockDelete(BlockDelete { id: b.id })])
+                .run(
+                    d,
+                    vec![Command::BlockDelete(BlockDelete {
+                        id: b.id,
+                        tracked: None,
+                    })],
+                )
                 .is_some()
             {
                 let target = (0..i)
@@ -834,9 +870,14 @@ impl Editor {
             return;
         }
         if b.element.kind.is_printing() && prev.element.kind.is_printing() {
-            if let Some(r) = self.run(d, vec![Command::BlockJoin(BlockJoin { id: b.id })])
-                && let (Some(id), Some(at)) =
-                    (r["id"].as_str().and_then(BlockId::parse), r["at"].as_u64())
+            if let Some(r) = self.run(
+                d,
+                vec![Command::BlockJoin(BlockJoin {
+                    id: b.id,
+                    tracked: None,
+                })],
+            ) && let (Some(id), Some(at)) =
+                (r["id"].as_str().and_then(BlockId::parse), r["at"].as_u64())
             {
                 self.set_caret(
                     Caret {
@@ -899,6 +940,7 @@ impl Editor {
                 id,
                 at: off,
                 kind: None,
+                tracked: None,
             });
             if let Some(r) = self.run(d, vec![cmd])
                 && let Some(new) = r["id"].as_str().and_then(BlockId::parse)
@@ -923,6 +965,7 @@ impl Editor {
                 vec![Command::BlockSetType(BlockSetType {
                     id,
                     kind: ElementKind::Transition,
+                    tracked: None,
                 })],
             );
             kind = ElementKind::Transition;
@@ -932,6 +975,7 @@ impl Editor {
             id,
             at: len,
             kind: Some(next),
+            tracked: None,
         })];
         let paren = next == ElementKind::Parenthetical;
         if let Some(r) = self.run(d, std::mem::take(&mut cmds)) {
@@ -964,6 +1008,7 @@ impl Editor {
             at: 0,
             text: "()".into(),
             style: None,
+            tracked: None,
         });
         if self.run(d, vec![cmd]).is_some() {
             self.auto_parens.insert(id, String::new());
@@ -994,7 +1039,11 @@ impl Editor {
         };
         let n = text.chars().count();
         let plain = Some(StyleSpec::default());
-        let mut cmds = vec![Command::BlockSetType(BlockSetType { id, kind })];
+        let mut cmds = vec![Command::BlockSetType(BlockSetType {
+            id,
+            kind,
+            tracked: None,
+        })];
         let mut wrap = false;
         let mut unwrap = false;
         if kind == paren && from != paren {
@@ -1009,12 +1058,14 @@ impl Editor {
                     at: n,
                     text: ")".into(),
                     style: plain,
+                    tracked: None,
                 }));
                 cmds.push(Command::TextInsert(TextInsert {
                     id,
                     at: 0,
                     text: "(".into(),
                     style: plain,
+                    tracked: None,
                 }));
             }
         } else if from == paren && kind != paren && self.own_parens(d, id) {
@@ -1025,8 +1076,14 @@ impl Editor {
                 id,
                 from: n - 1,
                 to: n,
+                tracked: None,
             }));
-            cmds.push(Command::TextDelete(TextDelete { id, from: 0, to: 1 }));
+            cmds.push(Command::TextDelete(TextDelete {
+                id,
+                from: 0,
+                to: 1,
+                tracked: None,
+            }));
         }
         if self.run(d, cmds).is_some() {
             if wrap {
@@ -1248,6 +1305,7 @@ impl Editor {
                 id,
                 at: start.offset,
                 kind: None,
+                tracked: None,
             }));
         }
         if !(start.offset == 0 && len > 0) {
@@ -1366,6 +1424,7 @@ impl Editor {
                 id: c.block,
                 from: c.from,
                 to: c.to,
+                tracked: None,
             }));
         }
         cmds.push(Command::TextInsert(TextInsert {
@@ -1373,6 +1432,7 @@ impl Editor {
             at: c.from,
             text: item.clone(),
             style: None,
+            tracked: None,
         }));
         if self.run(d, cmds).is_some() {
             self.set_caret(

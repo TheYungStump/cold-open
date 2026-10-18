@@ -15,7 +15,7 @@ use crate::command::{
 use crate::document::Document;
 use crate::error::CommandError;
 use crate::flush::{Durability, FlushStatus};
-use crate::format::{FormatId, ReadOut, Written, unsupported};
+use crate::format::{FormatId, ReadOut, unsupported};
 use crate::io::{self, Fingerprint, SourceStyle};
 use crate::journal::{self, Journal, OpenError};
 use crate::session::{Exec, Merge, Session};
@@ -46,6 +46,12 @@ pub struct Dispatcher {
     clock: Clock,
     /// Overrides the durability `opts.fsync` implies.
     durability: Option<Durability>,
+    /// Overrides each document's switch for agents' edits
+    /// (`Session::agent_tracking`).
+    agent_tracking: Option<bool>,
+    /// The writer `execute` runs commands as: their name is what their
+    /// tracked changes carry (docs/specs/commands.md, "Authors").
+    writer: Author,
 }
 
 /// A save in place, prepared on the UI thread so the file can be written
@@ -199,6 +205,28 @@ impl Dispatcher {
             opts,
             clock: Clock::default(),
             durability: None,
+            agent_tracking: None,
+            writer: Author::writer(),
+        }
+    }
+
+    /// Names the writer whose tracked changes `execute` records.
+    pub fn set_writer_name(&mut self, name: Option<String>) {
+        self.writer = Author::Writer { name };
+    }
+
+    /// The writer `execute` runs commands as.
+    pub fn writer(&self) -> &Author {
+        &self.writer
+    }
+
+    /// Tracks agents' edits, or not, whatever each document's switch says,
+    /// as `coldopen mcp --untracked` asks (docs/specs/mcp.md §6.1). Applies
+    /// to documents opened from now on.
+    pub fn set_agent_tracking(&mut self, tracked: Option<bool>) {
+        self.agent_tracking = tracked;
+        if let Some(s) = &mut self.session {
+            s.agent_tracking = tracked;
         }
     }
 
@@ -253,12 +281,14 @@ impl Dispatcher {
     ) -> Session {
         let mut s = Session::new(doc, path, format, style);
         s.clock = self.clock.clone();
+        s.agent_tracking = self.agent_tracking;
         s
     }
 
     /// Runs one command as a writer.
     pub fn execute(&mut self, cmd: Command) -> Result<Value, CommandError> {
-        self.execute_as(cmd, &Author::Writer)
+        let writer = self.writer.clone();
+        self.execute_as(cmd, &writer)
     }
 
     /// Runs one command for an author.
@@ -421,10 +451,10 @@ impl Dispatcher {
         if let Some(kind) = p.start
             && let Some(id) = doc.allocate_id()
         {
-            doc.blocks.push(crate::document::Block {
+            doc.blocks.push(crate::document::Block::new(
                 id,
-                element: coldopen_screenplay::Element::new(kind, ""),
-            });
+                coldopen_screenplay::Element::new(kind, ""),
+            ));
         }
         let mut warnings = Vec::new();
         if path.is_none() {
@@ -611,6 +641,8 @@ impl Dispatcher {
                 merge: Merge::Recorded(entry.merge),
                 seq: Some(entry.seq),
                 step: entry.step.clone(),
+                t: Some(entry.t),
+                semantics: Some(read.header.semantics),
             };
             let outcome = Command::from_parts(&entry.command, entry.params.clone())
                 .map_err(|e| format!("entry {} cannot be read as a command: {e}", entry.seq))
@@ -694,8 +726,8 @@ impl Dispatcher {
         // It is written in the format the header names, so recovery compares
         // like with like.
         let in_file = |doc: &Document| {
-            let Written { bytes, losses } = read.header.format.get().write(doc, style);
-            losses.is_empty() && bytes == disk_bytes
+            let written = read.header.format.get().write(doc, style);
+            !written.is_lossy() && written.bytes == disk_bytes
         };
         let external_change = if missing {
             !known_disk.is_empty()
@@ -783,10 +815,11 @@ impl Dispatcher {
             losses.push(json!({
                 "id": null,
                 "code": "reencoded",
+                "class": "lost",
                 "message": "the file was not UTF-8 and was read as Windows-1252; it will be saved as UTF-8",
             }));
         }
-        if !losses.is_empty() && !p.allow_lossy {
+        if blocking(&losses) && !p.allow_lossy {
             return Err(CommandError::new(
                 "lossy_format",
                 format!(
@@ -1188,7 +1221,7 @@ impl Dispatcher {
         }
         let written = format.get().write(&session.doc, SourceStyle::default());
         let losses = session.losses_json(&written.losses);
-        if !losses.is_empty() && !p.allow_lossy {
+        if blocking(&losses) && !p.allow_lossy {
             return Err(CommandError::new(
                 "lossy_format",
                 format!(
@@ -1868,6 +1901,12 @@ fn writers_work(what: &str) -> CommandError {
         ),
     )
     .with_details(json!({ "recovered": true }))
+}
+
+/// Whether losses include one that refuses a save without `allow_lossy`:
+/// any but a `normalized` one (docs/specs/commands.md, "Losses").
+fn blocking(losses: &[Value]) -> bool {
+    losses.iter().any(|l| l["class"] != "normalized")
 }
 
 fn same_path(a: &Path, b: &Path) -> bool {

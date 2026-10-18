@@ -11,6 +11,7 @@
 )]
 
 pub mod author;
+pub mod changes;
 pub mod command;
 pub mod complete;
 pub mod dispatcher;
@@ -26,6 +27,7 @@ pub mod ops;
 pub mod recovered;
 pub mod replace;
 pub mod session;
+pub mod track;
 pub mod view;
 
 pub use author::{Author, Clock};

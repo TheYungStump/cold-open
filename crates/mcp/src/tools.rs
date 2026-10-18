@@ -16,7 +16,7 @@ pub const TOOLS: &[(&str, &str)] = &[
     ),
     (
         "doc.open",
-        "Open a .fountain, .spmd or .txt script. If the Cold Open app has it open, attach to the app instead, so edits appear live for the writer (`attach`: \"auto\" or \"never\").",
+        "Open a .fountain, .spmd, .txt, .fdx or .coldopen script. If the Cold Open app has it open, attach to the app instead, so edits appear live for the writer (`attach`: \"auto\" or \"never\").",
     ),
     (
         "doc.save",
@@ -98,6 +98,22 @@ pub const TOOLS: &[(&str, &str)] = &[
         "Run several edits as one undo step: all of them apply, or none do.",
     ),
     (
+        "changes.list",
+        "The pending tracked changes, in document order: id, author, time, kinds, blocks, scene, and the inserted and deleted text.",
+    ),
+    (
+        "changes.reject",
+        "Withdraw this agent's own tracked changes, by `id`, `scene` or `all`. Another author's changes fail with not_your_change.",
+    ),
+    (
+        "changes.accept",
+        "Accept tracked changes. Only the writer may; an agent gets writer_only.",
+    ),
+    (
+        "changes.track",
+        "Choose which edits are tracked. Only the writer may; an agent gets writer_only.",
+    ),
+    (
         "undo",
         "Undo this agent's newest step. Fails with not_your_step when the newest step is someone else's.",
     ),
@@ -145,7 +161,13 @@ pub fn command_for(tool: &str) -> Option<&'static str> {
 fn read_only(command: &str) -> bool {
     matches!(
         command,
-        "doc.get" | "doc.export" | "scene.list" | "text.find" | "text.complete" | "history.list"
+        "doc.get"
+            | "doc.export"
+            | "scene.list"
+            | "text.find"
+            | "text.complete"
+            | "history.list"
+            | "changes.list"
     )
 }
 
@@ -175,7 +197,7 @@ pub fn tools() -> Vec<Tool> {
             a.read_only_hint = Some(read_only(command));
             a.destructive_hint = Some(matches!(
                 *command,
-                "doc.close" | "doc.revert" | "block.delete" | "block.set_text"
+                "doc.close" | "doc.revert" | "block.delete" | "block.set_text" | "changes.reject"
             ));
             tool.annotations = Some(a);
             Some(tool)

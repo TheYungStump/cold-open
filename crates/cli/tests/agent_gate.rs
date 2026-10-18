@@ -253,7 +253,12 @@ fn without_the_app_coldopen_mcp_opens_the_file_itself() {
         ..Boot::default()
     });
     let mut h = Headless::new(app, iced::Size::new(800.0, 600.0)).unwrap();
-    let mut mcp = Mcp::start(home.path(), &["--doc", script.to_str().unwrap()]);
+    // Agent edits in a .fountain file it opens itself can be saved there
+    // only untracked: the person running the server chose that.
+    let mut mcp = Mcp::start(
+        home.path(),
+        &["--doc", script.to_str().unwrap(), "--untracked"],
+    );
     mcp.request(
         &mut h,
         "initialize",
@@ -346,7 +351,7 @@ fn a_failed_doc_open_keeps_the_open_script() {
         ..Boot::default()
     });
     let mut h = Headless::new(app, iced::Size::new(800.0, 600.0)).unwrap();
-    let mut mcp = Mcp::start(home.path(), &["--no-attach"]);
+    let mut mcp = Mcp::start(home.path(), &["--no-attach", "--untracked"]);
     mcp.request(
         &mut h,
         "initialize",
@@ -434,6 +439,13 @@ fn an_agent_saves_an_fdx_script_and_writes_copies() {
         ..Boot::default()
     });
     app.set_dialogs(Dialogs::scripted(|_| None));
+    // The writer turns agent tracking off for this script, so the agent's
+    // edit can be saved to .fdx, which cannot hold tracked changes.
+    app.d
+        .execute(
+            coldopen_core::Command::from_parts("changes.track", json!({"agents": false})).unwrap(),
+        )
+        .unwrap();
     let mut h = Headless::new(app, iced::Size::new(1000.0, 700.0)).unwrap();
     let mut mcp = Mcp::start(home.path(), &[]);
     mcp.request(

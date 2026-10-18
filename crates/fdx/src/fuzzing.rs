@@ -237,7 +237,7 @@ pub fn normal_form(
             .runs()
             .iter()
             .filter_map(|r| match r {
-                Run::Text { text, style } => Some(Run::styled(
+                Run::Text { text, style, .. } => Some(Run::styled(
                     text.chars().filter(|&c| xml_char(c)).collect::<String>(),
                     *style,
                 )),
