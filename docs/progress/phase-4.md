@@ -81,7 +81,10 @@ Most files keep only a handful of paragraphs as raw text: jumpcut's Big Fish kee
 - **Corpus gaps:**
   - No public .fdx with anchored script notes, revision-marked runs, or files saved by Highland or WriterDuet was found.
   - The screenplay-tools and scripttool downloads didn't arrive.
-- **Two new fuzz findings on `main`** (run 39030169983): a 21-byte `fountain_roundtrip` input, and an `fdx_roundtrip` input that still writes a forbidden character. Proposed as their own task.
+- **Two new fuzz findings on `main`** (run 39030169983), fixed in TheYungStump/cold-open#6, 2026-10-17:
+  - `fountain_roundtrip`, "parser output is not in normal form": in the title value `*/**/* *`, the stars around an empty boneyard closed as an empty italic and left " *". Title values were trimmed only before emphasis was parsed; they are now brought to normal form afterwards, as element text is (`fountain.md` §4).
+  - `fdx_roundtrip`, "G2: what was written needs repair: invalid_char": an XML declaration holding a forbidden character inside an element was reported but not marked repaired, so its element was copied as written. It is now left out, and the elements around it are written from the tree (`fdx.md` §9).
+  - Both have regression tests that failed first with the fuzzer's reasons. The property tests pass at 100,000 cases, and the fuzz workflow was run by hand on the branch (run 39083887560).
 - **Smaller items:**
   - Why the 2012 Final Draft files keep more paragraphs raw (it costs journal size, nothing else).
   - The recovery dialog's list of changed scenes treats an unreadable file as empty (`disk_document`).
