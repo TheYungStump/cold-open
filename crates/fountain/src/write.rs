@@ -4,7 +4,8 @@
 //! written element by element. Forcing markers and escapes are added only
 //! where the reader would otherwise misread a line. As a final check the
 //! output is parsed again; any difference not already reported becomes a
-//! loss, so nothing is ever dropped silently.
+//! loss, so nothing is ever dropped silently. Bold and italic on
+//! whitespace are set aside there: they do not print (spec §9).
 
 use coldopen_screenplay::{Element, ElementKind, Run, Script, Style, TitlePage};
 
@@ -13,7 +14,9 @@ use crate::classify::{
     is_scene_heading_prefix, is_strict_scene_heading_prefix, is_transition_shape,
     split_scene_number, strip_dual,
 };
-use crate::norm::{RLine, normalize_with_map, split, visible};
+use crate::norm::{
+    RLine, clear_ws_styles, normalize_with_map, split, untangle_words, visible, without_ws_emphasis,
+};
 use crate::{inline, line, scan, title};
 
 /// Something in the script that Fountain cannot express exactly.
@@ -55,7 +58,8 @@ pub fn write(script: &Script) -> Written {
     let mut losses = w.losses;
     if losses.is_empty() {
         let back = crate::parse(&text).script;
-        if back != norm {
+        // Bold and italic on whitespace may be set aside (spec §9).
+        if back != norm && without_ws_emphasis(&back) != without_ws_emphasis(&norm) {
             let at = back
                 .elements
                 .iter()
@@ -365,9 +369,18 @@ fn reparse_line(s: &str) -> Option<RLine> {
     Some(coldopen_screenplay::RichText::new(runs).into_runs())
 }
 
+/// The first arrangement of `line` that reads back exactly.
+fn first_plan(line: &[Run], after: Option<char>, escape_at: &[usize]) -> Option<String> {
+    PLANS
+        .iter()
+        .map(|&plan| render(line, plan, after, escape_at))
+        .find(|s| reparse_line(s).as_deref() == Some(line))
+}
+
 /// Writes one line of runs. Returns the text and whether it reads back
-/// exactly. `after` is the character that will follow the line in the
-/// output; `escape_at` lists printed-text indices to escape.
+/// exactly, setting aside bold and italic on whitespace, which do not
+/// print (spec §9). `after` is the character that will follow the line in
+/// the output; `escape_at` lists printed-text indices to escape.
 fn write_inline(line: &[Run], after: Option<char>, escape_at: &[usize]) -> (String, bool) {
     let target = coldopen_screenplay::RichText::new(line.to_vec()).into_runs();
     // Fast path: most lines are plain text with nothing that needs escaping.
@@ -381,11 +394,17 @@ fn write_inline(line: &[Run], after: Option<char>, escape_at: &[usize]) -> (Stri
     if target.is_empty() {
         return (String::new(), true);
     }
-    for plan in PLANS {
-        let s = render(&target, plan, after, escape_at);
-        if reparse_line(&s).as_deref() == Some(&target[..]) {
-            return (s, true);
-        }
+    if let Some(s) = first_plan(&target, after, escape_at) {
+        return (s, true);
+    }
+    // Spec §9: bold and italic come off the line's whitespace first. That
+    // is no loss, since they do not print there, so it goes ahead of every
+    // step that loses something.
+    let unspaced = clear_ws_styles(&target, false);
+    if unspaced != target
+        && let Some(s) = first_plan(&unspaced, after, escape_at)
+    {
+        return (s, true);
     }
     let hoisted = hoist_underline(&target);
     for plan in PLANS.iter().filter(|p| p.escape_delims) {
@@ -393,6 +412,21 @@ fn write_inline(line: &[Run], after: Option<char>, escape_at: &[usize]) -> (Stri
         if reparse_line(&s).as_deref() == Some(&hoisted[..]) {
             return (s, false);
         }
+    }
+    // Before the line goes plain: underline comes off its whitespace too,
+    // then a style that crosses another inside a word is dropped from that
+    // word.
+    let bare = clear_ws_styles(&unspaced, true);
+    if bare != unspaced
+        && let Some(s) = first_plan(&bare, after, escape_at)
+    {
+        return (s, false);
+    }
+    let untangled = untangle_words(&bare);
+    if untangled != bare
+        && let Some(s) = first_plan(&untangled, after, escape_at)
+    {
+        return (s, false);
     }
     let plain: RLine = target
         .iter()
@@ -1169,6 +1203,88 @@ mod tests {
         assert_eq!(
             w(vec![Run::styled("a ", B), note("n"), Run::styled(" b", B)]),
             ("**a [[n]] b**".into(), true)
+        );
+    }
+
+    /// Bold on "a b c" and italic on "b c d" cross: no spelling makes the
+    /// space after "c" italic but not bold. Bold and italic do not print on
+    /// a space, so they come off the spaces with no loss (spec §9).
+    #[test]
+    fn crossing_phrases_lose_bold_and_italic_only_on_spaces() {
+        let bi = Style {
+            bold: true,
+            italic: true,
+            underline: false,
+        };
+        let (s, exact) = w(vec![
+            Run::styled("a ", B),
+            Run::styled("b c", bi),
+            Run::styled(" d", I),
+        ]);
+        assert!(exact, "{s}");
+        let printed: Vec<(String, Style)> = reparse_line(&s)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|r| match r {
+                Run::Text { text, style } => Some((text, style)),
+                _ => None,
+            })
+            .filter(|(t, _)| !t.trim().is_empty())
+            .collect();
+        assert_eq!(
+            printed,
+            [
+                ("a".to_string(), B),
+                ("b".to_string(), bi),
+                ("c".to_string(), bi),
+                ("d".to_string(), I),
+            ]
+        );
+    }
+
+    /// Underline on a space that only a crossing style leaves stranded
+    /// comes off it, and that is a loss: it prints (spec §9).
+    #[test]
+    fn underline_comes_off_a_space_as_a_loss() {
+        let bu = Style {
+            bold: true,
+            italic: false,
+            underline: true,
+        };
+        let iu = Style {
+            bold: false,
+            italic: true,
+            underline: true,
+        };
+        assert_eq!(
+            w(vec![
+                Run::styled("(", B),
+                Run::styled("slowly.\"", bu),
+                Run::styled(" ", U),
+                Run::styled("vu", iu),
+                Run::styled(":", I),
+            ]),
+            ("**(_slowly.\"_** *_vu_:*".into(), false)
+        );
+    }
+
+    /// Italic on `"über` and bold on `über:` cross inside the word: the
+    /// later one, bold, comes off that word only, and the rest of the line
+    /// keeps its styles (spec §9).
+    #[test]
+    fn a_crossing_inside_a_word_drops_the_later_style_from_that_word() {
+        let bi = Style {
+            bold: true,
+            italic: true,
+            underline: false,
+        };
+        assert_eq!(
+            w(vec![
+                Run::styled("\"", I),
+                Run::styled("über", bi),
+                Run::styled(": señor", B),
+            ]),
+            ("*\"über*: **señor**".into(), false)
         );
     }
 
