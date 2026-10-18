@@ -1,8 +1,105 @@
 # Phase 4 progress: .fdx exchange
 
-Branch `phase-4-fdx`, started 2026-10-16 from `main` (7707861). This file is updated and pushed with every step, so where the work stands never lives only in one session's notes.
+Branch `phase-4-fdx`, started 2026-10-16 from `main` (7707861), squash-merged on 2026-10-17 as `e733d2a` (TheYungStump/cold-open#3). This file was updated and pushed with every step, so where the work stood never lived only in one session's notes.
 
 Phase 4 makes Cold Open read and write .fdx. A file that came from another app opens, is edited and is saved back with nothing lost. Whatever Cold Open doesn't model passes through untouched, and a damaged file opens with a report of what was repaired. The phase also settles three things from the review of phases 1–3 (`docs/progress/review-fixes.md`, "F18"): the format seam (F18.1), one app-level command router (F18.5), and set-aside recovery copies that writers never have to manage.
+
+## Final report (2026-10-17)
+
+Phase 4 is done. It was squash-merged as `e733d2a` (TheYungStump/cold-open#3), just after `0ab41f1` (#4), a Fountain round-trip fix the fuzzer found. Every item in the brief's "done when" is met. The phase changed 86 files: about 9,600 lines in the crates and fuzz targets, and 660 lines of specs.
+
+### What was built
+
+- **The format seam (F18.1).** A `Format` trait in core with Fountain behind it, landed alone with every existing test unchanged. The journal header records the format.
+- **.fdx read and write** (`crates/fdx`, MIT OR Apache-2.0):
+  - **Lossless XML layer.** It keeps spans, quoting and comments, and resyncs after a syntax error.
+  - **Passthrough store.** It keeps everything the model doesn't hold.
+  - **Generate and compare.** A paragraph is stored as raw text only when the generator can't reproduce its bytes, so an unedited file writes back byte for byte.
+  - **Local edits.** An edited paragraph keeps its unknown attributes and children.
+  - **The file's own style.** Newline, indentation and escaping are read from the file.
+- **Repair.**
+  - **Automatic, with a report.** Every fix happens on open. The report is text or JSON, with a class and position for each issue, and never quotes script text.
+  - **`coldopen repair`.** It writes a repaired copy and never touches the input.
+  - **The damaged original is kept.** The first save over a damaged file keeps a hidden copy of it.
+- **Core commands.**
+  - .fdx open, save and conversion. Save as converts by extension and asks about losses first.
+  - New: `export.fdx`, `export.fountain`, `file.repair`, and `recovered.list`, `recovered.restore` and `recovered.delete`.
+  - MCP tools for all of them.
+- **Recovery copies.**
+  - Journals and copies are hidden on Windows.
+  - Notices never show a path.
+  - The Recovered versions screen offers a preview, Restore (as new, unsaved work) and Delete.
+  - Start-up deletes copies older than 30 days, but only those the screen has already shown.
+- **The app.**
+  - One router, `App::dispatch(request, origin)` (F18.5), for keys, buttons, the palette, its form and agents.
+  - Opening, closing, quitting, restoring and reverting wait for a save in flight.
+  - .fdx open, Save as and Save a copy; the repair dialog and "Repair an .fdx file".
+
+### Round trip
+
+All 34 public .fdx files in the corpus pass the round-trip gate: fountain.io, jumpcut, screenplain and rsdoiel, saved by Final Draft and by other tools, in LF and CRLF.
+
+- **G1:** each writes back byte for byte, unedited.
+- **G2:** re-reading the output gives the same document and store, and writing it again gives the same bytes.
+- **G3:** scripted edits change only the edited paragraphs.
+- **No repairs:** no corpus file needed one.
+- **Core:** a core test opens, edits, saves and reopens each file through the dispatcher.
+- **Layout:** the phase 2 reference gate gives the same numbers through core's view.
+
+Most files keep only a handful of paragraphs as raw text: jumpcut's Big Fish keeps 6 (a 35 KB store), and screenplain's keeps none. The Final Draft 2012 files keep more (fountain.io's Big Fish: 361 paragraphs, 211 KB).
+
+### Checks
+
+- **Tests:** 463 pass on the merged `main`, with fmt and clippy clean. CI is green on Windows, macOS and Linux.
+- **Gates:**
+  - The crash gate also kills the app during .fdx saves and around a Save as from Fountain to .fdx; it passed five runs in a row.
+  - The typing gate also types its scene into an .fdx script.
+  - The agent gate also saves an .fdx over MCP and writes copies.
+- **Fuzzing:**
+  - New targets `fdx_roundtrip` and `fdx_write`, with a per-input timeout of 2 s.
+  - The fuzz run by hand found three bugs, all fixed (decision 46). A second run on `main` found two new inputs, left for a follow-up (below).
+  - The .fdx and Fountain property tests pass at 100,000 cases.
+  - A timing-bounded test covers large and hostile .fdx input.
+- **Measurements:** Big Fish as .fdx opens and lays out in 46 ms, against the 200 ms budget, and saves in 6 ms (table above).
+- **Manual test** (Windows CI build, by the project's owner): an .fdx opened, edited, saved and reopened with nothing lost.
+  - The one observation: the same script as .fountain and as .fdx paginates differently.
+  - That is by design. An .fdx carries its own page settings, and Fountain uses the default format.
+  - Big Fish has 122 body pages from the .fdx, 124 from the .fdx with default settings and 125 from the .fountain, whose text differs slightly. Save as to Fountain lists the page settings as a loss.
+
+### Deferred
+
+- **To phase 5, decided in `journal.md`:**
+  - F18.2, track changes. Nothing in phase 4 makes it harder.
+  - F18.3, ids that survive a reload, and the `.coldopen` bundle.
+  - F18.4, document identity, which comes with the bundle.
+- **Not modelled yet** (`fdx.md` §18):
+  - act breaks and other custom types;
+  - revision sets, marks and colors;
+  - script notes, which are reported as losses;
+  - header and footer content beyond the page number;
+  - scene numbering options, locked pages, and page sizes other than the default as templates.
+- **Corpus gaps:**
+  - No public .fdx with anchored script notes, revision-marked runs, or files saved by Highland or WriterDuet was found.
+  - The screenplay-tools and scripttool downloads didn't arrive.
+- **Two new fuzz findings on `main`** (run 39030169983): a 21-byte `fountain_roundtrip` input, and an `fdx_roundtrip` input that still writes a forbidden character. Proposed as their own task.
+- **Smaller items:**
+  - Why the 2012 Final Draft files keep more paragraphs raw (it costs journal size, nothing else).
+  - The recovery dialog's list of changed scenes treats an unreadable file as empty (`disk_document`).
+  - libFuzzer does not build on Windows, so fuzzing runs only in CI.
+
+### Decisions
+
+- **The project owner's, before the phase:** a byte-identical round trip; automatic repair with a report and a kept original; notes, boneyard, sections and synopses as losses on .fdx save; Recovered versions reached from a notice, the palette and the start screen.
+- **During the phase:** 46 decisions, listed below. The ones that shape later work:
+  - the seam and its header field (1, 2);
+  - generate and compare (6);
+  - spacing keyed by block id (10);
+  - values the model rejects stay in the file (13);
+  - a converting save adopts the new format before the journal restarts (21);
+  - damaged originals and hidden files (23, 25);
+  - the router in two commits (30);
+  - reading the markup style from the file (45);
+  - the fuzz fixes (46).
 
 ## The plan, in order
 
@@ -14,12 +111,12 @@ Phase 4 makes Cold Open read and write .fdx. A file that came from another app o
 | 4 | Model and layout: the document's page format, title lines, paragraph spacing and passthrough store; per-document layout | done, except the store, which comes with the reader (step 5) and core integration (step 8) |
 | 5 | .fdx reader: a lossless XML layer, the passthrough store, resyncing after syntax errors, report classes; our own fixtures, broken ones included | done |
 | 6 | .fdx writer: write back what was read byte for byte, generate what was edited; property tests, the hostile-input timing test, fuzz targets for the writer | done |
-| 7 | The round-trip gate on the corpus, with its report | done on the nine corpus files here; to run again when the new downloads arrive |
+| 7 | The round-trip gate on the corpus, with its report | done: all 34 corpus files after the downloads of 2026-10-17 |
 | 8 | Core: .fdx open, save and conversion, `export.fdx`, `export.fountain`, `file.repair`, damaged originals; the CLI's `repair` and `convert`; MCP tools | done |
 | 9 | Recovery copies: hidden on Windows, `recovered.*` commands, clean-up | done: core in this step (hidden files, commands, the clean-up rule); the app's clean-up and screen in step 11 |
 | 10 | App: one command router, `App::dispatch(request, origin)` (F18.5) | done: the refactor (117f45e, app tests unchanged), then restore, delete and waiting for saves in flight (ccf4b0b) |
 | 11 | App: .fdx dialogs, Save As conversion, exports, the repair dialog, the Recovered versions screen, notices without paths | done: all of these, plus the start-up clean-up and leftover work for restored scripts; screenshots reviewed in three themes |
-| 12 | Gates: crash gate (kills during .fdx saves and Save As conversion), typing gate on .fdx, agent gate; CI on three OSes; measurements; your manual test of the Windows build; the final report | gates done: the crash gate kills during .fdx saves and around a Save as to .fdx (five clean runs in a row); the typing gate types the scene into an .fdx script and reads it back; the agent gate saves an .fdx in place and writes copies. CI, measurements, your manual test and the report are next |
+| 12 | Gates: crash gate (kills during .fdx saves and Save As conversion), typing gate on .fdx, agent gate; CI on three OSes; measurements; your manual test of the Windows build; the final report | done: the crash gate kills during .fdx saves and around a Save as to .fdx (five clean runs in a row); the typing gate types the scene into an .fdx script and reads it back; the agent gate saves an .fdx in place and writes copies; CI green on three OSes; measurements below; the manual test passed; the report below |
 
 ## Decisions made with the user before the phase (2026-10-16)
 
