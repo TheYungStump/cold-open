@@ -11,8 +11,8 @@ Phase 5 is split in two. **5a** (this phase) brings the `.coldopen` project bund
 | Step | What | State |
 | --- | --- | --- |
 | 1 | Branch, and this file | done |
-| 2 | Specs before code: `bundle.md` and `changes.md` (new); `journal.md`, `commands.md`, `fountain.md`, `fdx.md`, `layout.md`, `editor.md`, `mcp.md`; the corpus-copies rule in `CLAUDE.md` | next |
-| 3 | Model: marks in text runs, block marks, the change table, tracking switches, `doc_id`; new operations; header checks | |
+| 2 | Specs before code: `bundle.md` and `changes.md` (new); `journal.md`, `commands.md`, `fountain.md`, `fdx.md`, `layout.md`, `editor.md`, `mcp.md`; the corpus-copies rule in `CLAUDE.md` | done |
+| 3 | Model: marks in text runs, block marks, the change table, tracking switches, `doc_id`; new operations; header checks | next |
 | 4 | Semantics: the `tracked` param, `semantics` 2, change grouping, author rules, `changes.list`, `changes.accept`, `changes.reject`, `changes.track`; replay; property tests | |
 | 5 | The bundle behind `Format`: rawzip and miniz_oxide, deterministic bytes, a tolerant reader, `doc_id`, the journal header's reference to the change data, recovery; fuzz targets | |
 | 6 | Losses: `tracked_changes` on Fountain and .fdx; F21's `normalized` class | |
@@ -38,7 +38,18 @@ Phase 5 is split in two. **5a** (this phase) brings the `.coldopen` project bund
 
 ## Decisions made during the phase
 
-(Numbered as they are made.)
+1. **Specs first** (step 2, 2026-10-18): `docs/specs/changes.md` and `docs/specs/bundle.md` are new. `journal.md`, `commands.md`, `fountain.md`, `fdx.md`, `layout.md`, `editor.md` and `mcp.md` gain the phase 5a parts, and `CLAUDE.md` the rule that manual tests use copies of corpus files.
+2. **Pending structure stays visible.** A tracked block deletion or join marks the block instead of removing it, so ids stay valid and rejecting rebuilds nothing. A block that is a pending deletion cannot be edited until its change is settled (`change_pending`).
+3. **Pending deletions take no offsets**, like notes. `text` and every offset count the current text, so agents and the find and replace commands never meet struck text. Text typed where a deletion sits goes before it.
+4. **Marks are made only by tracked edits.** In input, a run marked `del` is left out and an `ins` is ignored, so an agent can send back the runs `doc.get` gave it and they stand for the current text.
+5. **A tracked replacement goes after the deleted text**, so the old words read first.
+6. **The change table is append-only**, numbered `c_1`… with no gaps. Settling or undoing a change removes its marks, not its entry. This is what lets the journal name a bundle's table by count and fingerprint.
+7. **No `doc.saved` markers for synchronous saves.** The plan added them so a crash between a bundle save and the journal's restart could find the old table; the append-only table makes that unnecessary, because the newer bundle starts with the old table.
+8. **The session file mirrors `doc_id` as `doc_ids`**, a list in the same order as `docs`, rather than a list of objects, so readers from earlier phases keep reading `docs` as before.
+9. **The tracking switches are not a loss** when a script is saved as Fountain or .fdx: they change nothing that prints. Those files open with the defaults (the writer's off, the agents' on).
+10. **Writers with different names are different authors for tracked changes** (a change joins only its own author's marks) and the same author for undo grouping and permissions.
+11. **A bundle is laid out as its blocks stand**, as .fdx is. A script read from Fountain is already in normal form, so its pages do not change when it becomes a bundle.
+12. **The lossy-save question defaults to Save as Cold Open project** when tracked changes are among the losses.
 
 ## Measurements
 

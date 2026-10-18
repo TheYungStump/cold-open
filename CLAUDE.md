@@ -59,6 +59,7 @@ Each phase starts only after the previous gate passes.
 
 - Real scripts are copyrighted. They live only in `corpus/`, which is gitignored. Tests that need them skip cleanly when it is missing.
 - Public fixtures in `tests/fixtures/` are short scenes we write ourselves.
+- Manual tests, yours and the project owner's, use copies of corpus files in a scratch folder, never the files in `corpus/`. Phase 4's manual test saved over `corpus/fountain-io/Brick-&-Steel.fdx`.
 
 ### Commands
 

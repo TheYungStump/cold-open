@@ -1,6 +1,6 @@
 # .fdx: how Cold Open reads and writes it
 
-- **Date:** 2026-10-13, updated 2026-10-14, 2026-10-16 (phase 4: the writer, passthrough, round trip and repair, §12 to §17) and 2026-10-17 (the corpus downloads, and how the markup style is read, §13.1)
+- **Date:** 2026-10-13, updated 2026-10-14, 2026-10-16 (phase 4: the writer, passthrough, round trip and repair, §12 to §17), 2026-10-17 (the corpus downloads, and how the markup style is read, §13.1) and 2026-10-18 (phase 5a: tracked changes are written as their accepted form, §15)
 - **Status:** the phase 2 reader is implemented in `crates/fdx` (package `coldopen-fdx`). Phase 4 (2026-10-16) adds the writer, the passthrough store, resyncing after syntax errors and the repair report; they are being implemented.
 - **Sources:**
   - Seven publicly shared .fdx files from the MIT-licensed repository <https://github.com/SimonGZ/jumpcut>, path `tests/fixtures/corpus/public/<name>/source/source.fdx`, downloaded 2026-10-13. They are kept in the gitignored `corpus/` folder and identified by the first 12 hex digits of their sha256:
@@ -586,6 +586,8 @@ Writing .fdx lists these losses, each with the block it concerns. A save refuses
 **Decision (2026-10-16, with the project's owner).** No public .fdx sample shows how anchored script notes are stored, so the clean room gives nothing to write notes from. Notes, boneyard, sections and synopses are therefore losses, as a Shot is for Fountain. If a public sample with anchored script notes turns up, notes will be mapped to it.
 
 A save also reports `reencoded` when the file was read as Windows-1252 or with bytes replaced, and is about to be written as UTF-8 (`docs/specs/journal.md`, "Encoding").
+
+**Tracked changes** (2026-10-18, phase 5a; `docs/specs/changes.md` §9). A document with pending tracked changes is written from its accepted form, the script as accepting every change would leave it, and the save reports a `tracked_changes` loss for the document, as a Fountain save does (`docs/specs/fountain.md` §12). Edited paragraphs are then generated as §14.4 says. **Decision (2026-10-18, with the project's owner):** no public .fdx sample shows how marked runs are stored. Some runs carry a `RevisionID` (§6.2), but nothing in the corpus shows what it refers to, or how deleted text would be kept (§11). So the clean room gives us nothing to write tracked changes from, and they are not mapped. If a public file with revision-marked runs turns up, mapping them becomes its own task.
 
 ## 16. Round trip
 

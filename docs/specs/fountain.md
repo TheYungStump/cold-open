@@ -1,7 +1,7 @@
 # Fountain: how Cold Open reads and writes it
 
 - **Date:** 2026-10-13
-- **Updated:** 2026-10-13 (phase 2): reversed scene heading prefixes (§4, §6.2, §9). 2026-10-15 (phase 3): the normal form's source map (§10). 2026-10-16: hidden-only lines inside an element (§5); time in proportion to the input (§1); a document read from .fdx (§11). 2026-10-17: an opening paragraph that starts with U+FEFF, and a dual-dialogue name that reads as a scene heading (§9); title values brought to normal form after emphasis (§4); the ordered emphasis arrangement, styles that emphasis cannot spell and the round-trip check (§9, §10).
+- **Updated:** 2026-10-13 (phase 2): reversed scene heading prefixes (§4, §6.2, §9). 2026-10-15 (phase 3): the normal form's source map (§10). 2026-10-16: hidden-only lines inside an element (§5); time in proportion to the input (§1); a document read from .fdx (§11). 2026-10-17: an opening paragraph that starts with U+FEFF, and a dual-dialogue name that reads as a scene heading (§9); title values brought to normal form after emphasis (§4); the ordered emphasis arrangement, styles that emphasis cannot spell and the round-trip check (§9, §10). 2026-10-18 (phase 5a): normalisation reported as a `normalized` loss (§10, F21); tracked changes (§12).
 - **Status:** implemented in `crates/fountain` (phase 1)
 - **Sources:**
   - The public Fountain syntax page, <https://fountain.io/syntax>, read 2026-10-13.
@@ -275,7 +275,7 @@ The writer's output for a script `s` reads back as `s` exactly when `s` is in **
 
 Every script the parser produces is in normal form. The property tests generate only normal-form scripts.
 
-**Normalisation is not reported as a loss** (noted 2026-10-16, review finding F21 and Antigravity's 12; for phase 5). A document held in memory need not be in normal form: commands can put text in it that the normal form changes. Writing it then changes the document without listing a loss, because none of these changes what prints:
+**Normalisation is reported as a `normalized` loss** (noted 2026-10-16, review finding F21 and Antigravity's 12; settled 2026-10-18, phase 5a). A document held in memory need not be in normal form: commands can put text in it that the normal form changes. Writing it then changes the document in ways that do not change what prints:
 - leading and trailing spaces on dialogue and other non-action lines, and trailing spaces on action lines;
 - an action holding only spaces, which becomes empty;
 - an action beginning with blank lines, which lose them, and one with several blank lines inside, which splits into elements with `space_before`;
@@ -284,7 +284,15 @@ Every script the parser produces is in normal form. The property tests generate 
 - a note at the start of an action line, followed by a line break, which loses the break;
 - trailing blank lines in the last action of the script, which are dropped (in any other action they become the next element's `space_before`).
 
-It matters more in phase 5, where script diff and tracked changes compare documents block by block: "one block became two" or "a trailing space vanished" would show as a change nobody made. Phase 5 should either report these as a `normalized` loss class that never blocks a save, or have the `block.*` and `text.*` commands normalise as they apply, so the document never holds what the file cannot. Until then the recovery check ("Nothing to recover?" in `docs/specs/journal.md`) relies on the file's fingerprint first, so a file outside normal form is not taken for a change.
+It matters in phase 5, where script diff compares documents block by block: "one block became two" or "a trailing space vanished" would show as a change nobody made. The 2026-10-16 note left two options: report these as a `normalized` loss class that never blocks a save, or have the `block.*` and `text.*` commands normalise as they apply, so the document never holds what the file cannot.
+
+**Decision (2026-10-18): the `normalized` class.**
+
+- **Why not normalise in the commands.** The editor sends one `text.insert` per key, and the document must hold a trailing space the writer has just typed before the next word arrives (`docs/specs/editor.md` §4). A command that trimmed it would eat the space. Normalising commands would also mean different things in different formats, since .fdx and bundles keep text exactly.
+- **Why tracked changes need neither.** They record marks as edits are made, and never compare documents (`docs/specs/changes.md`).
+- **What the writer does.** It lists one `normalized` loss for each element the normal form changes, with a message naming the case: spaces at the edges of lines, an action of spaces only, blank lines at the start or inside of an action, dialogue joined to the dialogue before it, a `=== ` line in dialogue, a line break after a note at the start of an action line, and blank lines at the end of the script's last action (A12). The loss names the first element involved. A `normalized` loss never blocks a save (`docs/specs/commands.md`, "Losses"), and the app never asks about it.
+- **Comparisons.** Anything that compares a document with a Fountain file read back (the recovery dialog's changed scenes, phase 5b's script diff) compares the normal form of each, so a normalisation never shows as a change, and the loss list says what the normal form did.
+- **The recovery check.** "Nothing to recover?" in `docs/specs/journal.md` counts only `lost` losses, as it counted none of these before, and relies on the file's fingerprint first, so a file outside normal form is not taken for a change.
 
 **Source map** (2026-10-15, for the desktop editor). Layout runs on the normal form (`docs/specs/layout.md` §4.8), but the editor places its caret in the document's own elements, so it needs to know where each piece of normal-form text came from. `normalize_with_source_map` returns the normal form and, for each of its elements:
 - the index of the source element it starts in;
@@ -307,3 +315,12 @@ A document read from an .fdx file can hold what Fountain cannot, besides the ele
 
 **Title lines as keys.** Lines are taken in order and grouped into blocks separated by empty lines. The first centered block is `Title`, one value per line. A centered block of one line ending in "by" (ignoring case and spaces) is `Credit`. The centered block after a credit is `Author`, and any other centered blocks are `Source`. Left-aligned blocks after the title are `Contact`, and right-aligned blocks are `Notes`. Styles in the lines are kept as emphasis (§8). This is a rule of thumb for English title pages, which is why `title_page_layout` is always reported.
 
+## 12. Writing a document with tracked changes
+
+Added 2026-10-18 (phase 5a). Sources: `docs/specs/changes.md`, the phase 5a brief. Fountain has no syntax for tracked changes, and an inline note is not one: it would change the script text another app reads. So a document with pending changes is written from its accepted form (`docs/specs/changes.md` §9), the script as accepting every change would leave it, and a save or export reports one loss for the document:
+
+| Code | Content | What the writer does |
+| --- | --- | --- |
+| `tracked_changes` | Pending tracked changes, counted in the message | Writes the current text with every change applied |
+
+It is of class `lost`, so the writer is asked first. The desktop app's question also offers "Save as Cold Open project…", which keeps everything (`docs/specs/editor.md` §11).
