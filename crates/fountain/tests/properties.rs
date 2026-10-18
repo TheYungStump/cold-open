@@ -480,3 +480,21 @@ fn a_dual_name_that_reads_as_a_heading_is_forced() {
     let script = coldopen_fountain::parse("EST^\n  ").script;
     assert_eq!(coldopen_fountain::write(&script).text, "@EST ^\n  \n");
 }
+
+/// Found by the `fountain_roundtrip` fuzz target in CI (run 39030169983,
+/// 2026-10-17): "parser output is not in normal form". In the title value
+/// `*/**/* *` the stars around an empty boneyard closed as an empty italic
+/// and left " *"; title values were trimmed only before emphasis was
+/// parsed. They are now brought to normal form afterwards, as element text
+/// is (spec §4).
+#[test]
+fn a_title_value_trimmed_after_emphasis_is_in_normal_form() {
+    for input in [&b"z:*/* **/*\x0b*/=* **/* "[..], b"z:*/**/* *"] {
+        assert_eq!(
+            coldopen_fountain::fuzzing::round_trip_bytes(input),
+            Ok(()),
+            "{:?}",
+            String::from_utf8_lossy(input)
+        );
+    }
+}
