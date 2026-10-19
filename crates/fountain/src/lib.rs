@@ -27,7 +27,7 @@ use coldopen_screenplay::Script;
 
 pub use norm::{normalize, normalize_with_map};
 pub use srcmap::{ElementSource, Segment, SourceMap, normalize_with_source_map};
-pub use write::{Loss, Written, write};
+pub use write::{Loss, Written, write, write_text};
 
 /// Something the parser noticed and recovered from.
 #[derive(Clone, Debug, PartialEq, Eq)]

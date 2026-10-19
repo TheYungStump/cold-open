@@ -45,22 +45,7 @@ pub struct Written {
 /// Writes a script as canonical Fountain.
 pub fn write(script: &Script) -> Written {
     let (norm, map) = normalize_with_map(script);
-    let mut w = Writer {
-        out: Vec::new(),
-        losses: Vec::new(),
-        map: &map,
-    };
-    let has_title = !norm.title_page.is_empty();
-    if has_title {
-        w.title_page(&norm.title_page);
-    }
-    w.body(&norm.elements, has_title);
-
-    let mut text = w.out.join("\n");
-    if !text.is_empty() {
-        text.push('\n');
-    }
-    let mut losses = w.losses;
+    let (text, mut losses) = render_script(&norm, &map);
     if losses.is_empty() {
         let back = crate::parse(&text).script;
         // Bold and italic on whitespace may be set aside (spec §9).
@@ -96,6 +81,36 @@ pub fn write(script: &Script) -> Written {
         losses,
         normalized,
     }
+}
+
+/// The text [`write`] gives, alone, without reading it back to find what
+/// it lost or listing what the normal form changed: for a copy that is
+/// never read back, such as a project bundle's `script.fountain`
+/// (docs/specs/bundle.md §6). The text is the same; it takes about a
+/// third of the time.
+pub fn write_text(script: &Script) -> String {
+    let (norm, map) = normalize_with_map(script);
+    render_script(&norm, &map).0
+}
+
+/// Writes a script already in normal form, with the losses found while
+/// writing it.
+fn render_script(norm: &Script, map: &[usize]) -> (String, Vec<Loss>) {
+    let mut w = Writer {
+        out: Vec::new(),
+        losses: Vec::new(),
+        map,
+    };
+    let has_title = !norm.title_page.is_empty();
+    if has_title {
+        w.title_page(&norm.title_page);
+    }
+    w.body(&norm.elements, has_title);
+    let mut text = w.out.join("\n");
+    if !text.is_empty() {
+        text.push('\n');
+    }
+    (text, w.losses)
 }
 
 // ---- Inline text ----

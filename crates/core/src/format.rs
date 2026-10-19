@@ -274,6 +274,19 @@ impl Format for Fountain {
     }
 }
 
+/// The bytes a Fountain save of `doc` writes, with every pending change
+/// accepted and the default style, found without checking what is lost:
+/// for a copy that is never read back, a bundle's `script.fountain`
+/// (docs/specs/bundle.md §6). The same bytes as [`Fountain`]'s `write`.
+pub(crate) fn fountain_text(doc: &Document) -> Vec<u8> {
+    let accepted = doc.has_changes().then(|| doc.accepted());
+    let (script, _) = fountain_script(accepted.as_ref().unwrap_or(doc));
+    io::encode(
+        &coldopen_fountain::write_text(&script),
+        SourceStyle::default(),
+    )
+}
+
 /// The script a document writes as Fountain, with what Fountain cannot hold
 /// of a document read from .fdx (docs/specs/fountain.md §11). A Fountain
 /// document has none of it, so it writes exactly as before.

@@ -26,8 +26,9 @@ const KIND: &str = "coldopen-bundle";
 /// hold (docs/specs/bundle.md §2).
 const MAX_ENTRY: usize = 256 << 20;
 const MAX_ENTRIES: u64 = 64;
-/// Deflate level for Cold Open's own writer.
-const LEVEL: u8 = 6;
+/// Deflate level for Cold Open's own writer: level 2 deflates about four
+/// times as fast as 6 for a file 14% larger (docs/specs/bundle.md §2).
+const LEVEL: u8 = 2;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -78,7 +79,7 @@ pub fn write(doc: &Document) -> Vec<u8> {
     doc_json.push(b'\n');
     let mut changes_json = serde_json::to_vec(&doc.changes.to_file()).unwrap_or_default();
     changes_json.push(b'\n');
-    let script = Fountain.write(doc, SourceStyle::default()).bytes;
+    let script = crate::format::fountain_text(doc);
 
     let mut out = Vec::new();
     let mut archive = rawzip::ZipArchiveWriter::new(&mut out);
@@ -568,5 +569,42 @@ mod tests {
         // The readable copy gives the text; the damage is reported.
         assert_eq!(r.doc.blocks.len(), 2);
         assert!(r.repaired.is_some());
+    }
+
+    /// `script.fountain` comes from the writer's quick path, which skips
+    /// the checks a save needs; its bytes are still exactly a Fountain
+    /// save's, for every Fountain and .fdx fixture and with pending changes
+    /// (docs/specs/bundle.md §6).
+    #[test]
+    fn the_readable_copy_has_a_fountain_saves_bytes() {
+        let save = |doc: &Document| Fountain.write(doc, SourceStyle::default()).bytes;
+        let doc = sample();
+        assert!(doc.has_changes());
+        assert_eq!(crate::format::fountain_text(&doc), save(&doc));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
+        let mut n = 0;
+        for dir in ["fountain", "fdx", "journal", "app"] {
+            let Ok(entries) = std::fs::read_dir(root.join(dir)) else {
+                continue;
+            };
+            for e in entries {
+                let p = e.unwrap().path();
+                let Some(format @ (FormatId::Fountain | FormatId::Fdx)) = FormatId::for_path(&p)
+                else {
+                    continue;
+                };
+                let Ok(read) = format.get().read(&std::fs::read(&p).unwrap()) else {
+                    continue;
+                };
+                assert_eq!(
+                    crate::format::fountain_text(&read.doc),
+                    save(&read.doc),
+                    "{}",
+                    p.display()
+                );
+                n += 1;
+            }
+        }
+        assert!(n > 60, "{n} fixtures");
     }
 }

@@ -37,7 +37,8 @@ A bundle is a zip archive (APPNOTE.TXT) holding these entries, each at most once
 
 **Cold Open's own writer**, which other tools need not copy:
 
-- **Compression.** Deflate at level 6, through miniz_oxide.
+- **Compression.** Deflate at level 2, through miniz_oxide (2026-10-19; level 6 until then). On Big Fish with tracked changes, level 2 deflates in about 3 ms where level 6 takes 12, for a file 14% larger (181 KB against 159 KB). Level 1 is no faster and 20% larger again.
+- **The readable copy** is written by the Fountain writer's quick path (`coldopen_fountain::write_text`). It gives the same text as a Fountain save but doesn't read the text back to find losses, which a copy that is never read back doesn't need (§6). A test checks the bytes are the same.
 - **Times.** No entry records a time: the date and time fields are zero and there is no timestamp extra field, so the time a file was saved never changes its bytes. Tools that show a time show the format's earliest.
 - **No extra fields** and no archive comment.
 
