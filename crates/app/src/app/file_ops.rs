@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use coldopen_core::command::DocSave;
-use coldopen_core::{BlockId, Document, PreparedSave};
+use coldopen_core::{BlockId, CommandError, Document, PreparedSave};
 use coldopen_screenplay::ElementKind;
 use iced::Task;
 use serde_json::{Value, json};
@@ -50,6 +50,9 @@ pub enum Prompt {
         overwrite: bool,
         /// A copy written with Save a copy, not the script saved.
         export: bool,
+        /// The pending tracked changes the save would accept, when tracked
+        /// changes are among its losses (editor.md §17.5).
+        tracked: usize,
     },
     /// Another program changed the file since Cold Open last read or saved
     /// it: overwrite, reload, or save as? With the save's `allow_lossy`.
@@ -63,6 +66,10 @@ pub enum Prompt {
     },
     /// Delete this set-aside copy? It cannot be undone.
     DeleteCopy(PathBuf),
+    /// What name should the writer's changes carry? (editor.md §17.4)
+    AuthorName { name: String, then: super::NameThen },
+    /// Accept, or reject, every pending change? (editor.md §17.2)
+    SettleAll { accept: bool, count: usize },
 }
 
 /// The writer's answer to a [`Prompt`].
@@ -81,6 +88,8 @@ pub enum Reply {
     Recover,
     /// Foreign: open the file, keeping the journal aside.
     SetAside,
+    /// Lossy: save as a Cold Open project instead (editor.md §17.5).
+    SaveAsProject,
 }
 
 /// What the recovery dialog shows (editor.md §13).
@@ -102,6 +111,9 @@ pub struct ExportForm {
     pub scene_numbers: bool,
     pub title_page: bool,
     pub watermark: String,
+    /// Print the script with every pending change accepted, instead of
+    /// marked (editor.md §17).
+    pub accepted: bool,
 }
 
 impl Default for ExportForm {
@@ -110,6 +122,7 @@ impl Default for ExportForm {
             scene_numbers: false,
             title_page: true,
             watermark: String::new(),
+            accepted: false,
         }
     }
 }
@@ -358,12 +371,7 @@ impl App {
                     .push(format!("Saved a copy as {}.", super::view::file_name(&path)).into());
             }
             Err(e) if e.code == "lossy_format" => {
-                self.prompt = Some(Prompt::Lossy {
-                    message: e.message,
-                    path: Some(path),
-                    overwrite,
-                    export: true,
-                });
+                self.prompt = Some(self.lossy_prompt(e, Some(path), overwrite, true));
             }
             Err(e) => self
                 .banners
@@ -399,6 +407,56 @@ impl App {
         set_aside
     }
 
+    /// The question for a save that would lose something. When tracked
+    /// changes are among the losses it says so first (editor.md §17.5).
+    pub(super) fn lossy_prompt(
+        &self,
+        e: CommandError,
+        path: Option<PathBuf>,
+        overwrite: bool,
+        export: bool,
+    ) -> Prompt {
+        let losses: Vec<Value> = e
+            .details
+            .as_ref()
+            .and_then(|d| d["losses"].as_array().cloned())
+            .unwrap_or_default();
+        let tracked = if losses.iter().any(|l| l["code"] == "tracked_changes") {
+            self.d.session().map_or(0, |s| s.doc.pending().len().max(1))
+        } else {
+            0
+        };
+        let message = if tracked > 0 {
+            let format = path
+                .as_deref()
+                .and_then(coldopen_core::FormatId::for_path)
+                .or_else(|| self.d.session().map(|s| s.format))
+                .unwrap_or_default()
+                .title();
+            let others = losses
+                .iter()
+                .any(|l| l["code"] != "tracked_changes" && l["class"] == "lost");
+            format!(
+                "{format} can't hold tracked changes ({tracked}). Saving writes the {} with every change accepted.{}",
+                if export { "copy" } else { "script" },
+                if others {
+                    " Some other things in this script can't be kept either."
+                } else {
+                    ""
+                }
+            )
+        } else {
+            e.message
+        };
+        Prompt::Lossy {
+            message,
+            path,
+            overwrite,
+            export,
+            tracked,
+        }
+    }
+
     /// Asks before deleting a set-aside copy (editor.md §13).
     pub(super) fn ask_delete(&mut self, copy: PathBuf) -> Task<Message> {
         self.prompt = Some(Prompt::DeleteCopy(copy));
@@ -406,6 +464,9 @@ impl App {
     }
 
     pub(super) fn reply(&mut self, reply: Reply) -> Task<Message> {
+        if matches!(self.prompt, Some(Prompt::AuthorName { .. })) {
+            return self.name_done(reply == Reply::Save);
+        }
         let Some(prompt) = self.prompt.take() else {
             return Task::none();
         };
@@ -442,6 +503,13 @@ impl App {
                 Reply::Save,
             ) => self.save_as(p, true, overwrite),
             (Prompt::Lossy { path: None, .. }, Reply::Save) => self.save(true),
+            (Prompt::Lossy { export: false, .. }, Reply::SaveAsProject) => {
+                self.ask(Ask::SaveAsProject(format!("{}.coldopen", self.stem())))
+            }
+            (Prompt::SettleAll { accept, .. }, Reply::Save) => {
+                self.settle_all(accept);
+                self.after_change(false)
+            }
             (Prompt::Lossy { .. }, Reply::DontSave) => {
                 self.after_save = None;
                 Task::none()
@@ -522,12 +590,7 @@ impl App {
                 task
             }
             Err(e) if e.code == "lossy_format" => {
-                self.prompt = Some(Prompt::Lossy {
-                    message: e.message,
-                    path: None,
-                    overwrite: false,
-                    export: false,
-                });
+                self.prompt = Some(self.lossy_prompt(e, None, false, false));
                 Task::none()
             }
             Err(e) if e.code == "file_changed" => {
@@ -628,12 +691,7 @@ impl App {
                 }
             }
             Err(e) if e.code == "lossy_format" => {
-                self.prompt = Some(Prompt::Lossy {
-                    message: e.message,
-                    path: Some(path),
-                    overwrite,
-                    export: false,
-                });
+                self.prompt = Some(self.lossy_prompt(e, Some(path), overwrite, false));
                 Task::none()
             }
             Err(e) => {
@@ -649,7 +707,7 @@ impl App {
     pub(super) fn chosen(&mut self, ask: Ask, path: Option<PathBuf>) -> Task<Message> {
         let Some(path) = path else {
             // Cancelled: nothing waits on a save that will not happen.
-            if matches!(ask, Ask::SaveAs(_)) {
+            if matches!(ask, Ask::SaveAs(_) | Ask::SaveAsProject(_)) {
                 self.after_save = None;
             }
             return Task::none();
@@ -661,6 +719,11 @@ impl App {
                 // not the one an added extension makes. A name typed with
                 // no extension keeps the script's format.
                 let target = with_extension(path.clone(), self.ext());
+                let asked = target == path;
+                self.save_as(target, false, asked)
+            }
+            Ask::SaveAsProject(_) => {
+                let target = with_extension(path.clone(), "coldopen");
                 let asked = target == path;
                 self.save_as(target, false, asked)
             }
@@ -720,6 +783,9 @@ impl App {
         });
         if !form.watermark.trim().is_empty() {
             params["watermark"] = json!(form.watermark.trim());
+        }
+        if form.accepted {
+            params["changes"] = json!("accepted");
         }
         if let Some(r) = self.run("export.pdf", params) {
             let warnings = r["warnings"].as_array().map_or(0, Vec::len);

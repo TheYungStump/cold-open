@@ -29,6 +29,10 @@ pub const APP_ACTIONS: &[ActionInfo] = &[
         title: "Save as",
     },
     ActionInfo {
+        name: "app.save_as_project",
+        title: "Save as Cold Open project",
+    },
+    ActionInfo {
         name: "app.close",
         title: "Close the script",
     },
@@ -235,6 +239,54 @@ pub const APP_ACTIONS: &[ActionInfo] = &[
     ActionInfo {
         name: "nav.move_scene_down",
         title: "Move the current scene down",
+    },
+    ActionInfo {
+        name: "changes.accept_here",
+        title: "Accept the change at the caret",
+    },
+    ActionInfo {
+        name: "changes.reject_here",
+        title: "Reject the change at the caret",
+    },
+    ActionInfo {
+        name: "changes.next",
+        title: "Go to the next change",
+    },
+    ActionInfo {
+        name: "changes.previous",
+        title: "Go to the previous change",
+    },
+    ActionInfo {
+        name: "changes.accept_scene",
+        title: "Accept the changes in this scene",
+    },
+    ActionInfo {
+        name: "changes.reject_scene",
+        title: "Reject the changes in this scene",
+    },
+    ActionInfo {
+        name: "changes.accept_all",
+        title: "Accept all changes",
+    },
+    ActionInfo {
+        name: "changes.reject_all",
+        title: "Reject all changes",
+    },
+    ActionInfo {
+        name: "changes.track_mine",
+        title: "Track my changes (on or off)",
+    },
+    ActionInfo {
+        name: "changes.track_agents",
+        title: "Track agent edits to this script (on or off)",
+    },
+    ActionInfo {
+        name: "view.changes",
+        title: "Show or hide the changes panel",
+    },
+    ActionInfo {
+        name: "app.author_name",
+        title: "Set my name for changes",
     },
 ];
 

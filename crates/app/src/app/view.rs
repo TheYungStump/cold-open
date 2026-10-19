@@ -82,6 +82,9 @@ impl App {
             body = body.push(shield(self.navigator(pal), away.clone(), false));
         }
         body = body.push(shield(pages, away_pages, false));
+        if self.settings.changes_panel && !self.focus_mode {
+            body = body.push(shield(self.changes_panel(pal), away.clone(), false));
+        }
         let mut main = column![];
         if !self.focus_mode {
             main = main.push(shield(self.hint_bar(pal), away.clone(), false));
@@ -229,7 +232,8 @@ impl App {
             width = 820.0;
             self.recovered_view(pal, s)
         } else if let Some(f) = &self.export {
-            export_view(pal, f)
+            let marks = self.d.session().is_some_and(|s| s.doc.has_changes());
+            export_view(pal, f, marks)
         } else {
             self.sheet_view(pal, self.sheet?)
         };
@@ -299,28 +303,64 @@ impl App {
                 .spacing(12)
                 .into()
             }
-            Prompt::Lossy { message, path, .. } => column![
-                title(
-                    pal,
-                    format!(
-                        "{} can't hold everything in this script",
-                        path.as_deref()
-                            .and_then(coldopen_core::FormatId::for_path)
-                            .or_else(|| self.d.session().map(|s| s.format))
-                            .unwrap_or_default()
-                            .title()
+            Prompt::Lossy {
+                message,
+                path,
+                export,
+                tracked,
+                ..
+            } => {
+                let format = path
+                    .as_deref()
+                    .and_then(coldopen_core::FormatId::for_path)
+                    .or_else(|| self.d.session().map(|s| s.format))
+                    .unwrap_or_default()
+                    .title();
+                let heading = if *tracked > 0 {
+                    format!("{format} can't hold tracked changes")
+                } else {
+                    format!("{format} can't hold everything in this script")
+                };
+                // Saving the script itself can keep everything as a
+                // project bundle (editor.md §17.5).
+                let (buttons, keys) = if *export {
+                    (
+                        row![
+                            dialog_button("Save anyway", Message::Reply(Reply::Save), false),
+                            dialog_button("Cancel", Message::Reply(Reply::Cancel), true),
+                        ],
+                        "Enter: Save anyway  ·  Esc: Cancel",
                     )
-                ),
-                body(pal, message.clone()),
-                row![
-                    dialog_button("Save anyway", Message::Reply(Reply::Save), false),
-                    dialog_button("Cancel", Message::Reply(Reply::Cancel), true),
+                } else {
+                    let project = *tracked > 0;
+                    (
+                        row![
+                            dialog_button(
+                                "Save as Cold Open project…",
+                                Message::Reply(Reply::SaveAsProject),
+                                project
+                            ),
+                            dialog_button("Save anyway", Message::Reply(Reply::Save), false),
+                            dialog_button("Cancel", Message::Reply(Reply::Cancel), !project),
+                        ],
+                        if project {
+                            "Enter or P: Save as Cold Open project  ·  S: Save anyway  ·  Esc: Cancel"
+                        } else {
+                            "Enter or S: Save anyway  ·  P: Save as Cold Open project  ·  Esc: Cancel"
+                        },
+                    )
+                };
+                column![
+                    title(pal, heading),
+                    body(pal, message.clone()),
+                    buttons.spacing(8),
+                    hint(pal, keys),
                 ]
-                .spacing(8),
-                hint(pal, "Enter: Save anyway  ·  Esc: Cancel"),
-            ]
-            .spacing(12)
-            .into(),
+                .spacing(12)
+                .into()
+            }
+            Prompt::AuthorName { name, .. } => self.name_view(pal, name),
+            Prompt::SettleAll { accept, count } => self.settle_all_view(pal, *accept, *count),
             Prompt::Foreign { path, host, at } => column![
                 title(pal, "Unsaved changes from somewhere else"),
                 body(
@@ -563,10 +603,32 @@ impl App {
                 .font(fonts::UI)
                 .size(13)
                 .color(pal.text_quiet),
-            space::horizontal(),
         ]
         .spacing(10)
         .align_y(Center);
+        // A click turns it off (editor.md §17.4).
+        if session.is_some_and(|s| s.doc.tracking.writer) {
+            r = r.push(
+                button(
+                    text("Tracking your changes")
+                        .font(fonts::UI_BOLD)
+                        .size(12)
+                        .color(pal.accent_text),
+                )
+                .on_press(Message::Action("changes.track_mine".into()))
+                .padding([2, 10])
+                .style(move |_t: &Theme, _s| button::Style {
+                    background: Some(Background::Color(pal.accent_soft)),
+                    text_color: pal.accent_text,
+                    border: Border {
+                        radius: 999.0.into(),
+                        ..Border::default()
+                    },
+                    ..button::Style::default()
+                }),
+            );
+        }
+        r = r.push(space::horizontal());
         if let Some(k) = kind {
             let row_flow = self.editor.flow.row(k);
             r = r.push(
@@ -611,6 +673,11 @@ impl App {
 
     fn navigator(&self, pal: Palette) -> Element<'_, Message> {
         let current = self.current_scene_row();
+        let slots = self
+            .d
+            .session()
+            .map(|s| s.doc.change_slots())
+            .unwrap_or_default();
         let mut list = column![
             container(
                 text(format!(
@@ -637,21 +704,36 @@ impl App {
             } else {
                 let page = r.page.map_or_else(String::new, |p| p.to_string());
                 let fg = if selected { pal.accent_text } else { pal.text };
+                // A deleted heading is struck; a scene with pending changes
+                // has a dot in its first author's color (editor.md §17.1).
+                let heading: Element<'_, Message> = if r.deleted {
+                    container(super::changes::struck(ellipsize(&r.heading, 24), 13.0, fg))
+                        .width(Fill)
+                        .into()
+                } else {
+                    text(ellipsize(&r.heading, 24))
+                        .font(fonts::UI)
+                        .size(13)
+                        .color(fg)
+                        .wrapping(text::Wrapping::None)
+                        .width(Fill)
+                        .into()
+                };
+                let dot = r.change.map_or(Color::TRANSPARENT, |c| {
+                    crate::page_view::change_color(&pal, &slots, c.0)
+                });
                 row![
                     text(r.number.clone())
                         .font(fonts::UI)
                         .size(12)
                         .color(pal.text_quiet)
                         .width(Length::Fixed(22.0)),
-                    text(ellipsize(&r.heading, 24))
-                        .font(fonts::UI)
-                        .size(13)
-                        .color(fg)
-                        .wrapping(text::Wrapping::None)
-                        .width(Fill),
+                    text("●").font(fonts::UI).size(9).color(dot),
+                    heading,
                     text(page).font(fonts::UI).size(12).color(pal.text_quiet),
                 ]
                 .spacing(6)
+                .align_y(Center)
             };
             let bg = if selected { pal.accent_soft } else { pal.panel };
             let rule = if hovering {
@@ -734,10 +816,24 @@ impl App {
                 .size(12)
                 .color(pal.text_quiet),
             text(journal).font(fonts::UI).size(12).color(jcolor),
-            space::horizontal(),
         ]
         .spacing(16)
         .align_y(Center);
+        // Pending changes; a click shows the panel (editor.md §17.3).
+        if self.review.0 > 0 {
+            r = r.push(
+                button(
+                    text(format!("{} to review", self.review.0))
+                        .font(fonts::UI)
+                        .size(12)
+                        .color(pal.accent_text),
+                )
+                .on_press(Message::Action("view.changes".into()))
+                .padding([0, 4])
+                .style(button::text),
+            );
+        }
+        r = r.push(space::horizontal());
         // Visible whenever an agent is attached, with one-click disconnect
         // and the off switch (editor.md §12).
         if let Some(agents) = self.agent_status() {
@@ -751,6 +847,14 @@ impl App {
                 container(
                     row![
                         text(agents).font(fonts::UI_BOLD).size(12).color(pal.agent),
+                        small(
+                            if self.d.session().is_none_or(|s| s.doc.tracking.agents) {
+                                "Stop tracking agent edits"
+                            } else {
+                                "Track agent edits"
+                            },
+                            "changes.track_agents"
+                        ),
                         small("Disconnect", "app.agent_disconnect"),
                         small("Turn off agent access", "app.agent_access"),
                     ]
@@ -1010,7 +1114,7 @@ fn bar(bg: Color, edge: Color) -> container::Style {
     }
 }
 
-fn ellipsize(s: &str, n: usize) -> String {
+pub(super) fn ellipsize(s: &str, n: usize) -> String {
     if s.chars().count() <= n {
         s.to_string()
     } else {
@@ -1020,7 +1124,9 @@ fn ellipsize(s: &str, n: usize) -> String {
     }
 }
 
-fn export_view(pal: Palette, f: &ExportForm) -> Element<'_, Message> {
+/// The PDF export form; `marks` when the script has pending changes, which
+/// print marked unless the writer asks for the current text.
+fn export_view(pal: Palette, f: &ExportForm, marks: bool) -> Element<'_, Message> {
     let toggle = |label: &'static str, on: bool, m: Message| {
         button(
             text(format!("{label}: {}", if on { "on" } else { "off" }))
@@ -1036,13 +1142,30 @@ fn export_view(pal: Palette, f: &ExportForm) -> Element<'_, Message> {
         })
     };
     let m = if crate::keymap::MAC { "Cmd" } else { "Ctrl" };
+    let mut toggles = row![
+        toggle("Scene numbers", f.scene_numbers, Message::ExportNumbers),
+        toggle("Title page", f.title_page, Message::ExportTitle),
+    ]
+    .spacing(8);
+    if marks {
+        toggles = toggles.push(toggle(
+            "Print the current text",
+            f.accepted,
+            Message::ExportChanges,
+        ));
+    }
+    let keys = if marks {
+        format!(
+            "{m}+1: scene numbers  ·  {m}+2: title page  ·  {m}+3: the current text  ·  Enter: choose where to save  ·  Esc: cancel"
+        )
+    } else {
+        format!(
+            "{m}+1: scene numbers  ·  {m}+2: title page  ·  Enter: choose where to save  ·  Esc: cancel"
+        )
+    };
     column![
         title(pal, "Export a PDF"),
-        row![
-            toggle("Scene numbers", f.scene_numbers, Message::ExportNumbers),
-            toggle("Title page", f.title_page, Message::ExportTitle),
-        ]
-        .spacing(8),
+        toggles,
         text_input("Watermark (optional)", &f.watermark)
             .id(EXPORT)
             .on_input(Message::ExportWatermark)
@@ -1054,12 +1177,7 @@ fn export_view(pal: Palette, f: &ExportForm) -> Element<'_, Message> {
             dialog_button("Cancel", Message::ExportCancel, false),
         ]
         .spacing(8),
-        hint(
-            pal,
-            format!(
-                "{m}+1: scene numbers  ·  {m}+2: title page  ·  Enter: choose where to save  ·  Esc: cancel"
-            )
-        ),
+        hint(pal, keys),
     ]
     .spacing(12)
     .into()

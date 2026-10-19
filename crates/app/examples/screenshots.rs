@@ -20,6 +20,46 @@ fn shot(app: &App, out: &std::path::Path, name: &str) {
     snap.matches_image(&path).unwrap();
 }
 
+/// Tracked edits on the first page: the writer's insertion and deletion in
+/// the first action, and an agent's rewrite of the next one.
+fn tracked_demo(app: &mut App) {
+    use coldopen_core::{Author, Command};
+    let doc = &app.d.session().unwrap().doc;
+    let actions: Vec<(coldopen_core::BlockId, usize)> = doc
+        .blocks
+        .iter()
+        .filter(|b| b.element.kind == coldopen_screenplay::ElementKind::Action)
+        .take(2)
+        .map(|b| (b.id, b.element.text.char_len()))
+        .collect();
+    let run = |app: &mut App, name: &str, params: serde_json::Value, by: &Author| {
+        let cmd = Command::from_parts(name, params).unwrap();
+        app.d.execute_as(cmd, by).unwrap();
+    };
+    let writer = app.d.writer().clone();
+    let (first, len) = &actions[0];
+    run(
+        app,
+        "text.insert",
+        serde_json::json!({ "id": first, "at": *len, "text": " The kettle clicks off." }),
+        &writer,
+    );
+    run(
+        app,
+        "text.delete",
+        serde_json::json!({ "id": first, "from": 0, "to": 4 }),
+        &writer,
+    );
+    let (second, len) = &actions[1];
+    let agent = Author::agent("Claude", Some("text_insert".into()));
+    run(
+        app,
+        "text.insert",
+        serde_json::json!({ "id": second, "at": *len, "text": " Somewhere a gull answers." }),
+        &agent,
+    );
+}
+
 fn main() {
     let out = std::path::PathBuf::from(
         std::env::args()
@@ -48,6 +88,25 @@ fn main() {
         });
         app.demo_autocomplete();
         shot(&app, &out, name);
+        app.d.discard();
+
+        // Phase 5a (editor.md §17): the writer's tracked typing and a
+        // deletion, an agent's tracked edit, and the changes panel.
+        let mut app = App::new(Boot {
+            file: Some(script.clone()),
+            dirs: Some(coldopen_app::files::Dirs::under(&home)),
+            theme: Some(theme),
+            every_entry: true,
+            ..Boot::default()
+        });
+        app.banners.clear();
+        app.settings.author_name = Some("Dana".into());
+        app.d.set_writer_name(Some("Dana".into()));
+        let _ = app.update(Message::Action("changes.track_mine".into()));
+        tracked_demo(&mut app);
+        let _ = app.update(Message::Action("view.changes".into()));
+        app.banners.clear();
+        shot(&app, &out, &format!("{name}-changes"));
         app.d.discard();
 
         // Phase 4's screens (editor.md §13): a set-aside notice on the start

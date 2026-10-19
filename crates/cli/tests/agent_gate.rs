@@ -202,9 +202,10 @@ fn an_agent_through_coldopen_mcp_edits_the_script_open_in_the_app() {
     let (_, label, by) = session.undo_steps().next().unwrap();
     assert_eq!(label, "gate-agent · block_insert");
     assert!(!by.is_writer());
+    // The edit is a tracked change waiting for the writer (editor.md §12).
     assert_eq!(
         h.app.agent_status().unwrap(),
-        "gate-agent connected · 1 edit"
+        "gate-agent connected · 1 edit · 1 to review"
     );
 
     // Refused while attached, with the reason in the tool result.

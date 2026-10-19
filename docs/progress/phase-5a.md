@@ -18,8 +18,8 @@ Phase 5 is split in two. **5a** (this phase) brings the `.coldopen` project bund
 | 6 | Losses: `tracked_changes` on Fountain and .fdx; F21's `normalized` class | done, with step 4 (the agent tests needed it) |
 | 7 | Layout and PDF: marked and accepted print forms, author colors, `export.pdf` `changes` | done |
 | 8 | MCP tools and resource; the session file's `doc_ids`; agent tests through the real link and `coldopen mcp` | done |
-| 9 | App: marks on the page, caret over them, keys and palette, the changes panel, the writer's name, the per-script agent switch, "Save as Cold Open project" | next |
-| 10 | Gates: crash gate (tracked edits, accept and reject, bundle saves), phase 4 journal fixtures, corpus round trip, reference gate, CI on three OSes, fuzzing, measurements | |
+| 9 | App: marks on the page, caret over them, keys and palette, the changes panel, the writer's name, the per-script agent switch, "Save as Cold Open project" | done: headless tests in `crates/app/tests/changes.rs` (8) and the agent tests; screenshots of the marks and the panel reviewed in three themes; 541 tests pass |
+| 10 | Gates: crash gate (tracked edits, accept and reject, bundle saves), phase 4 journal fixtures, corpus round trip, reference gate, CI on three OSes, fuzzing, measurements | next |
 | 11 | Manual test steps for a Windows CI build; the project owner's test; the final report | |
 
 ## Decisions made with the project's owner before the phase (2026-10-18)
@@ -71,6 +71,14 @@ Phase 5 is split in two. **5a** (this phase) brings the `.coldopen` project bund
 31. **A cell's `Look` carries the change's number, not its author's slot.** Layout memoizes measures by element, so authors are mapped to colors where cells are drawn: `PdfOptions::change_slots` for the PDF, the app for the screen. Slots follow the order authors first appear in the change table (`Document::change_slots`).
 32. **The marked print form is a light copy**: only the title page and the blocks, with pending deletions set to print, so typing in a script with pending changes never copies its .fdx store. The blocks keep their order, so the view's indices still point into the document. The accepted form, used only by an accepted PDF, is laid out from the whole accepted document.
 33. **Long runs (2026-10-18)**: the accept and reject property test at 100,000 cases, the `changes` and `bundle_read` checks at 20,000, and the crash property test into a bundle at 5,000 all pass.
+34. **The panel says when a change was made as a relative time** ("5 minutes ago", "2 days ago"), as the recovery dialog does, not as a clock time such as "today 14:05". A local clock time needs the system's time zone, which means a date crate; a relative time needs nothing new. `editor.md` §17.3 now says so.
+35. **The name question after Esc** is not asked again until the app restarts, so turning tracking off and on doesn't nag. When it is asked on opening a script, it sits on top of any recovery or repair dialog and its field has the keyboard from the first frame (`App::boot`).
+36. **"Save as Cold Open project…" is offered for every lossy save of the script itself**, since a bundle loses nothing. Enter chooses it only when tracked changes are at stake; otherwise Enter still means Save anyway, as before. D and N still cancel. "Save a copy as" keeps its two choices, because the copy was asked for in that format.
+37. **The panel's chosen row is outlined in the focus color, not filled.** On the blue selection fill, the dark and high-contrast author colors lost their contrast (seen in the screenshots). The chosen row also shows Accept and Reject buttons for the mouse, and a click on a row chooses it and moves the caret there.
+38. **F7 and Shift+F7 go round the ends**, as find does. A change that spans several blocks is one stop.
+39. **Counts.** The status bar says "N to review", and a click shows or hides the panel. The agent text adds "· N to review" for the agents' changes, and the agent box gains "Track agent edits" or "Stop tracking agent edits". The counts refresh when the navigator does, so while the writer types body text they catch up at the next tick (half a second), which keeps typing fast.
+40. **The violet bar is for an agent's untracked edits only.** A tracked edit carries its own marks. There is a test for each case (`agent_link.rs`).
+41. **Known limit, proposed as a follow-up.** At 1280 pixels wide, with both the navigator and the changes panel open, a page at 100% is wider than the space between them. Its right edge is cut off, because the page area doesn't scroll sideways. Zooming out or hiding the navigator avoids it. The fix is horizontal scrolling or a fit-width zoom, and it touches the page view's layout, which is outside this phase.
 
 ## Measurements
 

@@ -115,6 +115,11 @@ pub struct Settings {
     pub agent_access: bool,
     pub recent: Vec<PathBuf>,
     pub renderer: Renderer,
+    /// The name the writer's tracked changes carry (editor.md §17.4).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author_name: Option<String>,
+    /// The changes panel shows (editor.md §17.3).
+    pub changes_panel: bool,
 }
 
 impl Default for Settings {
@@ -127,6 +132,8 @@ impl Default for Settings {
             agent_access: true,
             recent: Vec::new(),
             renderer: Renderer::Auto,
+            author_name: None,
+            changes_panel: false,
         }
     }
 }
@@ -188,6 +195,9 @@ pub enum Ask {
     Open,
     /// Where to save the script; the suggested file name.
     SaveAs(String),
+    /// Where to save the script as a Cold Open project (editor.md §17.5);
+    /// the suggested file name.
+    SaveAsProject(String),
     /// Where to write a PDF; the suggested file name.
     ExportPdf(String),
     /// Where to write a copy of the script as .fdx; the suggested name.
@@ -226,12 +236,17 @@ impl Dialogs {
                 }
                 const FOUNTAIN: &[&str] = &["fountain"];
                 const FDX: &[&str] = &["fdx"];
+                const PROJECT: &[&str] = &["coldopen"];
                 let picked = match ask {
                     Ask::Open => {
                         d.set_title("Open a script")
-                            .add_filter("Screenplays", &["fountain", "fdx", "spmd", "txt"])
+                            .add_filter(
+                                "Screenplays",
+                                &["fountain", "fdx", "coldopen", "spmd", "txt"],
+                            )
                             .add_filter("Fountain", &["fountain", "spmd", "txt"])
                             .add_filter("FDX", FDX)
+                            .add_filter("Cold Open project", PROJECT)
                             .pick_file()
                             .await
                     }
@@ -239,11 +254,26 @@ impl Dialogs {
                         // The script's own format is listed first.
                         let d = d.set_title("Save the script");
                         let d = if name.ends_with(".fdx") {
-                            d.add_filter("FDX", FDX).add_filter("Fountain", FOUNTAIN)
+                            d.add_filter("FDX", FDX)
+                                .add_filter("Fountain", FOUNTAIN)
+                                .add_filter("Cold Open project", PROJECT)
+                        } else if name.ends_with(".coldopen") {
+                            d.add_filter("Cold Open project", PROJECT)
+                                .add_filter("Fountain", FOUNTAIN)
+                                .add_filter("FDX", FDX)
                         } else {
-                            d.add_filter("Fountain", FOUNTAIN).add_filter("FDX", FDX)
+                            d.add_filter("Fountain", FOUNTAIN)
+                                .add_filter("FDX", FDX)
+                                .add_filter("Cold Open project", PROJECT)
                         };
                         d.set_file_name(name).save_file().await
+                    }
+                    Ask::SaveAsProject(name) => {
+                        d.set_title("Save as a Cold Open project")
+                            .set_file_name(name)
+                            .add_filter("Cold Open project", PROJECT)
+                            .save_file()
+                            .await
                     }
                     Ask::ExportFdx(name) => {
                         d.set_title("Save a copy as .fdx")

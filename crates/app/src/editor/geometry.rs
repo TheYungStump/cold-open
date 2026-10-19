@@ -162,15 +162,18 @@ impl<'a> Surface<'a> {
     pub fn spot(&self, doc: &Document, caret: Caret) -> Option<Spot> {
         let view = self.view();
         let bi = doc.index_of(caret.block)?;
-        let text = doc.blocks[bi].element.text.plain_text();
-        let byte = byte_of(&text, caret.offset);
+        // The pages show pending deletions, so the source map counts bytes
+        // of the text as shown (editor.md §4).
+        let rich = &doc.blocks[bi].element.text;
+        let text = rich.shown().plain_text();
+        let byte = rich.shown_byte(caret.offset);
         let Some((elem, nbyte)) = view.sources.to_norm(bi, byte as u32) else {
             return self.fallback_spot(doc, bi);
         };
         // Whitespace the normal form trimmed shows as extra cells after the
         // text before it (editor.md §4).
         let extra = match view.sources.to_source(elem, nbyte) {
-            Some((b, back)) if b == bi && (back as usize) < byte => {
+            Some((b, back)) if b == bi && (back as usize) < byte && byte <= text.len() => {
                 text[back as usize..byte].chars().count() as i32
             }
             _ => 0,
@@ -228,8 +231,8 @@ impl<'a> Surface<'a> {
             None => (Pt(format.elements.action.left.0 + typed), 0),
         };
         for prev in (0..bi).rev() {
-            let text = doc.blocks[prev].element.text.plain_text();
-            if let Some((elem, _)) = self.view().sources.to_norm(prev, text.len() as u32)
+            let len = doc.blocks[prev].element.text.shown_len();
+            if let Some((elem, _)) = self.view().sources.to_norm(prev, len as u32)
                 && let Some(&(page, last)) = self.lines_of(elem).last()
             {
                 // The space above it, as layout gives it (layout.md §6):
@@ -295,10 +298,9 @@ impl<'a> Surface<'a> {
         }
         let (bi, byte) = self.view().sources.to_source(elem, nbyte)?;
         let b = doc.blocks.get(bi)?;
-        let text = b.element.text.plain_text();
         Some(Caret {
             block: b.id,
-            offset: char_of(&text, byte as usize),
+            offset: b.element.text.offset_at_shown_byte(byte as usize),
         })
     }
 

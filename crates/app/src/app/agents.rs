@@ -202,8 +202,12 @@ impl App {
         } else {
             format!("{} agents", self.agents.len())
         };
+        let review = match self.review.1 {
+            0 => String::new(),
+            n => format!(" · {n} to review"),
+        };
         Some(format!(
-            "{who} connected · {edits} {}",
+            "{who} connected · {edits} {}{review}",
             if edits == 1 { "edit" } else { "edits" }
         ))
     }

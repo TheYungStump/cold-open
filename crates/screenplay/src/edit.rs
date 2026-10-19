@@ -441,6 +441,163 @@ impl RichText {
         RichText::new(runs)
     }
 
+    /// The byte, in the text as a print form shows it (pending deletions
+    /// included), where offset `at` of the current text falls: just after
+    /// the `at`-th printed character, before any deletion there, as text
+    /// typed there would go.
+    pub fn shown_byte(&self, at: usize) -> usize {
+        let mut v = 0;
+        let mut byte = 0;
+        for r in self.runs() {
+            let Run::Text { text, marks, .. } = r else {
+                continue;
+            };
+            if marks.del.is_some() {
+                if v == at {
+                    return byte;
+                }
+                byte += text.len();
+                continue;
+            }
+            let n = text.chars().count();
+            if at < v + n {
+                return byte
+                    + text
+                        .char_indices()
+                        .nth(at - v)
+                        .map_or(text.len(), |(i, _)| i);
+            }
+            v += n;
+            byte += text.len();
+        }
+        byte
+    }
+
+    /// The offset of the current text a byte of the shown text (pending
+    /// deletions included) belongs to: inside a deletion, the offset just
+    /// before it.
+    pub fn offset_at_shown_byte(&self, at: usize) -> usize {
+        let mut v = 0;
+        let mut byte = 0;
+        for r in self.runs() {
+            if let Run::Text { text, marks, .. } = r {
+                if byte + text.len() > at {
+                    if marks.del.is_some() {
+                        return v;
+                    }
+                    return v + text
+                        .char_indices()
+                        .take_while(|(i, _)| *i < at - byte)
+                        .count();
+                }
+                if marks.del.is_none() {
+                    v += text.chars().count();
+                }
+                byte += text.len();
+            }
+        }
+        v
+    }
+
+    /// The text's length in bytes as a print form shows it.
+    pub fn shown_len(&self) -> usize {
+        self.runs()
+            .iter()
+            .map(|r| match r {
+                Run::Text { text, .. } => text.len(),
+                _ => 0,
+            })
+            .sum()
+    }
+
+    /// Where each marked stretch of the text starts, as an offset of the
+    /// current text with its change, in order. A pending deletion takes no
+    /// offsets, so it starts where it sits. A stretch running on with the
+    /// same change is listed once.
+    pub fn mark_offsets(&self) -> Vec<(usize, ChangeId)> {
+        let mut out = Vec::new();
+        let mut v = 0;
+        let mut prev: Option<ChangeId> = None;
+        for r in self.runs() {
+            let Run::Text { text, marks, .. } = r else {
+                continue;
+            };
+            let here = marks.del.or(marks.ins);
+            if let Some(c) = here
+                && prev != Some(c)
+            {
+                out.push((v, c));
+            }
+            prev = here;
+            if marks.del.is_none() {
+                v += text.chars().count();
+            }
+        }
+        out
+    }
+
+    /// The change a caret at offset `at` of the current text touches: the
+    /// marked text just before it, else the marked text just after it (a
+    /// pending deletion sitting at `at` is drawn after the caret).
+    pub fn change_at(&self, at: usize) -> Option<ChangeId> {
+        let mut v = 0;
+        let mut after = None;
+        for r in self.runs() {
+            let Run::Text { text, marks, .. } = r else {
+                continue;
+            };
+            if let Some(d) = marks.del {
+                if v == at && after.is_none() {
+                    after = Some(d);
+                }
+                continue;
+            }
+            let n = text.chars().count();
+            if let Some(c) = marks.ins {
+                if v < at && at <= v + n {
+                    return Some(c);
+                }
+                if v <= at && at < v + n && after.is_none() {
+                    after = Some(c);
+                }
+            }
+            v += n;
+            if v > at && after.is_some() {
+                break;
+            }
+        }
+        after
+    }
+
+    /// The first change marked between offsets `from` and `to` of the
+    /// current text, a pending deletion at either end included.
+    pub fn first_change_in(&self, from: usize, to: usize) -> Option<ChangeId> {
+        let mut v = 0;
+        for r in self.runs() {
+            let Run::Text { text, marks, .. } = r else {
+                continue;
+            };
+            if let Some(d) = marks.del {
+                if from <= v && v <= to {
+                    return Some(d);
+                }
+                continue;
+            }
+            let n = text.chars().count();
+            if let Some(c) = marks.ins
+                && v < to
+                && from < v + n
+            {
+                return Some(c);
+            }
+            v += n;
+            if v > to {
+                break;
+            }
+        }
+        None
+    }
+
     /// The marked stretches of the text, in order.
     pub fn marked_spans(&self) -> Vec<MarkedSpan> {
         let mut out = Vec::new();
@@ -668,6 +825,76 @@ mod tests {
         assert_eq!(rt.ins_around(0), (None, Some(ChangeId(1))));
         assert_eq!(rt.del_touching(2, 3), vec![ChangeId(2)]);
         assert_eq!(rt.del_touching(0, 1), Vec::<ChangeId>::new());
+    }
+
+    #[test]
+    fn the_caret_finds_the_change_it_touches() {
+        // "ab" + inserted "cd" (c_1) + "e" + struck "xy" (c_2) + "f"
+        let rt = RichText::new(vec![
+            Run::plain("ab"),
+            Run::marked("cd", Style::PLAIN, ins(1)),
+            Run::plain("e"),
+            Run::marked("xy", Style::PLAIN, del(2)),
+            Run::plain("f"),
+        ]);
+        let c = |n| Some(ChangeId(n));
+        assert_eq!(rt.change_at(0), None);
+        assert_eq!(rt.change_at(2), c(1), "just after it");
+        assert_eq!(rt.change_at(3), c(1));
+        assert_eq!(rt.change_at(4), c(1), "just before it");
+        assert_eq!(rt.change_at(5), c(2), "a deletion sits after the caret");
+        assert_eq!(rt.change_at(6), None);
+        assert_eq!(rt.mark_offsets(), vec![(2, ChangeId(1)), (5, ChangeId(2))]);
+        assert_eq!(rt.first_change_in(0, 1), None);
+        assert_eq!(rt.first_change_in(0, 3), c(1));
+        assert_eq!(rt.first_change_in(4, 6), c(2));
+        assert_eq!(rt.first_change_in(5, 5), c(2));
+        // A deletion at the start, and two changes side by side.
+        let lead = RichText::new(vec![
+            Run::marked("x", Style::PLAIN, del(3)),
+            Run::marked("y", Style::PLAIN, ins(4)),
+        ]);
+        assert_eq!(lead.change_at(0), c(3));
+        assert_eq!(lead.change_at(1), c(4));
+        assert_eq!(
+            lead.mark_offsets(),
+            vec![(0, ChangeId(3)), (0, ChangeId(4))]
+        );
+        assert_eq!(RichText::plain("plain").mark_offsets(), vec![]);
+    }
+
+    #[test]
+    fn offsets_map_to_the_shown_text_and_back() {
+        // "a" + struck "bc" + "de"
+        let rt = RichText::new(vec![
+            Run::plain("a"),
+            Run::marked("bc", Style::PLAIN, del(1)),
+            Run::plain("de"),
+        ]);
+        assert_eq!(rt.shown_byte(0), 0);
+        assert_eq!(rt.shown_byte(1), 1, "before the deletion");
+        assert_eq!(rt.shown_byte(2), 4);
+        assert_eq!(rt.shown_byte(3), 5);
+        assert_eq!(rt.shown_len(), 5);
+        assert_eq!(rt.offset_at_shown_byte(0), 0);
+        assert_eq!(rt.offset_at_shown_byte(1), 1);
+        assert_eq!(rt.offset_at_shown_byte(2), 1, "inside the deletion");
+        assert_eq!(rt.offset_at_shown_byte(3), 1);
+        assert_eq!(rt.offset_at_shown_byte(4), 2);
+        assert_eq!(rt.offset_at_shown_byte(5), 3);
+        // A deletion at the start.
+        let lead = RichText::new(vec![
+            Run::marked("x", Style::PLAIN, del(1)),
+            Run::plain("y"),
+        ]);
+        assert_eq!(lead.shown_byte(0), 0);
+        assert_eq!(lead.shown_byte(1), 2);
+        assert_eq!(lead.offset_at_shown_byte(0), 0);
+        assert_eq!(lead.offset_at_shown_byte(1), 0);
+        // With no marks, bytes and characters as before.
+        let plain = RichText::plain("café");
+        assert_eq!(plain.shown_byte(4), 5);
+        assert_eq!(plain.offset_at_shown_byte(5), 4);
     }
 
     #[test]

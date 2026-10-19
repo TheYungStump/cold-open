@@ -114,7 +114,11 @@ fn an_agent_edits_the_open_script_live_and_the_writer_can_undo_it() {
     );
     assert_eq!(r["ok"], true, "{r}");
     assert_eq!(texts(&h), ["INT. LAB - NIGHT", "Rain.", "Thunder."]);
-    assert_eq!(h.app.agent_marks.len(), 1);
+    // It arrives as a tracked change, so it carries its own mark and no
+    // violet bar (editor.md §12).
+    let doc = &h.app.d.session().unwrap().doc;
+    assert!(doc.blocks[2].marks.inserted.is_some());
+    assert!(h.app.agent_marks.is_empty());
     assert_eq!(h.app.agents.values().next().unwrap().edits, 1);
     let label = h
         .app
@@ -577,4 +581,42 @@ fn the_session_file_names_a_bundles_identity() {
     let id = h.app.d.session().unwrap().doc.doc_id.clone();
     assert!(id.is_some());
     assert_eq!(s.doc_ids, vec![id]);
+}
+
+/// With the script's agent switch off, an agent's edit applies at once and
+/// gets the violet bar; while it is on, the status bar counts the agent's
+/// changes waiting for review (editor.md §12).
+#[test]
+fn untracked_agent_edits_get_the_violet_bar() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut h, script) = app(home.path());
+    let s = session(home.path()).unwrap();
+    let l = LinkClient::attach(&s, &client("claude-code"), &script).unwrap();
+    call(
+        &mut h,
+        &l,
+        "block.insert",
+        json!({"type": "action", "text": "Thunder."}),
+        "block_insert",
+    );
+    assert_eq!(h.app.review, (1, 1));
+    let status = h.app.agent_status().unwrap();
+    assert!(status.ends_with("· 1 to review"), "{status}");
+
+    h.run(vec![Message::Action("changes.track_agents".into())]);
+    assert!(!h.app.d.session().unwrap().doc.tracking.agents);
+    let r = call(
+        &mut h,
+        &l,
+        "block.insert",
+        json!({"type": "action", "text": "Wind."}),
+        "block_insert",
+    );
+    assert!(r["result"].get("change").is_none(), "{r}");
+    assert_eq!(
+        texts(&h),
+        ["INT. LAB - NIGHT", "Rain.", "Thunder.", "Wind."]
+    );
+    assert_eq!(h.app.agent_marks.len(), 1);
+    l.bye();
 }

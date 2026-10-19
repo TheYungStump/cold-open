@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use coldopen_core::{
     BlockId, Command, CommandError, Dispatcher, Durability, Options, PreparedSave,
 };
-use coldopen_screenplay::{ElementKind, Pt};
+use coldopen_screenplay::{ChangeId, ElementKind, Pt};
 use iced::keyboard::{self, Key, key::Named};
 use iced::widget::scrollable;
 use iced::{Subscription, Task, Theme};
@@ -18,6 +18,7 @@ use serde_json::{Value, json};
 
 mod agents;
 mod bench;
+mod changes;
 mod copies;
 mod file_ops;
 mod router;
@@ -25,6 +26,7 @@ mod view;
 
 pub use agents::Agent;
 pub use bench::{Bench, BenchKind};
+pub use changes::{ALL_AUTHORS, ChangeRow, ChangesPanel, NameThen};
 pub use copies::{CopyRow, RecoveredScreen, RepairReport};
 pub use file_ops::{After, ExportForm, Prompt, Recovery, Reply};
 pub use router::{Origin, Outcome, Request};
@@ -48,6 +50,8 @@ const EXPORT: &str = "export";
 pub enum Focus {
     Page,
     Navigator,
+    /// The changes panel (editor.md §17.3).
+    Changes,
     Find,
     Palette,
 }
@@ -110,6 +114,16 @@ pub enum Message {
     RecoveredRestore,
     RecoveredDelete,
     RecoveredClose,
+    /// The writer's name, as typed in its question (editor.md §17.4).
+    NameInput(String),
+    NameSubmit,
+    /// The changes panel (editor.md §17.3): a row clicked, a row's Accept
+    /// or Reject button, the author filter.
+    ChangesPick(usize),
+    ChangesSettle(usize, bool),
+    ChangesFilter(String),
+    /// The export form's "Print the current text".
+    ExportChanges,
     Noop,
 }
 
@@ -181,6 +195,10 @@ pub struct NavRow {
     pub heading: String,
     pub page: Option<u64>,
     pub eighths: u64,
+    /// The heading is a pending deletion.
+    pub deleted: bool,
+    /// The scene's first pending change, for the dot in its color.
+    pub change: Option<ChangeId>,
 }
 
 #[derive(Debug, Default)]
@@ -299,6 +317,15 @@ pub struct App {
     scroll_flip: bool,
     /// The link could not start; said once.
     link_failed: bool,
+    /// The changes panel (editor.md §17.3).
+    pub changes: ChangesPanel,
+    /// Pending changes, and how many of them are agents'.
+    pub review: (usize, usize),
+    /// The writer's name was asked for in this session (editor.md §17.4).
+    name_asked: bool,
+    /// The name question opened while a script opened: its field takes
+    /// the keyboard after the next change.
+    focus_name: bool,
 }
 
 /// How the app starts.
@@ -350,6 +377,7 @@ impl App {
         if !boot.every_entry {
             d.set_durability(Durability::APP);
         }
+        d.set_writer_name(settings.author_name.clone());
         let mut app = App {
             d,
             editor: Editor::new(&coldopen_core::Document::default()),
@@ -398,6 +426,10 @@ impl App {
             first_frame: boot.exit_after_first_frame,
             bench: boot.bench.clone().map(bench::BenchState::new),
             scroll_flip: false,
+            changes: ChangesPanel::default(),
+            review: (0, 0),
+            name_asked: false,
+            focus_name: false,
         };
         if let Some(text) = app
             .dirs
@@ -420,6 +452,22 @@ impl App {
         app.editor.draft = app.settings.draft;
         let _ = app.after_change(false);
         app
+    }
+
+    /// [`App::new`] with the task the window's first frame runs: when the
+    /// script it opened asks for the writer's name, the name's field takes
+    /// the keyboard (editor.md §17.4).
+    pub fn boot(boot: Boot) -> (App, Task<Message>) {
+        let app = App::new(boot);
+        let task = if matches!(app.prompt, Some(Prompt::AuthorName { .. })) {
+            Task::batch([
+                iced::widget::operation::focus(changes::NAME),
+                iced::widget::operation::select_all(changes::NAME),
+            ])
+        } else {
+            Task::none()
+        };
+        (app, task)
     }
 
     /// An editor for a document just opened or created, with the writer's
@@ -573,6 +621,7 @@ impl App {
                 }
                 self.recovery_from(&r["recovered"], path);
                 self.repair_from(&r["repaired"], path);
+                self.ask_name_on_open();
                 self.leftover.retain(|p| p != path);
                 let unsaved = self
                     .dirs
@@ -624,11 +673,19 @@ impl App {
         } else {
             self.refresh_nav();
         }
-        if scroll {
+        let task = if scroll {
             self.scroll_to_caret()
         } else {
             Task::none()
+        };
+        if std::mem::take(&mut self.focus_name) {
+            return Task::batch([
+                task,
+                iced::widget::operation::focus(changes::NAME),
+                iced::widget::operation::select_all(changes::NAME),
+            ]);
         }
+        task
     }
 
     /// Selection, find matches and agent marks in normal-form terms.
@@ -639,8 +696,8 @@ impl App {
         let doc = &s.doc;
         let norm = |id: BlockId, off: usize| -> Option<(usize, u32)> {
             let bi = doc.index_of(id)?;
-            let t = doc.blocks[bi].element.text.plain_text();
-            let b = crate::editor::geometry::byte_of(&t, off);
+            // The pages show pending deletions (editor.md §4).
+            let b = doc.blocks[bi].element.text.shown_byte(off);
             view.sources.to_norm(bi, b as u32)
         };
         self.sel_range = if self.editor.has_selection() {
@@ -687,6 +744,7 @@ impl App {
             return;
         }
         self.nav_rev = rev;
+        self.refresh_changes();
         // With no script open there is nothing to list, and asking would
         // say "no document is open" over the start screen.
         if rev.is_none() {
@@ -712,6 +770,8 @@ impl App {
                     heading: b.element.text.plain_text(),
                     page: None,
                     eighths: 0,
+                    deleted: b.marks.deleted.is_some(),
+                    change: None,
                 }),
                 ElementKind::SceneHeading => {
                     if let Some(s) = si.next() {
@@ -725,10 +785,19 @@ impl App {
                             heading: s["heading"].as_str().unwrap_or("").to_string(),
                             page: s["page"].as_u64(),
                             eighths: s["eighths"].as_u64().unwrap_or(0),
+                            deleted: b.marks.deleted.is_some(),
+                            change: None,
                         });
                     }
                 }
                 _ => {}
+            }
+            // A scene holding pending changes gets a dot (editor.md §17.1).
+            if let Some(last) = rows.last_mut()
+                && !last.section
+                && last.change.is_none()
+            {
+                last.change = b.change_ids().next();
             }
         }
         self.nav = rows;
@@ -1005,6 +1074,29 @@ impl App {
                 self.recovered = None;
                 Task::none()
             }
+            Message::NameInput(t) => {
+                if let Some(Prompt::AuthorName { name, .. }) = &mut self.prompt {
+                    *name = t;
+                }
+                Task::none()
+            }
+            Message::NameSubmit => self.name_done(true),
+            Message::ChangesPick(i) => {
+                self.focus = Focus::Changes;
+                self.goto_change_row(i)
+            }
+            Message::ChangesSettle(i, accept) => self.settle_row(i, accept),
+            Message::ChangesFilter(f) => {
+                self.changes.filter = (f != ALL_AUTHORS).then_some(f);
+                self.changes.selected = 0;
+                Task::none()
+            }
+            Message::ExportChanges => {
+                if let Some(f) = &mut self.export {
+                    f.accepted = !f.accepted;
+                }
+                Task::none()
+            }
             Message::RecoveryDiscard => self.recovery_discard(),
             Message::ExportNumbers => {
                 if let Some(f) = &mut self.export {
@@ -1049,6 +1141,9 @@ impl App {
                 None => Task::none(),
             },
             Message::Escaped => {
+                if matches!(self.prompt, Some(Prompt::AuthorName { .. })) {
+                    return self.name_done(false);
+                }
                 if self.palette.is_some() {
                     self.palette = None;
                     self.focus = Focus::Page;
@@ -1302,6 +1397,36 @@ impl App {
                 Task::none()
             };
         }
+        if matches!(self.prompt, Some(Prompt::AuthorName { .. })) {
+            return if enter {
+                self.name_done(true)
+            } else if esc {
+                self.name_done(false)
+            } else {
+                Task::none()
+            };
+        }
+        // Saving the script itself offers a project bundle, which Enter
+        // chooses when tracked changes would be lost (editor.md §17.5).
+        if let Some(Prompt::Lossy {
+            export: false,
+            tracked,
+            ..
+        }) = &self.prompt
+        {
+            let tracked = *tracked > 0;
+            return if ch == "p" || (enter && tracked) {
+                self.reply(Reply::SaveAsProject)
+            } else if enter || ch == "s" {
+                self.reply(Reply::Save)
+            } else if ch == "d" || ch == "n" {
+                self.reply(Reply::DontSave)
+            } else if esc || ch == "c" {
+                self.reply(Reply::Cancel)
+            } else {
+                Task::none()
+            };
+        }
         if matches!(self.prompt, Some(Prompt::DeleteCopy(_))) {
             return if enter || ch == "d" {
                 self.reply(Reply::Save)
@@ -1374,6 +1499,8 @@ impl App {
                 return self.update(Message::ExportNumbers);
             } else if cmd && ch == "2" {
                 return self.update(Message::ExportTitle);
+            } else if cmd && ch == "3" {
+                return self.update(Message::ExportChanges);
             }
         }
         Task::none()
@@ -1403,6 +1530,12 @@ impl App {
                 }
                 _ => {}
             }
+        }
+        if self.focus == Focus::Changes
+            && self.palette.is_none()
+            && let Some(task) = self.changes_key(&kp)
+        {
+            return task;
         }
         if let Key::Named(Named::Escape) = kp.key.as_ref() {
             if self.find.is_none() {
@@ -1670,6 +1803,40 @@ impl App {
                 });
                 scroll = false;
             }
+            "app.save_as_project" => {
+                if self.d.session().is_some() {
+                    return self.ask(Ask::SaveAsProject(format!("{}.coldopen", self.stem())));
+                }
+            }
+            "app.author_name" => return self.ask_name(NameThen::Nothing),
+            "changes.accept_here" => self.settle_here(true),
+            "changes.reject_here" => self.settle_here(false),
+            "changes.accept_scene" => self.settle_scene(true),
+            "changes.reject_scene" => self.settle_scene(false),
+            "changes.accept_all" | "changes.reject_all" => {
+                self.ask_settle_all(name == "changes.accept_all");
+                scroll = false;
+            }
+            "changes.next" => self.change_step(false),
+            "changes.previous" => self.change_step(true),
+            "changes.track_mine" => {
+                let ask = self.track_mine();
+                let refresh = self.after_change(false);
+                return Task::batch([ask, refresh]);
+            }
+            "changes.track_agents" => {
+                self.track_agents();
+                scroll = false;
+            }
+            "view.changes" => {
+                self.settings.changes_panel = !self.settings.changes_panel;
+                self.save_settings();
+                if !self.settings.changes_panel && self.focus == Focus::Changes {
+                    self.focus = Focus::Page;
+                }
+                self.refresh_changes();
+                scroll = false;
+            }
             "app.renderer_cpu" | "app.renderer_gpu" => {
                 self.settings.renderer = if name == "app.renderer_gpu" {
                     crate::files::Renderer::Gpu
@@ -1744,7 +1911,10 @@ impl App {
             "view.next_pane" => {
                 self.focus = match self.focus {
                     Focus::Page if self.settings.navigator => Focus::Navigator,
-                    Focus::Page | Focus::Navigator if self.find.is_some() => Focus::Find,
+                    Focus::Page | Focus::Navigator if self.settings.changes_panel => Focus::Changes,
+                    Focus::Page | Focus::Navigator | Focus::Changes if self.find.is_some() => {
+                        Focus::Find
+                    }
                     _ => Focus::Page,
                 };
                 if self.focus == Focus::Find {

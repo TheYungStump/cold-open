@@ -378,7 +378,7 @@ Added 2026-10-18 (phase 5a). Sources: `docs/spec.md` ("Revising", "Agents edit i
 | --- | --- | --- |
 | Accept the change at the caret | Mod+Shift+Enter | `changes.accept` with that change's `id` |
 | Reject the change at the caret | Mod+Shift+Backspace | `changes.reject` with that change's `id` |
-| Next or previous change | F7, Shift+F7 | Moves the caret to the next or previous mark in document order |
+| Next or previous change | F7, Shift+F7 | Moves the caret to the start of the next or previous change in document order, round to the other end as find does |
 | Accept or reject in this scene | palette, panel | `changes.accept` or `changes.reject` with `scene` |
 | Accept or reject all | palette, panel | the same, with `all`, after the question "Accept all 12 changes?" (Enter confirms, Esc cancels) |
 
@@ -390,7 +390,8 @@ Added 2026-10-18 (phase 5a). Sources: `docs/spec.md` ("Revising", "Agents edit i
 
 `view.changes` (Mod+Shift+R, and the palette) shows a panel on the right of the page area, beside the pages, so the writer reviews while reading them.
 
-- **Rows:** one per pending change, in document order (`changes.list`), with a dot in its author's color, the author's name, when it was made (such as "today 14:05" or "Oct 12"), what it does ("Inserted", "Deleted", "Replaced", "New block", "Moved scene" and so on), the scene's number and heading, and a short excerpt: inserted text as is, deleted text struck.
+- **Rows:** one per pending change, in document order (`changes.list`), with a dot in its author's color, the author's name, when it was made, as the recovery dialog says it ("5 minutes ago", "2 days ago": a relative time needs no time zone, so the app takes no date crate), what it does ("Inserted", "Deleted", "Replaced", "New block", "Changed element", "Split", "Joined", "Moved scene"), the scene's number and heading, and a short excerpt: inserted text as is, deleted text struck.
+- **The chosen row** is outlined in the focus color rather than filled, so the authors' colors keep their contrast in every theme, and it shows small Accept and Reject buttons for the mouse. A click on a row chooses it, moves the caret to the change and gives the panel the keyboard.
 - **Keys** while the panel has the keyboard (F6 moves focus to it):
   - Up and Down choose a row, stopping at the ends;
   - Enter moves the caret to the change, scrolling the page to it;
@@ -398,18 +399,20 @@ Added 2026-10-18 (phase 5a). Sources: `docs/spec.md` ("Revising", "Agents edit i
   - Esc gives the keyboard back to the page.
 - **Buttons** at the top: "Accept all" and "Reject all" (asking first, as above), and a filter with "All authors" and each author.
 - **An empty panel** says "No changes to review."
-- The panel's visibility is kept in `settings.json`, as the navigator's is.
+- **The status bar** says "N to review" while changes are pending; a click shows or hides the panel.
+- The panel's visibility is kept in `settings.json` (`changes_panel`), as the navigator's is.
 
 ### 17.4 The switches and the writer's name
 
 - **Track my changes** (`changes.track_mine`, in the palette and from a click on the hint bar's text) turns the writer's switch on or off (`changes.track` with `writer`). **Track agent edits** (`changes.track_agents`) turns the agents' switch for this script on or off (§12). Each is an undoable step, and a bundle keeps it. A .fountain or .fdx script opens with the defaults: the writer's off and the agents' on.
-- **The writer's name.** The writer's changes carry `author_name` from `settings.json`. It is asked for once (decided with the project's owner, 2026-10-18): when the writer turns on Track my changes, or opens a script whose writer switch is on, and no name is set, a small question asks "What name should your changes carry?", with a field prefilled with "Writer". Enter saves the name in the settings and goes on; Esc goes on without saving, and the changes say "Writer" until a name is set. Asking at that point, before anything is typed, means a keystroke never waits on the question. The name can be changed later with "Set my name for changes" in the palette; changes already made keep the name they were made with.
+- **The writer's name.** The writer's changes carry `author_name` from `settings.json`. It is asked for once (decided with the project's owner, 2026-10-18): when the writer turns on Track my changes, or opens a script whose writer switch is on, and no name is set, a small question asks "What name should your changes carry?", with a field prefilled with "Writer". Enter saves the name in the settings and goes on; Esc goes on without saving, and the changes say "Writer" until a name is set. After Esc it is not asked again until the app restarts. Asking at that point, before anything is typed, means a keystroke never waits on the question. The name can be changed later with "Set my name for changes" in the palette; changes already made keep the name they were made with.
 - **Agents' changes** carry the agent's name (§12).
 
 ### 17.5 Saving
 
 - **A bundle** (`.coldopen`) keeps every change. **Save as Cold Open project…** (`app.save_as_project`, in the palette and in the lossy-save question, §11) saves the script as one.
-- **A .fountain or .fdx script with pending changes** asks before saving, as for any loss: "Fountain can't hold tracked changes (3). Saving writes the script with every change accepted." with **Save as Cold Open project…** (P; Enter chooses it whenever tracked changes are among the losses), **Save anyway** (S) and **Cancel** (Esc or C).
+- **A .fountain or .fdx script with pending changes** asks before saving, as for any loss: "Fountain can't hold tracked changes (3). Saving writes the script with every change accepted." with **Save as Cold Open project…** (P; Enter chooses it whenever tracked changes are among the losses), **Save anyway** (S) and **Cancel** (Esc or C). The project choice is offered for every lossy save of the script itself, since a bundle loses nothing; Enter takes Save anyway when no tracked changes are at stake, as before. "Save a copy as" keeps its two choices: the copy is asked for in that format.
+- **PDF export** prints the marks by default (`docs/specs/layout.md` §17); "Print the current text" (Mod+3 in the export form, shown while changes are pending) prints the script with every change accepted.
 - **The link's session file** lists each open script's `doc_id` when it is a bundle (`docs/specs/mcp.md` §5.1).
 
 ### 17.6 Testing
