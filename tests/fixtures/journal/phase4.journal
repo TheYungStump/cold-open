@@ -1,0 +1,29 @@
+{"journal":"coldopen","v":1,"app":"0.1.0","doc":{"title_page":{"fields":[{"key":"Title","values":[{"text":"The Keeper's Log"}]},{"key":"Author","values":[{"text":"Cold Open tests"}]}]},"blocks":[{"id":"b_1","type":"scene_heading","text":"INT. LIGHTHOUSE - NIGHT"},{"id":"b_2","type":"action","text":"The lamp turns. Rain against the glass."},{"id":"b_3","type":"character","text":"MARA"},{"id":"b_4","type":"parenthetical","text":"(to herself)"},{"id":"b_5","type":"dialogue","text":"Three ships tonight."},{"id":"b_6","type":"scene_heading","text":"EXT. CLIFF PATH - DAWN"},{"id":"b_7","type":"action","text":"Gulls wheel over the rocks."},{"id":"b_8","type":"character","text":"TOMAS"},{"id":"b_9","type":"dialogue","text":"She kept the light on."}],"next_id":10},"disk":{"len":237,"fnv64":"8290f0868d70dc09"},"semantics":1,"host":"fixture-host","path":"/fixtures/lighthouse.fountain"}
+{"seq":1,"t":1792370636620,"command":"block.insert","params":{"after":"b_2","text":"A bell rings below.","type":"action"},"result":{"id":"b_10"}}
+{"seq":2,"t":1792370636620,"command":"block.set_text","params":{"id":"b_7","text":"Gulls wheel over the black rocks."},"result":{}}
+{"seq":3,"t":1792370636621,"command":"text.replace","params":{"find":"ships","match_case":true,"with":"boats"},"result":{"blocks":["b_5"],"count":1}}
+{"seq":4,"t":1792370636621,"command":"undo","params":{},"result":{"label":"Replace","undone":"text.replace"},"step":3}
+{"seq":5,"t":1792370636622,"command":"block.insert","params":{"before":"b_6","text":"CUT TO:","type":"transition"},"result":{"id":"b_11"}}
+{"seq":6,"t":1792370636622,"command":"undo","params":{},"result":{"label":"Insert block","undone":"block.insert"},"step":5}
+{"seq":7,"t":1792370636622,"command":"redo","params":{},"result":{"label":"Insert block","redone":"block.insert"},"step":5}
+{"seq":8,"t":1792370636623,"command":"block.set_attrs","params":{"id":"b_1","scene_number":"1"},"result":{}}
+{"seq":9,"t":1792370636623,"command":"scene.move","params":{"before":"b_1","id":"b_6"},"result":{}}
+{"seq":10,"t":1792370636623,"command":"block.delete","params":{"id":"b_4"},"result":{}}
+{"seq":11,"t":1792370636624,"command":"undo","params":{},"result":{"label":"Delete block","undone":"block.delete"},"step":10}
+{"seq":12,"t":1792370636624,"command":"block.set_type","params":{"id":"b_10","type":"lyric"},"result":{}}
+{"seq":13,"t":1792370636624,"command":"text.insert","params":{"at":22,"id":"b_9","style":{},"text":" "},"result":{}}
+{"seq":14,"t":1792370636625,"command":"text.insert","params":{"at":23,"id":"b_9","style":{},"text":"A"},"result":{},"merge":true}
+{"seq":15,"t":1792370636625,"command":"text.insert","params":{"at":24,"id":"b_9","style":{},"text":"l"},"result":{},"merge":true}
+{"seq":16,"t":1792370636626,"command":"text.insert","params":{"at":25,"id":"b_9","style":{},"text":"w"},"result":{},"merge":true}
+{"seq":17,"t":1792370636626,"command":"text.insert","params":{"at":26,"id":"b_9","style":{},"text":"a"},"result":{},"merge":true}
+{"seq":18,"t":1792370636626,"command":"text.insert","params":{"at":27,"id":"b_9","style":{},"text":"y"},"result":{},"merge":true}
+{"seq":19,"t":1792370636627,"command":"text.insert","params":{"at":28,"id":"b_9","style":{},"text":"s"},"result":{},"merge":true}
+{"seq":20,"t":1792370636627,"command":"text.insert","params":{"at":29,"id":"b_9","style":{},"text":"."},"result":{},"merge":true}
+{"seq":21,"t":1792370636627,"command":"text.delete","params":{"from":29,"id":"b_9","to":30},"result":{}}
+{"seq":22,"t":1792370636628,"command":"text.delete","params":{"from":28,"id":"b_9","to":29},"result":{},"merge":true}
+{"seq":23,"t":1792370636628,"command":"undo","params":{},"result":{"label":"Delete","undone":"typing"},"step":21}
+{"seq":24,"t":1792370636628,"command":"text.style","params":{"from":0,"id":"b_2","italic":true,"to":8},"result":{}}
+{"seq":25,"t":1792370636629,"command":"batch","params":{"commands":[{"command":"block.set_text","params":{"id":"b_7","text":"Gulls over the rocks."}},{"command":"block.insert","params":{"after":"b_9","text":"She climbs.","type":"action"}}],"label":"Tidy"},"result":{"results":[{},{"id":"b_12"}]}}
+{"seq":26,"t":1792370636629,"command":"block.split","params":{"at":9,"id":"b_2","type":"action"},"result":{"id":"b_13"}}
+{"seq":27,"t":1792370636630,"command":"block.join","params":{"id":"b_13"},"result":{"at":9,"id":"b_2"}}
+{"seq":28,"t":1792370636630,"command":"undo","params":{},"result":{"label":"Join blocks","undone":"block.join"},"step":27}

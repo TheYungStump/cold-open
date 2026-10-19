@@ -6,13 +6,16 @@
 //! coldopen-driver --home DIR [SCRIPT]
 //! ```
 //!
-//! SCRIPT may be a .fountain or an .fdx file.
+//! SCRIPT may be a .fountain, an .fdx or a .coldopen file.
 //!
 //! Input lines:
 //! - `char X`: types the character X (the rest of the line, one character);
 //! - `key NAME`: presses enter, tab, backspace, escape, up, down, left,
 //!   right, home or end;
 //! - `mod X`: presses Mod+X (Ctrl, or Cmd on macOS);
+//! - `modshift X`: presses Mod+Shift+X;
+//! - `action NAME`: runs an app action by name, as the palette would
+//!   (docs/specs/editor.md §10), such as `changes.accept_here`;
 //! - `saveas PATH`: Save as PATH, as if the save dialog had answered with
 //!   it; the extension picks the format, so this converts;
 //! - `quit`: closes the script cleanly and exits.
@@ -92,12 +95,13 @@ fn main() -> ExitCode {
                 Some(k) => h.named(k, Modifiers::empty()),
                 None => continue,
             },
-            "mod" => {
+            "mod" | "modshift" => {
                 let Some(c) = rest.chars().next() else {
                     continue;
                 };
-                h.shortcut(c, false);
+                h.shortcut(c, cmd == "modshift");
             }
+            "action" if !rest.is_empty() => h.run(vec![Message::Action(rest.into())]),
             "saveas" if !rest.is_empty() => {
                 let to = PathBuf::from(rest);
                 h.run(vec![Message::Chosen(Ask::SaveAs(String::new()), Some(to))]);
