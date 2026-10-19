@@ -96,6 +96,7 @@ impl LinkWriter {
 #[derive(Debug, Default)]
 struct Shared {
     docs: Vec<PathBuf>,
+    doc_ids: Vec<Option<String>>,
     rev: u64,
     links: usize,
 }
@@ -173,6 +174,7 @@ impl LinkServer {
         let (tx, rx) = unbounded();
         let shared = Arc::new(Mutex::new(Shared {
             docs,
+            doc_ids: Vec::new(),
             rev,
             links: 0,
         }));
@@ -202,10 +204,10 @@ impl LinkServer {
     }
 
     fn publish(&self) -> io::Result<()> {
-        let docs = self
+        let (docs, doc_ids) = self
             .shared
             .lock()
-            .map(|s| s.docs.clone())
+            .map(|s| (s.docs.clone(), s.doc_ids.clone()))
             .unwrap_or_default();
         let path = SessionFile::path_in(&self.run, self.pid);
         if docs.is_empty() {
@@ -219,17 +221,24 @@ impl LinkServer {
             endpoint: self.endpoint.clone(),
             token: self.token.clone(),
             docs,
+            doc_ids: if doc_ids.iter().any(Option::is_some) {
+                doc_ids
+            } else {
+                Vec::new()
+            },
         }
         .write(&self.run)
         .map(|_| ())
     }
 
-    /// The scripts open in the app, as canonical paths; rewrites the
-    /// session file when they change.
-    pub fn set_docs(&self, docs: Vec<PathBuf>) -> io::Result<()> {
+    /// The scripts open in the app, as canonical paths, with each one's
+    /// identity when it is a bundle; rewrites the session file when they
+    /// change.
+    pub fn set_docs(&self, docs: Vec<PathBuf>, doc_ids: Vec<Option<String>>) -> io::Result<()> {
         let changed = match self.shared.lock() {
-            Ok(mut s) if s.docs != docs => {
+            Ok(mut s) if s.docs != docs || s.doc_ids != doc_ids => {
                 s.docs = docs;
+                s.doc_ids = doc_ids;
                 true
             }
             _ => false,

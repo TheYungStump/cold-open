@@ -457,3 +457,124 @@ fn a_hello_that_arrives_a_moment_late_is_still_read() {
     let reply = String::from_utf8_lossy(&got);
     assert!(reply.contains(r#""ok":true"#), "{reply:?}");
 }
+
+fn writer_run(h: &mut Headless, command: &str, params: Value) -> Value {
+    let cmd = coldopen_core::Command::from_parts(command, params).unwrap();
+    let r = h
+        .app
+        .d
+        .execute(cmd)
+        .unwrap_or_else(|e| panic!("{command}: {e}"));
+    h.pump();
+    r
+}
+
+/// Phase 5a: through the real link, an agent's edits arrive as tracked
+/// changes under its name; the writer settles them, and the agent can
+/// settle none of the writer's (docs/specs/mcp.md §6.1).
+#[test]
+fn agent_edits_arrive_as_tracked_changes_the_writer_settles() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut h, script) = app(home.path());
+    let s = session(home.path()).unwrap();
+    let l = LinkClient::attach(&s, &client("claude-code"), &script).unwrap();
+
+    let r = call(
+        &mut h,
+        &l,
+        "text.replace",
+        json!({"find": "Rain", "with": "Hail"}),
+        "text_replace",
+    );
+    assert_eq!(r["result"]["change"], "c_1", "{r}");
+    assert_eq!(texts(&h), ["INT. LAB - NIGHT", "Hail."]);
+    let list = writer_run(&mut h, "changes.list", json!({}));
+    assert_eq!(
+        list["changes"][0]["by"],
+        json!({"kind": "agent", "name": "claude-code"}),
+        "{list}"
+    );
+    assert_eq!(list["changes"][0]["deleted"], "Rain");
+    // An agent cannot opt out, nor accept.
+    let r = call(
+        &mut h,
+        &l,
+        "text.insert",
+        json!({"id": "b_2", "at": 0, "text": "x", "tracked": false}),
+        "text_insert",
+    );
+    assert_eq!(r["error"]["code"], "writer_only", "{r}");
+    let r = call(
+        &mut h,
+        &l,
+        "changes.accept",
+        json!({"all": true}),
+        "changes_accept",
+    );
+    assert_eq!(r["error"]["code"], "writer_only", "{r}");
+
+    // The writer tracks their own typing; the agent cannot reject it.
+    writer_run(&mut h, "changes.track", json!({"writer": true}));
+    writer_run(
+        &mut h,
+        "text.insert",
+        json!({"id": "b_1", "at": 16, "text": " LATER"}),
+    );
+    let list = writer_run(&mut h, "changes.list", json!({}));
+    let mine = list["changes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["by"]["kind"] == "writer")
+        .unwrap()["id"]
+        .clone();
+    let r = call(
+        &mut h,
+        &l,
+        "changes.reject",
+        json!({"id": mine}),
+        "changes_reject",
+    );
+    assert_eq!(r["error"]["code"], "not_your_change", "{r}");
+    // The agent withdraws its own; the writer's stays.
+    let r = call(
+        &mut h,
+        &l,
+        "changes.reject",
+        json!({"all": true}),
+        "changes_reject",
+    );
+    assert_eq!(r["result"]["changes"], json!(["c_1"]), "{r}");
+    assert_eq!(texts(&h), ["INT. LAB - NIGHT LATER", "Rain."]);
+    // A new proposal, which the writer accepts with everything else.
+    call(
+        &mut h,
+        &l,
+        "block.insert",
+        json!({"type": "action", "text": "Thunder."}),
+        "block_insert",
+    );
+    writer_run(&mut h, "changes.accept", json!({"all": true}));
+    let list = writer_run(&mut h, "changes.list", json!({}));
+    assert_eq!(list["changes"], json!([]));
+    assert_eq!(texts(&h), ["INT. LAB - NIGHT LATER", "Rain.", "Thunder."]);
+    l.bye();
+}
+
+/// The session file names a bundle's identity next to its path (F18.4).
+#[test]
+fn the_session_file_names_a_bundles_identity() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut h, _script) = app(home.path());
+    assert!(session(home.path()).unwrap().doc_ids.is_empty());
+    let bundle = home.path().join("lab.coldopen");
+    let to = bundle.clone();
+    h.app
+        .set_dialogs(Dialogs::scripted(move |_| Some(to.clone())));
+    h.run(vec![Message::Action("app.save_as".into())]);
+    let s = session(home.path()).unwrap();
+    assert!(s.has_doc(&bundle), "{:?}", s.docs);
+    let id = h.app.d.session().unwrap().doc.doc_id.clone();
+    assert!(id.is_some());
+    assert_eq!(s.doc_ids, vec![id]);
+}

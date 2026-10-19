@@ -25,9 +25,11 @@ Blocks are named by ids such as \"b_12\" (see doc_get or the coldopen://doc/bloc
 text offsets count characters, not bytes. Use batch to make several changes one undo step. When \
 the writer has the script open in the Cold Open app, doc_open attaches to it: every edit appears \
 live in the writer's window, labelled with your name and the tool, and the writer can undo it. You \
-may undo only your own steps.";
+may undo only your own steps. Your edits are tracked changes the writer reviews: the `text` of a block \
+is its current text, with pending deletions left out, and changes_list shows what is waiting. You may \
+withdraw your own changes with changes_reject; accepting is the writer's.";
 
-const URIS: [(&str, &str, &str, &str); 4] = [
+const URIS: [(&str, &str, &str, &str); 5] = [
     (
         "coldopen://doc/fountain",
         "Script as Fountain",
@@ -51,6 +53,12 @@ const URIS: [(&str, &str, &str, &str); 4] = [
         "Scenes",
         "application/json",
         "The scene list: headings, numbers, pages and lengths.",
+    ),
+    (
+        "coldopen://doc/changes",
+        "Tracked changes",
+        "application/json",
+        "The pending tracked changes: who made each, when, and what it inserts and deletes.",
     ),
 ];
 
@@ -130,6 +138,10 @@ impl ColdOpen {
             }
             "coldopen://doc/scenes" => {
                 let r = result(self.call("scene.list", json!({}), client, tool).await)?;
+                Ok((pretty(&r), "application/json"))
+            }
+            "coldopen://doc/changes" => {
+                let r = result(self.call("changes.list", json!({}), client, tool).await)?;
                 Ok((pretty(&r), "application/json"))
             }
             _ => {
