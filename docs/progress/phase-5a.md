@@ -19,8 +19,8 @@ Phase 5 is split in two. **5a** (this phase) brings the `.coldopen` project bund
 | 7 | Layout and PDF: marked and accepted print forms, author colors, `export.pdf` `changes` | done |
 | 8 | MCP tools and resource; the session file's `doc_ids`; agent tests through the real link and `coldopen mcp` | done |
 | 9 | App: marks on the page, caret over them, keys and palette, the changes panel, the writer's name, the per-script agent switch, "Save as Cold Open project" | done: headless tests in `crates/app/tests/changes.rs` (8) and the agent tests; screenshots of the marks and the panel reviewed in three themes; 541 tests pass |
-| 10 | Gates: crash gate (tracked edits, accept and reject, bundle saves), phase 4 journal fixtures, corpus round trip, reference gate, CI on three OSes, fuzzing, measurements | crash gate, old journals, corpus, reference gate and measurements done (below); the PR, CI on three OSes and the fuzz run next |
-| 11 | Manual test steps for a Windows CI build; the project owner's test; the final report | |
+| 10 | Gates: crash gate (tracked edits, accept and reject, bundle saves), phase 4 journal fixtures, corpus round trip, reference gate, CI on three OSes, fuzzing, measurements | crash gate, old journals, corpus, reference gate and measurements done (below); PR TheYungStump/cold-open#8 open; CI on three OSes and the fuzz run (run 39182703613, ten targets for ten minutes each) under way |
+| 11 | Manual test steps for a Windows CI build; the project owner's test; the final report | steps written (below); waiting for the test |
 
 ## Decisions made with the project's owner before the phase (2026-10-18)
 
@@ -108,4 +108,44 @@ Release build on the development machine (Windows 11), median of 11 runs, with `
 
 ## Manual test (Windows CI build)
 
-(Written in step 11. The steps use copies of corpus files in a scratch folder, never the files in `corpus/`.)
+About 20 minutes. Every step works on **copies** of corpus files in a scratch folder, never on the files in `corpus/` (CLAUDE.md, Test data). Keys are the Windows ones.
+
+**Set up**
+
+1. On [TheYungStump/cold-open#8](https://github.com/TheYungStump/cold-open/pull/8), open the latest CI run, then Summary, then Artifacts. Download `cold-open-windows-x86_64` and unzip it, for example to `C:\ColdOpenTest\app`. Windows may warn that the build is unsigned; TESTING.txt in the archive explains.
+2. Make a scratch folder such as `C:\ColdOpenTest\scripts`. Copy (don't move) these two files into it from the repo's `corpus\fountain-io\` folder: `Brick-&-Steel.fountain` and `Big-Fish.fdx`.
+
+**Tracked changes in a Fountain script**
+
+3. Start `Cold Open.exe` and open the scratch copy of `Brick-&-Steel.fountain`.
+4. Press Ctrl+K and run "Track my changes (on or off)". A question asks what name your changes should carry, with "Writer" selected. Type your name and press Enter. The top bar now says "Tracking your changes".
+5. Type a sentence at the end of an action: it shows in color, with a bar in the left margin. Select a few words of the script's own text and press Backspace: they stay on the page, struck through. Left and Right step over the struck words in one move. The status bar says how many changes wait for review.
+6. Put the caret just after your sentence and press Ctrl+Shift+Enter: the change is accepted and loses its color. Press Ctrl+Z: it comes back. Press Ctrl+Shift+Backspace: it is rejected and the sentence goes. Press Ctrl+Z again.
+7. Press F7 and Shift+F7: the caret jumps from change to change, and goes round from the last to the first.
+8. Press Ctrl+Shift+R: the changes panel opens on the right, listing each change with your name, when you made it, what it does, its scene and a short excerpt. Press F6 until the panel is outlined. Up and Down choose a row, Enter takes the caret there, A accepts, R rejects, and Esc returns to the page.
+
+**Saving as a project**
+
+9. Make one more tracked change, then press Ctrl+S. A question says Fountain can't hold tracked changes, and "Save as Cold Open project…" is the default. Press Enter. The save dialog suggests `Brick-&-Steel.coldopen` in the scratch folder; save it. The window title now shows the `.coldopen` name, and the Fountain copy is untouched.
+10. Close the script (Ctrl+W) and open the `.coldopen` file from the start screen's recent files. Every change is still there, with your name and color, and "Tracking your changes" is still on.
+
+**A crash**
+
+11. Make two or three more tracked edits and don't save. End Cold Open from Task Manager (End task).
+12. Start Cold Open and open the `.coldopen` file. The recovery dialog appears; choose Keep. The edits are back, still marked as changes.
+
+**Settling everything, and the PDF**
+
+13. Press Ctrl+Shift+E. The export form has a "Print the current text" switch. Export once as it is (to the scratch folder). Then export again with Ctrl+3 (the switch on) under another name. Open both PDFs: the first shows the changes in color with deletions struck, the second shows clean text.
+14. Press Ctrl+K and run "Accept all changes". A question asks to accept all N changes; press Enter. The marks are gone. Ctrl+Z brings them all back.
+
+**An .fdx script**
+
+15. Open the scratch copy of `Big-Fish.fdx`. It opens about as fast as before. Turn on "Track my changes" (no name question this time), change a line, and press Ctrl+S. The question offers the project, Save anyway and Cancel. Press S (Save anyway).
+16. Close it and open the `.fdx` again. The line has your change in it, with no marks, because .fdx can't hold them. That is expected, and it is what the question said.
+
+**Tell me**
+
+- Anything that looked wrong or confusing, with a screenshot if you can.
+- Whether the colors and the struck text are easy to read in your theme (Ctrl+K, "Theme: …" switches themes).
+- When you are done, you can delete `C:\ColdOpenTest`. It holds only copies.
