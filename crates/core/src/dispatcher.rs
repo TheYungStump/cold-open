@@ -73,6 +73,94 @@ pub struct PreparedSave {
     original: Option<PathBuf>,
 }
 
+/// A save in place taken on the UI thread, to be written out on another
+/// (docs/specs/journal.md, "Saving off the UI thread"): a snapshot of the
+/// document and what the save needs to know about the session.
+#[derive(Clone, Debug)]
+pub struct SaveJob {
+    doc: Document,
+    style: SourceStyle,
+    path: PathBuf,
+    params: DocSave,
+    /// What the session last read or wrote, for the check that no other
+    /// program changed the file.
+    disk: Option<Fingerprint>,
+    damaged: bool,
+    rev: u64,
+    session: u64,
+    number: u64,
+}
+
+/// Which save a [`SaveJob`] is, so a caller whose worker never answered
+/// can still end it with [`RenderedSave::failed`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SaveTicket {
+    session: u64,
+    number: u64,
+}
+
+impl SaveJob {
+    pub fn ticket(&self) -> SaveTicket {
+        SaveTicket {
+            session: self.session,
+            number: self.number,
+        }
+    }
+
+    /// Step 2, on any thread: writes the document out in its format and
+    /// checks it can be saved: no loss without `allow_lossy`, and a file no
+    /// other program changed. The first save in place of a repaired file
+    /// keeps a copy of it first. Nothing else touches the disk.
+    pub fn render(self) -> RenderedSave {
+        let result = (|| {
+            let r = render_doc(&self.doc, self.style, Some(&self.path), &self.params)?;
+            refuse_if_changed_from(self.disk, &r.target, self.params.overwrite)?;
+            let original = if self.damaged {
+                keep_original(&r.target)?
+            } else {
+                None
+            };
+            Ok(PreparedSave {
+                fingerprint: Fingerprint::of(&r.bytes),
+                target: r.target,
+                bytes: r.bytes,
+                format: r.format.name().to_string(),
+                losses: r.losses,
+                rev: self.rev,
+                session: self.session,
+                number: self.number,
+                original,
+            })
+        })();
+        RenderedSave {
+            session: self.session,
+            number: self.number,
+            result,
+        }
+    }
+}
+
+/// A [`SaveJob`] rendered, or the reason it can't be saved, for
+/// [`Dispatcher::save_mark`].
+#[derive(Clone, Debug)]
+pub struct RenderedSave {
+    session: u64,
+    number: u64,
+    result: Result<PreparedSave, CommandError>,
+}
+
+impl RenderedSave {
+    /// The outcome of a save whose rendering never came back, such as a
+    /// worker that could not start: the save ends with `error`.
+    pub fn failed(ticket: SaveTicket, error: CommandError) -> RenderedSave {
+        RenderedSave {
+            session: ticket.session,
+            number: ticket.number,
+            result: Err(error),
+        }
+    }
+}
+
 /// What opening a document would make of its crash journal, worked out
 /// without touching the disk (docs/specs/journal.md, "Recovery on open").
 enum Assessment {
@@ -808,70 +896,7 @@ impl Dispatcher {
     /// Writes the document out for saving and checks it can be saved, without
     /// touching the disk.
     fn render(session: &Session, p: &DocSave) -> Result<Rendered, CommandError> {
-        let target = match (&p.path, &session.path) {
-            (Some(p), _) => PathBuf::from(p),
-            (None, Some(p)) => p.clone(),
-            (None, None) => {
-                return Err(CommandError::new(
-                    "no_path",
-                    "this document has no file yet; give a path",
-                ));
-            }
-        };
-        let format = match &p.format {
-            Some(f) => FormatId::from_name(f).ok_or_else(|| {
-                let f = f.to_ascii_lowercase();
-                CommandError::new(
-                    "unsupported_format",
-                    format!("\"{f}\" is not a supported format in this version; use \"fountain\""),
-                )
-            })?,
-            None => FormatId::for_path(&target).ok_or_else(|| unsupported(&target))?,
-        };
-        // A file whose extension names another format would open as that
-        // format and fail, so the two must agree.
-        if let Some(named) = FormatId::for_path(&target)
-            && named != format
-        {
-            return Err(CommandError::new(
-                "unsupported_format",
-                format!(
-                    "{} is a {} path; it cannot be saved as {}",
-                    target.display(),
-                    named.name(),
-                    format.name()
-                ),
-            ));
-        }
-
-        let written = format.get().write(&session.doc, session.style);
-        let mut losses = session.losses_json(&written.losses);
-        // The file is written as UTF-8, which other programs show wrongly
-        // if they still read it as Windows-1252 (review finding F6).
-        if session.style.encoding == io::Encoding::Windows1252 {
-            losses.push(json!({
-                "id": null,
-                "code": "reencoded",
-                "class": "lost",
-                "message": "the file was not UTF-8 and was read as Windows-1252; it will be saved as UTF-8",
-            }));
-        }
-        if blocking(&losses) && !p.allow_lossy {
-            return Err(CommandError::new(
-                "lossy_format",
-                format!(
-                    "{} cannot hold everything in this document; nothing was saved",
-                    format.title()
-                ),
-            )
-            .with_details(json!({ "losses": losses })));
-        }
-        Ok(Rendered {
-            target,
-            format,
-            bytes: written.bytes,
-            losses,
-        })
+        render_doc(&session.doc, session.style, session.path.as_deref(), p)
     }
 
     fn doc_save(&mut self, p: DocSave, by: &Author) -> Result<Value, CommandError> {
@@ -1029,12 +1054,15 @@ impl Dispatcher {
         Ok((j, false))
     }
 
-    /// Step 1 of a save in place off the UI thread: writes the document out
-    /// and appends a `doc.saved` marker for those bytes. The caller then
-    /// runs `io::atomic_write(&prepared.target, &prepared.bytes)` on any
-    /// thread, and hands the outcome to [`Dispatcher::save_commit`].
-    /// "Save as" (a `path` other than the document's) uses `doc.save`.
-    pub fn save_prepare(&mut self, p: &DocSave) -> Result<PreparedSave, CommandError> {
+    /// Step 1 of a save in place off the UI thread (docs/specs/journal.md,
+    /// "Saving off the UI thread"): takes the session's save token and a
+    /// snapshot of the document, and nothing else, so it costs the UI thread
+    /// about a copy of the document. The caller runs [`SaveJob::render`] on
+    /// any thread, hands the outcome to [`Dispatcher::save_mark`], runs
+    /// `io::atomic_write(&prepared.target, &prepared.bytes)` on any thread,
+    /// and hands that outcome to [`Dispatcher::save_commit`]. "Save as" (a
+    /// `path` other than the document's) uses `doc.save`.
+    pub fn save_prepare(&mut self, p: &DocSave) -> Result<SaveJob, CommandError> {
         let session = self
             .session
             .as_mut()
@@ -1046,47 +1074,73 @@ impl Dispatcher {
                 "a save off the UI thread keeps the document's path; use doc.save to save as",
             ));
         }
-        if session.path.is_none() {
+        let Some(path) = session.path.clone() else {
             return Err(CommandError::new(
                 "no_path",
                 "this document has no file yet; give a path",
             ));
-        }
-        refuse_while_saving(session)?;
-        let r = Self::render(session, p)?;
-        refuse_if_changed(session, &r.target, p.overwrite)?;
-        let original = if session.damaged {
-            keep_original(&r.target)?
-        } else {
-            None
         };
-        let fingerprint = Fingerprint::of(&r.bytes);
+        refuse_while_saving(session)?;
+        session.saves += 1;
+        session.saving = Some(session.saves);
+        Ok(SaveJob {
+            doc: session.doc.clone(),
+            style: session.style,
+            path,
+            params: p.clone(),
+            disk: session.disk,
+            damaged: session.damaged,
+            rev: session.rev,
+            session: session.id(),
+            number: session.saves,
+        })
+    }
+
+    /// Step 3 of a save in place, back on the UI thread: appends a
+    /// `doc.saved` marker for the bytes about to be written, before they
+    /// are. The marker's place among the entries does not matter: replay
+    /// always starts from the header, and markers only name versions of the
+    /// file the journal knows. If rendering failed (a lossy format without
+    /// `allow_lossy`, a file another program changed), the save ends here
+    /// with that error and its token is given back. A save whose script was
+    /// closed while the worker rendered it still goes ahead, as the writer
+    /// asked: its journal is gone, so it gets no marker, and the commit
+    /// reports `save_superseded`.
+    pub fn save_mark(&mut self, rendered: RenderedSave) -> Result<PreparedSave, CommandError> {
+        let RenderedSave {
+            session: id,
+            number,
+            result,
+        } = rendered;
+        let session = self
+            .session
+            .as_mut()
+            .filter(|s| s.id() == id && s.saving == Some(number));
+        let Some(session) = session else {
+            return result;
+        };
+        let prepared = match result {
+            Ok(p) => p,
+            Err(e) => {
+                session.saving = None;
+                return Err(e);
+            }
+        };
         // A broken journal protects nothing, so it gets no marker; the
         // commit starts it again, which is the only way out of that state.
         if let Some(j) = &mut session.journal
             && !j.is_broken()
         {
-            j.append_saved(fingerprint).map_err(|e| {
-                CommandError::new(
+            if let Err(e) = j.append_saved(prepared.fingerprint) {
+                session.saving = None;
+                return Err(CommandError::new(
                     "journal_error",
                     format!("the crash journal could not be written, so nothing was saved: {e}"),
-                )
-            })?;
+                ));
+            }
             j.flush_now();
         }
-        session.saves += 1;
-        session.saving = Some(session.saves);
-        Ok(PreparedSave {
-            target: r.target,
-            bytes: r.bytes,
-            format: r.format.name().to_string(),
-            losses: r.losses,
-            rev: session.rev,
-            fingerprint,
-            session: session.id(),
-            number: session.saves,
-            original,
-        })
+        Ok(prepared)
     }
 
     /// Step 3 of a save in place: records how the write went, which ends
@@ -1732,6 +1786,80 @@ fn refuse_document_or_journal(open: Option<&Path>, target: &Path) -> Result<(), 
 /// Keeps a copy of a repaired file as it is, before the first save over it
 /// (docs/specs/journal.md, "Damaged originals"). A file that has gone has
 /// nothing to keep.
+/// Writes a document out for saving and checks it can be saved, without
+/// touching the disk: to `p.path`, or to `own`, the document's own path.
+fn render_doc(
+    doc: &Document,
+    style: SourceStyle,
+    own: Option<&Path>,
+    p: &DocSave,
+) -> Result<Rendered, CommandError> {
+    let target = match (&p.path, own) {
+        (Some(p), _) => PathBuf::from(p),
+        (None, Some(p)) => p.to_path_buf(),
+        (None, None) => {
+            return Err(CommandError::new(
+                "no_path",
+                "this document has no file yet; give a path",
+            ));
+        }
+    };
+    let format = match &p.format {
+        Some(f) => FormatId::from_name(f).ok_or_else(|| {
+            let f = f.to_ascii_lowercase();
+            CommandError::new(
+                "unsupported_format",
+                format!("\"{f}\" is not a supported format in this version; use \"fountain\""),
+            )
+        })?,
+        None => FormatId::for_path(&target).ok_or_else(|| unsupported(&target))?,
+    };
+    // A file whose extension names another format would open as that
+    // format and fail, so the two must agree.
+    if let Some(named) = FormatId::for_path(&target)
+        && named != format
+    {
+        return Err(CommandError::new(
+            "unsupported_format",
+            format!(
+                "{} is a {} path; it cannot be saved as {}",
+                target.display(),
+                named.name(),
+                format.name()
+            ),
+        ));
+    }
+
+    let written = format.get().write(doc, style);
+    let mut losses = crate::session::losses_json(doc, &written.losses);
+    // The file is written as UTF-8, which other programs show wrongly
+    // if they still read it as Windows-1252 (review finding F6).
+    if style.encoding == io::Encoding::Windows1252 {
+        losses.push(json!({
+            "id": null,
+            "code": "reencoded",
+            "class": "lost",
+            "message": "the file was not UTF-8 and was read as Windows-1252; it will be saved as UTF-8",
+        }));
+    }
+    if blocking(&losses) && !p.allow_lossy {
+        return Err(CommandError::new(
+            "lossy_format",
+            format!(
+                "{} cannot hold everything in this document; nothing was saved",
+                format.title()
+            ),
+        )
+        .with_details(json!({ "losses": losses })));
+    }
+    Ok(Rendered {
+        target,
+        format,
+        bytes: written.bytes,
+        losses,
+    })
+}
+
 fn keep_original(target: &Path) -> Result<Option<PathBuf>, CommandError> {
     let bytes = match fs::read(target) {
         Ok(b) => b,
@@ -1768,6 +1896,16 @@ fn refuse_if_changed(
     target: &Path,
     overwrite: bool,
 ) -> Result<(), CommandError> {
+    refuse_if_changed_from(session.disk, target, overwrite)
+}
+
+/// [`refuse_if_changed`] for a save whose session last read or wrote the
+/// bytes `disk` names.
+fn refuse_if_changed_from(
+    disk: Option<Fingerprint>,
+    target: &Path,
+    overwrite: bool,
+) -> Result<(), CommandError> {
     if overwrite {
         return Ok(());
     }
@@ -1776,7 +1914,7 @@ fn refuse_if_changed(
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(CommandError::io(target, &e)),
     };
-    if session.disk == Some(now) {
+    if disk == Some(now) {
         return Ok(());
     }
     let name = target.file_name().map_or_else(
@@ -2035,7 +2173,8 @@ mod tests {
             assert_eq!(e.code, "journal_error", "{e}");
             assert!(e.message.contains("save"), "{e}");
             if off_the_ui_thread {
-                let prepared = d.save_prepare(&DocSave::default()).unwrap();
+                let job = d.save_prepare(&DocSave::default()).unwrap();
+                let prepared = d.save_mark(job.render()).unwrap();
                 let written = io::atomic_write(&prepared.target, &prepared.bytes);
                 d.save_commit(prepared, written).unwrap();
             } else {

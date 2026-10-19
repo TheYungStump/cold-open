@@ -431,13 +431,7 @@ impl Session {
 
     /// Writer losses with element indices turned into block ids.
     pub fn losses_json(&self, losses: &[Loss]) -> Vec<Value> {
-        losses
-            .iter()
-            .map(|l| {
-                let id = l.element.and_then(|i| self.doc.blocks.get(i)).map(|b| b.id);
-                json!({ "id": id, "code": l.code, "class": l.class.name(), "message": l.message })
-            })
-            .collect()
+        losses_json(&self.doc, losses)
     }
 
     /// Lays out the document with its page format, title lines and spacing
@@ -1799,4 +1793,15 @@ fn op_names(op: &Op, c: ChangeId) -> bool {
 /// `block.set_text` that changes no words is not a tracked change).
 fn keep_marks(old: &RichText, new: &RichText) -> RichText {
     track::set_text(old, new, ChangeId(u64::MAX), &|_| false)
+}
+
+/// Losses as commands report them, with the id of the block each is about.
+pub(crate) fn losses_json(doc: &Document, losses: &[Loss]) -> Vec<Value> {
+    losses
+        .iter()
+        .map(|l| {
+            let id = l.element.and_then(|i| doc.blocks.get(i)).map(|b| b.id);
+            json!({ "id": id, "code": l.code, "class": l.class.name(), "message": l.message })
+        })
+        .collect()
 }

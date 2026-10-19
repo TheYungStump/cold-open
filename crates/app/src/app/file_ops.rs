@@ -8,12 +8,12 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use coldopen_core::command::DocSave;
-use coldopen_core::{BlockId, CommandError, Document, PreparedSave};
+use coldopen_core::{BlockId, CommandError, Document, PreparedSave, RenderedSave, SaveJob};
 use coldopen_screenplay::ElementKind;
 use iced::Task;
 use serde_json::{Value, json};
 
-use super::{App, Message};
+use super::{App, Message, Saving};
 use crate::files::{Ask, with_extension};
 
 /// What waits for the writer's answer to "save the changes?".
@@ -583,22 +583,13 @@ impl App {
             overwrite,
             ..DocSave::default()
         };
+        // The UI thread only takes a copy of the document; the worker
+        // writes the file out and checks it (journal.md, "Saving off the UI
+        // thread").
         match self.d.save_prepare(&p) {
-            Ok(prepared) => {
-                let task = write_on_worker(&prepared);
-                self.saving = Some(prepared);
-                task
-            }
-            Err(e) if e.code == "lossy_format" => {
-                self.prompt = Some(self.lossy_prompt(e, None, false, false));
-                Task::none()
-            }
-            Err(e) if e.code == "file_changed" => {
-                self.prompt = Some(Prompt::Changed {
-                    message: e.message,
-                    allow_lossy,
-                });
-                Task::none()
+            Ok(job) => {
+                self.saving = Some(Saving::Rendering { allow_lossy });
+                render_on_worker(job)
             }
             Err(e) => {
                 self.after_save = None;
@@ -609,9 +600,53 @@ impl App {
         }
     }
 
+    /// The worker rendered the file: the journal gets its marker and the
+    /// worker writes the file, or the save ends with the question its
+    /// rendering raised.
+    pub(super) fn rendered(&mut self, r: RenderedSave) -> Task<Message> {
+        let Some(Saving::Rendering { allow_lossy }) = self.saving else {
+            return Task::none();
+        };
+        let e = match self.d.save_mark(r) {
+            Ok(prepared) => {
+                let task = write_on_worker(&prepared);
+                self.saving = Some(Saving::Writing(prepared));
+                return task;
+            }
+            Err(e) => e,
+        };
+        self.saving = None;
+        self.save_again = false;
+        // The writer has moved on (closed, opened another script): what
+        // waited runs, and no question is asked about a script left behind.
+        if let Some(after) = self.waiting.take() {
+            self.after_save = None;
+            if e.code != "save_superseded" {
+                self.banners
+                    .push(format!("The script was not saved: {}", e.message).into());
+            }
+            return self.proceed(after);
+        }
+        match e.code {
+            "lossy_format" => self.prompt = Some(self.lossy_prompt(e, None, false, false)),
+            "file_changed" => {
+                self.prompt = Some(Prompt::Changed {
+                    message: e.message,
+                    allow_lossy,
+                });
+            }
+            _ => {
+                self.after_save = None;
+                self.banners
+                    .push(format!("The script was not saved: {}", e.message).into());
+            }
+        }
+        Task::none()
+    }
+
     /// The worker finished writing the file.
     pub(super) fn saved(&mut self, written: Result<(), String>) -> Task<Message> {
-        let Some(prepared) = self.saving.take() else {
+        let Some(Saving::Writing(prepared)) = self.saving.take() else {
             return Task::none();
         };
         let commit = self
@@ -853,6 +888,33 @@ impl App {
         }
         self.after_change(true)
     }
+}
+
+/// Renders a save on its own thread, so typing never waits on writing the
+/// script out: Fountain's writer, or a project's JSON and deflate, take
+/// tens of milliseconds on a feature script. The outcome comes back as
+/// [`Message::Rendered`].
+fn render_on_worker(job: SaveJob) -> Task<Message> {
+    let ticket = job.ticket();
+    let (tx, rx) = iced::futures::channel::oneshot::channel();
+    let spawned = std::thread::Builder::new()
+        .name("save".into())
+        .spawn(move || {
+            let _ = tx.send(job.render());
+        });
+    let failed = move |why: String| {
+        Message::Rendered(RenderedSave::failed(
+            ticket,
+            CommandError::new("save_failed", why),
+        ))
+    };
+    if let Err(e) = spawned {
+        return Task::done(failed(e.to_string()));
+    }
+    Task::perform(rx, move |r| match r {
+        Ok(r) => Message::Rendered(r),
+        Err(_) => failed("the save stopped before the script was written out".into()),
+    })
 }
 
 /// Writes a prepared save on its own thread, so typing never waits on the

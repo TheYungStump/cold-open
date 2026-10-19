@@ -146,17 +146,23 @@ The two possible crash points are both safe:
 - **Between steps 1 and 2:** the old journal remains. It replays to exactly the saved state, which step 4 of recovery recognizes.
 - **During step 2:** the header may be torn. That means "nothing to recover", which is correct, because the saved file is current.
 
-**Saving off the UI thread** (desktop app, 2026-10-15). Writing and flushing a 120-page script can take tens of milliseconds, so the app saves in three steps, and the writer can keep typing throughout:
+**Saving off the UI thread** (desktop app, 2026-10-15; reworked 2026-10-19). Writing a 120-page script out takes tens of milliseconds: about 20 ms for Fountain's writer, and a project's JSON and deflate. So the app saves in five steps, and the writer can keep typing throughout. The UI thread does only steps 1, 3 and 5, in under 4 ms in all (`docs/spec.md`, budgets):
 
-1. **Prepare**, on the UI thread: write the document in its format (Fountain, or the format it was opened in; 2026-10-16), check for losses, and append a `doc.saved` marker with the fingerprint of the bytes about to be written.
-2. **Write**, on a worker thread: the atomic save below.
-3. **Commit**, back on the UI thread. If the write succeeded and nothing was edited since step 1, the journal is restarted exactly as in step 2 above. If edits arrived in the meantime, the journal is kept as it is: it already holds those edits after the marker, and the document stays unsaved. If the write failed, the error is shown, and the marker is harmless.
+1. **Snapshot**, on the UI thread: take the save token and a copy of the document, with what the save needs to know (its path, format, style, and what this session last read or wrote).
+2. **Render**, on a worker thread: write the copy in its format (Fountain, or the format it was opened in; 2026-10-16), check for losses (without `allow_lossy`, a loss of class `lost` ends the save with `lossy_format`), check that no other program changed the file (`file_changed`), and, for the first save in place of a repaired file, keep a copy of it.
+3. **Mark**, on the UI thread: append a `doc.saved` marker with the fingerprint of the rendered bytes. If step 2 failed, the save ends here instead, and its token is given back.
+4. **Write**, on a worker thread: the atomic save below.
+5. **Commit**, back on the UI thread. If the write succeeded and nothing was edited since step 1, the journal is restarted exactly as in step 2 of "Saving" above. Its header is written here and flushed by the background flusher, as entries are ("Durability"). If edits arrived in the meantime, the journal is kept as it is: it holds them, and the document stays unsaved. If the write failed, the error is shown, and the marker is harmless.
 
-Every crash point is safe. The journal always holds the last saved base plus every later edit, so replay reaches the latest acknowledged state. The file is either the old version or the new one, each named by the header or a marker. "Save as" to a new path is done in one step, as before, because a file dialog has just paused the writer anyway.
+**The marker's place does not matter.** Edits typed during step 2 are journaled before the marker, edits typed later after it. Replay always starts from the header and applies every entry. Markers only name versions of the file the journal knows, so a file that holds one is not taken for another program's change. So every crash point is safe. The journal always holds the last saved base plus every later edit, so replay reaches the latest acknowledged state. The file is either the old version or the new one, each named by the header or a marker.
+
+**A save whose script was closed while it rendered** still goes ahead. The writer who saved, then closed and chose not to save what came after, still gets the save they asked for. The closed session's journal is gone, so there is no marker, and the commit reports `save_superseded`.
+
+"Save as" to a new path is done in one step, as before, because a file dialog has just paused the writer anyway.
 
 **One save at a time** (2026-10-16). If a second save could run while a prepared one is being written, the older write could land last, and the commit of either could mark newer edits as saved. So:
 
-- From prepare to commit, the save holds the session's only save token, numbered among that session's saves. Every other save of that session, `doc.save` (in place or "save as") or another prepare, fails with `save_in_progress` and changes nothing. The error is retryable. The app's own Mod+S during a save waits and saves again after it; an agent's `doc_save` gets the error and tries again.
+- From snapshot to commit, the save holds the session's only save token, numbered among that session's saves. Every other save of that session, `doc.save` (in place or "save as") or another prepare, fails with `save_in_progress` and changes nothing. The error is retryable. The app's own Mod+S during a save waits and saves again after it; an agent's `doc_save` gets the error and tries again.
 - The commit ends the save, whatever the outcome, so a failed write never leaves the token held.
 - A commit applies only to the session it was prepared for, and only for the token it holds. If that session was closed, reopened or reverted meanwhile, the commit changes nothing and reports `save_superseded`: the file was written, with the version saved then. The session open now keeps its own unsaved state.
 

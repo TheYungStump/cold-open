@@ -33,7 +33,9 @@ pub mod view;
 
 pub use author::{Author, Clock};
 pub use command::Command;
-pub use dispatcher::{Dispatcher, Options, PreparedSave, to_line};
+pub use dispatcher::{
+    Dispatcher, Options, PreparedSave, RenderedSave, SaveJob, SaveTicket, to_line,
+};
 pub use document::{Block, BlockId, Document};
 pub use error::CommandError;
 pub use flush::{Durability, FlushStatus};

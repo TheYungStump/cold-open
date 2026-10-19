@@ -323,7 +323,8 @@ fn the_first_save_over_a_repaired_file_keeps_the_original() {
         assert!(r["repaired"]["dropped"].as_u64().unwrap() > 0, "{r}");
         assert!(!r["warnings"].as_array().unwrap().is_empty());
         let saved = if off_the_ui_thread {
-            let prepared = d.save_prepare(&Default::default()).unwrap();
+            let job = d.save_prepare(&Default::default()).unwrap();
+            let prepared = d.save_mark(job.render()).unwrap();
             let written = coldopen_core::io::atomic_write(&prepared.target, &prepared.bytes);
             d.save_commit(prepared, written).unwrap()
         } else {

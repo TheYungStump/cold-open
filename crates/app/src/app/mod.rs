@@ -82,7 +82,10 @@ pub enum Message {
     DismissBanner,
     /// A file dialog's answer: a path, or `None` for Cancel.
     Chosen(Ask, Option<PathBuf>),
-    /// The save worker finished.
+    /// The save worker rendered the file (docs/specs/journal.md, "Saving
+    /// off the UI thread").
+    Rendered(coldopen_core::RenderedSave),
+    /// The save worker finished writing it.
     Saved(Result<(), String>),
     Reply(Reply),
     RecoveryKeep,
@@ -242,6 +245,17 @@ struct PaletteState {
     response: Option<String>,
 }
 
+/// A save in place on its way through the worker (docs/specs/journal.md,
+/// "Saving off the UI thread").
+#[derive(Debug)]
+pub(super) enum Saving {
+    /// The worker is rendering the file; with the save's `allow_lossy`, for
+    /// the question a changed file asks.
+    Rendering { allow_lossy: bool },
+    /// The worker is writing these bytes.
+    Writing(PreparedSave),
+}
+
 /// How long a keystroke took from arrival to the end of the update that
 /// handled it, kept for the performance overlay and budgets.
 #[derive(Debug, Default)]
@@ -281,8 +295,8 @@ pub struct App {
     /// The element flow: the template with the writer's `flow.json`.
     flow: crate::editor::flow::FlowTable,
     dialogs: Dialogs,
-    /// A save in place being written on the worker thread.
-    saving: Option<PreparedSave>,
+    /// A save in place on the worker thread.
+    saving: Option<Saving>,
     /// Save again when the running save finishes.
     save_again: bool,
     /// What to do once the script is saved.
@@ -1058,6 +1072,7 @@ impl App {
                 Task::none()
             }
             Message::Chosen(ask, path) => self.chosen(ask, path),
+            Message::Rendered(r) => self.rendered(r),
             Message::Saved(r) => self.saved(r),
             Message::Reply(r) => self.reply(r),
             Message::RecoveryKeep => self.recovery_keep(),
