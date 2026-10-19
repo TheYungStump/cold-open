@@ -10,7 +10,7 @@ use coldopen_screenplay::{
 use serde_json::{Value, json};
 
 use crate::author::{Author, Clock};
-use crate::changes::{BlockMarks, ChangeBy, ChangeId, Moved, Retyped, mark_inserted};
+use crate::changes::{BlockMarks, ChangeBy, ChangeId, Moved, PrintForm, Retyped, mark_inserted};
 use crate::command::{
     Batch, BatchItem, BlockDelete, BlockInsert, BlockJoin, BlockSetAttrs, BlockSetText,
     BlockSetType, BlockSplit, ChangesSettle, ChangesTrack, Class, Command, SceneMove, TextDelete,
@@ -449,14 +449,33 @@ impl Session {
         &self,
         options: &coldopen_layout::Options,
     ) -> (coldopen_layout::Layout, Vec<usize>) {
-        let LayoutForm { script, sources } = self.format.get().layout_form(&self.doc);
+        self.layout_as(options, PrintForm::Marked)
+    }
+
+    /// The layout of one of the document's print forms (docs/specs/
+    /// changes.md §9). For the accepted form, the map's indices are into
+    /// the accepted document's blocks, not the session's.
+    pub fn layout_as(
+        &self,
+        options: &coldopen_layout::Options,
+        form: PrintForm,
+    ) -> (coldopen_layout::Layout, Vec<usize>) {
+        let accepted;
+        let doc = match form {
+            PrintForm::Accepted if self.doc.has_changes() => {
+                accepted = self.doc.accepted();
+                &accepted
+            }
+            _ => &self.doc,
+        };
+        let LayoutForm { script, sources } = self.format.get().layout_form(&doc.marked());
         let map: Vec<usize> = sources.elements.iter().map(|e| e.source).collect();
         let options = coldopen_layout::Options {
-            overrides: self.doc.overrides(&map),
-            title_lines: crate::view::layout_options(&self.doc).title_lines,
+            overrides: doc.overrides(&map),
+            title_lines: crate::view::layout_options(doc).title_lines,
             ..options.clone()
         };
-        let format = crate::view::page_format(&self.doc);
+        let format = crate::view::page_format(doc);
         let layout = coldopen_layout::layout(&script, &format, &options);
         (layout, map)
     }

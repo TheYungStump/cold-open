@@ -87,6 +87,7 @@ mod tests {
             bold: true,
             italic: true,
             underline: false,
+            ..Look::default()
         };
         assert!(f.has_glyph('A', bold_italic));
     }
@@ -102,6 +103,7 @@ mod tests {
                 bold: i & 1 == 1,
                 italic: i & 2 == 2,
                 underline: false,
+                ..Look::default()
             };
             assert_eq!(Fonts::index(look), i);
             let mut found = std::collections::BTreeSet::new();

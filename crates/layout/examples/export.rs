@@ -15,6 +15,7 @@ fn main() {
         &pdf::PdfOptions {
             watermark: args.get(3).cloned(),
             title: None,
+            ..Default::default()
         },
     )
     .expect("pdf");

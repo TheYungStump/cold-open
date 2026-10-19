@@ -113,6 +113,7 @@ fn options_for(dir: &Path, case: &str) -> CaseOptions {
         o.pdf = Some(PdfOptions {
             watermark: v["watermark"].as_str().map(str::to_string),
             title: v["title"].as_str().map(str::to_string),
+            ..Default::default()
         });
     }
     for (key, out) in [("decides", &mut o.decides), ("records", &mut o.records)] {

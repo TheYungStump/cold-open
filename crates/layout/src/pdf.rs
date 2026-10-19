@@ -40,7 +40,22 @@ pub struct PdfOptions {
     pub watermark: Option<String>,
     /// The document title for the PDF's metadata.
     pub title: Option<String>,
+    /// The author slot of each tracked change a cell names (layout.md §17):
+    /// slot `n` prints in `CHANGE_COLORS[n % 6]`. A change not listed
+    /// takes slot 0.
+    pub change_slots: BTreeMap<u64, u8>,
 }
+
+/// The print colors of tracked changes' authors, as RGB in 0..=255
+/// (layout.md §17).
+pub const CHANGE_COLORS: [(u8, u8, u8); 6] = [
+    (0x00, 0x72, 0xB2),
+    (0xD5, 0x5E, 0x00),
+    (0x00, 0x9E, 0x73),
+    (0xCC, 0x79, 0xA7),
+    (0x3C, 0x3C, 0x99),
+    (0x8F, 0x5A, 0x00),
+];
 
 /// Something the export could not print as written.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -89,13 +104,17 @@ fn f(v: Pt) -> f32 {
     v.0 as f32 / 100.0
 }
 
-/// A run of glyphs in one face, starting at a position.
+/// A run of glyphs in one face and one color, starting at a position.
 struct Run {
     face: usize,
     x: Pt,
     y: Pt,
     glyphs: Vec<u16>,
     underline: Option<(Pt, Pt)>,
+    /// A strikeout over the same cells, for a pending deletion.
+    strike: Option<(Pt, Pt)>,
+    /// The tracked change whose author's color the run prints in.
+    change: Option<u64>,
 }
 
 /// What every page draws, and what the fonts must hold.
@@ -157,10 +176,14 @@ fn collect(all: &[&Page], format: &PageFormat, fonts: &Fonts) -> Collected {
                     }
                 }
                 let ul = cl.look.underline;
+                let st = cl.look.strike;
                 let width = Pt(i32::from(cl.cells) * pitch.0);
-                let continues = cur
-                    .as_ref()
-                    .is_some_and(|r| r.face == face && r.underline.is_some() == ul);
+                let continues = cur.as_ref().is_some_and(|r| {
+                    r.face == face
+                        && r.underline.is_some() == ul
+                        && r.strike.is_some() == st
+                        && r.change == cl.look.change
+                });
                 if !continues {
                     if let Some(r) = cur.take() {
                         runs.push(r);
@@ -171,11 +194,16 @@ fn collect(all: &[&Page], format: &PageFormat, fonts: &Fonts) -> Collected {
                         y,
                         glyphs: Vec::new(),
                         underline: ul.then_some((x, Pt::ZERO)),
+                        strike: st.then_some((x, Pt::ZERO)),
+                        change: cl.look.change,
                     });
                 }
                 if let Some(r) = cur.as_mut() {
                     r.glyphs.extend(glyphs.iter().copied());
                     if let Some((_, w)) = r.underline.as_mut() {
+                        *w = Pt(w.0 + width.0);
+                    }
+                    if let Some((_, w)) = r.strike.as_mut() {
                         *w = Pt(w.0 + width.0);
                     }
                 }
@@ -405,6 +433,16 @@ pub fn write(layout: &Layout, fonts: &Fonts, options: &PdfOptions) -> Result<Pdf
         }
         let spacing = char_spacing(format);
         for r in runs {
+            // An author's color, for a tracked change; black otherwise.
+            let color = r.change.map(|c| {
+                let slot = options.change_slots.get(&c).copied().unwrap_or(0);
+                let (cr, cg, cb) = CHANGE_COLORS[usize::from(slot) % CHANGE_COLORS.len()];
+                [cr, cg, cb].map(|v| f32::from(v) / 255.0)
+            });
+            if let Some([cr, cg, cb]) = color {
+                c.save_state();
+                c.set_fill_rgb(cr, cg, cb);
+            }
             // A run can hold no glyph (a lone soft hyphen) but still be
             // underlined.
             if !r.glyphs.is_empty() {
@@ -435,6 +473,21 @@ pub fn write(layout: &Layout, fonts: &Fonts, options: &PdfOptions) -> Result<Pdf
                 let t = size * thick / upem;
                 c.rect(f(x), top - t, f(w), t);
                 c.fill_nonzero();
+            }
+            if let Some((x, w)) = r.strike {
+                let face = &fonts.faces()[r.face];
+                let upem = f32::from(face.units_per_em());
+                let em = f32::from(face.units_per_em());
+                let (pos, thick) = face.strikeout_metrics().map_or((0.3 * em, 0.05 * em), |m| {
+                    (f32::from(m.position), f32::from(m.thickness))
+                });
+                let t = size * thick / upem;
+                let bottom = f(r.y) + size * pos / upem;
+                c.rect(f(x), bottom, f(w), t);
+                c.fill_nonzero();
+            }
+            if color.is_some() {
+                c.restore_state();
             }
         }
         pdf.stream(content, &z(&c.finish()))

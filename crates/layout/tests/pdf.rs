@@ -23,6 +23,7 @@ fn write(layout: &Layout, watermark: Option<&str>) -> PdfOutput {
     let options = PdfOptions {
         watermark: watermark.map(str::to_string),
         title: None,
+        ..Default::default()
     };
     let out = pdf::write(layout, &fonts, &options).unwrap();
     assert_eq!(pdf::write(layout, &fonts, &options).unwrap(), out);

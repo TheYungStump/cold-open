@@ -42,10 +42,12 @@ impl View {
 
     /// Lays out a document in the form its format gives it.
     pub fn with_format(doc: &Document, rev: u64, format: FormatId) -> View {
+        // Pending tracked changes are shown as they print (docs/specs/
+        // changes.md §9).
         let LayoutForm {
             script: norm,
             sources,
-        } = format.get().layout_form(doc);
+        } = format.get().layout_form(&doc.marked());
         let map: Vec<usize> = sources.elements.iter().map(|e| e.source).collect();
         let options = Options {
             overrides: doc.overrides(&map),
@@ -67,7 +69,7 @@ impl View {
         let LayoutForm {
             script: norm,
             sources,
-        } = self.format.get().layout_form(doc);
+        } = self.format.get().layout_form(&doc.marked());
         self.map = sources.elements.iter().map(|e| e.source).collect();
         self.inc.update_with(&norm, &doc.overrides(&self.map));
         self.norm = norm;

@@ -1189,7 +1189,7 @@ impl Dispatcher {
             no_title_page: !p.title_page,
             ..Default::default()
         };
-        let (layout, map) = session.layout(&options);
+        let (layout, map) = session.layout_as(&options, p.changes);
         let fonts = coldopen_layout::Fonts::new()
             .map_err(|e| CommandError::new("internal_error", format!("bundled fonts: {e}")))?;
         let title = session.doc.title_page.get("title").map(|f| {
@@ -1205,6 +1205,7 @@ impl Dispatcher {
             &coldopen_layout::pdf::PdfOptions {
                 watermark: p.watermark.clone(),
                 title,
+                change_slots: session.doc.change_slots(),
             },
         )
         .map_err(|e| CommandError::new("internal_error", e.to_string()))?;

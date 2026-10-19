@@ -16,8 +16,8 @@ Phase 5 is split in two. **5a** (this phase) brings the `.coldopen` project bund
 | 4 | Semantics: the `tracked` param, `semantics` 2, change grouping, author rules, `changes.list`, `changes.accept`, `changes.reject`, `changes.track`; replay; property tests | done |
 | 5 | The bundle behind `Format`: rawzip and miniz_oxide, deterministic bytes, a tolerant reader, `doc_id`, the journal header's reference to the change data, recovery; fuzz targets | done |
 | 6 | Losses: `tracked_changes` on Fountain and .fdx; F21's `normalized` class | done, with step 4 (the agent tests needed it) |
-| 7 | Layout and PDF: marked and accepted print forms, author colors, `export.pdf` `changes` | next |
-| 8 | MCP tools and resource; the session file's `documents`; agent tests through the real link and `coldopen mcp` | |
+| 7 | Layout and PDF: marked and accepted print forms, author colors, `export.pdf` `changes` | done |
+| 8 | MCP tools and resource; the session file's `doc_ids`; agent tests through the real link and `coldopen mcp` | next (tools added with step 4) |
 | 9 | App: marks on the page, caret over them, keys and palette, the changes panel, the writer's name, the per-script agent switch, "Save as Cold Open project" | |
 | 10 | Gates: crash gate (tracked edits, accept and reject, bundle saves), phase 4 journal fixtures, corpus round trip, reference gate, CI on three OSes, fuzzing, measurements | |
 | 11 | Manual test steps for a Windows CI build; the project owner's test; the final report | |
@@ -68,6 +68,10 @@ Phase 5 is split in two. **5a** (this phase) brings the `.coldopen` project bund
 28. **A join that is no longer possible keeps both blocks** (found by the `changes` fuzz check): a join is checked when it is proposed, but the block before can become a note afterwards. Accepting it, or rejecting a split whose join back is no longer possible, takes the mark off, keeps the blocks, and lists the change in `skipped` (`change_conflict` by `id`). Joins run from the first block to the last, as the accepted form gathers them (the fuzz check found the two disagreeing on a run of joined blocks).
 29. **`Dispatcher::journal_bytes`**, hidden from the docs: the journal is locked while a session is open, and on Windows a locked file cannot be read from outside, so tests read it through the lock.
 30. **The fuzz targets** `bundle_read` and `changes` join the weekly workflow (ten targets). Their checks also run on every build as property tests, with real bundles cut short or with a byte changed.
+31. **A cell's `Look` carries the change's number, not its author's slot.** Layout memoizes measures by element, so authors are mapped to colors where cells are drawn: `PdfOptions::change_slots` for the PDF, the app for the screen. Slots follow the order authors first appear in the change table (`Document::change_slots`).
+32. **The marked print form is a light copy**: only the title page and the blocks, with pending deletions set to print, so typing in a script with pending changes never copies its .fdx store. The blocks keep their order, so the view's indices still point into the document. The accepted form, used only by an accepted PDF, is laid out from the whole accepted document.
+33. **Long runs (2026-10-18)**: the accept and reject property test at 100,000 cases, the `changes` and `bundle_read` checks at 20,000, and the crash property test into a bundle at 5,000 all pass.
+
 
 
 ## Measurements

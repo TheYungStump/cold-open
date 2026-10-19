@@ -810,3 +810,89 @@ proptest! {
         prop_assert_eq!(coldopen_core::fuzzing::bundle_read(&bytes), Ok(()));
     }
 }
+
+// ---- Printing -------------------------------------------------------------
+
+/// Every content stream of a PDF, inflated.
+fn pdf_streams(pdf: &[u8]) -> String {
+    let mut out = String::new();
+    let mut i = 0;
+    while let Some(at) = pdf[i..].windows(7).position(|w| w == b"stream\n") {
+        let start = i + at + 7;
+        let Some(len) = pdf[start..].windows(9).position(|w| w == b"endstream") else {
+            break;
+        };
+        let end = start + len;
+        if let Ok(data) = miniz_oxide::inflate::decompress_to_vec_zlib(&pdf[start..end]) {
+            out.push_str(&String::from_utf8_lossy(&data));
+        }
+        // Past "endstream", whose "stream" is not the start of another.
+        i = end + 9;
+    }
+    out
+}
+
+#[test]
+fn pages_show_changes_marked_and_a_pdf_can_print_them_either_way() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, _) = open(dir.path());
+    let pages = |d: &mut Dispatcher| {
+        ok(d, &writer(), "doc.export", json!({"format": "pages"}))["text"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let clean_pages = pages(&mut d);
+    let clean = dir.path().join("clean.pdf");
+    ok(&mut d, &writer(), "export.pdf", json!({"path": clean}));
+    ok(
+        &mut d,
+        &agent(),
+        "text.replace",
+        json!({"find": "toast", "with": "eggs"}),
+    );
+    // The page view is the marked form: the struck word still prints.
+    let marked_pages = pages(&mut d);
+    assert!(
+        marked_pages.contains("Maya makes toasteggs."),
+        "{marked_pages}"
+    );
+    let marked = dir.path().join("marked.pdf");
+    ok(&mut d, &writer(), "export.pdf", json!({"path": marked}));
+    let accepted = dir.path().join("accepted.pdf");
+    ok(
+        &mut d,
+        &writer(),
+        "export.pdf",
+        json!({"path": accepted, "changes": "accepted"}),
+    );
+    let (m, a) = (fs::read(&marked).unwrap(), fs::read(&accepted).unwrap());
+    assert_ne!(m, a);
+    // The author's color, and the strikeout, are drawn only when marked.
+    let (ms, as_) = (pdf_streams(&m), pdf_streams(&a));
+    assert!(ms.contains(" rg"), "an author color in the marked PDF");
+    assert!(!as_.contains(" rg"), "no color in the accepted PDF");
+    assert!(
+        ms.matches(" re").count() > as_.matches(" re").count(),
+        "the struck word gets a strikeout"
+    );
+    // Accepted prints what accepting every change gives.
+    ok(&mut d, &writer(), "changes.accept", json!({"all": true}));
+    assert!(!pages(&mut d).contains("toast"));
+    let after = dir.path().join("after.pdf");
+    ok(&mut d, &writer(), "export.pdf", json!({"path": after}));
+    assert_eq!(fs::read(&after).unwrap(), a);
+    // With nothing pending, both forms print as before.
+    ok(&mut d, &writer(), "undo", json!({}));
+    ok(&mut d, &writer(), "changes.reject", json!({"all": true}));
+    assert_eq!(pages(&mut d), clean_pages);
+    let again = dir.path().join("again.pdf");
+    ok(
+        &mut d,
+        &writer(),
+        "export.pdf",
+        json!({"path": again, "changes": "accepted"}),
+    );
+    assert_eq!(fs::read(&again).unwrap(), fs::read(&clean).unwrap());
+    d.discard();
+}

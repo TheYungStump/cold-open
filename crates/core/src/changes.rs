@@ -1,6 +1,8 @@
 //! Tracked changes (docs/specs/changes.md): the change table, block marks,
 //! the tracking switches, and the two print forms of a document.
 
+use std::collections::BTreeMap;
+
 use coldopen_screenplay::{Element, ElementKind, Marks, RichText, Run, Settle};
 use serde::{Deserialize, Serialize};
 
@@ -377,13 +379,49 @@ impl Document {
     }
 
     /// The document as its marked print form shows it: blocks as they
-    /// stand, pending deletions printed (docs/specs/changes.md §9).
-    pub fn marked(&self) -> Document {
-        let mut out = self.clone();
-        for b in &mut out.blocks {
-            if b.element.text.has_marks() {
-                b.element.text = b.element.text.shown();
-            }
+    /// stand, pending deletions printed (docs/specs/changes.md §9). Only
+    /// what a layout form reads is kept, the title page and the blocks, so
+    /// a script with pending changes lays out without copying its .fdx
+    /// store at every keystroke; the blocks are the same, in the same
+    /// order, so indices into them stay good for the whole document.
+    pub fn marked(&self) -> std::borrow::Cow<'_, Document> {
+        if !self.has_changes() {
+            return std::borrow::Cow::Borrowed(self);
+        }
+        let blocks = self
+            .blocks
+            .iter()
+            .map(|b| {
+                let mut b = b.clone();
+                if b.element.text.has_marks() {
+                    b.element.text = b.element.text.shown();
+                }
+                b
+            })
+            .collect();
+        std::borrow::Cow::Owned(Document {
+            title_page: self.title_page.clone(),
+            blocks,
+            next_id: self.next_id,
+            ..Document::default()
+        })
+    }
+
+    /// Each change's author slot, for its color (docs/specs/layout.md
+    /// §17): authors are numbered in the order they first appear in the
+    /// change table.
+    pub fn change_slots(&self) -> BTreeMap<u64, u8> {
+        let mut authors: Vec<&ChangeBy> = Vec::new();
+        let mut out = BTreeMap::new();
+        for c in self.changes.entries() {
+            let slot = match authors.iter().position(|a| **a == c.by) {
+                Some(i) => i,
+                None => {
+                    authors.push(&c.by);
+                    authors.len() - 1
+                }
+            };
+            out.insert(c.id.0, u8::try_from(slot % 256).unwrap_or(0));
         }
         out
     }
