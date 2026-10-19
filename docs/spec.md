@@ -26,7 +26,7 @@ Beyond price, the loudest complaints about Final Draft are crashes, broken files
 | Pain point | What users report | Our answer |
 | --- | --- | --- |
 | Crashes and freezes | A popular r/Screenwriting thread describes constant crashes on Windows despite reinstalls ([thread](https://cal1.lr.ggtyler.dev/r/Screenwriting/comments/1jcpclv/i_hate_final_draft)); reviewers report freezes when leaving revision mode or using dual dialogue ([GetApp](https://www.getapp.com.au/software/2050325/final-draft)) | Command journal and atomic saves, so a crash loses at most the last second; fuzzed parsers |
-| Slow saves and loads | One reviewer measured auto-saves of up to 20 seconds, 30-second loads and crashes as often as daily ([AWN](https://awn.com/blog/whats-best-screenwriting-software)) | Autosave under 10 ms off the UI thread; a 120-page script opens in under 200 ms |
+| Slow saves and loads | One reviewer measured auto-saves of up to 20 seconds, 30-second loads and crashes as often as daily ([AWN](https://awn.com/blog/whats-best-screenwriting-software)) | Every edit journaled in under 1 ms; a save never holds typing for more than 4 ms, and finishes in the background in under 50 ms; a 120-page script opens in under 200 ms |
 | Corrupted files | The official fix is to export plain text and re-import, losing formatting ([Final Draft KB](https://kb.finaldraft.com/hc/en-us/articles/15575131452692)); users suspect shared .fdx files trigger crashes | Tolerant .fdx import with a repair report, plus a `repair` CLI command |
 | Weak track changes | Added text is colored but deleted text is not tracked ([Writing Codidact](https://writing.codidact.com/posts/5771)) | Full track changes with deletions, authors and accept/reject; scene-aware script diff |
 | Shortcuts changed between versions | An upgrade broke a reviewer's shortcut keys ([AWN](https://awn.com/blog/whats-best-screenwriting-software)) | User-editable shortcuts that carry forward across upgrades |
@@ -115,7 +115,7 @@ The promise is simple: a crash or a bad file never costs a writer more than the 
 
 1. **Command journal.** Every edit is a command, appended to a journal file as it happens. After a crash, the app replays the journal on top of the last save, so nothing typed before the crash is lost.
 2. **Atomic saves.** Saving writes a temporary file in the same folder, flushes it to disk, then swaps it in with a single rename. A crash mid-save leaves the previous version intact, never a half-written file.
-3. **Fast, invisible autosave.** Autosave runs off the UI thread and finishes in under 10 ms, so it never interrupts typing.
+3. **Fast, invisible saving.** Every edit is journaled as it is made, in under 1 ms: that is the autosave, and it is what makes a crash cost nothing. A save of the file takes a snapshot of the script on the UI thread, in under 4 ms on a 120-page script, and writes it out on a background thread in under 50 ms, so it never interrupts typing. (2026-10-19: this replaces "autosave in under 10 ms". The journal already did that, in about 0.01 ms per edit. But a whole save of a 120-page script took 20 to 35 ms, much of it on the UI thread, so the one number described neither. The three budgets say what each part must do.)
 4. **Version history.** Timestamped snapshots of the script, browsable and restorable from the app, with automatic pruning of old ones.
 5. **Tolerant .fdx import.** The importer recovers what it can from malformed XML, keeps any elements it does not understand so they survive a round trip, and shows a short report of what it fixed. The same logic runs as `coldopen repair broken.fdx`, useful even for people who stay on Final Draft.
 6. **Track changes.** Records insertions and deletions with author and time; deletions show as strikethrough. Changes can be accepted or rejected one at a time, by scene or all at once. This is separate from production revision colors, which mark what changed between distributed drafts.
@@ -213,7 +213,9 @@ These are release targets, checked in CI on all three operating systems; missing
 | Open a 120-page script | Under 200 ms |
 | Keystroke to screen | Under 16 ms (one frame at 60 Hz) |
 | Full repagination, 120 pages | Under 50 ms; typical edits repaginate incrementally |
-| Autosave and journal write | Under 10 ms, off the UI thread |
+| Journal write per edit (the autosave) | Under 1 ms |
+| A save's time on the UI thread, 120-page script | Under 4 ms |
+| A whole save in the background, 120-page script | Under 50 ms |
 | Memory with a feature script open | Under 150 MB |
 | Page breaks across OSes | Identical |
 

@@ -81,6 +81,17 @@ Phase 5 is split in two. **5a** (this phase) brings the `.coldopen` project bund
 41. **Known limit, proposed as a follow-up.** At 1280 pixels wide, with both the navigator and the changes panel open, a page at 100% is wider than the space between them. Its right edge is cut off, because the page area doesn't scroll sideways. Zooming out or hiding the navigator avoids it. The fix is horizontal scrolling or a fit-width zoom, and it touches the page view's layout, which is outside this phase.
 42. **The phase 4 fixture journals have a neutral `host` and `path`.** A phase 4 header records the computer's name and the script's full path. Here those held the development machine's name and a path under the user's home folder, which a public repo shouldn't carry. Both values were replaced in the fixtures; every entry is exactly as the old build wrote it. On any other computer such a journal counts as one from somewhere else, so the test opens it with `recover: "apply"`. To test the upgrade on the same computer, the test stamps the header with this computer's identity, taken from a real journal.
 43. **Found while testing, not changed (from phase 4):** after `recover: "apply"` on a journal from somewhere else, the journal goes on under the old header. If the app then crashes again on this computer, reopening asks the same question once more. No work is lost, since Recover still applies everything, but the question is wrong the second time. A fix would restart the journal under this computer's header once the writer chooses Recover. That changes recovery, so it is proposed as a follow-up rather than done in this phase's gate step.
+44. **Project saves deflate at level 2, and the readable copy uses the Fountain writer's quick path** (2026-10-19, at the project owner's request). Level 2 deflates about four times as fast as level 6, for a file 14% larger. `script.fountain` is never read back, so it skips the writer's read-back check; a test shows its bytes are a Fountain save's on every fixture. Big Fish's project save went from 26–34 ms to 15–17 ms.
+45. **A save is rendered on the save worker** (2026-10-19, at the project owner's request). The UI thread takes a snapshot (a copy of the document, about 0.5 ms on Big Fish). The worker writes the file out, checks for losses and for another program's changes, and keeps a damaged original. The UI thread appends the marker, the worker writes the file, and the UI thread commits (`journal.md`, "Saving off the UI thread").
+   - **Why the marker can come later.** Edits typed while the worker renders are journaled before the marker. That is safe because replay always starts from the header, and markers only name file versions; a new test crashes after such a save and gets every edit back.
+   - **A save rendered after its script was closed is still written.** The router test caught this. It saves, quits and doesn't save the rest, and the file must still hold the save. Before, the bytes were ready before the close; now they come after it, so the marker step lets them through without a marker.
+   - **A worker that dies** ends the save with `save_failed` through `RenderedSave::failed`, so the save token is never stuck.
+46. **The save budgets in `docs/spec.md`** (2026-10-19, at the project owner's request). "Autosave under 10 ms" is replaced by three budgets:
+   - the journal write per edit, under 1 ms (measured at about 0.01 ms; it is the autosave);
+   - a save's time on the UI thread for a 120-page script, under 4 ms;
+   - the whole save in the background, under 50 ms.
+   The CI budgets job measures all three on every OS, for the synthetic 119-page script saved as Fountain, as .fdx and as a project with tracked changes. Linux asserts them, as it does the other headless budgets.
+47. **The journal header's restart stays on the UI thread, and keeps its fsync.** In the app's mode the fsync was already done by the background flusher, as for every entry. So on the UI thread the restart costs only putting the document into the header as JSON and handing about 500 KB to the operating system: about 0.5–0.8 ms of the 1.3–1.5 ms a Big Fish save takes there. **Proposal:** it could move to the worker as well, which would save about 0.5 ms. The worker would make the header's JSON from the snapshot, and the commit would write those bytes only if nothing was edited since. The budget doesn't need it, so it is left as it is.
 
 ## Measurements (2026-10-18)
 
@@ -98,6 +109,24 @@ Release build on the development machine (Windows 11), median of 11 runs, with `
 - **The bundle is about a third the size of the .fdx file**, because it is deflated. It still keeps the .fdx file's passthrough store.
 - **Saving a bundle takes 25 to 35 ms**, against 6 ms for .fdx. The time goes to deflating about 600 KB of JSON and writing the readable `script.fountain`. Saves run on the save worker, so typing never waits on them.
 - **The journal header grows by the marks only.** With 141 pending changes it gains 22 KB (491 KB to 512 KB), all of it marks in the document. The change table stays out of the header, named by fingerprint (decision 7). Saved as .fdx, where the header copies the table, the same document's header is 521 KB (520,688 bytes), so the reference saves 8 KB here. The saving grows with the table.
+
+## Saves (2026-10-19)
+
+After decisions 44–46, release build on the development machine (Windows 11), 21 saves each in the app's durability mode. The figures come from `cargo run --release -p coldopen-app --example budgets -- --saves-only [--script FILE]`. "UI thread" is the snapshot, the marker and the commit. "Whole save" adds the worker's rendering and write. Each script is saved as Fountain, as .fdx written by Cold Open, and as a project with tracked changes on every fourth scene.
+
+| Script, saved as | UI thread, median (p95) | Whole save, median (p95) |
+| --- | --- | --- |
+| Synthetic 119 pages, Fountain | 1.19 ms (1.35) | 20.3 ms (21.4) |
+| Synthetic 119 pages, .fdx | 1.13 ms (1.22) | 8.2 ms (10.0) |
+| Synthetic 119 pages, project | 1.10 ms (1.41) | 11.4 ms (11.8) |
+| Big Fish, Fountain | 1.50 ms (1.84) | 24.5 ms (26.0) |
+| Big Fish, .fdx | 1.31 ms (1.50) | 7.1 ms (10.5) |
+| Big Fish, project | 1.40 ms (1.65) | 15.4 ms (16.0) |
+
+- **Budgets** (`docs/spec.md`): under 4 ms on the UI thread, under 50 ms for the whole save. All six pass with room to spare.
+- **Before:** a Big Fish save held the UI thread for 20–35 ms, the whole render included.
+- **Projects with `bundle_times`** (one-step `doc.save`, level 2): Big Fish with 141 pending changes saves in 16.6 ms (26.8 ms at level 6), at 181 KB. The Fountain-born Big Fish saves in 14.5 ms (34.2 ms), at 152 KB. Opening and the journal header are as in the table above.
+- **Crash gate:** five runs in a row, all eight scenarios pass. Kills now also land between the snapshot, the rendering, the marker and the write.
 
 ## Gates (step 10, 2026-10-18)
 

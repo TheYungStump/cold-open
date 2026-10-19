@@ -95,6 +95,10 @@ fn main() {
         doc.blocks.len(),
         doc.pending().len()
     );
+    // What stays on the UI thread when the worker builds the file: a copy
+    // of the document.
+    let (t_clone, _) = time(runs, || doc.clone().blocks.len());
+    println!("a snapshot of the document (clone) {t_clone:.2} ms");
 
     let (t_doc, doc_json) = time(runs, || serde_json::to_vec(&doc).unwrap());
     let (t_changes, changes_json) =
