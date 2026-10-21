@@ -79,7 +79,13 @@ pub enum Message {
     PaletteRun(usize),
     ParamsInput(String),
     ParamsRun,
+    /// Closes the notice the bar shows; the next one takes its place.
     DismissBanner,
+    /// Closes one notice of the full list, by its place in `banners`.
+    DismissBannerAt(usize),
+    DismissAllBanners,
+    /// Opens or closes the full list of notices.
+    BannersList(bool),
     /// A file dialog's answer: a path, or `None` for Cancel.
     Chosen(Ask, Option<PathBuf>),
     /// The save worker rendered the file (docs/specs/journal.md, "Saving
@@ -294,6 +300,8 @@ pub struct App {
     caret_on: bool,
     last_input: Instant,
     pub banners: Vec<Banner>,
+    /// The full list of notices is open (editor.md §13).
+    pub banners_open: bool,
     viewport: Option<scrollable::Viewport>,
     fonts: Box<dyn coldopen_layout::Coverage>,
     keymap: Keymap,
@@ -423,6 +431,7 @@ impl App {
             caret_on: true,
             last_input: Instant::now(),
             banners,
+            banners_open: false,
             viewport: None,
             fonts: coverage(),
             keymap,
@@ -1087,7 +1096,24 @@ impl App {
             }
             Message::ParamsRun => self.params_run(),
             Message::DismissBanner => {
+                self.banners.pop();
+                self.banners_open &= self.banners.len() > 1;
+                Task::none()
+            }
+            Message::DismissBannerAt(i) => {
+                if i < self.banners.len() {
+                    self.banners.remove(i);
+                }
+                self.banners_open &= self.banners.len() > 1;
+                Task::none()
+            }
+            Message::DismissAllBanners => {
                 self.banners.clear();
+                self.banners_open = false;
+                Task::none()
+            }
+            Message::BannersList(open) => {
+                self.banners_open = open && self.banners.len() > 1;
                 Task::none()
             }
             Message::Chosen(ask, path) => self.chosen(ask, path),
@@ -1376,10 +1402,13 @@ impl App {
         self.agent_marks.remove(&self.editor.caret.block);
     }
 
-    /// Clears the banners, then (once they are gone) the leftover-work
-    /// offer: Esc and the palette reach both.
+    /// Closes the full list of notices, then clears the notices, then
+    /// (once they are gone) the leftover-work offer: Esc and the palette
+    /// reach all three.
     fn dismiss_messages(&mut self) {
-        if self.banners.is_empty() {
+        if self.banners_open {
+            self.banners_open = false;
+        } else if self.banners.is_empty() {
             self.leftover.clear();
         } else {
             self.banners.clear();
