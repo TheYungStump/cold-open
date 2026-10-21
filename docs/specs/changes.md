@@ -43,7 +43,7 @@ A text run (`docs/specs/commands.md`, "Blocks in JSON") can carry two marks:
 - `text.find` and `text.replace`;
 - word counts, autocomplete and scene headings in `scene.list`.
 
-An agent therefore never meets struck text unless it reads `runs`. **Resolution:** text inserted at an offset where a pending deletion sits goes before the deletion, as it goes before a note there, since the deleted text is not part of the current text.
+An agent therefore never meets struck text unless it reads `runs`. **Resolution:** text inserted at an offset where a pending deletion sits goes before the deletion, as it goes before a note there, since the deleted text is not part of the current text. `text.insert` and `block.split` take `after_deleted` (2026-10-21) to put the text, or the split, after it instead, for an editor whose caret stands after the struck text (`docs/specs/editor.md` §4).
 
 ### 2.2 On blocks
 

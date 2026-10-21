@@ -8,6 +8,7 @@
 use std::path::{Path, PathBuf};
 
 use coldopen_app::app::{Focus, Prompt};
+use coldopen_app::editor::Caret;
 use coldopen_app::files::{Ask, Dialogs, Dirs};
 use coldopen_app::headless::{Headless, command_modifier};
 use coldopen_app::theme::{Choice, Palette};
@@ -129,43 +130,135 @@ fn tracked_typing_shows_in_the_authors_color_in_each_theme() {
     }
 }
 
+/// Strikes "on " out of "Rain on the roof." with tracking on, leaving the
+/// caret before the struck text at offset 5.
+fn strike_on(h: &mut Headless) {
+    h.doc_start();
+    press(h, Named::ArrowDown, 1);
+    press(h, Named::ArrowRight, 5);
+    for _ in 0..3 {
+        h.named(Named::ArrowRight, Modifiers::SHIFT);
+    }
+    press(h, Named::Backspace, 1);
+    assert_eq!(texts(h)[1], "Rain the roof.");
+    assert_eq!(shown(h, 1), "Rain on the roof.", "the deletion still shows");
+    assert_eq!(h.app.editor.caret, Caret::at(h.app.editor.caret.block, 5));
+}
+
+fn shown(h: &Headless, i: usize) -> String {
+    h.app.d.session().unwrap().doc.blocks[i]
+        .element
+        .text
+        .shown()
+        .plain_text()
+}
+
+fn caret_x(h: &mut Headless) -> i32 {
+    h.app.editor.caret_spot(&mut h.app.d).unwrap().x.0
+}
+
+/// One Right from before struck text lands just after it, before the next
+/// character of the current text, and one Left comes back the same way
+/// (editor.md §4, 2026-10-21).
 #[test]
 fn the_caret_steps_over_struck_text() {
     let home = tempfile::tempdir().unwrap();
     let (mut h, _) = tracking(home.path());
-    // Strike "on " out of "Rain on the roof.".
-    h.doc_start();
-    press(&mut h, Named::ArrowDown, 1);
-    press(&mut h, Named::ArrowRight, 5);
-    for _ in 0..3 {
-        h.named(Named::ArrowRight, Modifiers::SHIFT);
-    }
-    press(&mut h, Named::Backspace, 1);
-    assert_eq!(texts(&h)[1], "Rain the roof.");
-    let shown = h.app.d.session().unwrap().doc.blocks[1]
-        .element
-        .text
-        .shown()
-        .plain_text();
-    assert_eq!(shown, "Rain on the roof.", "the deletion still shows");
-    assert_eq!(h.app.editor.caret.offset, 5);
-    let x = |h: &mut Headless| h.app.editor.caret_spot(&mut h.app.d).unwrap().x.0;
-    let at5 = x(&mut h);
+    strike_on(&mut h);
+    let at5 = caret_x(&mut h);
     press(&mut h, Named::ArrowLeft, 1);
-    let at4 = x(&mut h);
-    press(&mut h, Named::ArrowRight, 2);
-    assert_eq!(
-        h.app.editor.caret.offset, 6,
-        "one step past the struck text"
-    );
-    let at6 = x(&mut h);
+    let at4 = caret_x(&mut h);
     let cell = at5 - at4;
     assert!(cell > 0);
+    press(&mut h, Named::ArrowRight, 1);
+    assert_eq!(caret_x(&mut h), at5);
+
+    // Right: past the three struck cells, then over the "t".
+    let steps = [(5, true, 3), (6, false, 4), (7, false, 5)];
+    for (offset, past, cells) in steps {
+        press(&mut h, Named::ArrowRight, 1);
+        let c = h.app.editor.caret;
+        assert_eq!((c.offset, c.past), (offset, past));
+        assert_eq!(caret_x(&mut h), at5 + cells * cell, "at {c:?}");
+    }
+    // Left, back the same way: after the struck text, then before it.
+    for (offset, past, cells) in [(6, false, 4), (5, true, 3), (5, false, 0), (4, false, -1)] {
+        press(&mut h, Named::ArrowLeft, 1);
+        let c = h.app.editor.caret;
+        assert_eq!((c.offset, c.past), (offset, past));
+        assert_eq!(caret_x(&mut h), at5 + cells * cell, "at {c:?}");
+    }
+    h.app.d.discard();
+}
+
+#[test]
+fn shift_selection_steps_over_struck_text_one_side_at_a_time() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut h, _) = tracking(home.path());
+    strike_on(&mut h);
+    let doc = |h: &Headless| h.app.d.session().unwrap().doc.clone();
+    let sides = |h: &Headless| {
+        let (a, b) = h.app.editor.selection(&doc(h));
+        ((a.offset, a.past), (b.offset, b.past))
+    };
+    h.named(Named::ArrowRight, Modifiers::SHIFT);
+    assert_eq!(sides(&h), ((5, false), (5, true)), "the struck text alone");
+    h.named(Named::ArrowRight, Modifiers::SHIFT);
+    assert_eq!(sides(&h), ((5, false), (6, false)), "and the t");
+    h.named(Named::ArrowLeft, Modifiers::SHIFT);
+    assert_eq!(sides(&h), ((5, false), (5, true)));
+    // Deleting a selection of struck text alone deletes nothing.
+    let banners = h.app.banners.len();
+    press(&mut h, Named::Delete, 1);
+    assert_eq!(texts(&h)[1], "Rain the roof.");
+    assert_eq!(shown(&h, 1), "Rain on the roof.");
+    assert_eq!(h.app.banners.len(), banners, "{:?}", h.app.banners);
+    assert!(!h.app.editor.has_selection());
+    // From after the struck text, Shift+Left selects it back to front.
+    press(&mut h, Named::ArrowRight, 1);
+    assert!(h.app.editor.caret.past);
+    h.named(Named::ArrowLeft, Modifiers::SHIFT);
+    assert_eq!(sides(&h), ((5, false), (5, true)));
+    h.named(Named::ArrowLeft, Modifiers::SHIFT);
+    assert_eq!(sides(&h), ((4, false), (5, true)));
+    h.app.d.discard();
+}
+
+/// Typing and Enter go where the caret is drawn: before the struck text,
+/// or after it.
+#[test]
+fn typing_and_enter_go_on_the_side_of_the_struck_text_the_caret_is() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut h, _) = tracking(home.path());
+    strike_on(&mut h);
+    h.type_text("x");
+    assert_eq!(shown(&h, 1), "Rain xon the roof.");
+    press(&mut h, Named::Backspace, 1);
     assert_eq!(
-        at6 - at5,
-        4 * cell,
-        "the caret jumps the three struck cells"
+        shown(&h, 1),
+        "Rain on the roof.",
+        "the writer's own insertion goes"
     );
+    press(&mut h, Named::ArrowRight, 1);
+    assert!(h.app.editor.caret.past);
+    h.type_text("y");
+    assert_eq!(shown(&h, 1), "Rain on ythe roof.");
+    assert_eq!(texts(&h)[1], "Rain ythe roof.");
+    let c = h.app.editor.caret;
+    assert_eq!((c.offset, c.past), (6, false));
+    // Backspace takes the writer's own "y" out, and the caret stays after
+    // the struck text.
+    let x = caret_x(&mut h);
+    press(&mut h, Named::Backspace, 1);
+    assert_eq!(shown(&h, 1), "Rain on the roof.");
+    let c = h.app.editor.caret;
+    assert_eq!((c.offset, c.past), (5, true));
+    assert!(caret_x(&mut h) < x);
+
+    // Enter after the struck text keeps it on the first line.
+    press(&mut h, Named::Enter, 1);
+    assert_eq!(shown(&h, 1), "Rain on ");
+    assert_eq!(shown(&h, 2), "the roof.");
     h.app.d.discard();
 }
 
@@ -360,6 +453,51 @@ fn the_name_question_keeps_a_name_on_enter_and_goes_on_without_on_esc() {
     h.app.d.discard();
 }
 
+/// The changes panel says who is editing, and changes the name with N or
+/// its button; a cleared name goes back to "Writer" (editor.md §17.3,
+/// 2026-10-21).
+#[test]
+fn the_panel_shows_and_changes_the_writers_name() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut h, _) = tracking(home.path());
+    action(&mut h, "view.changes");
+    assert_eq!(h.app.editing_as(), "Dana");
+    // N, with the panel holding the keyboard, asks with the name selected.
+    h.app.focus = Focus::Changes;
+    h.key(
+        iced::keyboard::Key::Character("n".into()),
+        Modifiers::empty(),
+        Some("n"),
+    );
+    match &h.app.prompt {
+        Some(Prompt::AuthorName { name, .. }) => assert_eq!(name, "Dana"),
+        other => panic!("{other:?}"),
+    }
+    h.type_text("Robin");
+    press(&mut h, Named::Enter, 1);
+    assert_eq!(h.app.editing_as(), "Robin");
+    assert_eq!(h.app.settings.author_name.as_deref(), Some("Robin"));
+    // The button: cleared and saved, the name goes back to "Writer".
+    action(&mut h, "app.author_name");
+    press(&mut h, Named::Backspace, 1);
+    match &h.app.prompt {
+        Some(Prompt::AuthorName { name, .. }) => assert_eq!(name, ""),
+        other => panic!("{other:?}"),
+    }
+    press(&mut h, Named::Enter, 1);
+    assert!(h.app.prompt.is_none());
+    assert_eq!(h.app.settings.author_name, None);
+    assert_eq!(h.app.editing_as(), "Writer");
+    let saved =
+        std::fs::read_to_string(Dirs::under(home.path()).config.join("settings.json")).unwrap();
+    assert!(!saved.contains("Robin"), "{saved}");
+    h.app.focus = Focus::Page;
+    end_of(&mut h, 1);
+    h.type_text("!");
+    assert_eq!(list(&mut h)[0]["by"], json!({"kind": "writer"}));
+    h.app.d.discard();
+}
+
 #[test]
 fn the_lossy_question_saves_as_a_project_and_the_bundle_reopens_with_its_changes() {
     let home = tempfile::tempdir().unwrap();
@@ -383,7 +521,7 @@ fn the_lossy_question_saves_as_a_project_and_the_bundle_reopens_with_its_changes
         }) => {
             assert_eq!(*tracked, 1);
             assert!(
-                message.contains("can't hold tracked changes (1)"),
+                message.starts_with("Saving accepts the pending change in the script."),
                 "{message}"
             );
         }
@@ -427,7 +565,7 @@ fn the_lossy_question_saves_as_a_project_and_the_bundle_reopens_with_its_changes
 }
 
 #[test]
-fn save_anyway_writes_the_current_text_and_p_and_s_answer_the_question() {
+fn save_anyway_accepts_the_changes_and_keeps_the_marked_version() {
     let home = tempfile::tempdir().unwrap();
     let (mut h, script) = tracking(home.path());
     end_of(&mut h, 1);
@@ -442,9 +580,16 @@ fn save_anyway_writes_the_current_text_and_p_and_s_answer_the_question() {
     );
     assert!(h.app.prompt.is_none());
     assert!(h.app.d.session().unwrap().dirty);
-    // S saves anyway: the file holds the script with the change accepted,
-    // and the change stays pending here.
+    // S saves anyway: the question says the save accepts the change.
     h.shortcut('s', false);
+    match &h.app.prompt {
+        Some(Prompt::Lossy { message, .. }) => assert!(
+            message.contains("Saving accepts the pending change")
+                && message.contains("Recovered versions"),
+            "{message}"
+        ),
+        other => panic!("{other:?}"),
+    }
     h.key(
         iced::keyboard::Key::Character("s".into()),
         Modifiers::empty(),
@@ -458,9 +603,32 @@ fn save_anyway_writes_the_current_text_and_p_and_s_answer_the_question() {
         std::thread::sleep(std::time::Duration::from_millis(5));
         h.run(vec![]);
     }
+    // The file holds the script with the change accepted, and so does the
+    // script on screen (2026-10-21): nothing is pending, nothing unsaved.
     let text = std::fs::read_to_string(&script).unwrap();
     assert!(text.contains("Rain on the roof. Thunder."), "{text}");
+    assert_eq!(pending(&h), 0);
+    assert!(!h.app.d.session().unwrap().dirty);
+    let notice = h.app.banners.last().unwrap();
+    assert!(notice.recovered, "{notice:?}");
+    assert_eq!(
+        notice.text,
+        "Saving accepted the pending change. The version with it marked is in Recovered versions."
+    );
+    // The version with the mark is a Recovered version that still holds it.
+    let copies = coldopen_core::recovered::of_script(&script);
+    assert_eq!(copies.len(), 1, "{copies:?}");
+    assert_eq!(copies[0].kind, coldopen_core::recovered::Kind::Marked);
+    let (doc, _) = coldopen_core::recovered::read(&copies[0]).unwrap();
+    assert_eq!(doc.pending().len(), 1);
+    assert_eq!(
+        doc.blocks[1].element.text.plain_text(),
+        "Rain on the roof. Thunder."
+    );
+    // Accepting was one step: Undo brings the mark back, unsaved.
+    h.shortcut('z', false);
     assert_eq!(pending(&h), 1);
+    assert!(h.app.d.session().unwrap().dirty);
     h.app.d.discard();
 }
 

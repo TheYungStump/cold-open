@@ -1534,10 +1534,13 @@ impl Session {
             }
             None => Marks::NONE,
         };
-        e.text = e
-            .text
-            .insert_marked(p.at, &p.text, p.style.map(Into::into), marks)
-            .map_err(range_error)?;
+        let style = p.style.map(Into::into);
+        e.text = if p.after_deleted {
+            e.text.insert_after_deleted(p.at, &p.text, style, marks)
+        } else {
+            e.text.insert_marked(p.at, &p.text, style, marks)
+        }
+        .map_err(range_error)?;
         Self::check(&e)?;
         Ok((self.replace_op(index, e), json!({})))
     }
@@ -1600,7 +1603,12 @@ impl Session {
         let index = self.index(p.id)?;
         self.refuse_pending(index)?;
         let original = &self.doc.blocks[index].element;
-        let (head, rest) = original.text.split_at(p.at).map_err(range_error)?;
+        let (head, rest) = if p.after_deleted {
+            original.text.split_after_deleted(p.at)
+        } else {
+            original.text.split_at(p.at)
+        }
+        .map_err(range_error)?;
         let mut first = original.clone();
         first.text = head;
         let second = coldopen_screenplay::Element::new(p.kind.unwrap_or(original.kind), rest);

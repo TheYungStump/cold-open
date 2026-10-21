@@ -133,6 +133,21 @@ fn insert_index(cells: &[Cell], at: usize) -> Option<usize> {
     None
 }
 
+/// Where text goes at offset `at` when it goes after the pending deletions
+/// there, and any hidden runs among them, rather than before them
+/// (docs/specs/changes.md §2.1).
+fn index_past_deleted(cells: &[Cell], at: usize) -> Option<usize> {
+    let mut i = insert_index(cells, at)?;
+    let mut j = i;
+    while let Some(Cell::H(r)) = cells.get(j) {
+        j += 1;
+        if r.is_deleted() {
+            i = j;
+        }
+    }
+    Some(i)
+}
+
 impl RichText {
     /// The printed text's length in characters.
     pub fn char_len(&self) -> usize {
@@ -209,10 +224,39 @@ impl RichText {
         style: Option<Style>,
         marks: Marks,
     ) -> Result<RichText, RangeError> {
+        self.insert_beside(at, false, text, style, marks)
+    }
+
+    /// [`RichText::insert_marked`], with the text going after any pending
+    /// deletion at `at` rather than before it, where a caret drawn after
+    /// the struck text types (docs/specs/changes.md §2.1).
+    pub fn insert_after_deleted(
+        &self,
+        at: usize,
+        text: &str,
+        style: Option<Style>,
+        marks: Marks,
+    ) -> Result<RichText, RangeError> {
+        self.insert_beside(at, true, text, style, marks)
+    }
+
+    fn insert_beside(
+        &self,
+        at: usize,
+        past: bool,
+        text: &str,
+        style: Option<Style>,
+        marks: Marks,
+    ) -> Result<RichText, RangeError> {
         self.check(at, at)?;
         let style = style.unwrap_or_else(|| self.style_at(at));
         let mut cs = cells(self);
-        let i = insert_index(&cs, at).unwrap_or(cs.len());
+        let i = if past {
+            index_past_deleted(&cs, at)
+        } else {
+            insert_index(&cs, at)
+        }
+        .unwrap_or(cs.len());
         let new: Vec<Cell> = text.chars().map(|c| Cell::C(c, style, marks)).collect();
         cs.splice(i..i, new);
         Ok(rebuild(cs))
@@ -302,10 +346,23 @@ impl RichText {
     /// Splits at offset `at`. Hidden runs at the split point go with the
     /// second part, except at the very end, where they stay with the first.
     pub fn split_at(&self, at: usize) -> Result<(RichText, RichText), RangeError> {
+        self.split_beside(at, false)
+    }
+
+    /// [`RichText::split_at`], with any pending deletion at `at` kept in the
+    /// first part rather than starting the second (docs/specs/changes.md
+    /// §2.1).
+    pub fn split_after_deleted(&self, at: usize) -> Result<(RichText, RichText), RangeError> {
+        self.split_beside(at, true)
+    }
+
+    fn split_beside(&self, at: usize, past: bool) -> Result<(RichText, RichText), RangeError> {
         let len = self.check(at, at)?;
         let mut cs = cells(self);
         let i = if at == len {
             cs.len()
+        } else if past {
+            index_past_deleted(&cs, at).unwrap_or(cs.len())
         } else {
             insert_index(&cs, at).unwrap_or(cs.len())
         };
@@ -499,6 +556,31 @@ impl RichText {
         v
     }
 
+    /// The bytes, in the text as a print form shows it, of the pending
+    /// deletions sitting at offset `at` of the current text: the struck
+    /// text a caret there can stand before or after (docs/specs/editor.md
+    /// §4). 0 when there is none.
+    pub fn deleted_at(&self, at: usize) -> usize {
+        let mut v = 0;
+        let mut bytes = 0;
+        for r in self.runs() {
+            let Run::Text { text, marks, .. } = r else {
+                continue;
+            };
+            if marks.del.is_some() {
+                if v == at {
+                    bytes += text.len();
+                }
+                continue;
+            }
+            if v >= at && !text.is_empty() {
+                break;
+            }
+            v += text.chars().count();
+        }
+        bytes
+    }
+
     /// The text's length in bytes as a print form shows it.
     pub fn shown_len(&self) -> usize {
         self.runs()
@@ -685,6 +767,55 @@ mod tests {
         let lead = RichText::new(vec![note("n"), Run::plain("x")]);
         let t = lead.insert(0, "a", None).unwrap();
         assert_eq!(t.runs(), &[Run::plain("a"), note("n"), Run::plain("x")]);
+    }
+
+    #[test]
+    fn text_can_go_after_the_struck_text_at_its_offset() {
+        // "abc", struck "XYZ", a note, struck "UV", "def": both deletions
+        // sit at offset 3.
+        let rt = RichText::new(vec![
+            Run::plain("abc"),
+            Run::marked("XYZ", Style::PLAIN, del(1)),
+            note("n"),
+            Run::marked("UV", Style::PLAIN, del(2)),
+            Run::plain("def"),
+        ]);
+        assert_eq!(rt.deleted_at(3), 5);
+        assert_eq!(rt.deleted_at(2), 0);
+        assert_eq!(rt.deleted_at(4), 0);
+        assert_eq!(rt.shown_byte(3), 3);
+        let t = rt.insert(3, "!", None).unwrap();
+        assert_eq!(t.runs()[0], Run::plain("abc!"));
+        let t = rt.insert_after_deleted(3, "!", None, Marks::NONE).unwrap();
+        assert_eq!(t.runs()[3], Run::marked("UV", Style::PLAIN, del(2)));
+        assert_eq!(t.runs()[4], Run::plain("!def"));
+        let (head, rest) = rt.split_after_deleted(3).unwrap();
+        assert_eq!(head.runs().len(), 4);
+        assert_eq!(rest, RichText::plain("def"));
+        let (head, rest) = rt.split_at(3).unwrap();
+        assert_eq!(head, RichText::plain("abc"));
+        assert_eq!(rest.runs().len(), 4);
+        // Struck text at the start and at the end.
+        let edges = RichText::new(vec![
+            Run::marked("old", Style::PLAIN, del(1)),
+            Run::plain("mid"),
+            Run::marked("end", Style::PLAIN, del(2)),
+        ]);
+        assert_eq!(edges.deleted_at(0), 3);
+        assert_eq!(edges.deleted_at(3), 3);
+        let t = edges
+            .insert_after_deleted(0, "a", None, Marks::NONE)
+            .unwrap();
+        assert_eq!(t.runs()[1], Run::plain("amid"));
+        let t = edges
+            .insert_after_deleted(3, "z", None, Marks::NONE)
+            .unwrap();
+        assert_eq!(t.runs().last(), Some(&Run::plain("z")));
+        // No struck text there: the same as an insertion.
+        assert_eq!(
+            edges.insert_after_deleted(1, "x", None, Marks::NONE),
+            edges.insert(1, "x", None)
+        );
     }
 
     #[test]

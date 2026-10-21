@@ -152,6 +152,12 @@ Notes on each command:
   - **Converting** (2026-10-16). "Save as" to a path of another format converts: the document is written in the target's format, and from then on the session is in that format. What the target format cannot hold is listed as losses before anything is written, as below. Once written, the document takes the form the new format holds, so later saves do not ask again: saved as Fountain, it drops the .fdx store and page format and its title lines become title-page keys (`docs/specs/fountain.md` §11); saved as .fdx, its title-page keys become title lines (`docs/specs/fdx.md` §14.3). None of these is changed by an undoable command, so undo is unaffected. An explicit `format` that disagrees with a path whose extension names another format fails with `unsupported_format`.
   - **A repaired .fdx file** (2026-10-16). The first save in place of a document whose `doc.open` reported `repaired` first keeps a copy of the damaged file as it was (`docs/specs/journal.md`, "Damaged originals"), and an `original_kept` warning in the result names it. If the copy cannot be made, the save fails with `io_error` and writes nothing.
   - If the format cannot hold something in the document (`docs/specs/fountain.md` §9, `docs/specs/fdx.md` §15), the save fails with `lossy_format` and lists the losses, unless `allow_lossy` is true. A file read as Windows-1252 and about to be written as UTF-8 counts as a loss too (`reencoded`, 2026-10-16; `docs/specs/journal.md`, "Encoding"). Only a writer may pass `allow_lossy` (2026-10-16); from an agent it fails with `writer_only`. Only losses of class `lost` refuse a save ("Losses" below, 2026-10-18).
+  - **Saving pending changes away** (2026-10-21, decided with the project's owner after the phase 5a manual test). A save with `allow_lossy` to Fountain or .fdx of a document with pending tracked changes (`tracked_changes`) leaves the document in the form the file holds, as converting does above. The steps run in this order:
+    1. The version with its changes marked is set aside as a Recovered version: the journal is copied to `<journal>.marked-<ms>` (`docs/specs/journal.md`, "Recovered versions").
+    2. Every pending change is accepted, as `changes.accept` with `all` does: one undoable step by the writer, journaled like any other.
+    3. The save goes ahead with the accepted document, so its result lists no `tracked_changes` loss.
+
+    A `changes_accepted` warning says so: `details` gives `count`, the changes accepted, and `copy`, the copy's path (left out when the session keeps no journal). Undo brings the marks back, unsaved. Should the save then fail, as with `file_changed`, the acceptance stays; undo takes it back. A save as a bundle keeps every mark, so it accepts nothing.
   - Saving in place over a file that another program changed since this session last read or wrote it fails with `file_changed` (2026-10-16; `docs/specs/journal.md`, "Saving"). `overwrite: true` replaces it anyway. Only a writer may pass `overwrite`; from an agent it fails with `writer_only`.
   - While a save off the UI thread is being written, `doc.save` fails with `save_in_progress` (2026-10-16; `docs/specs/journal.md`, "One save at a time"). Try again when it has finished.
 - **`doc.close`**
@@ -217,7 +223,7 @@ Pages come from laying out the document in its format's form with its page forma
 
 - **`recovered.list`** (2026-10-16)
   - Lists the set-aside copies (`docs/specs/journal.md`, "Recovered versions") of the script at `path`, or of the open document without it, newest first.
-  - `copy` is the copy's path; `script` the script it belongs to; `kind` is `discarded`, `corrupt`, `diverged` or `original` (a damaged .fdx file kept before a repaired save); `at` is when it was made, in milliseconds since the Unix epoch, from its name.
+  - `copy` is the copy's path; `script` the script it belongs to; `kind` is `discarded`, `corrupt`, `diverged`, `original` (a damaged .fdx file kept before a repaired save) or (2026-10-21) `marked` (the version with its tracked changes marked, kept before a save accepted them, `doc.save`); `at` is when it was made, in milliseconds since the Unix epoch, from its name.
   - `readable` says whether the copy can be restored. `unread` is reserved for front ends that track which copies a writer has been shown, and is false here.
 
 - **`changes.list`** (2026-10-18) lists the pending tracked changes, in document order, as `docs/specs/changes.md` §8 describes. With `scene`, only those with a mark in that scene.
@@ -243,10 +249,10 @@ For `scene.list`:
 | `block.delete` | `id` | `{}` |
 | `text.replace` | `find`, `with`, `scope?` or `at?`, `match_case?` | `{count, blocks}` |
 | `scene.move` | `id`, `before?` | `{}` |
-| `text.insert` | `id`, `at`, `text`, `style?` | `{}` |
+| `text.insert` | `id`, `at`, `text`, `style?`, `after_deleted?` | `{}` |
 | `text.delete` | `id`, `from`, `to` | `{}` |
 | `text.style` | `id`, `from`, `to`, `bold?`, `italic?`, `underline?` | `{}` |
-| `block.split` | `id`, `at`, `type?` | `{id}` |
+| `block.split` | `id`, `at`, `type?`, `after_deleted?` | `{id}` |
 | `block.join` | `id` | `{id, at}` |
 | `batch` | `commands`, `label?` | `{results}` |
 | `changes.accept` | `id`, `scene` or `all` | `{changes, count, skipped}` |
@@ -285,6 +291,7 @@ The keystroke commands below (2026-10-15) are what the desktop editor sends for 
   - Notes, boneyard and other raw-text blocks take plain text only: a `style` there fails with `invalid_attr`.
   - Fails with `invalid_attr` on a page break, which has no text.
   - Empty `text` changes nothing.
+  - Text inserted at an offset where a pending deletion sits goes before the deletion (`docs/specs/changes.md` §2.1). With `after_deleted: true` (2026-10-21) it goes after it, and after any note among the struck text: the desktop app sends this when the caret is drawn after the struck text (`docs/specs/editor.md` §4). Where no deletion sits at `at`, it changes nothing. Absent means false, so journals from before replay as they did.
 - **`text.delete`**
   - Deletes the printed characters from `from` up to `to`.
   - Hidden runs inside the range are kept and move to `from`, so a backspace never deletes a note.
@@ -296,6 +303,7 @@ The keystroke commands below (2026-10-15) are what the desktop editor sends for 
   - Splits a block at offset `at`. The block keeps the text before `at` and all its attributes.
   - A new block after it gets the rest of the text and no attributes. Its type is `type`, or the block's own type when `type` is omitted.
   - Hidden runs at the split point go to the new block with the text after them. **Resolution:** at the very end of the block they stay where they are, so a note at the end of a speech stays with the speech when Enter starts the next element.
+  - A pending deletion at the split point goes to the new block too, as hidden runs do. With `after_deleted: true` (2026-10-21) it stays in the block, with any note among it, as Enter after struck text in the desktop app asks.
   - Fails with `invalid_attr` when either part would break a model rule, such as text left in a page break.
   - The result is the new block's id. Splitting at the end of a block makes an empty new block, which is how the editor starts the next element.
 - **`block.join`**

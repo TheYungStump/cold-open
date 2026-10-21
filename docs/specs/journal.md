@@ -232,7 +232,7 @@ Added 2026-10-16 (phase 4). Journals and set-aside copies start with a dot, whic
 
 Added 2026-10-16 (phase 4). Set-aside copies hold work a writer may want back, so they are never deleted silently, and writers never need to know where they are.
 
-**What is listed.** For a script, every file in its folder named after its journal plus `.discarded-<ms>`, `.corrupt-<ms>` or `.diverged-<ms>`, and every damaged original, `.<name>.coldopen-original-<ms>`. The time is the `<ms>` in the name, so copying a folder keeps it. `recovered.list` (`docs/specs/commands.md`) lists them, newest first. The desktop app shows them for the open script, the recent scripts and the untitled scripts in `Unsaved/` (`docs/specs/editor.md`).
+**What is listed.** For a script, every file in its folder named after its journal plus `.discarded-<ms>`, `.corrupt-<ms>`, `.diverged-<ms>` or (2026-10-21) `.marked-<ms>`, and every damaged original, `.<name>.coldopen-original-<ms>`. A `.marked` copy is the journal as it stood just before a save to Fountain or .fdx accepted the script's pending changes (`docs/specs/commands.md`, `doc.save`), so it replays to the version with them marked. The time is the `<ms>` in the name, so copying a folder keeps it. `recovered.list` (`docs/specs/commands.md`) lists them, newest first. The desktop app shows them for the open script, the recent scripts and the untitled scripts in `Unsaved/` (`docs/specs/editor.md`).
 
 **Preview.** A journal copy is replayed exactly as recovery would replay it (steps 1 and 2 of "Recovery on open"), without touching the disk, and the document it reaches is shown. A damaged original is read as its script would be. A copy whose header cannot be read is listed as unreadable: it can be deleted, not restored.
 

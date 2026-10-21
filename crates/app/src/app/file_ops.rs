@@ -390,7 +390,11 @@ impl App {
             if matches!(w["class"].as_str(), Some("fixed" | "dropped")) {
                 continue;
             }
-            if w["details"]["copy"].is_string() {
+            if w["code"] == "changes_accepted" {
+                let n = w["details"]["count"].as_u64().unwrap_or(1);
+                self.banners
+                    .push(super::Banner::accepted(n, w["details"]["copy"].is_string()));
+            } else if w["details"]["copy"].is_string() {
                 let b = if w["code"] == "original_kept" {
                     super::Banner::original_kept()
                 } else {
@@ -426,19 +430,27 @@ impl App {
         } else {
             0
         };
+        // The heading names the format (view.rs).
         let message = if tracked > 0 {
-            let format = path
-                .as_deref()
-                .and_then(coldopen_core::FormatId::for_path)
-                .or_else(|| self.d.session().map(|s| s.format))
-                .unwrap_or_default()
-                .title();
             let others = losses
                 .iter()
                 .any(|l| l["code"] != "tracked_changes" && l["class"] == "lost");
+            let (changes, them) = if tracked == 1 {
+                ("the pending change".to_string(), "it")
+            } else {
+                (format!("all {tracked} pending changes"), "them")
+            };
+            let saving = if export {
+                format!(
+                    "Saving the copy writes it with {changes} accepted. The script keeps {them}."
+                )
+            } else {
+                format!(
+                    "Saving accepts {changes} in the script. The version with {them} marked is kept in Recovered versions."
+                )
+            };
             format!(
-                "{format} can't hold tracked changes ({tracked}). Saving writes the {} with every change accepted.{}",
-                if export { "copy" } else { "script" },
+                "{saving}{}",
                 if others {
                     " Some other things in this script can't be kept either."
                 } else {

@@ -8,13 +8,40 @@
 
 use coldopen_core::{BlockId, Document, View};
 use coldopen_layout::{Draft, LineKind, PlacedLine};
-use coldopen_screenplay::{Align, ElementKind, Pt};
+use coldopen_screenplay::{Align, ElementKind, Pt, RichText};
 
 /// A caret position: a block and a character offset in its printed text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Caret {
     pub block: BlockId,
     pub offset: usize,
+    /// Drawn after the pending deletion at `offset` rather than before it:
+    /// the offset counts only the current text, so struck text gives the
+    /// caret two places at one offset (editor.md §4). False where no
+    /// struck text sits at the offset.
+    pub past: bool,
+}
+
+impl Caret {
+    /// A caret at `offset`, before any struck text there.
+    pub fn at(block: BlockId, offset: usize) -> Caret {
+        Caret {
+            block,
+            offset,
+            past: false,
+        }
+    }
+
+    /// The byte where this caret shows in its block's text as the pages
+    /// show it (pending deletions included).
+    pub fn shown_byte(&self, text: &RichText) -> usize {
+        let at = text.shown_byte(self.offset);
+        if self.past {
+            at + text.deleted_at(self.offset)
+        } else {
+            at
+        }
+    }
 }
 
 /// Where a caret shows: a page (index into the body pages, or 0 in the
@@ -166,17 +193,9 @@ impl<'a> Surface<'a> {
         // of the text as shown (editor.md §4).
         let rich = &doc.blocks[bi].element.text;
         let text = rich.shown().plain_text();
-        let byte = rich.shown_byte(caret.offset);
+        let byte = caret.shown_byte(rich);
         let Some((elem, nbyte)) = view.sources.to_norm(bi, byte as u32) else {
             return self.fallback_spot(doc, bi);
-        };
-        // Whitespace the normal form trimmed shows as extra cells after the
-        // text before it (editor.md §4).
-        let extra = match view.sources.to_source(elem, nbyte) {
-            Some((b, back)) if b == bi && (back as usize) < byte && byte <= text.len() => {
-                text[back as usize..byte].chars().count() as i32
-            }
-            _ => 0,
         };
         let lines = self.lines_of(elem);
         if lines.is_empty() {
@@ -188,6 +207,19 @@ impl<'a> Surface<'a> {
             .find(|(_, l)| l.source.is_some_and(|(_, s, _)| s <= nbyte))
             .copied()
             .unwrap_or(lines[0]);
+        // Whitespace the normal form trimmed, or that layout leaves off the
+        // end of a line (a .fdx or project script is laid out unnormalized),
+        // shows as extra cells after the text before it (editor.md §4).
+        let printed = match line.source {
+            Some((_, _, end)) if end < nbyte => end,
+            _ => nbyte,
+        };
+        let extra = match view.sources.to_source(elem, printed) {
+            Some((b, back)) if b == bi && (back as usize) < byte && byte <= text.len() => {
+                text[back as usize..byte].chars().count() as i32
+            }
+            _ => 0,
+        };
         let mut cells = 0i32;
         for c in &line.clusters {
             if c.src >= nbyte {
@@ -298,9 +330,14 @@ impl<'a> Surface<'a> {
         }
         let (bi, byte) = self.view().sources.to_source(elem, nbyte)?;
         let b = doc.blocks.get(bi)?;
+        let text = &b.element.text;
+        let offset = text.offset_at_shown_byte(byte as usize);
+        // A point at or after the end of the struck text at that offset
+        // puts the caret after it.
+        let struck = text.deleted_at(offset);
         Some(Caret {
-            block: b.id,
-            offset: b.element.text.offset_at_shown_byte(byte as usize),
+            past: struck > 0 && byte as usize >= text.shown_byte(offset) + struck,
+            ..Caret::at(b.id, offset)
         })
     }
 

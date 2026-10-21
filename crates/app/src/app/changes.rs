@@ -122,10 +122,7 @@ pub fn change_caret(doc: &Document, id: ChangeId) -> Option<Caret> {
     mark_spots(doc)
         .into_iter()
         .find(|s| s.2 == id)
-        .map(|(i, offset, _)| Caret {
-            block: doc.blocks[i].id,
-            offset,
-        })
+        .map(|(i, offset, _)| Caret::at(doc.blocks[i].id, offset))
 }
 
 /// An author as the panel names them.
@@ -366,10 +363,7 @@ impl App {
             self.banners.push("No changes to review.".into());
             return;
         };
-        let c = Caret {
-            block: doc.blocks[i].id,
-            offset,
-        };
+        let c = Caret::at(doc.blocks[i].id, offset);
         self.editor.caret = c;
         self.editor.anchor = c;
         self.choose_row(id);
@@ -460,17 +454,27 @@ impl App {
         }
     }
 
-    /// The name question's answer: Enter keeps the name, Esc goes on
-    /// without it.
+    /// The name the writer's tracked changes carry now.
+    pub fn editing_as(&self) -> String {
+        match self.d.writer() {
+            coldopen_core::Author::Writer { name: Some(n) } => n.clone(),
+            _ => DEFAULT_NAME.into(),
+        }
+    }
+
+    /// The name question's answer: Enter keeps the name, or with the name
+    /// cleared goes back to no name, which shows as "Writer"; Esc goes on
+    /// as before.
     pub(super) fn name_done(&mut self, keep: bool) -> Task<Message> {
         let Some(Prompt::AuthorName { name, then }) = self.prompt.take() else {
             return Task::none();
         };
         let name = name.trim();
-        if keep && !name.is_empty() {
-            self.settings.author_name = Some(name.to_string());
+        if keep {
+            let name = (!name.is_empty()).then(|| name.to_string());
+            self.settings.author_name = name.clone();
             self.save_settings();
-            self.d.set_writer_name(Some(name.to_string()));
+            self.d.set_writer_name(name);
         }
         if then == NameThen::TrackMine {
             self.set_track(Some(true), None);
@@ -582,6 +586,7 @@ impl App {
             }
             _ if ch == "a" && n > 0 => self.settle_row(i, true),
             _ if ch == "r" && n > 0 => self.settle_row(i, false),
+            _ if ch == "n" => self.ask_name(NameThen::Nothing),
             _ => return None,
         })
     }
@@ -616,6 +621,17 @@ impl App {
                 space::horizontal(),
                 small("Accept all", Message::Action("changes.accept_all".into())),
                 small("Reject all", Message::Action("changes.reject_all".into())),
+            ]
+            .spacing(6)
+            .align_y(Center),
+            row![
+                text(format!("Editing as: {}", ellipsize(&self.editing_as(), 20)))
+                    .font(fonts::UI)
+                    .size(12)
+                    .color(pal.text)
+                    .wrapping(text::Wrapping::None),
+                space::horizontal(),
+                small("Change my name…", Message::Action("app.author_name".into())),
             ]
             .spacing(6)
             .align_y(Center),
@@ -716,7 +732,13 @@ impl App {
             );
         }
         col = col.push(scrollable(list).height(Fill));
-        col = col.push(hint(pal, "A: accept  ·  R: reject  ·  Enter: go to it").size(11));
+        col = col.push(
+            hint(
+                pal,
+                "A: accept  ·  R: reject  ·  Enter: go to it  ·  N: my name",
+            )
+            .size(11),
+        );
         let focused = self.focus == Focus::Changes;
         container(col)
             .width(Length::Fixed(300.0))
@@ -739,7 +761,7 @@ impl App {
             title(pal, "What name should your changes carry?"),
             body(
                 pal,
-                "Tracked changes show who made them. You can change the name later with \"Set my name for changes\" in the palette.",
+                "Tracked changes show who made them. You can change it later with \"Change my name…\" in the changes panel, or leave it empty for \"Writer\".",
             ),
             text_input(DEFAULT_NAME, name)
                 .id(NAME)

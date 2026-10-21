@@ -77,10 +77,7 @@ fn to_end_of(h: &mut Headless, text: &str) {
         .iter()
         .find(|b| b.element.text.plain_text() == text)
         .unwrap();
-    let c = coldopen_app::editor::Caret {
-        block: b.id,
-        offset: b.element.text.char_len(),
-    };
+    let c = coldopen_app::editor::Caret::at(b.id, b.element.text.char_len());
     h.app.editor.caret = c;
     h.app.editor.anchor = c;
 }

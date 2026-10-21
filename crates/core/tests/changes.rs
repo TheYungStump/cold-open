@@ -453,6 +453,74 @@ fn a_tracked_set_text_marks_words() {
     assert_eq!(block(&mut d, "b_6"), b);
 }
 
+/// `after_deleted` puts typed text, or a split, after the struck text at
+/// the offset rather than before it (changes.md §2.1), and is journaled.
+#[test]
+fn text_and_splits_can_go_after_struck_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, p) = open(dir.path());
+    track_writer(&mut d);
+    // Strike "makes " out of "Maya makes toast.": it sits at offset 5.
+    ok(
+        &mut d,
+        &writer(),
+        "text.delete",
+        json!({"id": "b_2", "from": 5, "to": 11}),
+    );
+    // The text with the struck runs, as the pages show it.
+    let shown = |d: &mut Dispatcher, id: &str| -> String {
+        let b = block(d, id);
+        match b["runs"].as_array() {
+            Some(runs) => runs
+                .iter()
+                .map(|r| r["text"].as_str().unwrap_or("").to_string())
+                .collect(),
+            None => b["text"].as_str().unwrap_or("").to_string(),
+        }
+    };
+    ok(
+        &mut d,
+        &writer(),
+        "text.insert",
+        json!({"id": "b_2", "at": 5, "text": "a"}),
+    );
+    assert_eq!(shown(&mut d, "b_2"), "Maya amakes toast.");
+    ok(&mut d, &writer(), "undo", json!({}));
+    ok(
+        &mut d,
+        &writer(),
+        "text.insert",
+        json!({"id": "b_2", "at": 5, "text": "eats ", "after_deleted": true}),
+    );
+    assert_eq!(shown(&mut d, "b_2"), "Maya makes eats toast.");
+    assert_eq!(block(&mut d, "b_2")["text"], "Maya eats toast.");
+    // A split there keeps the struck text on the first line.
+    let r = ok(
+        &mut d,
+        &writer(),
+        "block.split",
+        json!({"id": "b_2", "at": 5, "after_deleted": true}),
+    );
+    let new = r["id"].as_str().unwrap().to_string();
+    assert_eq!(shown(&mut d, "b_2"), "Maya makes ");
+    assert_eq!(shown(&mut d, &new), "eats toast.");
+    ok(&mut d, &writer(), "undo", json!({}));
+    let r = ok(
+        &mut d,
+        &writer(),
+        "block.split",
+        json!({"id": "b_2", "at": 5}),
+    );
+    let new = r["id"].as_str().unwrap().to_string();
+    assert_eq!(shown(&mut d, "b_2"), "Maya ");
+    assert_eq!(shown(&mut d, &new), "makes eats toast.");
+    let want = blocks(&mut d);
+    drop(d); // a crash: replay puts everything where it went
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &writer(), "doc.open", json!({"path": p}));
+    assert_eq!(blocks(&mut d), want);
+}
+
 #[test]
 fn tracked_changes_survive_a_crash_with_authors_and_times() {
     let dir = tempfile::tempdir().unwrap();
@@ -503,10 +571,57 @@ fn saving_pending_changes_to_fountain_asks_first() {
     let e = err(&mut d, &agent(), "doc.save", json!({"allow_lossy": true}));
     assert_eq!(e.code, "writer_only");
     // The writer can: the file holds the current text.
-    ok(&mut d, &writer(), "doc.save", json!({"allow_lossy": true}));
+    let r = ok(&mut d, &writer(), "doc.save", json!({"allow_lossy": true}));
     let saved = fs::read_to_string(&p).unwrap();
     assert!(saved.contains("Maya makes eggs."), "{saved}");
     assert!(!saved.contains("toast"), "{saved}");
+    // And the document takes what the file holds (2026-10-21): the change
+    // is accepted, after the version with it marked was set aside.
+    let w = &r["warnings"][0];
+    assert_eq!(w["code"], "changes_accepted", "{r}");
+    assert_eq!(w["details"]["count"], 1);
+    assert!(changes(&mut d).is_empty());
+    assert!(!block(&mut d, "b_2").to_string().contains("\"ins\""));
+    let listed = ok(&mut d, &writer(), "recovered.list", json!({}));
+    let copy = &listed["copies"][0];
+    assert_eq!(copy["kind"], "marked", "{listed}");
+    assert_eq!(copy["copy"], w["details"]["copy"]);
+    let (marked, _) = coldopen_core::recovered::read(
+        &coldopen_core::recovered::parse(Path::new(copy["copy"].as_str().unwrap())).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(marked.pending().len(), 1);
+    // Saving again asks nothing: there is nothing left to lose.
+    ok(&mut d, &writer(), "doc.save", json!({}));
+    // Accepting was a step of its own: undo brings the marks back.
+    ok(&mut d, &writer(), "undo", json!({}));
+    assert_eq!(changes(&mut d).len(), 1);
+    // A crash right after replays to the marks again.
+    let want = blocks(&mut d);
+    drop(d);
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &writer(), "doc.open", json!({"path": p}));
+    assert_eq!(blocks(&mut d), want);
+    // As .fdx too, by Save as; a project keeps the marks.
+    let fdx = dir.path().join("s.fdx");
+    let r = ok(
+        &mut d,
+        &writer(),
+        "doc.save",
+        json!({"path": fdx, "allow_lossy": true}),
+    );
+    assert_eq!(r["warnings"][0]["code"], "changes_accepted", "{r}");
+    assert!(changes(&mut d).is_empty());
+    ok(&mut d, &writer(), "undo", json!({}));
+    let project = dir.path().join("s.coldopen");
+    let r = ok(
+        &mut d,
+        &writer(),
+        "doc.save",
+        json!({"path": project, "allow_lossy": true}),
+    );
+    assert_eq!(r["warnings"], json!([]), "{r}");
+    assert_eq!(changes(&mut d).len(), 1);
     d.discard();
 }
 

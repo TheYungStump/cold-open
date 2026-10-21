@@ -149,6 +149,27 @@ impl Banner {
         }
     }
 
+    /// A save to a format that cannot hold tracked changes accepted them
+    /// (editor.md §17.5); `kept` when the version with them marked was set
+    /// aside.
+    pub fn accepted(count: u64, kept: bool) -> Banner {
+        let (changes, them) = if count == 1 {
+            ("the pending change".to_string(), "it")
+        } else {
+            (format!("{count} pending changes"), "them")
+        };
+        Banner {
+            text: if kept {
+                format!(
+                    "Saving accepted {changes}. The version with {them} marked is in Recovered versions."
+                )
+            } else {
+                format!("Saving accepted {changes}.")
+            },
+            recovered: kept,
+        }
+    }
+
     /// The first save over a repaired file kept it as it was.
     pub fn original_kept() -> Banner {
         Banner {
@@ -511,10 +532,7 @@ impl App {
                 .map(|b| (b.id, b.element.text.char_len()))
         });
         if let Some((id, len)) = target {
-            let c = crate::editor::Caret {
-                block: id,
-                offset: len,
-            };
+            let c = crate::editor::Caret::at(id, len);
             self.editor.caret = c;
             self.editor.anchor = c;
             self.editor.enter(&mut self.d);
@@ -708,15 +726,16 @@ impl App {
             return;
         };
         let doc = &s.doc;
-        let norm = |id: BlockId, off: usize| -> Option<(usize, u32)> {
-            let bi = doc.index_of(id)?;
+        let norm = |c: crate::editor::Caret| -> Option<(usize, u32)> {
+            let bi = doc.index_of(c.block)?;
             // The pages show pending deletions (editor.md §4).
-            let b = doc.blocks[bi].element.text.shown_byte(off);
+            let b = c.shown_byte(&doc.blocks[bi].element.text);
             view.sources.to_norm(bi, b as u32)
         };
+        let at = crate::editor::Caret::at;
         self.sel_range = if self.editor.has_selection() {
             let (a, b) = self.editor.selection(doc);
-            match (norm(a.block, a.offset), norm(b.block, b.offset)) {
+            match (norm(a), norm(b)) {
                 (Some(x), Some(y)) => Some((x, y)),
                 _ => None,
             }
@@ -729,7 +748,7 @@ impl App {
             .map(|f| {
                 f.matches
                     .iter()
-                    .filter_map(|&(id, from, to)| Some((norm(id, from)?, norm(id, to)?)))
+                    .filter_map(|&(id, from, to)| Some((norm(at(id, from))?, norm(at(id, to))?)))
                     .collect()
             })
             .unwrap_or_default();
@@ -1604,10 +1623,7 @@ impl App {
 
     fn goto_row(&mut self, i: usize) -> Task<Message> {
         if let Some(r) = self.nav.get(i) {
-            let c = crate::editor::Caret {
-                block: r.id,
-                offset: 0,
-            };
+            let c = crate::editor::Caret::at(r.id, 0);
             self.editor.caret = c;
             self.editor.anchor = c;
         }
@@ -1696,14 +1712,8 @@ impl App {
             (f.current + 1) % n
         };
         let (id, from, to) = f.matches[f.current];
-        self.editor.anchor = crate::editor::Caret {
-            block: id,
-            offset: from,
-        };
-        self.editor.caret = crate::editor::Caret {
-            block: id,
-            offset: to,
-        };
+        self.editor.anchor = crate::editor::Caret::at(id, from);
+        self.editor.caret = crate::editor::Caret::at(id, to);
         self.after_change(true)
     }
 

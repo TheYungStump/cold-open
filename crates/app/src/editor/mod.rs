@@ -193,10 +193,7 @@ impl Editor {
             .or(doc.blocks.first())
             .map(|b| b.id)
             .unwrap_or(BlockId(0));
-        let caret = Caret {
-            block: first,
-            offset: 0,
-        };
+        let caret = Caret::at(first, 0);
         Editor {
             caret,
             anchor: caret,
@@ -221,7 +218,13 @@ impl Editor {
 
     /// The selection, start first.
     pub fn selection(&self, doc: &Document) -> (Caret, Caret) {
-        let pos = |c: &Caret| (doc.index_of(c.block).unwrap_or(usize::MAX), c.offset);
+        let pos = |c: &Caret| {
+            (
+                doc.index_of(c.block).unwrap_or(usize::MAX),
+                c.offset,
+                c.past,
+            )
+        };
         if pos(&self.anchor) <= pos(&self.caret) {
             (self.anchor, self.caret)
         } else {
@@ -262,7 +265,10 @@ impl Editor {
     pub fn fix_caret(&mut self, doc: &Document) {
         for c in [&mut self.caret, &mut self.anchor] {
             match doc.get(c.block) {
-                Some(b) => c.offset = c.offset.min(b.element.text.char_len()),
+                Some(b) => {
+                    c.offset = c.offset.min(b.element.text.char_len());
+                    c.past &= b.element.text.deleted_at(c.offset) > 0;
+                }
                 None => {
                     let b = doc
                         .blocks
@@ -270,10 +276,10 @@ impl Editor {
                         .rev()
                         .find(|b| b.id.0 < c.block.0)
                         .or(doc.blocks.first());
-                    *c = Caret {
-                        block: b.map_or(BlockId(0), |b| b.id),
-                        offset: b.map_or(0, |b| b.element.text.char_len()),
-                    };
+                    *c = Caret::at(
+                        b.map_or(BlockId(0), |b| b.id),
+                        b.map_or(0, |b| b.element.text.char_len()),
+                    );
                 }
             }
         }
@@ -284,17 +290,26 @@ impl Editor {
     pub fn follow(&mut self, cmd: &Command, result: &Value) {
         for c in [&mut self.caret, &mut self.anchor] {
             match cmd {
-                Command::TextInsert(p) if p.id == c.block && p.at < c.offset => {
+                // Text inserted at the caret's offset goes before struck text
+                // there, so before a caret drawn after it (editor.md §4).
+                Command::TextInsert(p)
+                    if p.id == c.block
+                        && (p.at < c.offset
+                            || (p.at == c.offset && c.past && !p.after_deleted)) =>
+                {
                     c.offset += p.text.chars().count();
                 }
                 Command::TextDelete(p) if p.id == c.block && p.from < c.offset => {
                     c.offset -= c.offset.min(p.to) - p.from;
                 }
-                Command::BlockSplit(p) if p.id == c.block && p.at <= c.offset => {
+                Command::BlockSplit(p)
+                    if p.id == c.block
+                        && (p.at < c.offset || (p.at == c.offset && !p.after_deleted)) =>
+                {
                     if let Some(id) = result["id"].as_str().and_then(BlockId::parse) {
                         *c = Caret {
-                            block: id,
-                            offset: c.offset - p.at,
+                            past: c.past,
+                            ..Caret::at(id, c.offset - p.at)
                         };
                     }
                 }
@@ -304,8 +319,8 @@ impl Editor {
                         result["at"].as_u64(),
                     ) {
                         *c = Caret {
-                            block: id,
-                            offset: c.offset + at as usize,
+                            past: c.past,
+                            ..Caret::at(id, c.offset + at as usize)
                         };
                     }
                 }
@@ -416,21 +431,25 @@ impl Editor {
         let prev_editable = |from: usize| (0..from).rev().find(|&j| self.editable(&doc, j));
         let next_editable =
             |from: usize| (from + 1..doc.blocks.len()).find(|&j| self.editable(&doc, j));
-        let at_end = |j: usize| Caret {
-            block: doc.blocks[j].id,
-            offset: doc.blocks[j].element.text.char_len(),
+        // Struck text takes no offsets, so a caret at its offset stands
+        // before it or after it (editor.md §4). Arriving from the right, a
+        // caret lands after it; Right first steps past it.
+        let struck = |j: usize, at: usize| doc.blocks[j].element.text.deleted_at(at) > 0;
+        let from_right = |j: usize, at: usize| Caret {
+            past: struck(j, at),
+            ..Caret::at(doc.blocks[j].id, at)
         };
-        let at_start = |j: usize| Caret {
-            block: doc.blocks[j].id,
-            offset: 0,
-        };
+        let at_end = |j: usize| from_right(j, doc.blocks[j].element.text.char_len());
+        let at_start = |j: usize| Caret::at(doc.blocks[j].id, 0);
         let vertical = matches!(
             m,
             Motion::Up | Motion::Down | Motion::PageUp | Motion::PageDown
         );
         let target: Option<Caret> = match m {
             Motion::Left => {
-                if off > 0 {
+                if self.caret.past {
+                    Some(Caret::at(self.caret.block, off))
+                } else if off > 0 {
                     let starts = cluster_starts(&text);
                     let p = starts
                         .iter()
@@ -438,42 +457,35 @@ impl Editor {
                         .find(|&&s| s < off)
                         .copied()
                         .unwrap_or(0);
-                    Some(Caret {
-                        offset: p,
-                        ..self.caret
-                    })
+                    Some(from_right(i, p))
                 } else {
                     prev_editable(i).map(at_end)
                 }
             }
             Motion::Right => {
-                if off < len {
+                if !self.caret.past && struck(i, off) {
+                    Some(Caret {
+                        past: true,
+                        ..Caret::at(self.caret.block, off)
+                    })
+                } else if off < len {
                     let starts = cluster_starts(&text);
                     let p = starts.iter().find(|&&s| s > off).copied().unwrap_or(len);
-                    Some(Caret {
-                        offset: p,
-                        ..self.caret
-                    })
+                    Some(Caret::at(self.caret.block, p))
                 } else {
                     next_editable(i).map(at_start)
                 }
             }
             Motion::WordLeft => {
                 if off > 0 {
-                    Some(Caret {
-                        offset: word_left(&text, off),
-                        ..self.caret
-                    })
+                    Some(from_right(i, word_left(&text, off)))
                 } else {
                     prev_editable(i).map(at_end)
                 }
             }
             Motion::WordRight => {
                 if off < len {
-                    Some(Caret {
-                        offset: word_right(&text, off),
-                        ..self.caret
-                    })
+                    Some(Caret::at(self.caret.block, word_right(&text, off)))
                 } else {
                     next_editable(i).map(at_start)
                 }
@@ -572,21 +584,16 @@ impl Editor {
             return;
         };
         if let (Some(f), Some(l)) = (doc.blocks.first(), doc.blocks.last()) {
-            self.anchor = Caret {
-                block: f.id,
-                offset: 0,
-            };
-            self.caret = Caret {
-                block: l.id,
-                offset: l.element.text.char_len(),
-            };
+            self.anchor = Caret::at(f.id, 0);
+            self.caret = Caret::at(l.id, l.element.text.char_len());
         }
     }
 
     /// Commands that delete the selection, leaving the caret at its start.
     fn delete_selection(&self, doc: &Document) -> Vec<Command> {
         let (a, b) = self.selection(doc);
-        if a == b {
+        // A selection of struck text alone selects no current text.
+        if (a.block, a.offset) == (b.block, b.offset) {
             return Vec::new();
         }
         if a.block == b.block {
@@ -650,8 +657,7 @@ impl Editor {
             && kind == ElementKind::Parenthetical
             && block_text.chars().nth(self.caret.offset) == Some(')')
         {
-            self.caret.offset += 1;
-            self.anchor = self.caret;
+            self.set_caret(Caret::at(self.caret.block, self.caret.offset + 1), false);
             return;
         }
         if block_text.is_empty() && !self.has_selection() {
@@ -678,17 +684,12 @@ impl Editor {
                 text: "()".into(),
                 style: None,
                 tracked: None,
+                after_deleted: false,
             }));
             if self.run(d, cmds).is_some() {
                 // The writer typed these brackets: they are never removed.
                 self.auto_parens.remove(&start.block);
-                self.set_caret(
-                    Caret {
-                        block: start.block,
-                        offset: 1,
-                    },
-                    false,
-                );
+                self.set_caret(Caret::at(start.block, 1), false);
             }
             return;
         }
@@ -698,13 +699,11 @@ impl Editor {
             text: text.clone(),
             style: self.pending_style.map(StyleSpec::from),
             tracked: None,
+            after_deleted: start.past,
         }));
         if self.run(d, cmds).is_some() {
             self.set_caret(
-                Caret {
-                    block: start.block,
-                    offset: start.offset + text.chars().count(),
-                },
+                Caret::at(start.block, start.offset + text.chars().count()),
                 false,
             );
             self.goal_x = None;
@@ -750,7 +749,8 @@ impl Editor {
         if self.has_selection() {
             let (start, _) = self.selection(&doc);
             let cmds = self.delete_selection(&doc);
-            if self.run(d, cmds).is_some() {
+            // A selection of struck text alone deletes nothing.
+            if cmds.is_empty() || self.run(d, cmds).is_some() {
                 self.set_caret(start, false);
             }
             self.refresh_completion(d);
@@ -778,11 +778,28 @@ impl Editor {
                 to: off,
                 tracked: None,
             });
+            let old = &doc.blocks[i].element.text;
+            let past = self.caret.past || old.deleted_at(off) == 0;
             if self.run(d, vec![cmd]).is_some() {
+                // Text taken out, not struck, leaves the caret where it
+                // stood: after the struck text now at `from`, unless it
+                // stood before struck text. Struck text the caret makes
+                // leaves it before that text, ready for the next Backspace.
+                let cut: usize = text
+                    .chars()
+                    .skip(from)
+                    .take(off - from)
+                    .map(char::len_utf8)
+                    .sum();
+                let past = past
+                    && d.session().and_then(|s| s.doc.get(id)).is_some_and(|b| {
+                        let new = &b.element.text;
+                        old.shown_len() - new.shown_len() == cut && new.deleted_at(from) > 0
+                    });
                 self.set_caret(
                     Caret {
-                        block: id,
-                        offset: from,
+                        past,
+                        ..Caret::at(id, from)
                     },
                     false,
                 );
@@ -811,13 +828,7 @@ impl Editor {
             // next block.
             let next_id = next.id;
             let here = self.caret;
-            self.set_caret(
-                Caret {
-                    block: next_id,
-                    offset: 0,
-                },
-                false,
-            );
+            self.set_caret(Caret::at(next_id, 0), false);
             self.join_back(d, &doc, i + 1);
             if self.caret.block == next_id {
                 self.set_caret(here, false);
@@ -832,10 +843,7 @@ impl Editor {
         let Some(prev) = i.checked_sub(1).and_then(|j| doc.blocks.get(j)) else {
             return;
         };
-        let prev_end = Caret {
-            block: prev.id,
-            offset: prev.element.text.char_len(),
-        };
+        let prev_end = Caret::at(prev.id, prev.element.text.char_len());
         if prev.element.kind == ElementKind::PageBreak {
             self.run(
                 d,
@@ -860,10 +868,7 @@ impl Editor {
                 let target = (0..i)
                     .rev()
                     .find(|&j| self.editable(doc, j))
-                    .map(|j| Caret {
-                        block: doc.blocks[j].id,
-                        offset: doc.blocks[j].element.text.char_len(),
-                    })
+                    .map(|j| Caret::at(doc.blocks[j].id, doc.blocks[j].element.text.char_len()))
                     .unwrap_or(prev_end);
                 self.set_caret(target, false);
             }
@@ -879,13 +884,7 @@ impl Editor {
             ) && let (Some(id), Some(at)) =
                 (r["id"].as_str().and_then(BlockId::parse), r["at"].as_u64())
             {
-                self.set_caret(
-                    Caret {
-                        block: id,
-                        offset: at as usize,
-                    },
-                    false,
-                );
+                self.set_caret(Caret::at(id, at as usize), false);
             }
             return;
         }
@@ -941,17 +940,12 @@ impl Editor {
                 at: off,
                 kind: None,
                 tracked: None,
+                after_deleted: self.caret.past,
             });
             if let Some(r) = self.run(d, vec![cmd])
                 && let Some(new) = r["id"].as_str().and_then(BlockId::parse)
             {
-                self.set_caret(
-                    Caret {
-                        block: new,
-                        offset: 0,
-                    },
-                    false,
-                );
+                self.set_caret(Caret::at(new, 0), false);
             }
             return;
         }
@@ -976,6 +970,7 @@ impl Editor {
             at: len,
             kind: Some(next),
             tracked: None,
+            after_deleted: false,
         })];
         let paren = next == ElementKind::Parenthetical;
         if let Some(r) = self.run(d, std::mem::take(&mut cmds)) {
@@ -985,13 +980,7 @@ impl Editor {
                 r["id"].as_str().and_then(BlockId::parse)
             };
             if let Some(new) = new {
-                self.set_caret(
-                    Caret {
-                        block: new,
-                        offset: 0,
-                    },
-                    false,
-                );
+                self.set_caret(Caret::at(new, 0), false);
                 self.fresh = Some(new);
                 if paren {
                     self.insert_parens(d, new);
@@ -1009,16 +998,11 @@ impl Editor {
             text: "()".into(),
             style: None,
             tracked: None,
+            after_deleted: false,
         });
         if self.run(d, vec![cmd]).is_some() {
             self.auto_parens.insert(id, String::new());
-            self.set_caret(
-                Caret {
-                    block: id,
-                    offset: 1,
-                },
-                false,
-            );
+            self.set_caret(Caret::at(id, 1), false);
         }
     }
 
@@ -1059,6 +1043,7 @@ impl Editor {
                     text: ")".into(),
                     style: plain,
                     tracked: None,
+                    after_deleted: true,
                 }));
                 cmds.push(Command::TextInsert(TextInsert {
                     id,
@@ -1066,6 +1051,7 @@ impl Editor {
                     text: "(".into(),
                     style: plain,
                     tracked: None,
+                    after_deleted: false,
                 }));
             }
         } else if from == paren && kind != paren && self.own_parens(d, id) {
@@ -1306,6 +1292,7 @@ impl Editor {
                 at: start.offset,
                 kind: None,
                 tracked: None,
+                after_deleted: start.past,
             }));
         }
         if !(start.offset == 0 && len > 0) {
@@ -1328,13 +1315,7 @@ impl Editor {
             };
             if let Some(id) = last.and_then(|v| v["id"].as_str()).and_then(BlockId::parse) {
                 let len = d.session().map_or(0, |s| len_of(&s.doc, id));
-                self.set_caret(
-                    Caret {
-                        block: id,
-                        offset: len,
-                    },
-                    false,
-                );
+                self.set_caret(Caret::at(id, len), false);
             }
         }
     }
@@ -1433,15 +1414,10 @@ impl Editor {
             text: item.clone(),
             style: None,
             tracked: None,
+            after_deleted: false,
         }));
         if self.run(d, cmds).is_some() {
-            self.set_caret(
-                Caret {
-                    block: c.block,
-                    offset: c.from + item.chars().count(),
-                },
-                false,
-            );
+            self.set_caret(Caret::at(c.block, c.from + item.chars().count()), false);
         }
         self.refresh_completion(d);
     }

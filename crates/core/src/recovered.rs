@@ -24,6 +24,10 @@ pub enum Kind {
     /// A file the reader repaired, kept as it was before the first save
     /// over it (docs/specs/journal.md, "Damaged originals").
     Original,
+    /// The script with its tracked changes marked, set aside when a save to
+    /// a format that cannot hold them accepted them (2026-10-21,
+    /// docs/specs/commands.md, `doc.save`).
+    Marked,
 }
 
 /// One set-aside copy.
@@ -59,6 +63,7 @@ pub fn parse(path: &Path) -> Option<Copy> {
             "discarded" => Kind::Discarded,
             "corrupt" => Kind::Corrupt,
             "diverged" => Kind::Diverged,
+            "marked" => Kind::Marked,
             _ => return None,
         };
         (&name[..i], kind, digits(ms)?)
@@ -157,6 +162,8 @@ mod tests {
         assert_eq!(c.at, 1_760_000_000_000);
         let c = parse(Path::new(".a.fountain.coldopen-original-5")).unwrap();
         assert_eq!((c.kind, c.at), (Kind::Original, 5));
+        let c = parse(Path::new(".a.fdx.coldopen-journal.marked-7")).unwrap();
+        assert_eq!((c.kind, c.at), (Kind::Marked, 7));
         for not in [
             ".a.fountain.coldopen-journal",
             ".a.fountain.coldopen-journal.other-5",

@@ -736,6 +736,11 @@ pub struct TextInsert {
     /// Absent: the document's tracking switch for the author decides.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tracked: Option<bool>,
+    /// Put the text after a pending deletion at `at` rather than before it
+    /// (docs/specs/changes.md §2.1), as typed by a caret drawn after the
+    /// struck text.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub after_deleted: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -778,6 +783,10 @@ pub struct BlockSplit {
     /// Absent: the document's tracking switch for the author decides.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tracked: Option<bool>,
+    /// Keep a pending deletion at `at` in the first block rather than
+    /// starting the new one with it (docs/specs/changes.md §2.1).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub after_deleted: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

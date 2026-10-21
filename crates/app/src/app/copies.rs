@@ -117,6 +117,7 @@ pub fn kind_words(k: Kind) -> &'static str {
         Kind::Diverged => "Changes that could not all be replayed",
         Kind::Corrupt => "An unreadable crash journal",
         Kind::Original => "The file before Cold Open repaired it",
+        Kind::Marked => "With its tracked changes, before a save accepted them",
     }
 }
 

@@ -286,7 +286,7 @@ pub const APP_ACTIONS: &[ActionInfo] = &[
     },
     ActionInfo {
         name: "app.author_name",
-        title: "Set my name for changes",
+        title: "Change my name for changes…",
     },
 ];
 

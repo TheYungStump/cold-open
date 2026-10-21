@@ -9,8 +9,8 @@ use serde_json::{Value, json};
 
 use crate::author::{Author, Clock};
 use crate::command::{
-    Class, Command, DocClose, DocNew, DocOpen, DocSave, ExportFile, ExportPdf, FileRepair, Recover,
-    RecoveredDelete, RecoveredList, RecoveredRestore,
+    ChangesSettle, Class, Command, DocClose, DocNew, DocOpen, DocSave, ExportFile, ExportPdf,
+    FileRepair, Recover, RecoveredDelete, RecoveredList, RecoveredRestore,
 };
 use crate::document::Document;
 use crate::error::CommandError;
@@ -71,6 +71,9 @@ pub struct PreparedSave {
     /// The damaged file kept before this save, if it was the first save
     /// in place of a repaired file.
     original: Option<PathBuf>,
+    /// What the save did before it was taken, such as accepting tracked
+    /// changes (`changes_accepted`), for the commit's warnings.
+    notes: Vec<Value>,
 }
 
 /// A save in place taken on the UI thread, to be written out on another
@@ -89,6 +92,7 @@ pub struct SaveJob {
     rev: u64,
     session: u64,
     number: u64,
+    notes: Vec<Value>,
 }
 
 /// Which save a [`SaveJob`] is, so a caller whose worker never answered
@@ -130,6 +134,7 @@ impl SaveJob {
                 session: self.session,
                 number: self.number,
                 original,
+                notes: self.notes,
             })
         })();
         RenderedSave {
@@ -912,11 +917,16 @@ impl Dispatcher {
         }
         let opts = self.opts;
         let durability = self.durability();
+        refuse_while_saving(
+            self.session
+                .as_ref()
+                .ok_or_else(CommandError::no_document)?,
+        )?;
+        let accepted = self.accept_for_save(&p)?;
         let session = self
             .session
             .as_ref()
             .ok_or_else(CommandError::no_document)?;
-        refuse_while_saving(session)?;
         let Rendered {
             target,
             format,
@@ -1001,7 +1011,73 @@ impl Dispatcher {
             "format": format.name(),
             "bytes": bytes.len(),
             "losses": losses,
-            "warnings": original_warnings(original.as_deref()),
+            "warnings": accepted
+                .into_iter()
+                .chain(original_warnings(original.as_deref()))
+                .collect::<Vec<_>>(),
+        }))
+    }
+
+    /// "Save anyway" to a format that cannot hold tracked changes
+    /// (docs/specs/commands.md, `doc.save`, 2026-10-21): the document takes
+    /// the form the file will hold, as a converting save does. The version
+    /// with its changes marked is set aside first, as a Recovered version
+    /// (docs/specs/journal.md), then every pending change is accepted as
+    /// one undoable step, journaled like any other. Returns the warning
+    /// that says so, or nothing when the save keeps the marks or has none.
+    fn accept_for_save(&mut self, p: &DocSave) -> Result<Option<Value>, CommandError> {
+        let Some(session) = self.session.as_mut() else {
+            return Ok(None);
+        };
+        let target = p.path.as_deref().map(Path::new).or(session.path.as_deref());
+        let format = match (&p.format, target) {
+            (Some(f), _) => FormatId::from_name(f),
+            (None, Some(t)) => FormatId::for_path(t),
+            (None, None) => None,
+        };
+        // A bundle keeps the marks; a format that is not known fails when
+        // the save renders, as before.
+        if !p.allow_lossy
+            || format.is_none_or(|f| f == FormatId::Bundle)
+            || !session.doc.has_changes()
+        {
+            return Ok(None);
+        }
+        let count = session.doc.pending().len();
+        let copy = match &mut session.journal {
+            Some(j) => {
+                let path = j.path().to_path_buf();
+                let jio = |e: std::io::Error| CommandError::io(&path, &e);
+                let contents = j.contents().map_err(jio)?;
+                Some(j.copy_aside(&contents, "marked").map_err(jio)?)
+            }
+            None => None,
+        };
+        let accept = Command::ChangesAccept(ChangesSettle {
+            all: true,
+            ..ChangesSettle::default()
+        });
+        session.execute_with(&accept, &Exec::by(self.writer.clone()))?;
+        let name = format.map_or("this format", |f| f.title());
+        let changes = if count == 1 {
+            "1 pending change".to_string()
+        } else {
+            format!("{count} pending changes")
+        };
+        Ok(Some(match copy {
+            Some(copy) => json!({
+                "code": "changes_accepted",
+                "message": format!(
+                    "{name} cannot hold tracked changes, so saving accepted {changes};                      the version with them marked is kept in {}",
+                    copy.display()
+                ),
+                "details": { "copy": copy.display().to_string(), "count": count },
+            }),
+            None => json!({
+                "code": "changes_accepted",
+                "message": format!("{name} cannot hold tracked changes, so saving accepted {changes}"),
+                "details": { "count": count },
+            }),
         }))
     }
 
@@ -1081,6 +1157,11 @@ impl Dispatcher {
             ));
         };
         refuse_while_saving(session)?;
+        let notes = self.accept_for_save(p)?.into_iter().collect();
+        let session = self
+            .session
+            .as_mut()
+            .ok_or_else(CommandError::no_document)?;
         session.saves += 1;
         session.saving = Some(session.saves);
         Ok(SaveJob {
@@ -1093,6 +1174,7 @@ impl Dispatcher {
             rev: session.rev,
             session: session.id(),
             number: session.saves,
+            notes,
         })
     }
 
@@ -1198,7 +1280,11 @@ impl Dispatcher {
             "bytes": prepared.bytes.len(),
             "losses": prepared.losses,
             "dirty": session.dirty,
-            "warnings": original_warnings(prepared.original.as_deref()),
+            "warnings": prepared
+                .notes
+                .into_iter()
+                .chain(original_warnings(prepared.original.as_deref()))
+                .collect::<Vec<_>>(),
         }))
     }
 
