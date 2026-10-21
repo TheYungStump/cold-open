@@ -33,6 +33,8 @@ pub struct Palette {
     pub find: Color,
     /// Margin bars on blocks an agent changed (editor.md §12).
     pub agent: Color,
+    /// Tracked changes' authors, in slot order (editor.md §17.1).
+    pub changes: [Color; 6],
     /// Markers for notes and other text that does not print.
     pub hidden: Color,
     /// Panels: navigator, hint bar, status bar.
@@ -69,6 +71,14 @@ impl Palette {
         selection: rgba(0x85B7EB, 0.45),
         find: rgba(0xEF9F27, 0.40),
         agent: rgb(0x7F77DD),
+        changes: [
+            rgb(0x0072B2),
+            rgb(0xD55E00),
+            rgb(0x009E73),
+            rgb(0xCC79A7),
+            rgb(0x3C3C99),
+            rgb(0x8F5A00),
+        ],
         hidden: rgb(0xB4B2A9),
         panel: rgb(0xF7F6F3),
         panel_alt: rgb(0xFFFFFF),
@@ -94,6 +104,14 @@ impl Palette {
         selection: rgba(0x185FA5, 0.55),
         find: rgba(0xBA7517, 0.55),
         agent: rgb(0xAFA9EC),
+        changes: [
+            rgb(0x56B4E9),
+            rgb(0xE69F00),
+            rgb(0x3DD6A4),
+            rgb(0xE8A0C8),
+            rgb(0xA8A8FF),
+            rgb(0xD9B26A),
+        ],
         hidden: rgb(0x5F5E5A),
         panel: rgb(0x232326),
         panel_alt: rgb(0x2A2A2D),
@@ -119,6 +137,14 @@ impl Palette {
         selection: rgb(0x1A4DFF),
         find: rgb(0x7A5C00),
         agent: rgb(0xC9A6FF),
+        changes: [
+            rgb(0x00E5FF),
+            rgb(0xFF9E40),
+            rgb(0x7CFF7C),
+            rgb(0xFF8CFF),
+            rgb(0xB8B8FF),
+            rgb(0xFFD9A0),
+        ],
         hidden: rgb(0xFFFFFF),
         panel: rgb(0x000000),
         panel_alt: rgb(0x000000),

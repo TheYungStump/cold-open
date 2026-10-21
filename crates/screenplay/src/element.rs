@@ -220,7 +220,7 @@ impl Element {
         if k == ElementKind::PageBreak && !self.text.is_empty() {
             p.push("a page break has no text".to_string());
         }
-        if k.is_raw_text() && !self.text.is_simple() {
+        if k.is_raw_text() && !self.text.is_raw() {
             p.push(format!(
                 "{k} text is plain: no styles, notes or boneyard runs"
             ));
@@ -254,8 +254,8 @@ impl Element {
         if k == ElementKind::PageBreak {
             self.text = RichText::empty();
         }
-        if k.is_raw_text() && !self.text.is_simple() {
-            self.text = RichText::plain(self.text.plain_text());
+        if k.is_raw_text() && !self.text.is_raw() {
+            self.text = self.text.to_raw();
         }
         if k.is_transparent() {
             self.space_before = None;

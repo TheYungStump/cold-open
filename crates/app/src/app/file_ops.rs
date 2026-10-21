@@ -8,12 +8,12 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use coldopen_core::command::DocSave;
-use coldopen_core::{BlockId, Document, PreparedSave};
+use coldopen_core::{BlockId, CommandError, Document, PreparedSave, RenderedSave, SaveJob};
 use coldopen_screenplay::ElementKind;
 use iced::Task;
 use serde_json::{Value, json};
 
-use super::{App, Message};
+use super::{App, Message, Saving};
 use crate::files::{Ask, with_extension};
 
 /// What waits for the writer's answer to "save the changes?".
@@ -50,6 +50,9 @@ pub enum Prompt {
         overwrite: bool,
         /// A copy written with Save a copy, not the script saved.
         export: bool,
+        /// The pending tracked changes the save would accept, when tracked
+        /// changes are among its losses (editor.md §17.5).
+        tracked: usize,
     },
     /// Another program changed the file since Cold Open last read or saved
     /// it: overwrite, reload, or save as? With the save's `allow_lossy`.
@@ -63,6 +66,10 @@ pub enum Prompt {
     },
     /// Delete this set-aside copy? It cannot be undone.
     DeleteCopy(PathBuf),
+    /// What name should the writer's changes carry? (editor.md §17.4)
+    AuthorName { name: String, then: super::NameThen },
+    /// Accept, or reject, every pending change? (editor.md §17.2)
+    SettleAll { accept: bool, count: usize },
 }
 
 /// The writer's answer to a [`Prompt`].
@@ -81,6 +88,8 @@ pub enum Reply {
     Recover,
     /// Foreign: open the file, keeping the journal aside.
     SetAside,
+    /// Lossy: save as a Cold Open project instead (editor.md §17.5).
+    SaveAsProject,
 }
 
 /// What the recovery dialog shows (editor.md §13).
@@ -102,6 +111,9 @@ pub struct ExportForm {
     pub scene_numbers: bool,
     pub title_page: bool,
     pub watermark: String,
+    /// Print the script with every pending change accepted, instead of
+    /// marked (editor.md §17).
+    pub accepted: bool,
 }
 
 impl Default for ExportForm {
@@ -110,6 +122,7 @@ impl Default for ExportForm {
             scene_numbers: false,
             title_page: true,
             watermark: String::new(),
+            accepted: false,
         }
     }
 }
@@ -358,12 +371,7 @@ impl App {
                     .push(format!("Saved a copy as {}.", super::view::file_name(&path)).into());
             }
             Err(e) if e.code == "lossy_format" => {
-                self.prompt = Some(Prompt::Lossy {
-                    message: e.message,
-                    path: Some(path),
-                    overwrite,
-                    export: true,
-                });
+                self.prompt = Some(self.lossy_prompt(e, Some(path), overwrite, true));
             }
             Err(e) => self
                 .banners
@@ -382,7 +390,11 @@ impl App {
             if matches!(w["class"].as_str(), Some("fixed" | "dropped")) {
                 continue;
             }
-            if w["details"]["copy"].is_string() {
+            if w["code"] == "changes_accepted" {
+                let n = w["details"]["count"].as_u64().unwrap_or(1);
+                self.banners
+                    .push(super::Banner::accepted(n, w["details"]["copy"].is_string()));
+            } else if w["details"]["copy"].is_string() {
                 let b = if w["code"] == "original_kept" {
                     super::Banner::original_kept()
                 } else {
@@ -399,6 +411,64 @@ impl App {
         set_aside
     }
 
+    /// The question for a save that would lose something. When tracked
+    /// changes are among the losses it says so first (editor.md §17.5).
+    pub(super) fn lossy_prompt(
+        &self,
+        e: CommandError,
+        path: Option<PathBuf>,
+        overwrite: bool,
+        export: bool,
+    ) -> Prompt {
+        let losses: Vec<Value> = e
+            .details
+            .as_ref()
+            .and_then(|d| d["losses"].as_array().cloned())
+            .unwrap_or_default();
+        let tracked = if losses.iter().any(|l| l["code"] == "tracked_changes") {
+            self.d.session().map_or(0, |s| s.doc.pending().len().max(1))
+        } else {
+            0
+        };
+        // The heading names the format (view.rs).
+        let message = if tracked > 0 {
+            let others = losses
+                .iter()
+                .any(|l| l["code"] != "tracked_changes" && l["class"] == "lost");
+            let (changes, them) = if tracked == 1 {
+                ("the pending change".to_string(), "it")
+            } else {
+                (format!("all {tracked} pending changes"), "them")
+            };
+            let saving = if export {
+                format!(
+                    "Saving the copy writes it with {changes} accepted. The script keeps {them}."
+                )
+            } else {
+                format!(
+                    "Saving accepts {changes} in the script. The version with {them} marked is kept in Recovered versions."
+                )
+            };
+            format!(
+                "{saving}{}",
+                if others {
+                    " Some other things in this script can't be kept either."
+                } else {
+                    ""
+                }
+            )
+        } else {
+            e.message
+        };
+        Prompt::Lossy {
+            message,
+            path,
+            overwrite,
+            export,
+            tracked,
+        }
+    }
+
     /// Asks before deleting a set-aside copy (editor.md §13).
     pub(super) fn ask_delete(&mut self, copy: PathBuf) -> Task<Message> {
         self.prompt = Some(Prompt::DeleteCopy(copy));
@@ -406,6 +476,9 @@ impl App {
     }
 
     pub(super) fn reply(&mut self, reply: Reply) -> Task<Message> {
+        if matches!(self.prompt, Some(Prompt::AuthorName { .. })) {
+            return self.name_done(reply == Reply::Save);
+        }
         let Some(prompt) = self.prompt.take() else {
             return Task::none();
         };
@@ -442,6 +515,13 @@ impl App {
                 Reply::Save,
             ) => self.save_as(p, true, overwrite),
             (Prompt::Lossy { path: None, .. }, Reply::Save) => self.save(true),
+            (Prompt::Lossy { export: false, .. }, Reply::SaveAsProject) => {
+                self.ask(Ask::SaveAsProject(format!("{}.coldopen", self.stem())))
+            }
+            (Prompt::SettleAll { accept, .. }, Reply::Save) => {
+                self.settle_all(accept);
+                self.after_change(false)
+            }
             (Prompt::Lossy { .. }, Reply::DontSave) => {
                 self.after_save = None;
                 Task::none()
@@ -515,27 +595,21 @@ impl App {
             overwrite,
             ..DocSave::default()
         };
+        // The UI thread only takes a copy of the document; the worker
+        // writes the file out and checks it (journal.md, "Saving off the UI
+        // thread").
+        let rev = self.d.session().map(|s| s.rev);
         match self.d.save_prepare(&p) {
-            Ok(prepared) => {
-                let task = write_on_worker(&prepared);
-                self.saving = Some(prepared);
-                task
-            }
-            Err(e) if e.code == "lossy_format" => {
-                self.prompt = Some(Prompt::Lossy {
-                    message: e.message,
-                    path: None,
-                    overwrite: false,
-                    export: false,
-                });
-                Task::none()
-            }
-            Err(e) if e.code == "file_changed" => {
-                self.prompt = Some(Prompt::Changed {
-                    message: e.message,
-                    allow_lossy,
-                });
-                Task::none()
+            Ok(job) => {
+                self.saving = Some(Saving::Rendering { allow_lossy });
+                let render = render_on_worker(job);
+                // Saving anyway to Fountain or .fdx accepted the pending
+                // changes first (commands.md, `doc.save`): the page, the
+                // navigator and the panel show that now, not at the next key.
+                if self.d.session().map(|s| s.rev) != rev {
+                    return Task::batch([self.after_change(false), render]);
+                }
+                render
             }
             Err(e) => {
                 self.after_save = None;
@@ -546,9 +620,53 @@ impl App {
         }
     }
 
+    /// The worker rendered the file: the journal gets its marker and the
+    /// worker writes the file, or the save ends with the question its
+    /// rendering raised.
+    pub(super) fn rendered(&mut self, r: RenderedSave) -> Task<Message> {
+        let Some(Saving::Rendering { allow_lossy }) = self.saving else {
+            return Task::none();
+        };
+        let e = match self.d.save_mark(r) {
+            Ok(prepared) => {
+                let task = write_on_worker(&prepared);
+                self.saving = Some(Saving::Writing(prepared));
+                return task;
+            }
+            Err(e) => e,
+        };
+        self.saving = None;
+        self.save_again = false;
+        // The writer has moved on (closed, opened another script): what
+        // waited runs, and no question is asked about a script left behind.
+        if let Some(after) = self.waiting.take() {
+            self.after_save = None;
+            if e.code != "save_superseded" {
+                self.banners
+                    .push(format!("The script was not saved: {}", e.message).into());
+            }
+            return self.proceed(after);
+        }
+        match e.code {
+            "lossy_format" => self.prompt = Some(self.lossy_prompt(e, None, false, false)),
+            "file_changed" => {
+                self.prompt = Some(Prompt::Changed {
+                    message: e.message,
+                    allow_lossy,
+                });
+            }
+            _ => {
+                self.after_save = None;
+                self.banners
+                    .push(format!("The script was not saved: {}", e.message).into());
+            }
+        }
+        Task::none()
+    }
+
     /// The worker finished writing the file.
     pub(super) fn saved(&mut self, written: Result<(), String>) -> Task<Message> {
-        let Some(prepared) = self.saving.take() else {
+        let Some(Saving::Writing(prepared)) = self.saving.take() else {
             return Task::none();
         };
         let commit = self
@@ -628,12 +746,7 @@ impl App {
                 }
             }
             Err(e) if e.code == "lossy_format" => {
-                self.prompt = Some(Prompt::Lossy {
-                    message: e.message,
-                    path: Some(path),
-                    overwrite,
-                    export: false,
-                });
+                self.prompt = Some(self.lossy_prompt(e, Some(path), overwrite, false));
                 Task::none()
             }
             Err(e) => {
@@ -649,7 +762,7 @@ impl App {
     pub(super) fn chosen(&mut self, ask: Ask, path: Option<PathBuf>) -> Task<Message> {
         let Some(path) = path else {
             // Cancelled: nothing waits on a save that will not happen.
-            if matches!(ask, Ask::SaveAs(_)) {
+            if matches!(ask, Ask::SaveAs(_) | Ask::SaveAsProject(_)) {
                 self.after_save = None;
             }
             return Task::none();
@@ -661,6 +774,11 @@ impl App {
                 // not the one an added extension makes. A name typed with
                 // no extension keeps the script's format.
                 let target = with_extension(path.clone(), self.ext());
+                let asked = target == path;
+                self.save_as(target, false, asked)
+            }
+            Ask::SaveAsProject(_) => {
+                let target = with_extension(path.clone(), "coldopen");
                 let asked = target == path;
                 self.save_as(target, false, asked)
             }
@@ -720,6 +838,9 @@ impl App {
         });
         if !form.watermark.trim().is_empty() {
             params["watermark"] = json!(form.watermark.trim());
+        }
+        if form.accepted {
+            params["changes"] = json!("accepted");
         }
         if let Some(r) = self.run("export.pdf", params) {
             let warnings = r["warnings"].as_array().map_or(0, Vec::len);
@@ -787,6 +908,33 @@ impl App {
         }
         self.after_change(true)
     }
+}
+
+/// Renders a save on its own thread, so typing never waits on writing the
+/// script out: Fountain's writer, or a project's JSON and deflate, take
+/// tens of milliseconds on a feature script. The outcome comes back as
+/// [`Message::Rendered`].
+fn render_on_worker(job: SaveJob) -> Task<Message> {
+    let ticket = job.ticket();
+    let (tx, rx) = iced::futures::channel::oneshot::channel();
+    let spawned = std::thread::Builder::new()
+        .name("save".into())
+        .spawn(move || {
+            let _ = tx.send(job.render());
+        });
+    let failed = move |why: String| {
+        Message::Rendered(RenderedSave::failed(
+            ticket,
+            CommandError::new("save_failed", why),
+        ))
+    };
+    if let Err(e) = spawned {
+        return Task::done(failed(e.to_string()));
+    }
+    Task::perform(rx, move |r| match r {
+        Ok(r) => Message::Rendered(r),
+        Err(_) => failed("the save stopped before the script was written out".into()),
+    })
 }
 
 /// Writes a prepared save on its own thread, so typing never waits on the

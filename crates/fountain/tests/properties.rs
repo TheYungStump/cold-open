@@ -652,7 +652,7 @@ type Cell = (char, Style);
 fn styled_lines(t: &RichText) -> Vec<Vec<Cell>> {
     let mut lines = vec![Vec::new()];
     for r in t.runs() {
-        if let Run::Text { text, style } = r {
+        if let Run::Text { text, style, .. } = r {
             for c in text.chars() {
                 if c == '\n' {
                     lines.push(Vec::new());

@@ -2,15 +2,22 @@
 //! style, and position in the source text.
 #![deny(clippy::float_arithmetic)]
 
-use coldopen_screenplay::{RichText, Run, Style};
+use coldopen_screenplay::{Marks, RichText, Run, Style};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-/// Character styles a printed cell can have.
+/// Character styles a printed cell can have, and its tracked-change mark
+/// (layout.md §17).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Look {
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
+    /// The cell is a pending deletion, printed struck through.
+    pub strike: bool,
+    /// The change that inserted or deleted the cell (the deletion's, when
+    /// it has both), as its number. Whoever draws the cell gives the
+    /// change's author a color; layout itself knows no authors.
+    pub change: Option<u64>,
 }
 
 impl Look {
@@ -19,6 +26,16 @@ impl Look {
             bold: s.bold,
             italic: s.italic,
             underline: s.underline,
+            ..Look::default()
+        }
+    }
+
+    /// The look of a run with these marks.
+    pub(crate) fn marked(self, m: Marks) -> Look {
+        Look {
+            strike: m.del.is_some(),
+            change: m.del.or(m.ins).map(|c| c.0),
+            ..self
         }
     }
 
@@ -27,6 +44,8 @@ impl Look {
             bold: self.bold || o.bold,
             italic: self.italic || o.italic,
             underline: self.underline || o.underline,
+            strike: self.strike || o.strike,
+            change: self.change.or(o.change),
         }
     }
 }
@@ -219,8 +238,12 @@ impl Builder {
 pub(crate) fn build(rich: &RichText, caps: bool, extra: Look) -> (Text, Notes) {
     let mut b = Builder::new(caps, extra);
     for run in rich.runs() {
-        if let Run::Text { text, style } = run {
-            let look = Look::from_style(*style);
+        // A pending deletion prints only in a print form that shows it
+        // (docs/specs/layout.md §17); otherwise it is not part of the text.
+        if let Run::Text { text, style, marks } = run
+            && !marks.is_deleted()
+        {
+            let look = Look::from_style(*style).marked(*marks);
             for c in text.chars() {
                 b.push_char(c, look);
             }

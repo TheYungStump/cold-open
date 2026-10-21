@@ -6,7 +6,10 @@
 //! can lose"). Since review finding F17.4 the kills also land before,
 //! during and right after saves, and while an agent is attached. Since
 //! phase 4 they also land during .fdx saves and around a Save as that
-//! converts the script to .fdx (docs/specs/editor.md §14).
+//! converts the script to .fdx (docs/specs/editor.md §14). Since phase 5a
+//! they land during tracked typing, accepting and rejecting, undo and redo,
+//! and saves of a Cold Open project, and what comes back must have every
+//! tracked change, marks and all (docs/specs/changes.md, bundle.md).
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -62,6 +65,8 @@ fn replay_line(h: &mut Headless, line: &str) {
     match cmd {
         "char" => h.type_text(rest),
         "mod" => h.shortcut(rest.chars().next().unwrap(), false),
+        "modshift" => h.shortcut(rest.chars().next().unwrap(), true),
+        "action" => h.run(vec![Message::Action(rest.into())]),
         "saveas" => h.run(vec![Message::Chosen(
             Ask::SaveAs(String::new()),
             Some(PathBuf::from(rest)),
@@ -73,6 +78,8 @@ fn replay_line(h: &mut Headless, line: &str) {
                 "backspace" => Named::Backspace,
                 "down" => Named::ArrowDown,
                 "end" => Named::End,
+                "home" => Named::Home,
+                "delete" => Named::Delete,
                 other => panic!("{other}"),
             };
             h.named(k, Modifiers::empty());
@@ -290,6 +297,12 @@ fn fdx_start(dir: &Path) -> PathBuf {
     fdx
 }
 
+/// The document's blocks with their ids, text runs and tracked-change
+/// marks: what must come back when the script holds tracked changes.
+fn marked_of(app: &App) -> String {
+    serde_json::to_string_pretty(&app.d.session().unwrap().doc.blocks).unwrap()
+}
+
 /// Kills the driver at each of `kill_at` while it works through the lines
 /// `lines(home)` gives, on the script `start(home)` makes. After each kill
 /// some file `reopen(home, acked)` names must open, after Keep, on a text
@@ -299,6 +312,17 @@ fn kill_and_check(
     start: &dyn Fn(&Path) -> PathBuf,
     reopen: &dyn Fn(&Path, usize) -> Vec<PathBuf>,
     kill_at: &[usize],
+) {
+    kill_and_compare(lines, start, reopen, kill_at, &text_of);
+}
+
+/// [`kill_and_check`], comparing what `text_of` makes of the document.
+fn kill_and_compare(
+    lines: &dyn Fn(&Path) -> Vec<String>,
+    start: &dyn Fn(&Path) -> PathBuf,
+    reopen: &dyn Fn(&Path, usize) -> Vec<PathBuf>,
+    kill_at: &[usize],
+    text_of: &dyn Fn(&App) -> String,
 ) {
     let home = tempfile::tempdir().unwrap();
     let script = start(home.path());
@@ -490,4 +514,133 @@ fn killing_the_app_with_an_agent_attached_loses_no_acknowledged_edit() {
         }
         h.app.d.discard();
     }
+}
+
+/// The writer's name in the settings of a test home, so opening a script
+/// that tracks the writer asks nothing (editor.md §17.4).
+fn name_the_writer(dir: &Path) {
+    let config = Dirs::under(dir).config;
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::write(config.join("settings.json"), r#"{"author_name": "Dana"}"#).unwrap();
+}
+
+/// The lighthouse scene as a Cold Open project whose writer switch is on.
+fn bundle_start(dir: &Path) -> PathBuf {
+    name_the_writer(dir);
+    let fountain = dir.join("start.fountain");
+    std::fs::write(&fountain, START).unwrap();
+    let bundle = dir.join("lighthouse.coldopen");
+    let mut d = coldopen_core::Dispatcher::new(coldopen_core::Options::default());
+    for (c, p) in [
+        ("doc.open", serde_json::json!({ "path": fountain })),
+        ("changes.track", serde_json::json!({ "writer": true })),
+        ("doc.save", serde_json::json!({ "path": bundle })),
+        ("doc.close", serde_json::json!({})),
+    ] {
+        d.execute(coldopen_core::Command::from_parts(c, p).unwrap())
+            .unwrap();
+    }
+    std::fs::remove_file(&fountain).unwrap();
+    bundle
+}
+
+/// The keys, tracked, with accepts and rejects along the way, an undo and
+/// a redo across a save, and everything accepted near the end.
+fn tracked_lines(save_every: Option<usize>) -> Vec<String> {
+    // First strike "The " out of the script's own text, so pending
+    // deletions go through the kills too.
+    let mut v: Vec<String> = ["key down", "key home"]
+        .into_iter()
+        .chain(["key delete"; 4])
+        .map(String::from)
+        .collect();
+    v.extend(match save_every {
+        Some(n) => keys_with_saves(n),
+        None => keys(),
+    });
+    let save = save_every.map(|_| "mod s".to_string());
+    let at = |v: &Vec<String>, f: f32| (v.len() as f32 * f) as usize;
+    let i = at(&v, 0.25);
+    v.insert(i, "action changes.reject_here".into());
+    let i = at(&v, 0.4);
+    v.splice(
+        i..i,
+        save.iter()
+            .cloned()
+            .chain(["mod z".into(), "modshift z".into(), "mod z".into()]),
+    );
+    let i = at(&v, 0.55);
+    v.insert(i, "action changes.accept_here".into());
+    let i = at(&v, 0.7);
+    v.insert(i, "action changes.reject_scene".into());
+    v.extend(
+        [
+            "action changes.accept_all",
+            "key enter",
+            "char !",
+            "action changes.reject_here",
+            "char ?",
+        ]
+        .map(String::from),
+    );
+    v.extend(save);
+    v
+}
+
+/// Phase 5a: kills during tracked typing, accepting and rejecting, undo
+/// and redo, and saves of a Cold Open project, every seven keys. What
+/// comes back must hold every tracked change the app had acknowledged,
+/// with its marks.
+#[test]
+fn killing_the_app_around_tracked_edits_and_bundle_saves_loses_no_change() {
+    let lines = tracked_lines(Some(7));
+    // A check on the check: the states compared hold marks.
+    let home = tempfile::tempdir().unwrap();
+    let mut h = headless(home.path(), Some(bundle_start(home.path())));
+    for line in &lines[..lines.len() / 2] {
+        replay_line(&mut h, line);
+    }
+    let half = marked_of(&h.app);
+    assert!(
+        half.contains("\"ins\"") && half.contains("\"del\""),
+        "{half}"
+    );
+    h.app.d.discard();
+
+    let mut points = kill_points(lines.len(), 10);
+    // Around the accepts and rejects, and the saves next to them.
+    for (k, l) in lines.iter().enumerate() {
+        if l.starts_with("action") || l == "modshift z" {
+            points.extend([k, k + 1]);
+        }
+    }
+    points.retain(|&p| p >= 1 && p <= lines.len());
+    kill_and_compare(
+        &|_| lines.clone(),
+        &bundle_start,
+        &|dir, _| vec![dir.join("lighthouse.coldopen")],
+        &points,
+        &marked_of,
+    );
+}
+
+/// The same on a Fountain script, never saved: the journal alone carries
+/// the change table, inline in its header (docs/specs/journal.md).
+#[test]
+fn killing_the_app_during_tracked_edits_to_a_fountain_script_loses_no_change() {
+    let mut lines = vec!["action changes.track_mine".to_string()];
+    lines.extend(tracked_lines(None));
+    let start = |dir: &Path| {
+        name_the_writer(dir);
+        let p = dir.join("lighthouse.fountain");
+        std::fs::write(&p, START).unwrap();
+        p
+    };
+    kill_and_compare(
+        &|_| lines.clone(),
+        &start,
+        &|dir, _| vec![dir.join("lighthouse.fountain")],
+        &kill_points(lines.len(), 8),
+        &marked_of,
+    );
 }

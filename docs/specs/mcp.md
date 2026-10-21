@@ -1,7 +1,7 @@
 # MCP server and the agent link
 
 - **Date:** 2026-10-15, updated 2026-10-16
-- **Status:** phase 4 (2026-10-16) adds the tools for .fdx export, file repair and recovered copies (§3); they are being implemented. Implemented (phase 3, 2026-10-15): the server in `crates/mcp`, run as `coldopen mcp`; the link's protocol and transport in `crates/link`, shared by the server and the app; the app's end of the link in `crates/app`. The agent gate (`crates/cli/tests/agent_gate.rs`) runs a real `coldopen mcp` process against the app.
+- **Status:** implemented (phase 3, 2026-10-15): the server in `crates/mcp`, run as `coldopen mcp`; the link's protocol and transport in `crates/link`, shared by the server and the app; the app's end of the link in `crates/app`. The agent gate (`crates/cli/tests/agent_gate.rs`) runs a real `coldopen mcp` process against the app. Phase 4 (2026-10-16) added the tools for .fdx export, file repair and recovered copies (§3). Phase 5a (2026-10-18) adds agent edits as tracked changes (§6.1), the `changes_*` tools, the changes resource and `doc_ids` in the session file; being implemented.
 - **Sources:**
   - `docs/spec.md`: Command interface, "Agents edit in the open", License (`coldopen mcp` and connecting any agent are always free).
   - The phase 3 brief and its approved decisions (2026-10-15).
@@ -21,11 +21,12 @@
 ## 2. Running the server
 
 ```bash
-coldopen mcp [--doc PATH] [--no-attach]
+coldopen mcp [--doc PATH] [--no-attach] [--untracked]
 ```
 
 - **Transport.** The server speaks MCP over standard input and output (the stdio transport), built on the `rmcp` SDK. It supports the protocol revisions that `rmcp` supports, and is tested against the latest.
 - **Starting with a script.** With `--doc`, the server opens or attaches to that script before serving, as `doc_open` would. `--no-attach` never attaches (§5) and always opens the file in this process.
+- **`--untracked`** (2026-10-18) records the agent's edits untracked in scripts the server opens itself (§6.1).
 - **One client per process.** Over stdio each server process has exactly one client, so the open document is that process's state. Tools act on it, and `doc_open` switches it. **Resolution:** the protocol has no sessions, so its advice is to pass state handles explicitly. That advice is aimed at shared servers; a stdio server is never shared, so tools take no document handle.
 - **Server instructions.** The server's instructions tell the agent:
   - to start with `doc_open`;
@@ -43,6 +44,9 @@ coldopen mcp [--doc PATH] [--no-attach]
 | `doc_get`, `doc_export`, `scene_list`, `text_find`, `text_complete`, `history_list`, `recovered_list` | query | `recovered_list` added 2026-10-16. |
 | `block_insert`, `block_set_type`, `block_set_text`, `block_set_attrs`, `block_delete`, `block_split`, `block_join`, `text_insert`, `text_delete`, `text_style`, `text_replace`, `scene_move`, `batch` | edit | Each call is one undo step, labelled `<client name> · <tool>`. |
 | `undo`, `redo` | history | An agent may undo or redo only its own steps (`not_your_step`). |
+| `changes_list` | query | Added 2026-10-18: the pending tracked changes. |
+| `changes_reject` | edit | Added 2026-10-18: an agent may reject only its own changes (§6.1). |
+| `changes_accept`, `changes_track` | writer-only | Added 2026-10-18. Listed, but an agent always gets `writer_only`: accepting a change, and choosing what is tracked, are the writer's. |
 | `export_pdf`, `export_fdx`, `export_fountain` | output | The last two added 2026-10-16. |
 | `file_repair` | file | Added 2026-10-16: writes a repaired copy of an .fdx file to a new path (`docs/specs/commands.md`, "Files"). |
 | `recovered_restore`, `recovered_delete` | writer-only | Added 2026-10-16. Listed, as every command is, but an agent always gets `writer_only`: the writer's set-aside work is theirs to restore or delete (§6). |
@@ -66,6 +70,7 @@ With a document open:
 | `coldopen://doc/pages` | `text/plain` | The page view (`doc.export`, format `pages`). |
 | `coldopen://doc/scenes` | `application/json` | The scene list (`scene.list`). |
 | `coldopen://scene/{id}` (template) | `text/plain` | One scene, heading to end, as Fountain. |
+| `coldopen://doc/changes` | `application/json` | (2026-10-18) The pending tracked changes (`changes.list`). |
 
 - **No document.** With no document open, the list is empty, and reading any of these fails with "resource not found" (JSON-RPC `-32602`).
 - **Updates.** When the document changes, by any author including the writer in the app, the server reports every resource above as updated to clients that subscribed. Opening or closing a document changes the resource list, which the server announces. Clients on revision 2026-07-28 subscribe with `subscriptions/listen`; older clients with `resources/subscribe`. Both are supported.
@@ -87,6 +92,7 @@ When the desktop app has a script open and agent access is on (`docs/specs/edito
 | `endpoint` | Where the app listens (§5.2). |
 | `token` | 64 hex digits: 256 bits from the operating system's random source, new each time the app starts. |
 | `docs` | The canonical paths of the scripts open in the app. |
+| `doc_ids` | (2026-10-18) For each path in `docs`, in the same order, the document's `doc_id` when it is a bundle (`docs/specs/bundle.md` §8), or null. Absent in files from earlier versions; readers that do not know it ignore it. |
 
 - **Writing.** The app writes the file atomically (a temporary file, then a rename), rewrites it whenever the open script changes, and removes it on exit.
 - **Stale files.** At start-up the app deletes files whose process no longer runs.
@@ -169,6 +175,16 @@ Commands still run as the agent, so the undo labels and the `not_your_step` rule
 
 **Choices that are the writer's** (2026-10-16). An agent may not pass `allow_lossy` to `doc_save`: what Fountain drops is the writer's call, which their own save asks about ("Save anyway?"). An agent that wants to save a script holding, say, a Shot changes that element itself, as an undoable step. Nor may an agent pass `overwrite` to `doc_save` or `export_pdf` (`writer_only`): replacing a file another program changed, or any file that is not the open document, is the writer's decision, and an agent would simply pass the flag. An agent saves or exports to a new path instead. Nor (2026-10-16) may an agent restore or delete a set-aside copy (`writer_only`), since the writer is the one shown those copies. §7's reasoning about same-user programs does not cover this: an MCP client is often a model following text it read, so the tools themselves are the boundary.
 
+### 6.1 Agent edits are tracked changes
+
+Added 2026-10-18 (phase 5a). Sources: `docs/spec.md` ("Agents edit in the open"), `docs/specs/changes.md`, the phase 5a brief and its decisions (2026-10-18).
+
+- **By default.** Each document's `tracking.agents` switch is on unless the writer turns it off for that script (`changes.track`, `docs/specs/editor.md` §12). While it is on, every edit an agent makes, attached or not, lands as a tracked change under the agent's name: the client's name from the MCP handshake, or "agent" when it gives none (§5.3). This is decided in core, from the command's author, so the link and `coldopen mcp`'s own dispatcher behave the same, and no client can turn it off: an agent's `tracked: false` fails with `writer_only`.
+- **Settling.** An agent can list changes, and reject its own (`changes_reject`), which withdraws its suggestion. It cannot accept any change, nor reject the writer's or another agent's (`writer_only`, `not_your_change`; `docs/specs/changes.md` §6). It cannot edit away another author's pending marks either (`not_your_change`, §5.4 there).
+- **Undo** is unchanged: an agent may undo its own steps, which removes its marks with them.
+- **Without the app** (§6). A .fountain or .fdx file cannot hold tracked changes, so an agent working on one alone cannot save its tracked edits there: the save is lossy, and accepting a loss is the writer's (`writer_only`). It can save the script as a `.coldopen` bundle at a new path, which keeps them, or leave them in the journal for the writer to recover in the app. **Resolution:** for people who use an agent on a Fountain file without the app, `coldopen mcp --untracked` records the agent's edits untracked in scripts the server opens itself, whatever the script's switch says. The person who configures the MCP server chooses this in their client's settings; an agent cannot change the command line it was started with. It is not document state: each edit's journal entry says whether it was tracked. Attached to the app, the app's switch decides.
+- **Server instructions** add one line: edits are tracked changes the writer reviews, and `text` in blocks is the current text.
+
 ## 7. Security
 
 | Threat | Answer |
@@ -184,7 +200,6 @@ Tokens never appear in logs, errors or the journal.
 
 ## 8. Not yet
 
-- Agent edits as tracked changes, which the writer accepts or rejects (phase 5). Until then they are labelled undo steps.
-- Report resources (phase 5).
+- Report resources (phase 5b). Agent edits as tracked changes arrived in phase 5a (§6.1).
 - Attaching to a script that is open in another `coldopen mcp` or `serve --stdio` process, rather than in the app.
 - Any network transport.

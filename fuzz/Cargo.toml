@@ -77,3 +77,17 @@ path = "fuzz_targets/fdx_write.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "bundle_read"
+path = "fuzz_targets/bundle_read.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "changes"
+path = "fuzz_targets/changes.rs"
+test = false
+doc = false
+bench = false

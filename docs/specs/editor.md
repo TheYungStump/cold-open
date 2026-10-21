@@ -1,7 +1,7 @@
 # The desktop editor
 
 - **Date:** 2026-10-15, updated 2026-10-16
-- **Status:** implemented in `crates/app` (phase 3); the 2026-10-16 changes come from the reviews of phases 1–3. Phase 4 (2026-10-16) adds .fdx files, the repair report, Recovered versions and one command router (§16); they are being implemented.
+- **Status:** implemented in `crates/app` (phase 3); the 2026-10-16 changes come from the reviews of phases 1–3; phase 4 (2026-10-16) added .fdx files, the repair report, Recovered versions and one command router (§16). Phase 5a (2026-10-18) adds bundles and track changes (§17); being implemented.
 - **Sources:**
   - `docs/spec.md`: Writing, Structure and navigation, Comfort, Reliability.
   - The phase 3 brief and its approved decisions (2026-10-15).
@@ -54,12 +54,20 @@
 
   The default follows the operating system's light or dark setting. Printing never uses the screen's colours.
 - **Fonts.** The page is always Courier Prime (`crates/fonts`). Menus, the navigator and dialogs use Atkinson Hyperlegible Next (`crates/fonts`, `ui` feature). Both are bundled, so the app looks the same on every OS.
+- **Tracked changes** (2026-10-18) show on the pages as they print (§17): the page area always lays out the marked form (`docs/specs/changes.md` §9), so the pages on screen are the pages a marked PDF prints.
 
 ## 4. Caret and selection
 
 - **The caret** is a position `(block id, offset)`, with the offset as in `docs/specs/commands.md` ("Positions in text"). It is drawn at the grid cell the layout gives for that position, mapped through the normal form's source map (`docs/specs/fountain.md` §10).
-  - A position in text the normal form trims, such as a trailing space just typed, is drawn one cell further right for each trimmed space, on the same line.
+  - A position in text the normal form trims, such as a trailing space just typed, is drawn one cell further right for each trimmed space, on the same line. The same holds for spaces layout leaves off the end of a line: a .fdx script or a project is laid out unnormalized (`docs/specs/layout.md` §4.8), so a space just typed there reaches the page and wrapping leaves it off its line (2026-10-21; before, the caret stayed put until the next letter came).
   - In a block layout leaves out, because it is empty or holds only spaces, the caret is drawn where the block's first line will go: below the block before it, after the space layout would put between them (none inside a speech, so a new dialogue or parenthetical sits right under the line above), at its kind's column, after any spaces typed, or at the right edge for a right-aligned kind such as a transition (2026-10-15).
+- **Struck text** (2026-10-18; reworked 2026-10-21). The caret's offset counts the current text, so it never stands inside a pending deletion. Struck text therefore gives the caret two places at one offset: just before it, or just after it, before the next character of the current text. The caret records which (`past`).
+  - **Right** from before struck text lands just after it; the next Right steps over the next character. **Left** from just after that character lands just after the struck text, and the next Left just before it. Before 2026-10-21 one move jumped the struck text and the character after it.
+  - **Shift** with Left or Right extends the selection the same way, one side of the struck text at a time. A selection of struck text alone selects no current text: Delete and Backspace only drop the selection.
+  - **Word moves** and moves to the end of a block land after the struck text there, as Left does; moves to the start of a block land before it. A click lands after it when it falls on or after the struck text's last cell, and End lands after it at the end of a line.
+  - **Typing and Enter** go where the caret is drawn: before the struck text, or after it (`text.insert` and `block.split` with `after_deleted`, `docs/specs/commands.md`). Backspace that takes text out (untracked, or the writer's own pending insertion) leaves the caret where it was drawn; Backspace that strikes text leaves it before the struck text, ready for the next Backspace, as before.
+  - **An edit by someone else** at the caret's offset keeps the caret on its side of the struck text.
+  - In a block that is a pending deletion the caret can only stand at its start; typing there is refused (`change_pending`), and the banner says to accept or reject the deletion first.
 - **The selection** runs from an anchor position to the caret, and may cross blocks.
 - **When an edit moves text**, its own or an agent's, the caret and anchor move with the text they sit in. If their block is deleted, they move to the nearest remaining block.
 
@@ -229,6 +237,12 @@ Shortcuts are looked up by **action** name: a core command (`undo`, `doc.save`, 
 | `app.agent_disconnect` | — (status bar, palette) |
 | `app.agent_access` (toggle) | — (palette) |
 | `view.theme_system`, `view.theme_light`, `view.theme_dark`, `view.theme_high_contrast` | — (palette) |
+| `changes.accept_here`, `changes.reject_here` (the change at the caret, §17) | Mod+Shift+Enter, Mod+Shift+Backspace |
+| `changes.next`, `changes.previous` | F7, Shift+F7 |
+| `view.changes` (toggle the changes panel) | Mod+Shift+R |
+| `changes.accept_scene`, `changes.reject_scene`, `changes.accept_all`, `changes.reject_all` | — (palette, panel) |
+| `changes.track_mine`, `changes.track_agents` (toggle) | — (palette, status bar) |
+| `app.save_as_project` (Save as a `.coldopen` bundle) | — (palette, the lossy-save question) |
 
 Esc closes the topmost overlay, or the autocomplete list. Movement and editing keys (§4, §5.1) are built in and not listed in the map.
 
@@ -261,20 +275,20 @@ Esc closes the topmost overlay, or the autocomplete list. Movement and editing k
 | Data: `Unsaved/` | `%LOCALAPPDATA%\Cold Open` | `~/Library/Application Support/Cold Open` | `$XDG_DATA_HOME/coldopen` (default `~/.local/share/coldopen`) |
 | Run: agent link session files (`docs/specs/mcp.md`) | `%LOCALAPPDATA%\Cold Open\run` | `~/Library/Application Support/Cold Open/run` | `$XDG_RUNTIME_DIR/coldopen`, or `run/` in the data folder |
 
-`settings.json` holds the theme, zoom, view, panel visibility, agent access (§12) and up to 10 recent files. Like `keymap.json`, an unreadable file is ignored with a banner and never stops the app.
+`settings.json` holds the theme, zoom, view, panel visibility, agent access (§12), the writer's name for tracked changes (`author_name`, 2026-10-18, §17) and up to 10 recent files. Like `keymap.json`, an unreadable file is ignored with a banner and never stops the app.
 
 - **New.** **Resolution:** a new script is created with `doc.new` at `Unsaved/Untitled-<n>.fountain` in the data folder, with `start: "scene_heading"`, so it has a crash journal from its first keystroke and begins clean, on an empty scene heading. A script nobody typed in is never offered as lost work and never asks to be saved. The file itself is written only by "Save as". Mod+S on such a script opens "Save as".
 - **No script open.** After Close, the window shows New, Open and the recent files. Mod+N, Mod+O and the palette work there too.
-- **Open.** A dialog for `.fountain`, `.spmd`, `.txt` and (2026-10-16) `.fdx` files, then `doc.open`. If the result reports a recovery, the recovery dialog opens (§13). If it reports a repair, the repair dialog does (below).
+- **Open.** A dialog for `.fountain`, `.spmd`, `.txt`, (2026-10-16) `.fdx` and (2026-10-18) `.coldopen` files, then `doc.open`. If the result reports a recovery, the recovery dialog opens (§13). If it reports a repair, the repair dialog does (below).
 - **A repaired file** (2026-10-16). When `doc.open` reports `repaired`, a dialog says "Cold Open repaired this file", gives the counts (fixed, dropped) and the first few issues in plain words, with no script text. **OK** (Enter, Esc or O) continues with the repaired script; nothing has been written yet. **Details** (D) shows the whole report. **Save repaired copy…** (S) runs Save as. The first save over the damaged file keeps a hidden copy of it, listed in Recovered versions, and says so in a banner.
 - **Repair a file…** (`app.repair`, 2026-10-16) asks for an .fdx file, then for where to write the repaired copy, runs `file.repair`, and shows the report in the same dialog. The open script is not touched.
 - **Recent files** are listed in the palette and the open dialog, .fdx files included. A script opened, saved as or restored is added.
-- **Save.** `doc.save` runs off the UI thread (`docs/specs/journal.md`, "Saving off the UI thread"). The status bar shows "Saving…" until it is done. Mod+S during a save saves again when it finishes. If Fountain can't hold something in the script, the app says what and asks "Save anyway" (`allow_lossy`) or Cancel.
+- **Save.** `doc.save` runs off the UI thread (`docs/specs/journal.md`, "Saving off the UI thread"): the UI thread only takes a snapshot of the script and appends the journal's marker and header (2026-10-19). The status bar shows "Saving…" until it is done. Mod+S during a save saves again when it finishes. If Fountain can't hold something in the script, the app says what and asks "Save anyway" (`allow_lossy`) or Cancel. Only losses of class `lost` are asked about (2026-10-18; `docs/specs/commands.md`, "Losses"). For a .fountain or .fdx script the question also offers **Save as Cold Open project…** (P), which runs Save as with the `.coldopen` type chosen and the script's name, so nothing is dropped (`docs/spec.md`: never silently drop data). Pending tracked changes are such a loss (`tracked_changes`).
 - **Changed by another program** (2026-10-16). If the save fails with `file_changed`, the app says the file was changed by another program and asks: **Save as…** (Enter or A, the default, which keeps both versions), **Overwrite** (O: saves again with `overwrite`), **Reload** (R: `doc.revert`, which keeps a copy of the unsaved changes, and a banner names it), or Cancel (Esc or C). A pending close or quit waits on the answer, as for "Save anyway".
-- **Save as.** A dialog, then `doc.save` with `path`, on the UI thread. PDF export passes `overwrite` the same way. The dialog offers Fountain (`.fountain`) and FDX (`.fdx`); the extension of the name chosen decides the format, so Save as converts (`docs/specs/commands.md`), and what the new format cannot hold is asked about first, as "Save anyway" does. A name typed without an extension gets the extension of the script's own format (2026-10-16; before, always `.fountain`).
+- **Save as.** A dialog, then `doc.save` with `path`, on the UI thread. PDF export passes `overwrite` the same way. The dialog offers Fountain (`.fountain`), FDX (`.fdx`) and (2026-10-18) Cold Open project (`.coldopen`); the extension of the name chosen decides the format, so Save as converts (`docs/specs/commands.md`), and what the new format cannot hold is asked about first, as "Save anyway" does. A name typed without an extension gets the extension of the script's own format (2026-10-16; before, always `.fountain`).
 - **Export .fdx and Export Fountain** (2026-10-16) save a copy in that format through a dialog (`export.fdx`, `export.fountain`); the open script keeps its own file and format. Losses are asked about as for a save. Moving an untitled script out of `Unsaved/` also removes its old journal. The system's save dialog asks before replacing a file, so the app passes `overwrite` (2026-10-16), except when it added the extension itself: the dialog asked about the name without it.
 - **Close and quit.** With unsaved changes, the app asks: Save, Don't save, or Cancel. Keys: Enter or S saves, D or N doesn't, Esc or C cancels; nothing else runs while it asks. Don't save sends `doc.close` with `discard`. Save finishes the save, including a "Save as" for an untitled script, before closing. The window's close button asks the same question.
-- **Export PDF.** First a small form: scene numbers (Mod+1, off by default), title page (Mod+2, on by default) and a watermark field, which has the keyboard. Enter opens the dialog for the path; then `export.pdf`. A banner gives the page count and the first warning, if any.
+- **Export PDF.** First a small form: scene numbers (Mod+1, off by default), title page (Mod+2, on by default), (2026-10-18) "Print the current text" (Mod+3, off by default: tracked changes print marked, as on screen; shown only when the script has pending changes) and a watermark field, which has the keyboard. Enter opens the dialog for the path; then `export.pdf`. A banner gives the page count and the first warning, if any.
 - **Dialogs.** Open, Save as and Export use the operating system's own file dialogs (the XDG desktop portal on Linux, with no GTK). The app's own questions (unsaved changes, recovery, export options) are drawn in the window, and every button in them has a key.
 - **Leftover work at start-up.** The app checks `Unsaved/` for journals that hold entries, and the recent files for journals that opening them would recover (2026-10-16: this includes a journal holding only the header of a save that never reached the disk). Either means a session ended without saving. It offers to reopen each one, so a crash is recovered even if the writer never reopens the file by hand.
 
@@ -284,7 +298,8 @@ When an agent attaches to the open script through `coldopen mcp` (`docs/specs/mc
 
 - **Status bar.** It shows "<name> connected · N edits" for as long as the link is open. Clicking it offers Disconnect, and Turn off agent access.
 - **Turning access off.** The "agent access" setting (on by default) closes the app's endpoint and removes its session file, so `coldopen mcp` can't find or attach to the script.
-- **Margin marks.** Each block an agent changed gets a violet bar in the left margin. The bar stays until the writer edits that block, or the "Dismiss agent marks" action clears all of them.
+- **Tracked by default** (2026-10-18). While the script's agent switch is on (the default), an agent's edits arrive as tracked changes under its name (`docs/specs/mcp.md` §6.1), in its color, and the writer settles them as §17 says. "Track agent edits" in the palette and in the status bar's agent menu turns the switch off or on for this script (`changes.track`, an undoable step). The status bar's agent text adds "· N to review" while the agent has pending changes.
+- **Margin marks.** Each block an agent changed without tracking gets a violet bar in the left margin. The bar stays until the writer edits that block, or the "Dismiss agent marks" action clears all of them. Tracked edits have their own marks (§17) and get no violet bar.
 - **Undo.** Agent steps appear in the undo history with their label, `<name> · <tool>`. Mod+Z undoes the newest step whoever made it. `app.undo_agent` undoes all the agent steps on top of the history, one `undo` each.
 - **Caret.** Agent edits never move the writer's caret except to keep it in the same text (§4).
 
@@ -314,10 +329,10 @@ When an agent attaches to the open script through `coldopen mcp` (`docs/specs/mc
 
 **Resolution:** the app's own tests run it headless (`crates/app/src/headless.rs`): real keyboard, mouse and input-method events go through the real view and widgets, the messages they publish go through `App::update`, and the tasks `update` returns are run, including widget operations such as focus and scrolling, the clipboard, and the save worker. Only the window is missing; frames can still be drawn with tiny-skia. File dialogs are answered by a script (`Dialogs::scripted`).
 
-- **Typing gate** (`crates/app/tests/typing_gate.rs`). A short scene is typed key by key: smart flow, two autocomplete picks, accented letters from the keyboard and from an input method, a pause and an undo, then Mod+S and its "Save as" dialog. The saved file must equal `tests/fixtures/app/gate-scene.fountain` byte for byte.
+- **Typing gate** (`crates/app/tests/typing_gate.rs`). A short scene is typed key by key: smart flow, two autocomplete picks, accented letters from the keyboard and from an input method, a pause and an undo, then Mod+S and its "Save as" dialog. The saved file must equal `tests/fixtures/app/gate-scene.fountain` byte for byte. Since 2026-10-21 the caret is checked after every key, and the keys are typed into a Fountain script, an .fdx script and a project. A typed character must leave the caret one cell right of where that character starts, or on a later line where the text wrapped. The caret must also show in the same place after every key in all three formats.
 - **File flows** (`crates/app/tests/file_flows.rs`): saving in place, close and quit prompts, save as from `Unsaved/`, the recovery dialog after a crash (Keep and Discard), leftover work at start-up, and PDF export options.
 - **The .fdx gates** (2026-10-16): the typing gate's key sequence is also typed into an .fdx script, which must save and read back with nothing lost; the crash gate also kills the app during .fdx saves and during Save as from Fountain to .fdx.
-- **Crash gate** (`crates/app/tests/crash_gate.rs`). The app runs as its own process (`coldopen-driver`), keys go in one at a time, and the process is killed (TerminateProcess or SIGKILL) at points spread over the sequence. Reopening must give back every acknowledged key. Since 2026-10-16 (review finding F17.4) it also saves every seven keys, so kills land before, during and right after saves, and it kills the app while an agent attached through the real link is inserting lines: every edit the agent was told had succeeded must come back.
+- **Crash gate** (`crates/app/tests/crash_gate.rs`). The app runs as its own process (`coldopen-driver`), keys go in one at a time, and the process is killed (TerminateProcess or SIGKILL) at points spread over the sequence. Reopening must give back every acknowledged key. Since 2026-10-16 (review finding F17.4) it also saves every seven keys, so kills land before, during and right after saves, and it kills the app while an agent attached through the real link is inserting lines: every edit the agent was told had succeeded must come back. Since 2026-10-18 it also kills the app while the writer types with tracking on, while changes are accepted and rejected, and during saves of a bundle; reopening must give back every acknowledged change with its marks, authors and times.
 
 ## 15. Not in phase 3
 
@@ -340,5 +355,85 @@ Added 2026-10-16 (phase 4; review finding F18.5). Keys, the palette and its para
 | `doc.save` | Save in place runs off the UI thread; with a path, Save as. Losses and changed files are asked about. | In place only, as the agent; with a path, refused. |
 | `export.pdf`, `export.fdx`, `export.fountain`, `file.repair` | Through a dialog for the path. With params from the form, as given: a file that exists is refused unless `overwrite` is set, and losses unless `allow_lossy` is. | As given, as the agent. `overwrite` and `allow_lossy` are refused (`writer_only`). |
 | `recovered.delete` | Asks first. | Refused, `not_allowed_attached`. |
+| `changes.*` (2026-10-18) | The dispatcher, as the writer. | The dispatcher, as the agent, which refuses what agents may not do (`writer_only`, `not_your_change`). |
 
 Before running anything that opens, closes, reverts or replaces the script, the router waits for a save in flight to finish (before phase 4, opening another script during a background save did not wait). Don't save during that save sets the newer changes aside at once and leaves when the save is written; revert goes back to what that save wrote. Whatever the save's outcome, the step that waited then runs, after any banner about the save. An agent's `doc.save` during the writer's save gets core's `save_in_progress` and tries again. While one of the app's questions is open, only that question's keys reach it; an agent's request that would need a question is refused with `not_allowed_attached` and a message saying the writer is being asked something.
+
+## 17. Track changes
+
+Added 2026-10-18 (phase 5a). Sources: `docs/spec.md` ("Revising", "Agents edit in the open"), `docs/specs/changes.md`, `docs/specs/bundle.md`, the phase 5a brief and the decisions taken with the project's owner (2026-10-18, `docs/progress/phase-5a.md`). The keys, the panel and the look are our own choices.
+
+### 17.1 On the page
+
+- **Insertions** are drawn in their author's color. **Deletions** are drawn struck through, in their author's color. Authors take colors in the order they first appear in the script's change table, the same order the PDF uses (`docs/specs/layout.md` §17):
+
+  | Theme | Colors, in order |
+  | --- | --- |
+  | Light | `#0072B2`, `#D55E00`, `#009E73`, `#CC79A7`, `#3C3C99`, `#8F5A00` (the print colors) |
+  | Dark | `#56B4E9`, `#E69F00`, `#3DD6A4`, `#E8A0C8`, `#A8A8FF`, `#D9B26A` |
+  | High contrast | `#00E5FF`, `#FF9E40`, `#7CFF7C`, `#FF8CFF`, `#B8B8FF`, `#FFD9A0` |
+
+- **A change bar.** Every line holding a mark gets a thin bar in the left margin, in its author's color: the line's first mark when there are several.
+- **Block marks** get a small label in the left margin, in the author's color: "New" for an inserted block, "Deleted" for a deleted one (its text is all struck), "Was Action" (the old type) for a retyped one, "Split" and "Joined" (with a struck ¶ at the end of the line before) for a split or joined block, and "Moved" on a moved scene heading. A deleted empty block, such as a page break, shows its label on an empty line.
+- **The navigator** strikes through a scene whose heading is a pending deletion, and marks a scene holding pending changes with a dot in its first author's color.
+- **The hint bar** shows "Tracking your changes" while the writer's switch is on.
+
+### 17.2 Settling changes
+
+| Action | Keys | Sends |
+| --- | --- | --- |
+| Accept the change at the caret | Mod+Shift+Enter | `changes.accept` with that change's `id` |
+| Reject the change at the caret | Mod+Shift+Backspace | `changes.reject` with that change's `id` |
+| Next or previous change | F7, Shift+F7 | Moves the caret to the start of the next or previous change in document order, round to the other end as find does |
+| Accept or reject in this scene | palette, panel | `changes.accept` or `changes.reject` with `scene` |
+| Accept or reject all | palette, panel | the same, with `all`, after the question "Accept all 12 changes?" (Enter confirms, Esc cancels) |
+
+- **The change at the caret** is the change of the mark the caret touches: the run just before it, else the one just after it, else the block's own mark. With nothing there, the keys do nothing and say so in a banner. With a selection, the change of its first mark is taken.
+- **Each is one undo step**, so Mod+Z gives the change back.
+- **A move that cannot be undone** (`change_conflict`) shows a banner saying the scene's old place is gone; the change stays pending.
+
+### 17.3 The changes panel
+
+`view.changes` (Mod+Shift+R, and the palette) shows a panel on the right of the page area, beside the pages, so the writer reviews while reading them.
+
+- **Rows:** one per pending change, in document order (`changes.list`), with a dot in its author's color, the author's name, when it was made, as the recovery dialog says it ("5 minutes ago", "2 days ago": a relative time needs no time zone, so the app takes no date crate), what it does ("Inserted", "Deleted", "Replaced", "New block", "Changed element", "Split", "Joined", "Moved scene"), the scene's number and heading, and a short excerpt: inserted text as is, deleted text struck.
+- **The chosen row** is outlined in the focus color rather than filled, so the authors' colors keep their contrast in every theme, and it shows small Accept and Reject buttons for the mouse. A click on a row chooses it, moves the caret to the change and gives the panel the keyboard.
+- **Keys** while the panel has the keyboard (F6 moves focus to it):
+  - Up and Down choose a row, stopping at the ends;
+  - Enter moves the caret to the change, scrolling the page to it;
+  - A accepts the change and R rejects it, then the next row is chosen;
+  - Esc gives the keyboard back to the page.
+- **Buttons** at the top: "Accept all" and "Reject all" (asking first, as above), and a filter with "All authors" and each author.
+- **Who is editing** (2026-10-21): under the buttons, "Editing as: Dana", the name the writer's changes carry now ("Writer" with no name set), and a **Change my name…** button (N while the panel has the keyboard) that opens the name question (§17.4).
+- **An empty panel** says "No changes to review."
+- **The status bar** says "N to review" while changes are pending; a click shows or hides the panel.
+- The panel's visibility is kept in `settings.json` (`changes_panel`), as the navigator's is.
+
+### 17.4 The switches and the writer's name
+
+- **Track my changes** (`changes.track_mine`, in the palette and from a click on the hint bar's text) turns the writer's switch on or off (`changes.track` with `writer`). **Track agent edits** (`changes.track_agents`) turns the agents' switch for this script on or off (§12). Each is an undoable step, and a bundle keeps it. A .fountain or .fdx script opens with the defaults: the writer's off and the agents' on.
+- **The writer's name.** The writer's changes carry `author_name` from `settings.json`. It is asked for once (decided with the project's owner, 2026-10-18): when the writer turns on Track my changes, or opens a script whose writer switch is on, and no name is set, a small question asks "What name should your changes carry?", with a field prefilled with "Writer". Enter saves the name in the settings and goes on; Esc goes on without saving, and the changes say "Writer" until a name is set. After Esc it is not asked again until the app restarts. Asking at that point, before anything is typed, means a keystroke never waits on the question. The name can be changed later with **Change my name…** in the changes panel (§17.3) or "Change my name for changes…" in the palette (`app.author_name`; before 2026-10-21 "Set my name for changes", in the palette only). Changes already made keep the name they were made with. Enter with the field cleared (2026-10-21) removes the name from the settings, so the writer's changes carry no name again and show as "Writer"; before, it kept the old name.
+- **Agents' changes** carry the agent's name (§12).
+
+### 17.5 Saving
+
+- **A bundle** (`.coldopen`) keeps every change. **Save as Cold Open project…** (`app.save_as_project`, in the palette and in the lossy-save question, §11) saves the script as one.
+- **A .fountain or .fdx script with pending changes** asks before saving, as for any loss. Under the heading "Fountain can't hold tracked changes" it says (2026-10-21) "Saving accepts all 3 pending changes in the script. The version with them marked is kept in Recovered versions." It offers **Save as Cold Open project…** (P; Enter chooses it whenever tracked changes are among the losses), **Save anyway** (S) and **Cancel** (Esc or C). The project choice is offered for every lossy save of the script itself, since a bundle loses nothing; Enter takes Save anyway when no tracked changes are at stake, as before. "Save a copy as" keeps its two choices: the copy is asked for in that format, and its question says the script keeps its changes.
+- **Save anyway accepts the changes** (2026-10-21, decided with the project's owner after the phase 5a manual test). Before, the file held the script with every change accepted while the script on screen kept them pending, so the two differed and every later save asked again. Now the script takes what the file holds, as a converting save does (phase 4 decision 21). `doc.save` with `allow_lossy` sets the version with the marks aside as a Recovered version, then accepts every pending change in front of the writer as one undo step, then saves (`docs/specs/commands.md`, `doc.save`). The page, the navigator, the changes panel and the status bar show the accepted script as soon as the changes are accepted, while the file is still being written, not at the next key or click (2026-10-21). A notice says "Saving accepted 3 pending changes. The version with them marked is in Recovered versions.", with a button that opens the list. Undo brings the marks back, unsaved; restoring the copy opens the marked version as a new script.
+- **PDF export** prints the marks by default (`docs/specs/layout.md` §17); "Print the current text" (Mod+3 in the export form, shown while changes are pending) prints the script with every change accepted.
+- **The link's session file** lists each open script's `doc_id` when it is a bundle (`docs/specs/mcp.md` §5.1).
+
+### 17.6 Testing
+
+- **Headless tests** (`crates/app/tests/changes.rs`):
+  - tracked typing in each theme's colors;
+  - the caret over struck text: Left, Right, Shift-selection, typing, Backspace and Enter on each side of it (2026-10-21);
+  - accept and reject at the caret and by scene, with undo;
+  - the panel's keys;
+  - the name question: Enter, Esc, a cleared name, and the panel's Change my name…;
+  - the lossy question's Save as Cold Open project;
+  - Save anyway accepting the changes, with the marked version kept;
+  - a bundle saved and reopened with its changes.
+
+  Screenshots of the panel and the marks in all three themes are reviewed.
+- **The agent tests** (`crates/app/tests/agent_link.rs`) attach a real link client, make edits, and check that they arrive tracked under the agent's name, that the writer can accept and reject them, and that the agent cannot settle the writer's.

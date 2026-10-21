@@ -9,13 +9,13 @@ use serde_json::{Value, json};
 
 use crate::author::{Author, Clock};
 use crate::command::{
-    Class, Command, DocClose, DocNew, DocOpen, DocSave, ExportFile, ExportPdf, FileRepair, Recover,
-    RecoveredDelete, RecoveredList, RecoveredRestore,
+    ChangesSettle, Class, Command, DocClose, DocNew, DocOpen, DocSave, ExportFile, ExportPdf,
+    FileRepair, Recover, RecoveredDelete, RecoveredList, RecoveredRestore,
 };
 use crate::document::Document;
 use crate::error::CommandError;
 use crate::flush::{Durability, FlushStatus};
-use crate::format::{FormatId, ReadOut, Written, unsupported};
+use crate::format::{FormatId, ReadOut, unsupported};
 use crate::io::{self, Fingerprint, SourceStyle};
 use crate::journal::{self, Journal, OpenError};
 use crate::session::{Exec, Merge, Session};
@@ -46,6 +46,12 @@ pub struct Dispatcher {
     clock: Clock,
     /// Overrides the durability `opts.fsync` implies.
     durability: Option<Durability>,
+    /// Overrides each document's switch for agents' edits
+    /// (`Session::agent_tracking`).
+    agent_tracking: Option<bool>,
+    /// The writer `execute` runs commands as: their name is what their
+    /// tracked changes carry (docs/specs/commands.md, "Authors").
+    writer: Author,
 }
 
 /// A save in place, prepared on the UI thread so the file can be written
@@ -65,6 +71,99 @@ pub struct PreparedSave {
     /// The damaged file kept before this save, if it was the first save
     /// in place of a repaired file.
     original: Option<PathBuf>,
+    /// What the save did before it was taken, such as accepting tracked
+    /// changes (`changes_accepted`), for the commit's warnings.
+    notes: Vec<Value>,
+}
+
+/// A save in place taken on the UI thread, to be written out on another
+/// (docs/specs/journal.md, "Saving off the UI thread"): a snapshot of the
+/// document and what the save needs to know about the session.
+#[derive(Clone, Debug)]
+pub struct SaveJob {
+    doc: Document,
+    style: SourceStyle,
+    path: PathBuf,
+    params: DocSave,
+    /// What the session last read or wrote, for the check that no other
+    /// program changed the file.
+    disk: Option<Fingerprint>,
+    damaged: bool,
+    rev: u64,
+    session: u64,
+    number: u64,
+    notes: Vec<Value>,
+}
+
+/// Which save a [`SaveJob`] is, so a caller whose worker never answered
+/// can still end it with [`RenderedSave::failed`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SaveTicket {
+    session: u64,
+    number: u64,
+}
+
+impl SaveJob {
+    pub fn ticket(&self) -> SaveTicket {
+        SaveTicket {
+            session: self.session,
+            number: self.number,
+        }
+    }
+
+    /// Step 2, on any thread: writes the document out in its format and
+    /// checks it can be saved: no loss without `allow_lossy`, and a file no
+    /// other program changed. The first save in place of a repaired file
+    /// keeps a copy of it first. Nothing else touches the disk.
+    pub fn render(self) -> RenderedSave {
+        let result = (|| {
+            let r = render_doc(&self.doc, self.style, Some(&self.path), &self.params)?;
+            refuse_if_changed_from(self.disk, &r.target, self.params.overwrite)?;
+            let original = if self.damaged {
+                keep_original(&r.target)?
+            } else {
+                None
+            };
+            Ok(PreparedSave {
+                fingerprint: Fingerprint::of(&r.bytes),
+                target: r.target,
+                bytes: r.bytes,
+                format: r.format.name().to_string(),
+                losses: r.losses,
+                rev: self.rev,
+                session: self.session,
+                number: self.number,
+                original,
+                notes: self.notes,
+            })
+        })();
+        RenderedSave {
+            session: self.session,
+            number: self.number,
+            result,
+        }
+    }
+}
+
+/// A [`SaveJob`] rendered, or the reason it can't be saved, for
+/// [`Dispatcher::save_mark`].
+#[derive(Clone, Debug)]
+pub struct RenderedSave {
+    session: u64,
+    number: u64,
+    result: Result<PreparedSave, CommandError>,
+}
+
+impl RenderedSave {
+    /// The outcome of a save whose rendering never came back, such as a
+    /// worker that could not start: the save ends with `error`.
+    pub fn failed(ticket: SaveTicket, error: CommandError) -> RenderedSave {
+        RenderedSave {
+            session: ticket.session,
+            number: ticket.number,
+            result: Err(error),
+        }
+    }
 }
 
 /// What opening a document would make of its crash journal, worked out
@@ -95,6 +194,8 @@ struct Replayed {
     /// Set when the header names another computer or another path: the
     /// journal was synced or copied here. Details for `journal_foreign`.
     foreign: Option<Value>,
+    /// Warnings recovery adds, such as `change_data_missing`.
+    notes: Vec<Value>,
 }
 
 impl Replayed {
@@ -199,6 +300,28 @@ impl Dispatcher {
             opts,
             clock: Clock::default(),
             durability: None,
+            agent_tracking: None,
+            writer: Author::writer(),
+        }
+    }
+
+    /// Names the writer whose tracked changes `execute` records.
+    pub fn set_writer_name(&mut self, name: Option<String>) {
+        self.writer = Author::Writer { name };
+    }
+
+    /// The writer `execute` runs commands as.
+    pub fn writer(&self) -> &Author {
+        &self.writer
+    }
+
+    /// Tracks agents' edits, or not, whatever each document's switch says,
+    /// as `coldopen mcp --untracked` asks (docs/specs/mcp.md §6.1). Applies
+    /// to documents opened from now on.
+    pub fn set_agent_tracking(&mut self, tracked: Option<bool>) {
+        self.agent_tracking = tracked;
+        if let Some(s) = &mut self.session {
+            s.agent_tracking = tracked;
         }
     }
 
@@ -236,6 +359,14 @@ impl Dispatcher {
         self.session.as_ref()
     }
 
+    /// The open journal's bytes, read through its lock, for tests and
+    /// diagnostics: on Windows the file cannot be read from outside while
+    /// it is locked.
+    #[doc(hidden)]
+    pub fn journal_bytes(&mut self) -> Option<Vec<u8>> {
+        self.session.as_mut()?.journal.as_mut()?.contents().ok()
+    }
+
     /// Replaces the clock used to group typing into undo steps, for tests.
     pub fn set_clock(&mut self, clock: Clock) {
         if let Some(s) = &mut self.session {
@@ -253,12 +384,14 @@ impl Dispatcher {
     ) -> Session {
         let mut s = Session::new(doc, path, format, style);
         s.clock = self.clock.clone();
+        s.agent_tracking = self.agent_tracking;
         s
     }
 
     /// Runs one command as a writer.
     pub fn execute(&mut self, cmd: Command) -> Result<Value, CommandError> {
-        self.execute_as(cmd, &Author::Writer)
+        let writer = self.writer.clone();
+        self.execute_as(cmd, &writer)
     }
 
     /// Runs one command for an author.
@@ -416,15 +549,16 @@ impl Dispatcher {
         self.shutdown();
         let mut doc = Document {
             next_id: 1,
+            doc_id: (format == FormatId::Bundle).then(crate::bundle::new_doc_id),
             ..Default::default()
         };
         if let Some(kind) = p.start
             && let Some(id) = doc.allocate_id()
         {
-            doc.blocks.push(crate::document::Block {
+            doc.blocks.push(crate::document::Block::new(
                 id,
-                element: coldopen_screenplay::Element::new(kind, ""),
-            });
+                coldopen_screenplay::Element::new(kind, ""),
+            ));
         }
         let mut warnings = Vec::new();
         if path.is_none() {
@@ -529,6 +663,7 @@ impl Dispatcher {
                                     ));
                                 }
                                 if r.recover {
+                                    warnings.extend(r.notes.iter().cloned());
                                     j.resume(r.valid_len, r.applied).map_err(|e| jio(e, &j))?;
                                     recovered = json!({
                                         "commands": r.commands,
@@ -611,6 +746,8 @@ impl Dispatcher {
                 merge: Merge::Recorded(entry.merge),
                 seq: Some(entry.seq),
                 step: entry.step.clone(),
+                t: Some(entry.t),
+                semantics: Some(read.header.semantics),
             };
             let outcome = Command::from_parts(&entry.command, entry.params.clone())
                 .map_err(|e| format!("entry {} cannot be read as a command: {e}", entry.seq))
@@ -664,10 +801,33 @@ impl Dispatcher {
         contents: &[u8],
         (disk_bytes, missing): (&[u8], bool),
     ) -> Assessment {
-        let read = match journal::read(contents) {
+        let mut read = match journal::read(contents) {
             Ok(r) => r,
             Err(msg) => return Assessment::Unreadable(msg),
         };
+        // A bundle's journal names its change table, which the bundle on
+        // disk holds; and a bundle that is another document, or none, is a
+        // change by another program (docs/specs/journal.md, "Recovery on
+        // open").
+        let mut notes = Vec::new();
+        let mut elsewhere = false;
+        if read.header.format == FormatId::Bundle && !missing {
+            let found = crate::bundle::identity(disk_bytes);
+            let table = found.as_ref().and_then(|(_, t)| t.as_ref());
+            if read.header.changes_ref.is_some() && !table.is_some_and(|t| read.use_table(t)) {
+                notes.push(warning(
+                    "change_data_missing",
+                    "the project on disk does not hold the change table the crash journal names; the changes it lacks show the author \"Unknown\"",
+                ));
+                elsewhere = true;
+            }
+            let disk_id = found.as_ref().and_then(|(id, _)| id.as_deref());
+            if found.is_none()
+                || (read.header.doc_id.is_some() && disk_id != read.header.doc_id.as_deref())
+            {
+                elsewhere = true;
+            }
+        }
 
         let mut r = self.replay(&read, path, (format, style), read.entries.len());
         if r.diverged {
@@ -694,14 +854,15 @@ impl Dispatcher {
         // It is written in the format the header names, so recovery compares
         // like with like.
         let in_file = |doc: &Document| {
-            let Written { bytes, losses } = read.header.format.get().write(doc, style);
-            losses.is_empty() && bytes == disk_bytes
+            let written = read.header.format.get().write(doc, style);
+            !written.is_lossy() && written.bytes == disk_bytes
         };
-        let external_change = if missing {
-            !known_disk.is_empty()
-        } else {
-            !known_disk.contains(&Fingerprint::of(disk_bytes))
-        };
+        let external_change = elsewhere
+            || if missing {
+                !known_disk.is_empty()
+            } else {
+                !known_disk.contains(&Fingerprint::of(disk_bytes))
+            };
         let recover = if missing {
             true
         } else if commands == 0 {
@@ -724,6 +885,7 @@ impl Dispatcher {
             .then(|| json!({ "host": host, "path": at }));
         Assessment::Replayed(Box::new(Replayed {
             foreign,
+            notes,
             session: replay,
             valid_len,
             applied: applied as u64,
@@ -739,69 +901,7 @@ impl Dispatcher {
     /// Writes the document out for saving and checks it can be saved, without
     /// touching the disk.
     fn render(session: &Session, p: &DocSave) -> Result<Rendered, CommandError> {
-        let target = match (&p.path, &session.path) {
-            (Some(p), _) => PathBuf::from(p),
-            (None, Some(p)) => p.clone(),
-            (None, None) => {
-                return Err(CommandError::new(
-                    "no_path",
-                    "this document has no file yet; give a path",
-                ));
-            }
-        };
-        let format = match &p.format {
-            Some(f) => FormatId::from_name(f).ok_or_else(|| {
-                let f = f.to_ascii_lowercase();
-                CommandError::new(
-                    "unsupported_format",
-                    format!("\"{f}\" is not a supported format in this version; use \"fountain\""),
-                )
-            })?,
-            None => FormatId::for_path(&target).ok_or_else(|| unsupported(&target))?,
-        };
-        // A file whose extension names another format would open as that
-        // format and fail, so the two must agree.
-        if let Some(named) = FormatId::for_path(&target)
-            && named != format
-        {
-            return Err(CommandError::new(
-                "unsupported_format",
-                format!(
-                    "{} is a {} path; it cannot be saved as {}",
-                    target.display(),
-                    named.name(),
-                    format.name()
-                ),
-            ));
-        }
-
-        let written = format.get().write(&session.doc, session.style);
-        let mut losses = session.losses_json(&written.losses);
-        // The file is written as UTF-8, which other programs show wrongly
-        // if they still read it as Windows-1252 (review finding F6).
-        if session.style.encoding == io::Encoding::Windows1252 {
-            losses.push(json!({
-                "id": null,
-                "code": "reencoded",
-                "message": "the file was not UTF-8 and was read as Windows-1252; it will be saved as UTF-8",
-            }));
-        }
-        if !losses.is_empty() && !p.allow_lossy {
-            return Err(CommandError::new(
-                "lossy_format",
-                format!(
-                    "{} cannot hold everything in this document; nothing was saved",
-                    format.title()
-                ),
-            )
-            .with_details(json!({ "losses": losses })));
-        }
-        Ok(Rendered {
-            target,
-            format,
-            bytes: written.bytes,
-            losses,
-        })
+        render_doc(&session.doc, session.style, session.path.as_deref(), p)
     }
 
     fn doc_save(&mut self, p: DocSave, by: &Author) -> Result<Value, CommandError> {
@@ -817,21 +917,36 @@ impl Dispatcher {
         }
         let opts = self.opts;
         let durability = self.durability();
+        refuse_while_saving(
+            self.session
+                .as_ref()
+                .ok_or_else(CommandError::no_document)?,
+        )?;
+        let accepted = self.accept_for_save(&p)?;
         let session = self
             .session
             .as_ref()
             .ok_or_else(CommandError::no_document)?;
-        refuse_while_saving(session)?;
         let Rendered {
             target,
             format,
-            bytes,
+            mut bytes,
             losses,
         } = Self::render(session, &p)?;
         let same_file = session
             .path
             .as_ref()
             .is_some_and(|old| same_path(old, &target));
+        // A bundle first written at a path gets an identity of its own
+        // (docs/specs/bundle.md §8); a save in place keeps it.
+        let new_id = (format == FormatId::Bundle
+            && (!same_file || session.format != FormatId::Bundle || session.doc.doc_id.is_none()))
+        .then(crate::bundle::new_doc_id);
+        if let Some(id) = &new_id {
+            let mut doc = session.doc.clone();
+            doc.doc_id = Some(id.clone());
+            bytes = format.get().write(&doc, session.style).bytes;
+        }
         if same_file {
             refuse_if_changed(session, &target, p.overwrite)?;
         } else if !p.overwrite && target.exists() {
@@ -862,6 +977,9 @@ impl Dispatcher {
             .session
             .as_mut()
             .ok_or_else(CommandError::no_document)?;
+        if let Some(id) = new_id {
+            session.doc.doc_id = Some(id);
+        }
         // A conversion leaves the document in the new format's form before
         // the journal starts again from it.
         if session.format != format {
@@ -893,7 +1011,73 @@ impl Dispatcher {
             "format": format.name(),
             "bytes": bytes.len(),
             "losses": losses,
-            "warnings": original_warnings(original.as_deref()),
+            "warnings": accepted
+                .into_iter()
+                .chain(original_warnings(original.as_deref()))
+                .collect::<Vec<_>>(),
+        }))
+    }
+
+    /// "Save anyway" to a format that cannot hold tracked changes
+    /// (docs/specs/commands.md, `doc.save`, 2026-10-21): the document takes
+    /// the form the file will hold, as a converting save does. The version
+    /// with its changes marked is set aside first, as a Recovered version
+    /// (docs/specs/journal.md), then every pending change is accepted as
+    /// one undoable step, journaled like any other. Returns the warning
+    /// that says so, or nothing when the save keeps the marks or has none.
+    fn accept_for_save(&mut self, p: &DocSave) -> Result<Option<Value>, CommandError> {
+        let Some(session) = self.session.as_mut() else {
+            return Ok(None);
+        };
+        let target = p.path.as_deref().map(Path::new).or(session.path.as_deref());
+        let format = match (&p.format, target) {
+            (Some(f), _) => FormatId::from_name(f),
+            (None, Some(t)) => FormatId::for_path(t),
+            (None, None) => None,
+        };
+        // A bundle keeps the marks; a format that is not known fails when
+        // the save renders, as before.
+        if !p.allow_lossy
+            || format.is_none_or(|f| f == FormatId::Bundle)
+            || !session.doc.has_changes()
+        {
+            return Ok(None);
+        }
+        let count = session.doc.pending().len();
+        let copy = match &mut session.journal {
+            Some(j) => {
+                let path = j.path().to_path_buf();
+                let jio = |e: std::io::Error| CommandError::io(&path, &e);
+                let contents = j.contents().map_err(jio)?;
+                Some(j.copy_aside(&contents, "marked").map_err(jio)?)
+            }
+            None => None,
+        };
+        let accept = Command::ChangesAccept(ChangesSettle {
+            all: true,
+            ..ChangesSettle::default()
+        });
+        session.execute_with(&accept, &Exec::by(self.writer.clone()))?;
+        let name = format.map_or("this format", |f| f.title());
+        let changes = if count == 1 {
+            "1 pending change".to_string()
+        } else {
+            format!("{count} pending changes")
+        };
+        Ok(Some(match copy {
+            Some(copy) => json!({
+                "code": "changes_accepted",
+                "message": format!(
+                    "{name} cannot hold tracked changes, so saving accepted {changes};                      the version with them marked is kept in {}",
+                    copy.display()
+                ),
+                "details": { "copy": copy.display().to_string(), "count": count },
+            }),
+            None => json!({
+                "code": "changes_accepted",
+                "message": format!("{name} cannot hold tracked changes, so saving accepted {changes}"),
+                "details": { "count": count },
+            }),
         }))
     }
 
@@ -946,12 +1130,15 @@ impl Dispatcher {
         Ok((j, false))
     }
 
-    /// Step 1 of a save in place off the UI thread: writes the document out
-    /// and appends a `doc.saved` marker for those bytes. The caller then
-    /// runs `io::atomic_write(&prepared.target, &prepared.bytes)` on any
-    /// thread, and hands the outcome to [`Dispatcher::save_commit`].
-    /// "Save as" (a `path` other than the document's) uses `doc.save`.
-    pub fn save_prepare(&mut self, p: &DocSave) -> Result<PreparedSave, CommandError> {
+    /// Step 1 of a save in place off the UI thread (docs/specs/journal.md,
+    /// "Saving off the UI thread"): takes the session's save token and a
+    /// snapshot of the document, and nothing else, so it costs the UI thread
+    /// about a copy of the document. The caller runs [`SaveJob::render`] on
+    /// any thread, hands the outcome to [`Dispatcher::save_mark`], runs
+    /// `io::atomic_write(&prepared.target, &prepared.bytes)` on any thread,
+    /// and hands that outcome to [`Dispatcher::save_commit`]. "Save as" (a
+    /// `path` other than the document's) uses `doc.save`.
+    pub fn save_prepare(&mut self, p: &DocSave) -> Result<SaveJob, CommandError> {
         let session = self
             .session
             .as_mut()
@@ -963,47 +1150,79 @@ impl Dispatcher {
                 "a save off the UI thread keeps the document's path; use doc.save to save as",
             ));
         }
-        if session.path.is_none() {
+        let Some(path) = session.path.clone() else {
             return Err(CommandError::new(
                 "no_path",
                 "this document has no file yet; give a path",
             ));
-        }
-        refuse_while_saving(session)?;
-        let r = Self::render(session, p)?;
-        refuse_if_changed(session, &r.target, p.overwrite)?;
-        let original = if session.damaged {
-            keep_original(&r.target)?
-        } else {
-            None
         };
-        let fingerprint = Fingerprint::of(&r.bytes);
+        refuse_while_saving(session)?;
+        let notes = self.accept_for_save(p)?.into_iter().collect();
+        let session = self
+            .session
+            .as_mut()
+            .ok_or_else(CommandError::no_document)?;
+        session.saves += 1;
+        session.saving = Some(session.saves);
+        Ok(SaveJob {
+            doc: session.doc.clone(),
+            style: session.style,
+            path,
+            params: p.clone(),
+            disk: session.disk,
+            damaged: session.damaged,
+            rev: session.rev,
+            session: session.id(),
+            number: session.saves,
+            notes,
+        })
+    }
+
+    /// Step 3 of a save in place, back on the UI thread: appends a
+    /// `doc.saved` marker for the bytes about to be written, before they
+    /// are. The marker's place among the entries does not matter: replay
+    /// always starts from the header, and markers only name versions of the
+    /// file the journal knows. If rendering failed (a lossy format without
+    /// `allow_lossy`, a file another program changed), the save ends here
+    /// with that error and its token is given back. A save whose script was
+    /// closed while the worker rendered it still goes ahead, as the writer
+    /// asked: its journal is gone, so it gets no marker, and the commit
+    /// reports `save_superseded`.
+    pub fn save_mark(&mut self, rendered: RenderedSave) -> Result<PreparedSave, CommandError> {
+        let RenderedSave {
+            session: id,
+            number,
+            result,
+        } = rendered;
+        let session = self
+            .session
+            .as_mut()
+            .filter(|s| s.id() == id && s.saving == Some(number));
+        let Some(session) = session else {
+            return result;
+        };
+        let prepared = match result {
+            Ok(p) => p,
+            Err(e) => {
+                session.saving = None;
+                return Err(e);
+            }
+        };
         // A broken journal protects nothing, so it gets no marker; the
         // commit starts it again, which is the only way out of that state.
         if let Some(j) = &mut session.journal
             && !j.is_broken()
         {
-            j.append_saved(fingerprint).map_err(|e| {
-                CommandError::new(
+            if let Err(e) = j.append_saved(prepared.fingerprint) {
+                session.saving = None;
+                return Err(CommandError::new(
                     "journal_error",
                     format!("the crash journal could not be written, so nothing was saved: {e}"),
-                )
-            })?;
+                ));
+            }
             j.flush_now();
         }
-        session.saves += 1;
-        session.saving = Some(session.saves);
-        Ok(PreparedSave {
-            target: r.target,
-            bytes: r.bytes,
-            format: r.format.name().to_string(),
-            losses: r.losses,
-            rev: session.rev,
-            fingerprint,
-            session: session.id(),
-            number: session.saves,
-            original,
-        })
+        Ok(prepared)
     }
 
     /// Step 3 of a save in place: records how the write went, which ends
@@ -1061,7 +1280,11 @@ impl Dispatcher {
             "bytes": prepared.bytes.len(),
             "losses": prepared.losses,
             "dirty": session.dirty,
-            "warnings": original_warnings(prepared.original.as_deref()),
+            "warnings": prepared
+                .notes
+                .into_iter()
+                .chain(original_warnings(prepared.original.as_deref()))
+                .collect::<Vec<_>>(),
         }))
     }
 
@@ -1106,7 +1329,7 @@ impl Dispatcher {
             no_title_page: !p.title_page,
             ..Default::default()
         };
-        let (layout, map) = session.layout(&options);
+        let (layout, map) = session.layout_as(&options, p.changes);
         let fonts = coldopen_layout::Fonts::new()
             .map_err(|e| CommandError::new("internal_error", format!("bundled fonts: {e}")))?;
         let title = session.doc.title_page.get("title").map(|f| {
@@ -1122,6 +1345,7 @@ impl Dispatcher {
             &coldopen_layout::pdf::PdfOptions {
                 watermark: p.watermark.clone(),
                 title,
+                change_slots: session.doc.change_slots(),
             },
         )
         .map_err(|e| CommandError::new("internal_error", e.to_string()))?;
@@ -1188,7 +1412,7 @@ impl Dispatcher {
         }
         let written = format.get().write(&session.doc, SourceStyle::default());
         let losses = session.losses_json(&written.losses);
-        if !losses.is_empty() && !p.allow_lossy {
+        if blocking(&losses) && !p.allow_lossy {
             return Err(CommandError::new(
                 "lossy_format",
                 format!(
@@ -1648,6 +1872,80 @@ fn refuse_document_or_journal(open: Option<&Path>, target: &Path) -> Result<(), 
 /// Keeps a copy of a repaired file as it is, before the first save over it
 /// (docs/specs/journal.md, "Damaged originals"). A file that has gone has
 /// nothing to keep.
+/// Writes a document out for saving and checks it can be saved, without
+/// touching the disk: to `p.path`, or to `own`, the document's own path.
+fn render_doc(
+    doc: &Document,
+    style: SourceStyle,
+    own: Option<&Path>,
+    p: &DocSave,
+) -> Result<Rendered, CommandError> {
+    let target = match (&p.path, own) {
+        (Some(p), _) => PathBuf::from(p),
+        (None, Some(p)) => p.to_path_buf(),
+        (None, None) => {
+            return Err(CommandError::new(
+                "no_path",
+                "this document has no file yet; give a path",
+            ));
+        }
+    };
+    let format = match &p.format {
+        Some(f) => FormatId::from_name(f).ok_or_else(|| {
+            let f = f.to_ascii_lowercase();
+            CommandError::new(
+                "unsupported_format",
+                format!("\"{f}\" is not a supported format in this version; use \"fountain\""),
+            )
+        })?,
+        None => FormatId::for_path(&target).ok_or_else(|| unsupported(&target))?,
+    };
+    // A file whose extension names another format would open as that
+    // format and fail, so the two must agree.
+    if let Some(named) = FormatId::for_path(&target)
+        && named != format
+    {
+        return Err(CommandError::new(
+            "unsupported_format",
+            format!(
+                "{} is a {} path; it cannot be saved as {}",
+                target.display(),
+                named.name(),
+                format.name()
+            ),
+        ));
+    }
+
+    let written = format.get().write(doc, style);
+    let mut losses = crate::session::losses_json(doc, &written.losses);
+    // The file is written as UTF-8, which other programs show wrongly
+    // if they still read it as Windows-1252 (review finding F6).
+    if style.encoding == io::Encoding::Windows1252 {
+        losses.push(json!({
+            "id": null,
+            "code": "reencoded",
+            "class": "lost",
+            "message": "the file was not UTF-8 and was read as Windows-1252; it will be saved as UTF-8",
+        }));
+    }
+    if blocking(&losses) && !p.allow_lossy {
+        return Err(CommandError::new(
+            "lossy_format",
+            format!(
+                "{} cannot hold everything in this document; nothing was saved",
+                format.title()
+            ),
+        )
+        .with_details(json!({ "losses": losses })));
+    }
+    Ok(Rendered {
+        target,
+        format,
+        bytes: written.bytes,
+        losses,
+    })
+}
+
 fn keep_original(target: &Path) -> Result<Option<PathBuf>, CommandError> {
     let bytes = match fs::read(target) {
         Ok(b) => b,
@@ -1684,6 +1982,16 @@ fn refuse_if_changed(
     target: &Path,
     overwrite: bool,
 ) -> Result<(), CommandError> {
+    refuse_if_changed_from(session.disk, target, overwrite)
+}
+
+/// [`refuse_if_changed`] for a save whose session last read or wrote the
+/// bytes `disk` names.
+fn refuse_if_changed_from(
+    disk: Option<Fingerprint>,
+    target: &Path,
+    overwrite: bool,
+) -> Result<(), CommandError> {
     if overwrite {
         return Ok(());
     }
@@ -1692,7 +2000,7 @@ fn refuse_if_changed(
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(CommandError::io(target, &e)),
     };
-    if session.disk == Some(now) {
+    if disk == Some(now) {
         return Ok(());
     }
     let name = target.file_name().map_or_else(
@@ -1870,6 +2178,12 @@ fn writers_work(what: &str) -> CommandError {
     .with_details(json!({ "recovered": true }))
 }
 
+/// Whether losses include one that refuses a save without `allow_lossy`:
+/// any but a `normalized` one (docs/specs/commands.md, "Losses").
+fn blocking(losses: &[Value]) -> bool {
+    losses.iter().any(|l| l["class"] != "normalized")
+}
+
 fn same_path(a: &Path, b: &Path) -> bool {
     match (fs::canonicalize(a), fs::canonicalize(b)) {
         (Ok(x), Ok(y)) => x == y,
@@ -1945,7 +2259,8 @@ mod tests {
             assert_eq!(e.code, "journal_error", "{e}");
             assert!(e.message.contains("save"), "{e}");
             if off_the_ui_thread {
-                let prepared = d.save_prepare(&DocSave::default()).unwrap();
+                let job = d.save_prepare(&DocSave::default()).unwrap();
+                let prepared = d.save_mark(job.render()).unwrap();
                 let written = io::atomic_write(&prepared.target, &prepared.bytes);
                 d.save_commit(prepared, written).unwrap();
             } else {

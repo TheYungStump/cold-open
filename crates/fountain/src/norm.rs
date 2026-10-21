@@ -2,7 +2,7 @@
 //! reader applies, so `parse(write(s)) == normalize(s)` for any script the
 //! writer can express.
 
-use coldopen_screenplay::{Element, ElementKind, RichText, Run, Script, Style, TitleField};
+use coldopen_screenplay::{Element, ElementKind, Marks, RichText, Run, Script, Style, TitleField};
 
 use crate::classify::default_gap;
 
@@ -14,7 +14,7 @@ pub(crate) fn split(rt: &RichText) -> Vec<RLine> {
     let mut lines: Vec<RLine> = vec![Vec::new()];
     for run in rt.runs() {
         match run {
-            Run::Text { text, style } => {
+            Run::Text { text, style, marks } => {
                 for (k, part) in text.split('\n').enumerate() {
                     if k > 0 {
                         lines.push(Vec::new());
@@ -22,7 +22,7 @@ pub(crate) fn split(rt: &RichText) -> Vec<RLine> {
                     if !part.is_empty()
                         && let Some(l) = lines.last_mut()
                     {
-                        l.push(Run::styled(part, *style));
+                        l.push(Run::marked(part, *style, *marks));
                     }
                 }
             }
@@ -71,8 +71,11 @@ pub(crate) fn is_hidden_only(line: &[Run]) -> bool {
     has_hidden(line) && visible(line).trim().is_empty()
 }
 
+/// A character with its style and tracked-change marks (which only a
+/// print form of a document carries; docs/specs/layout.md §17), or a hidden
+/// run.
 enum Cell {
-    C(char, Style),
+    C(char, Style, Marks),
     H(Run),
 }
 
@@ -80,7 +83,9 @@ fn cells(line: &[Run]) -> Vec<Cell> {
     let mut out = Vec::new();
     for r in line {
         match r {
-            Run::Text { text, style } => out.extend(text.chars().map(|c| Cell::C(c, *style))),
+            Run::Text { text, style, marks } => {
+                out.extend(text.chars().map(|c| Cell::C(c, *style, *marks)))
+            }
             h => out.push(Cell::H(h.clone())),
         }
     }
@@ -94,25 +99,27 @@ fn uncells(cells: Vec<Cell>) -> RLine {
     let mut runs = Vec::new();
     let mut text = String::new();
     let mut style = Style::default();
+    let mut marks = Marks::NONE;
     for c in cells {
         match c {
-            Cell::C(ch, s) => {
-                if s != style && !text.is_empty() {
-                    runs.push(Run::styled(std::mem::take(&mut text), style));
+            Cell::C(ch, s, m) => {
+                if (s != style || m != marks) && !text.is_empty() {
+                    runs.push(Run::marked(std::mem::take(&mut text), style, marks));
                 }
                 style = s;
+                marks = m;
                 text.push(ch);
             }
             Cell::H(r) => {
                 if !text.is_empty() {
-                    runs.push(Run::styled(std::mem::take(&mut text), style));
+                    runs.push(Run::marked(std::mem::take(&mut text), style, marks));
                 }
                 runs.push(r);
             }
         }
     }
     if !text.is_empty() {
-        runs.push(Run::styled(text, style));
+        runs.push(Run::marked(text, style, marks));
     }
     RichText::new(runs).into_runs()
 }
@@ -147,7 +154,7 @@ fn edge_chars(line: &[Run]) -> (Option<char>, Option<char>) {
 }
 
 fn is_ws_cell(c: &Cell) -> bool {
-    matches!(c, Cell::C(ch, _) if ch.is_whitespace())
+    matches!(c, Cell::C(ch, _, _) if ch.is_whitespace())
 }
 
 pub(crate) fn trim_start(line: &[Run]) -> RLine {
@@ -157,7 +164,7 @@ pub(crate) fn trim_start(line: &[Run]) -> RLine {
     with_cells(line, |c| {
         let first = c
             .iter()
-            .position(|x| matches!(x, Cell::C(ch, _) if !ch.is_whitespace()))
+            .position(|x| matches!(x, Cell::C(ch, _, _) if !ch.is_whitespace()))
             .unwrap_or(c.len());
         let mut i = 0;
         c.retain(|x| {
@@ -175,7 +182,7 @@ pub(crate) fn trim_end(line: &[Run]) -> RLine {
     with_cells(line, |c| {
         let last = c
             .iter()
-            .rposition(|x| matches!(x, Cell::C(ch, _) if !ch.is_whitespace()))
+            .rposition(|x| matches!(x, Cell::C(ch, _, _) if !ch.is_whitespace()))
             .map_or(0, |p| p + 1);
         let mut i = 0;
         c.retain(|x| {
@@ -193,8 +200,8 @@ pub(crate) fn trim(line: &[Run]) -> RLine {
 fn expand_tabs(line: &[Run]) -> RLine {
     line.iter()
         .map(|r| match r {
-            Run::Text { text, style } if text.contains('\t') => {
-                Run::styled(text.replace('\t', "    "), *style)
+            Run::Text { text, style, marks } if text.contains('\t') => {
+                Run::marked(text.replace('\t', "    "), *style, *marks)
             }
             other => other.clone(),
         })
@@ -206,7 +213,7 @@ fn expand_tabs(line: &[Run]) -> RLine {
 /// seen, so they are dropped. Underline is visible and left alone.
 fn drop_edge_ws_styles(line: &[Run]) -> RLine {
     let styled = line.iter().any(|r| {
-        matches!(r, Run::Text { text, style } if (style.bold || style.italic) && text.contains(char::is_whitespace))
+        matches!(r, Run::Text { text, style, .. } if (style.bold || style.italic) && text.contains(char::is_whitespace))
     });
     if !styled {
         return unchanged(line);
@@ -219,13 +226,13 @@ fn drop_edge_ws_styles(line: &[Run]) -> RLine {
                 .collect();
             let mut k = 0;
             while k < chars.len() {
-                let on = matches!(&c[chars[k]], Cell::C(_, s) if get(s));
+                let on = matches!(&c[chars[k]], Cell::C(_, s, _) if get(s));
                 if !on {
                     k += 1;
                     continue;
                 }
                 let start = k;
-                while k < chars.len() && matches!(&c[chars[k]], Cell::C(_, s) if get(s)) {
+                while k < chars.len() && matches!(&c[chars[k]], Cell::C(_, s, _) if get(s)) {
                     k += 1;
                 }
                 let span = &chars[start..k];
@@ -238,7 +245,7 @@ fn drop_edge_ws_styles(line: &[Run]) -> RLine {
                         .take_while(|&i| is_ws_cell(&c[i])),
                 );
                 for i in clear {
-                    if let Cell::C(_, s) = &mut c[i] {
+                    if let Cell::C(_, s, _) = &mut c[i] {
                         if flag == 0 {
                             s.bold = false;
                         } else {
@@ -257,7 +264,7 @@ fn drop_edge_ws_styles(line: &[Run]) -> RLine {
 /// the edges of a span to the whole line.
 pub(crate) fn clear_ws_styles(line: &[Run], underline: bool) -> RLine {
     let styled = line.iter().any(|r| {
-        matches!(r, Run::Text { text, style }
+        matches!(r, Run::Text { text, style, .. }
             if (style.bold || style.italic || (underline && style.underline))
                 && text.contains(char::is_whitespace))
     });
@@ -266,7 +273,7 @@ pub(crate) fn clear_ws_styles(line: &[Run], underline: bool) -> RLine {
     }
     with_cells(line, |c| {
         for x in c.iter_mut() {
-            if let Cell::C(ch, s) = x
+            if let Cell::C(ch, s, _) = x
                 && ch.is_whitespace()
             {
                 s.bold = false;
@@ -312,9 +319,9 @@ pub(crate) fn untangle_words(line: &[Run]) -> RLine {
             let mut out = Vec::new();
             let mut k = 0;
             while k < word.len() {
-                if matches!(&c[word[k]], Cell::C(_, s) if on(s, f)) {
+                if matches!(&c[word[k]], Cell::C(_, s, _) if on(s, f)) {
                     let start = k;
-                    while k < word.len() && matches!(&c[word[k]], Cell::C(_, s) if on(s, f)) {
+                    while k < word.len() && matches!(&c[word[k]], Cell::C(_, s, _) if on(s, f)) {
                         k += 1;
                     }
                     out.push((start, k));
@@ -347,7 +354,7 @@ pub(crate) fn untangle_words(line: &[Run]) -> RLine {
         for word in &words {
             while let Some(g) = crossing(c, word) {
                 for &i in word {
-                    if let Cell::C(_, s) = &mut c[i] {
+                    if let Cell::C(_, s, _) = &mut c[i] {
                         match g {
                             0 => s.bold = false,
                             1 => s.italic = false,
@@ -554,6 +561,74 @@ pub fn normalize_with_map(script: &Script) -> (Script, Vec<usize>) {
 /// writer reports no losses for, `parse(write(s)).script == normalize(s)`.
 pub fn normalize(script: &Script) -> Script {
     normalize_with_map(script).0
+}
+
+/// Why the normal form changes an element, for the writer's `normalized`
+/// losses (spec §10, review finding F21): one per element it changes, in
+/// element order. `map` is the map `normalize_with_map` gave for `norm`.
+pub(crate) fn normalizations(
+    script: &Script,
+    norm: &Script,
+    map: &[usize],
+) -> Vec<(usize, &'static str)> {
+    use ElementKind::*;
+    let last_printing = script.elements.iter().rposition(|e| e.kind.is_printing());
+    let mut out = Vec::new();
+    let mut k = 0;
+    for (idx, e) in script.elements.iter().enumerate() {
+        let first = k;
+        while k < map.len() && map[k] == idx {
+            k += 1;
+        }
+        let outs = &norm.elements[first..k];
+        if outs.len() == 1 && outs[0] == *e {
+            continue;
+        }
+        if outs.is_empty() {
+            out.push((
+                idx,
+                "this block is written joined to the block before it, as Fountain reads two such blocks",
+            ));
+            continue;
+        }
+        let text = normalize_text(e);
+        let reason = if text != e.text {
+            let raw = split(&e.text);
+            let lines: Vec<String> = raw.iter().map(|l| visible(l)).collect();
+            if e.kind == Action && !e.text.is_empty() && e.text.plain_text().trim().is_empty() {
+                "an action holding only spaces is written empty"
+            } else if lines.iter().any(|l| {
+                l.trim() != l.as_str()
+                    && !(e.kind == Action && !e.centered && l.trim_end() == l.as_str())
+            }) {
+                "spaces at the start or end of a line are not kept"
+            } else if e.kind == Action && lines.iter().any(|l| l.contains('\t')) {
+                "tabs in an action are written as four spaces"
+            } else if merge_hidden_only(raw.clone()).len() != raw.len() {
+                "a line holding only a note or boneyard joins the line next to it"
+            } else {
+                "bold or italic on spaces at the edge of a styled stretch is not kept"
+            }
+        } else if e.kind == Action && split(&e.text).iter().any(|l| is_empty_line(l)) {
+            let lines = split(&e.text);
+            let trailing = lines.iter().rev().take_while(|l| is_empty_line(l)).count();
+            let rest = lines.len() - trailing;
+            let inner = lines[..rest].iter().any(|l| is_empty_line(l));
+            if trailing > 0 && !inner && Some(idx) == last_printing {
+                "blank lines at the end of the script's last action are dropped"
+            } else {
+                "blank lines inside an action are written as spacing between blocks"
+            }
+        } else if outs.len() == 1 && outs[0].space_before != e.space_before {
+            "spacing equal to the usual is written as the usual"
+        } else {
+            // Only the blocks after it were joined to it; each of those is
+            // reported itself.
+            continue;
+        };
+        out.push((idx, reason));
+    }
+    out
 }
 
 #[cfg(test)]

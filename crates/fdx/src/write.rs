@@ -725,7 +725,7 @@ impl<'a> Gen<'a> {
             self.out.push('>');
             let mut any = false;
             for r in line.text.runs() {
-                if let Run::Text { text, style } = r {
+                if let Run::Text { text, style, .. } = r {
                     any = true;
                     self.out.push_str(&format!("{nl}{}", self.indent(4)));
                     self.run(text, *style, &[], 0);
@@ -971,7 +971,7 @@ fn unchanged(kp: &KeptParagraph, blocks: &[Blk<'_>]) -> bool {
 fn plain_runs(e: &Element) -> Vec<RunOut> {
     let mut out = Vec::new();
     for r in e.text.runs() {
-        if let Run::Text { text, style } = r {
+        if let Run::Text { text, style, .. } = r {
             out.push((text.clone(), *style, Vec::new()));
         }
     }
@@ -1022,7 +1022,7 @@ fn carried_runs(c: &Carry<'_>, e: &Element) -> Vec<RunOut> {
         .runs()
         .iter()
         .flat_map(|r| match r {
-            Run::Text { text, style } => text.chars().map(|c| (c, *style)).collect(),
+            Run::Text { text, style, .. } => text.chars().map(|c| (c, *style)).collect(),
             _ => Vec::new(),
         })
         .collect();

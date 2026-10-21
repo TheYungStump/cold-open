@@ -242,9 +242,13 @@ jobs:
 
   # The phase 3 budgets on every OS: headless (layout, memory, journal,
   # keystroke and scrolling with each renderer's full frames) and in a real
-  # window (cold start, typing and scrolling frame to frame). Numbers go to
-  # the job summary and an artifact. Linux asserts the headless budgets that
-  # do not depend on the renderer; everything else is reported.
+  # window (cold start, typing and scrolling frame to frame). Since
+  # 2026-10-19 also the save budgets (docs/spec.md): the journal write per
+  # edit under 1 ms, and for the synthetic 119-page script saved as
+  # Fountain, as .fdx and as a project with tracked changes, a save's UI
+  # thread time under 4 ms and the whole save under 50 ms. Numbers go to the
+  # job summary and an artifact. Linux asserts the headless budgets that do
+  # not depend on the renderer; everything else is reported.
   budgets:
     name: budgets (${{ matrix.os }})
     strategy:

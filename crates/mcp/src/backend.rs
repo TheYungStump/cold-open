@@ -66,6 +66,8 @@ pub struct Backend {
     /// may attach.
     pending: Option<(PathBuf, bool)>,
     pub signals: Signals,
+    /// `--untracked`: agent edits in scripts opened here are not tracked.
+    pub untracked: bool,
 }
 
 fn failure(code: &'static str, message: impl Into<String>) -> Value {
@@ -83,7 +85,17 @@ impl Backend {
             run,
             pending: doc,
             signals: Signals::new(),
+            untracked: false,
         }
+    }
+
+    /// A dispatcher of this process's own, for a script opened here.
+    fn local_dispatcher(&self) -> Box<Dispatcher> {
+        let mut d = Box::new(Dispatcher::new(Options::default()));
+        if self.untracked {
+            d.set_agent_tracking(Some(false));
+        }
+        d
     }
 
     pub fn has_document(&self) -> bool {
@@ -116,7 +128,7 @@ impl Backend {
     /// use.
     fn run_local(&mut self, cmd: Command, by: &Author) -> Value {
         if !matches!(self.mode, Mode::Local(_)) {
-            self.mode = Mode::Local(Box::new(Dispatcher::new(Options::default())));
+            self.mode = Mode::Local(self.local_dispatcher());
         }
         match &mut self.mode {
             Mode::Local(d) => Dispatcher::response(Value::Null, d.execute_as(cmd, by)),
@@ -264,7 +276,7 @@ impl Backend {
         if reopening {
             self.leave();
         }
-        let mut fresh = Box::new(Dispatcher::new(Options::default()));
+        let mut fresh = self.local_dispatcher();
         let mut response = Dispatcher::response(Value::Null, fresh.execute_as(cmd, &by));
         if response["ok"] == true {
             self.leave();

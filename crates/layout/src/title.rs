@@ -296,8 +296,8 @@ fn upper(v: &RichText) -> RichText {
         v.runs()
             .iter()
             .map(|r| match r {
-                coldopen_screenplay::Run::Text { text, style } => {
-                    coldopen_screenplay::Run::styled(text.to_uppercase(), *style)
+                coldopen_screenplay::Run::Text { text, style, marks } => {
+                    coldopen_screenplay::Run::marked(text.to_uppercase(), *style, *marks)
                 }
                 other => other.clone(),
             })

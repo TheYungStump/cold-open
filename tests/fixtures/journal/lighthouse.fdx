@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
+<FinalDraft DocumentType="Script" Template="No" Version="1">
+
+  <Content>
+    <Paragraph Type="Scene Heading">
+      <Text>INT. LIGHTHOUSE - NIGHT</Text>
+    </Paragraph>
+    <Paragraph Type="Action">
+      <Text>The lamp turns. Rain against the glass.</Text>
+    </Paragraph>
+    <Paragraph Type="Character">
+      <Text>MARA</Text>
+    </Paragraph>
+    <Paragraph Type="Parenthetical">
+      <Text>(to herself)</Text>
+    </Paragraph>
+    <Paragraph Type="Dialogue">
+      <Text>Three ships tonight.</Text>
+    </Paragraph>
+    <Paragraph Type="Scene Heading">
+      <Text>EXT. CLIFF PATH - DAWN</Text>
+    </Paragraph>
+    <Paragraph Type="Action">
+      <Text>Gulls wheel over the rocks.</Text>
+    </Paragraph>
+    <Paragraph Type="Character">
+      <Text>TOMAS</Text>
+    </Paragraph>
+    <Paragraph Type="Dialogue">
+      <Text>She kept the light on.</Text>
+    </Paragraph>
+  </Content>
+
+  <TitlePage>
+    <Content>
+      <Paragraph Alignment="Left" LeftIndent="1.50" RightIndent="7.50" SpaceBefore="0">
+        <Text></Text>
+      </Paragraph>
+      <Paragraph Alignment="Center" LeftIndent="1.50" RightIndent="7.50" SpaceBefore="204">
+        <Text>THE KEEPER'S LOG</Text>
+      </Paragraph>
+      <Paragraph Alignment="Center" LeftIndent="1.50" RightIndent="7.50" SpaceBefore="12">
+        <Text>Cold Open tests</Text>
+      </Paragraph>
+    </Content>
+  </TitlePage>
+
+  <ElementSettings Type="Scene Heading">
+    <FontSpec Font="Courier Prime" Size="12" Style="AllCaps"/>
+    <ParagraphSpec Alignment="Left" FirstIndent="0.00" Leading="Regular" LeftIndent="1.50" RightIndent="7.50" SpaceBefore="12" Spacing="1" StartsNewPage="No"/>
+    <Behavior PaginateAs="Scene Heading"/>
+  </ElementSettings>
+
+  <ElementSettings Type="Action">
+    <FontSpec Font="Courier Prime" Size="12" Style=""/>
+    <ParagraphSpec Alignment="Left" FirstIndent="0.00" Leading="Regular" LeftIndent="1.50" RightIndent="7.50" SpaceBefore="12" Spacing="1" StartsNewPage="No"/>
+    <Behavior PaginateAs="Action"/>
+  </ElementSettings>
+
+  <ElementSettings Type="Character">
+    <FontSpec Font="Courier Prime" Size="12" Style="AllCaps"/>
+    <ParagraphSpec Alignment="Left" FirstIndent="0.00" Leading="Regular" LeftIndent="3.70" RightIndent="7.50" SpaceBefore="12" Spacing="1" StartsNewPage="No"/>
+    <Behavior PaginateAs="Character"/>
+  </ElementSettings>
+
+  <ElementSettings Type="Parenthetical">
+    <FontSpec Font="Courier Prime" Size="12" Style=""/>
+    <ParagraphSpec Alignment="Left" FirstIndent="-0.10" Leading="Regular" LeftIndent="3.20" RightIndent="5.20" SpaceBefore="12" Spacing="1" StartsNewPage="No"/>
+    <Behavior PaginateAs="Parenthetical"/>
+  </ElementSettings>
+
+  <ElementSettings Type="Dialogue">
+    <FontSpec Font="Courier Prime" Size="12" Style=""/>
+    <ParagraphSpec Alignment="Left" FirstIndent="0.00" Leading="Regular" LeftIndent="2.50" RightIndent="6.00" SpaceBefore="12" Spacing="1" StartsNewPage="No"/>
+    <Behavior PaginateAs="Dialogue"/>
+  </ElementSettings>
+
+  <ElementSettings Type="Transition">
+    <FontSpec Font="Courier Prime" Size="12" Style="AllCaps"/>
+    <ParagraphSpec Alignment="Right" FirstIndent="0.00" Leading="Regular" LeftIndent="5.50" RightIndent="7.50" SpaceBefore="12" Spacing="1" StartsNewPage="No"/>
+    <Behavior PaginateAs="Transition"/>
+  </ElementSettings>
+
+  <ElementSettings Type="Shot">
+    <FontSpec Font="Courier Prime" Size="12" Style="AllCaps"/>
+    <ParagraphSpec Alignment="Left" FirstIndent="0.00" Leading="Regular" LeftIndent="1.50" RightIndent="7.50" SpaceBefore="12" Spacing="1" StartsNewPage="No"/>
+    <Behavior PaginateAs="Scene Heading"/>
+  </ElementSettings>
+
+  <ElementSettings Type="General">
+    <FontSpec Font="Courier Prime" Size="12" Style=""/>
+    <ParagraphSpec Alignment="Left" FirstIndent="0.00" Leading="Regular" LeftIndent="1.50" RightIndent="7.50" SpaceBefore="12" Spacing="1" StartsNewPage="No"/>
+    <Behavior PaginateAs="General"/>
+  </ElementSettings>
+
+  <ElementSettings Type="Lyric">
+    <FontSpec Font="Courier Prime" Size="12" Style="Italic"/>
+    <ParagraphSpec Alignment="Left" FirstIndent="0.00" Leading="Regular" LeftIndent="2.50" RightIndent="6.00" SpaceBefore="12" Spacing="1" StartsNewPage="No"/>
+    <Behavior PaginateAs="Lyric"/>
+  </ElementSettings>
+
+  <PageLayout BottomMargin="72" BreakDialogueAndActionAtSentences="Yes" DocumentLeading="Normal" HeaderMargin="36" TopMargin="72">
+    <PageSize Height="11.00" Width="8.50"/>
+  </PageLayout>
+
+  <HeaderAndFooter FooterFirstPage="No" FooterVisible="No" HeaderFirstPage="No" HeaderVisible="Yes" StartingPage="1">
+    <Header>
+      <Paragraph Alignment="Right">
+        <DynamicLabel Type="Page #"/>
+        <Text>.</Text>
+      </Paragraph>
+    </Header>
+  </HeaderAndFooter>
+
+  <MoresAndContinueds>
+    <DialogueBreaks AutomaticCharacterContinueds="No" BottomOfPage="Yes" DialogueBottom="(MORE)" DialogueTop="(CONT'D)" TopOfNext="Yes"/>
+    <SceneBreaks ContinuedNumber="No" SceneBottom="(CONTINUED)" SceneBottomOfPage="No" SceneTop="CONTINUED:" SceneTopOfNext="No"/>
+  </MoresAndContinueds>
+
+  <SceneNumberOptions LeftLocation="0.75" RightLocation="7.60" ShowNumbersOnLeft="Yes" ShowNumbersOnRight="Yes"/>
+</FinalDraft>

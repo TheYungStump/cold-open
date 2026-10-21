@@ -27,17 +27,22 @@ pub enum FormatId {
     #[default]
     Fountain,
     Fdx,
+    /// The `.coldopen` project bundle (docs/specs/bundle.md), written
+    /// `"coldopen"` in journal headers.
+    #[serde(rename = "coldopen")]
+    Bundle,
 }
 
 impl FormatId {
     /// Every format, in the order messages list them.
-    pub const ALL: [FormatId; 2] = [FormatId::Fountain, FormatId::Fdx];
+    pub const ALL: [FormatId; 3] = [FormatId::Fountain, FormatId::Fdx, FormatId::Bundle];
 
     /// The name commands use, such as `"fountain"`.
     pub fn name(self) -> &'static str {
         match self {
             FormatId::Fountain => "fountain",
             FormatId::Fdx => "fdx",
+            FormatId::Bundle => "coldopen",
         }
     }
 
@@ -46,6 +51,7 @@ impl FormatId {
         match self {
             FormatId::Fountain => "Fountain",
             FormatId::Fdx => "An .fdx file",
+            FormatId::Bundle => "A Cold Open project",
         }
     }
 
@@ -72,7 +78,14 @@ impl FormatId {
         match self {
             FormatId::Fountain => &Fountain,
             FormatId::Fdx => &Fdx,
+            FormatId::Bundle => &crate::bundle::Bundle,
         }
+    }
+
+    /// Whether the format's files keep tracked changes and their table, so
+    /// a journal header names the table instead of copying it.
+    pub fn holds_changes(self) -> bool {
+        self == FormatId::Bundle
     }
 
     /// For `skip_serializing_if`: Fountain is the default and is not written.
@@ -82,6 +95,7 @@ impl FormatId {
 }
 
 /// A file read into a document.
+#[derive(Debug)]
 pub struct ReadOut {
     pub doc: Document,
     /// How the bytes stored their text, so a save can keep it.
@@ -101,6 +115,66 @@ pub struct Loss {
     /// Stable machine-readable code, such as `shot_element`.
     pub code: String,
     pub message: String,
+    pub class: LossClass,
+}
+
+/// What a loss means for a save (docs/specs/commands.md, "Losses").
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LossClass {
+    /// The format cannot hold it: a save refuses without `allow_lossy`.
+    #[default]
+    Lost,
+    /// Written in the format's normal form, which prints the same: never a
+    /// reason to refuse.
+    Normalized,
+}
+
+impl LossClass {
+    pub fn name(self) -> &'static str {
+        match self {
+            LossClass::Lost => "lost",
+            LossClass::Normalized => "normalized",
+        }
+    }
+}
+
+impl Loss {
+    fn lost(element: Option<usize>, code: impl Into<String>, message: impl Into<String>) -> Loss {
+        Loss {
+            element,
+            code: code.into(),
+            message: message.into(),
+            class: LossClass::Lost,
+        }
+    }
+}
+
+impl Written {
+    /// Whether anything the format could not hold was left out or changed:
+    /// what refuses a save, and what the recovery check counts.
+    pub fn is_lossy(&self) -> bool {
+        self.losses.iter().any(|l| l.class == LossClass::Lost)
+    }
+}
+
+/// The document a format that cannot hold tracked changes writes: as
+/// accepting every change leaves it, with a loss saying so
+/// (docs/specs/changes.md §9).
+fn without_changes(doc: &Document) -> Option<(Document, Loss)> {
+    if !doc.has_changes() {
+        return None;
+    }
+    let n = doc.pending().len();
+    let loss = Loss::lost(
+        None,
+        "tracked_changes",
+        format!(
+            "{n} pending tracked change{} cannot be kept, so the script is written as accepting {} leaves it",
+            if n == 1 { "" } else { "s" },
+            if n == 1 { "it" } else { "them all" }
+        ),
+    );
+    Some((doc.accepted(), loss))
 }
 
 /// A document written out.
@@ -171,18 +245,23 @@ impl Format for Fountain {
     }
 
     fn write(&self, doc: &Document, style: SourceStyle) -> Written {
+        let accepted = without_changes(doc);
+        let doc = accepted.as_ref().map_or(doc, |(d, _)| d);
         let (script, mut losses) = fountain_script(doc);
         let written = coldopen_fountain::write(&script);
         let mut all: Vec<Loss> = written
             .losses
             .into_iter()
-            .map(|l| Loss {
-                element: l.element,
-                code: l.code.to_string(),
-                message: l.message,
-            })
+            .map(|l| Loss::lost(l.element, l.code, l.message))
             .collect();
         all.append(&mut losses);
+        all.extend(accepted.map(|(_, l)| l));
+        all.extend(written.normalized.into_iter().map(|l| Loss {
+            element: l.element,
+            code: l.code.to_string(),
+            message: l.message,
+            class: LossClass::Normalized,
+        }));
         Written {
             bytes: io::encode(&written.text, style),
             losses: all,
@@ -193,6 +272,19 @@ impl Format for Fountain {
         let (script, sources) = coldopen_fountain::normalize_with_source_map(&doc.to_script());
         LayoutForm { script, sources }
     }
+}
+
+/// The bytes a Fountain save of `doc` writes, with every pending change
+/// accepted and the default style, found without checking what is lost:
+/// for a copy that is never read back, a bundle's `script.fountain`
+/// (docs/specs/bundle.md §6). The same bytes as [`Fountain`]'s `write`.
+pub(crate) fn fountain_text(doc: &Document) -> Vec<u8> {
+    let accepted = doc.has_changes().then(|| doc.accepted());
+    let (script, _) = fountain_script(accepted.as_ref().unwrap_or(doc));
+    io::encode(
+        &coldopen_fountain::write_text(&script),
+        SourceStyle::default(),
+    )
 }
 
 /// The script a document writes as Fountain, with what Fountain cannot hold
@@ -206,11 +298,11 @@ fn fountain_script(doc: &Document) -> (Script, Vec<Loss>) {
         .as_deref()
         .is_some_and(|f| *f != PageFormat::default())
     {
-        losses.push(Loss {
-            element: None,
-            code: "page_format".into(),
-            message: "the page and element settings are not kept; Fountain always prints with the default format".into(),
-        });
+        losses.push(Loss::lost(
+            None,
+            "page_format",
+            "the page and element settings are not kept; Fountain always prints with the default format",
+        ));
     }
     let line = doc
         .page_format
@@ -229,29 +321,27 @@ fn fountain_script(doc: &Document) -> (Script, Vec<Loss>) {
         let lines = u8::try_from((pt.0.max(0) + line / 2) / line).unwrap_or(u8::MAX);
         e.space_before = Some(lines);
         if pt.0 % line != 0 {
-            losses.push(Loss {
-                element: Some(i),
-                code: "paragraph_spacing".into(),
-                message: "space above that is not a whole number of lines is written as the nearest number of blank lines".into(),
-            });
+            losses.push(Loss::lost(
+                Some(i),
+                "paragraph_spacing",
+                "space above that is not a whole number of lines is written as the nearest number of blank lines",
+            ));
         }
     }
     if !doc.title_lines.is_empty() && doc.title_page.is_empty() {
         script.title_page = title_keys(&doc.title_lines);
-        losses.push(Loss {
-            element: None,
-            code: "title_page_layout".into(),
-            message:
-                "the title page's positions are not kept; its lines are written as title-page keys"
-                    .into(),
-        });
+        losses.push(Loss::lost(
+            None,
+            "title_page_layout",
+            "the title page's positions are not kept; its lines are written as title-page keys",
+        ));
     }
     if let Some(kept) = &doc.fdx {
         let names = kept.section_names();
-        losses.push(Loss {
-            element: None,
-            code: "fdx_data".into(),
-            message: if names.is_empty() {
+        losses.push(Loss::lost(
+            None,
+            "fdx_data",
+            if names.is_empty() {
                 "data the .fdx file holds for other apps is not kept".into()
             } else {
                 format!(
@@ -259,7 +349,7 @@ fn fountain_script(doc: &Document) -> (Script, Vec<Loss>) {
                     names.join(", ")
                 )
             },
-        });
+        ));
     }
     (script, losses)
 }
@@ -269,7 +359,13 @@ fn fountain_script(doc: &Document) -> (Script, Vec<Loss>) {
 /// can, so later saves do not ask again (docs/specs/commands.md,
 /// "Converting"). None of these parts is changed by an undoable command.
 pub fn adopt(doc: &mut Document, format: FormatId) {
+    // The identity belongs to a bundle; another file is another document.
+    if format != FormatId::Bundle {
+        doc.doc_id = None;
+    }
     match format {
+        // A bundle holds everything.
+        FormatId::Bundle => {}
         FormatId::Fountain => {
             doc.fdx = None;
             doc.page_format = None;
@@ -404,10 +500,7 @@ impl Format for Fdx {
             .elements
             .into_iter()
             .enumerate()
-            .map(|(i, element)| Block {
-                id: BlockId(i as u64 + 1),
-                element,
-            })
+            .map(|(i, element)| Block::new(BlockId(i as u64 + 1), element))
             .collect();
         let spacing: BTreeMap<BlockId, Pt> = read
             .overrides
@@ -422,6 +515,7 @@ impl Format for Fdx {
             title_lines: read.title_lines,
             spacing,
             fdx: Some(Box::new(read.kept)),
+            ..Document::default()
         };
         Ok(ReadOut {
             doc,
@@ -436,19 +530,21 @@ impl Format for Fdx {
     }
 
     fn write(&self, doc: &Document, style: SourceStyle) -> Written {
+        let accepted = without_changes(doc);
+        let doc = accepted.as_ref().map_or(doc, |(d, _)| d);
         let format = doc.page_format.as_deref().cloned().unwrap_or_default();
-        let mut losses = Vec::new();
+        let mut losses: Vec<Loss> = accepted.iter().map(|(_, l)| l.clone()).collect();
         // A Fountain title page is written as the lines it prints as
         // (docs/specs/fdx.md §14.3).
         let converted;
         let title_lines: &[TitleLine] = if doc.title_lines.is_empty() && !doc.title_page.is_empty()
         {
             converted = coldopen_layout::title_lines(&doc.title_page, &format);
-            losses.push(Loss {
-                element: None,
-                code: "title_page_keys".into(),
-                message: "the title page's key names (Title, Author...) have no place in .fdx; its lines are kept".into(),
-            });
+            losses.push(Loss::lost(
+                None,
+                "title_page_keys",
+                "the title page's key names (Title, Author...) have no place in .fdx; its lines are kept",
+            ));
             &converted
         } else {
             &doc.title_lines
@@ -469,10 +565,12 @@ impl Format for Fdx {
             kept: doc.fdx.as_deref(),
             declare_utf8: style.encoding == io::Encoding::Windows1252,
         });
-        losses.extend(written.losses.into_iter().map(|l| Loss {
-            element: l.block.and_then(|id| doc.index_of(BlockId(id))),
-            code: l.code.to_string(),
-            message: l.message,
+        losses.extend(written.losses.into_iter().map(|l| {
+            Loss::lost(
+                l.block.and_then(|id| doc.index_of(BlockId(id))),
+                l.code,
+                l.message,
+            )
         }));
         Written {
             bytes: io::encode(
@@ -526,7 +624,7 @@ pub fn unsupported(path: &Path) -> CommandError {
     CommandError::new(
         "unsupported_format",
         format!(
-            "{} is not a script Cold Open opens: a Fountain file (.fountain, .spmd or .txt) or an .fdx file",
+            "{} is not a script Cold Open opens: a Fountain file (.fountain, .spmd or .txt), an .fdx file or a Cold Open project (.coldopen)",
             path.display()
         ),
     )

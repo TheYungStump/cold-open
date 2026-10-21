@@ -1,5 +1,7 @@
 //! Rich text: a normalized list of runs.
 
+use std::fmt;
+
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Character styles that screenplays use.
@@ -22,39 +24,144 @@ impl Style {
     }
 }
 
+/// A tracked change's id, written `c_<n>` (docs/specs/changes.md).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ChangeId(pub u64);
+
+impl fmt::Display for ChangeId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "c_{}", self.0)
+    }
+}
+
+impl ChangeId {
+    pub fn parse(s: &str) -> Option<ChangeId> {
+        let n = s.strip_prefix("c_")?;
+        if n.is_empty() || !n.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        n.parse().ok().filter(|&n| n > 0).map(ChangeId)
+    }
+}
+
+impl Serialize for ChangeId {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_str(self)
+    }
+}
+
+impl<'de> Deserialize<'de> for ChangeId {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<ChangeId, D::Error> {
+        let s = String::deserialize(d)?;
+        ChangeId::parse(&s)
+            .ok_or_else(|| serde::de::Error::custom(format!("\"{s}\" is not a change id")))
+    }
+}
+
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for ChangeId {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "ChangeId".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "description": "A tracked change's id, such as \"c_4\".",
+            "type": "string",
+            "pattern": "^c_[1-9][0-9]*$"
+        })
+    }
+}
+
+/// The tracked-change marks of a text run (docs/specs/changes.md §2.1).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Marks {
+    /// The run is a pending insertion by this change.
+    pub ins: Option<ChangeId>,
+    /// The run is a pending deletion by this change. It is not part of the
+    /// current text: it takes no offsets and is left out of
+    /// [`RichText::plain_text`].
+    pub del: Option<ChangeId>,
+    /// Print forms only: the deletion prints, struck through, so it counts
+    /// as printed text. Never stored or read from JSON.
+    pub show: bool,
+}
+
+impl Marks {
+    pub const NONE: Marks = Marks {
+        ins: None,
+        del: None,
+        show: false,
+    };
+
+    pub fn is_none(&self) -> bool {
+        self.ins.is_none() && self.del.is_none()
+    }
+
+    /// Whether the run is left out of the current text.
+    pub fn is_deleted(&self) -> bool {
+        self.del.is_some() && !self.show
+    }
+}
+
 /// One piece of a block's text.
 ///
 /// `Note` and `Boneyard` runs are hidden: they never print and take no width,
 /// but they keep their position in the text so they survive a round trip.
+/// A text run marked as a pending deletion is treated like a hidden run for
+/// offsets (docs/specs/commands.md, "Positions in text").
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Run {
-    Text { text: String, style: Style },
+    Text {
+        text: String,
+        style: Style,
+        marks: Marks,
+    },
     Note(String),
     Boneyard(String),
 }
 
 impl Run {
     pub fn plain(text: impl Into<String>) -> Run {
-        Run::Text {
-            text: text.into(),
-            style: Style::PLAIN,
-        }
+        Run::styled(text, Style::PLAIN)
     }
 
     pub fn styled(text: impl Into<String>, style: Style) -> Run {
+        Run::marked(text, style, Marks::NONE)
+    }
+
+    pub fn marked(text: impl Into<String>, style: Style, marks: Marks) -> Run {
         Run::Text {
             text: text.into(),
             style,
+            marks,
         }
     }
 
     pub fn is_hidden(&self) -> bool {
         !matches!(self, Run::Text { .. })
     }
+
+    /// A text run that is not part of the current text: a pending deletion.
+    pub fn is_deleted(&self) -> bool {
+        matches!(self, Run::Text { marks, .. } if marks.is_deleted())
+    }
+
+    /// Hidden, or a pending deletion: takes no offsets.
+    pub fn takes_no_offsets(&self) -> bool {
+        self.is_hidden() || self.is_deleted()
+    }
+
+    pub fn marks(&self) -> Marks {
+        match self {
+            Run::Text { marks, .. } => *marks,
+            _ => Marks::NONE,
+        }
+    }
 }
 
 /// Rich text, always kept in normal form: no empty text runs, and no two
-/// neighbouring text runs with the same style.
+/// neighbouring text runs with the same style and marks.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct RichText {
     runs: Vec<Run>,
@@ -65,20 +172,22 @@ impl RichText {
         let mut out: Vec<Run> = Vec::with_capacity(runs.len());
         for run in runs {
             match run {
-                Run::Text { text, style } => {
+                Run::Text { text, style, marks } => {
                     if text.is_empty() {
                         continue;
                     }
                     if let Some(Run::Text {
                         text: prev,
                         style: prev_style,
+                        marks: prev_marks,
                     }) = out.last_mut()
                         && *prev_style == style
+                        && *prev_marks == marks
                     {
                         prev.push_str(&text);
                         continue;
                     }
-                    out.push(Run::Text { text, style });
+                    out.push(Run::Text { text, style, marks });
                 }
                 hidden => out.push(hidden),
             }
@@ -102,11 +211,15 @@ impl RichText {
         self.runs
     }
 
-    /// The printed text: text runs only, hidden runs skipped.
+    /// The printed text: text runs only, hidden runs skipped. With tracked
+    /// changes this is the current text: pending deletions are left out
+    /// (docs/specs/changes.md §2.1).
     pub fn plain_text(&self) -> String {
         let mut s = String::new();
         for run in &self.runs {
-            if let Run::Text { text, .. } = run {
+            if let Run::Text { text, marks, .. } = run
+                && !marks.is_deleted()
+            {
                 s.push_str(text);
             }
         }
@@ -118,13 +231,43 @@ impl RichText {
         self.runs.is_empty()
     }
 
-    /// True when the text is a single unstyled run or empty, so `text` alone
-    /// describes it fully.
+    /// True when the text is a single unstyled, unmarked run or empty, so
+    /// `text` alone describes it fully.
     pub fn is_simple(&self) -> bool {
+        self.runs.iter().all(|r| match r {
+            Run::Text { style, marks, .. } => style.is_plain() && marks.is_none(),
+            _ => false,
+        })
+    }
+
+    /// True when the text has no styles and no hidden runs, as note and
+    /// boneyard text must be. Tracked-change marks are allowed.
+    pub fn is_raw(&self) -> bool {
         self.runs.iter().all(|r| match r {
             Run::Text { style, .. } => style.is_plain(),
             _ => false,
         })
+    }
+
+    /// The text with styles taken off and hidden runs left out, keeping
+    /// tracked-change marks.
+    pub fn to_raw(&self) -> RichText {
+        RichText::new(
+            self.runs
+                .iter()
+                .filter_map(|r| match r {
+                    Run::Text { text, marks, .. } => {
+                        Some(Run::marked(text.clone(), Style::PLAIN, *marks))
+                    }
+                    _ => None,
+                })
+                .collect(),
+        )
+    }
+
+    /// Whether any run carries a tracked-change mark.
+    pub fn has_marks(&self) -> bool {
+        self.runs.iter().any(|r| !r.marks().is_none())
     }
 
     pub fn has_hidden(&self) -> bool {
@@ -156,7 +299,7 @@ fn is_false(b: &bool) -> bool {
 }
 
 /// JSON form of a run: exactly one of `text`, `note` or `boneyard`, plus
-/// style flags on text runs.
+/// style flags and tracked-change marks on text runs.
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RunRepr {
@@ -169,6 +312,10 @@ struct RunRepr {
     #[serde(default, skip_serializing_if = "is_false")]
     underline: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    ins: Option<ChangeId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    del: Option<ChangeId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     note: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     boneyard: Option<String>,
@@ -177,11 +324,13 @@ struct RunRepr {
 impl Serialize for Run {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         let repr = match self {
-            Run::Text { text, style } => RunRepr {
+            Run::Text { text, style, marks } => RunRepr {
                 text: Some(text.clone()),
                 bold: style.bold,
                 italic: style.italic,
                 underline: style.underline,
+                ins: marks.ins,
+                del: marks.del,
                 note: None,
                 boneyard: None,
             },
@@ -190,6 +339,8 @@ impl Serialize for Run {
                 bold: false,
                 italic: false,
                 underline: false,
+                ins: None,
+                del: None,
                 note: Some(n.clone()),
                 boneyard: None,
             },
@@ -198,6 +349,8 @@ impl Serialize for Run {
                 bold: false,
                 italic: false,
                 underline: false,
+                ins: None,
+                del: None,
                 note: None,
                 boneyard: Some(b.clone()),
             },
@@ -214,13 +367,15 @@ impl schemars::JsonSchema for Run {
 
     fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
         schemars::json_schema!({
-            "description": "A run of text with its style, or a hidden note or boneyard run. Exactly one of text, note and boneyard.",
+            "description": "A run of text with its style, or a hidden note or boneyard run. Exactly one of text, note and boneyard. ins and del name a pending tracked change; in input a del run is left out and ins is ignored.",
             "type": "object",
             "properties": {
                 "text": {"type": "string"},
                 "bold": {"type": "boolean"},
                 "italic": {"type": "boolean"},
                 "underline": {"type": "boolean"},
+                "ins": {"type": "string", "pattern": "^c_[1-9][0-9]*$"},
+                "del": {"type": "string", "pattern": "^c_[1-9][0-9]*$"},
                 "note": {"type": "string"},
                 "boneyard": {"type": "string"}
             },
@@ -238,11 +393,19 @@ impl<'de> Deserialize<'de> for Run {
             italic: r.italic,
             underline: r.underline,
         };
+        let marks = Marks {
+            ins: r.ins,
+            del: r.del,
+            show: false,
+        };
         match (r.text, r.note, r.boneyard) {
-            (Some(text), None, None) => Ok(Run::Text { text, style }),
+            (Some(text), None, None) => Ok(Run::Text { text, style, marks }),
             (None, Some(_), None) | (None, None, Some(_)) if !style.is_plain() => Err(
                 D::Error::custom("bold, italic and underline apply only to text runs"),
             ),
+            (None, Some(_), None) | (None, None, Some(_)) if !marks.is_none() => {
+                Err(D::Error::custom("ins and del apply only to text runs"))
+            }
             (None, Some(n), None) => Ok(Run::Note(n)),
             (None, None, Some(b)) => Ok(Run::Boneyard(b)),
             _ => Err(D::Error::custom(

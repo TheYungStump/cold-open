@@ -35,7 +35,7 @@ fn main() -> iced::Result {
         window.size = iced::Size::new(w, h);
     }
     window.fullscreen = std::env::var_os("COLDOPEN_BENCH_FULLSCREEN").is_some_and(|v| v == "1");
-    iced::application(move || App::new(boot.clone()), App::update, App::view)
+    iced::application(move || App::boot(boot.clone()), App::update, App::view)
         .title(App::title)
         .theme(App::theme)
         .subscription(App::subscription)

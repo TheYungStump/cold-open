@@ -1,0 +1,31 @@
+{"id":1,"command":"doc.open","params":{"path":"lighthouse.fdx"}}
+{"id":2,"command":"block.insert","params":{"after":"b_2","type":"action","text":"A bell rings below."}}
+{"id":3,"command":"block.set_text","params":{"id":"b_7","text":"Gulls wheel over the black rocks."}}
+{"id":4,"command":"text.replace","params":{"find":"ships","with":"boats"}}
+{"id":5,"command":"undo"}
+{"id":6,"command":"block.insert","params":{"before":"b_6","type":"transition","text":"CUT TO:"}}
+{"id":7,"command":"undo"}
+{"id":8,"command":"redo"}
+{"id":9,"command":"block.set_attrs","params":{"id":"b_1","scene_number":"1"}}
+{"id":10,"command":"scene.move","params":{"id":"b_6","before":"b_1"}}
+{"id":11,"command":"block.delete","params":{"id":"b_4"}}
+{"id":12,"command":"undo"}
+{"id":13,"command":"block.set_type","params":{"id":"b_10","type":"lyric"}}
+{"id":14,"command":"text.insert","params":{"id":"b_9","at":22,"text":" "}}
+{"id":15,"command":"text.insert","params":{"id":"b_9","at":23,"text":"A"}}
+{"id":16,"command":"text.insert","params":{"id":"b_9","at":24,"text":"l"}}
+{"id":17,"command":"text.insert","params":{"id":"b_9","at":25,"text":"w"}}
+{"id":18,"command":"text.insert","params":{"id":"b_9","at":26,"text":"a"}}
+{"id":19,"command":"text.insert","params":{"id":"b_9","at":27,"text":"y"}}
+{"id":20,"command":"text.insert","params":{"id":"b_9","at":28,"text":"s"}}
+{"id":21,"command":"text.insert","params":{"id":"b_9","at":29,"text":"."}}
+{"id":22,"command":"text.delete","params":{"id":"b_9","from":29,"to":30}}
+{"id":23,"command":"text.delete","params":{"id":"b_9","from":28,"to":29}}
+{"id":24,"command":"undo"}
+{"id":25,"command":"text.style","params":{"id":"b_2","from":0,"to":8,"italic":true}}
+{"id":26,"command":"batch","params":{"label":"Tidy","commands":[{"command":"block.set_text","params":{"id":"b_7","text":"Gulls over the rocks."}},{"command":"block.insert","params":{"after":"b_9","type":"action","text":"She climbs."}}]}}
+{"id":27,"command":"block.split","params":{"id":"b_2","at":9}}
+{"id":28,"command":"block.join","params":{"id":"b_13"}}
+{"id":29,"command":"undo"}
+{"id":30,"command":"doc.export"}
+{"id":31,"command":"doc.get"}

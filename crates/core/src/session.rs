@@ -4,14 +4,17 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use coldopen_screenplay::{ElementKind, RangeError, RichText, StyleChange, TextRepr};
+use coldopen_screenplay::{
+    ElementKind, Marks, RangeError, RichText, Settle, StyleChange, TextRepr,
+};
 use serde_json::{Value, json};
 
 use crate::author::{Author, Clock};
+use crate::changes::{BlockMarks, ChangeBy, ChangeId, Moved, PrintForm, Retyped, mark_inserted};
 use crate::command::{
     Batch, BatchItem, BlockDelete, BlockInsert, BlockJoin, BlockSetAttrs, BlockSetText,
-    BlockSetType, BlockSplit, Class, Command, SceneMove, TextDelete, TextInsert, TextReplace,
-    TextStyle,
+    BlockSetType, BlockSplit, ChangesSettle, ChangesTrack, Class, Command, SceneMove, TextDelete,
+    TextInsert, TextReplace, TextStyle,
 };
 use crate::document::{Block, BlockId, Document, word_count};
 use crate::error::CommandError;
@@ -19,7 +22,8 @@ use crate::format::{FormatId, LayoutForm, Loss};
 use crate::io::{Fingerprint, SourceStyle};
 use crate::journal::{Journal, StepRef};
 use crate::ops::{Op, Transaction};
-use crate::replace::{find_in, replace_in, replace_one};
+use crate::replace::{Tracked, find_in, replace_in, replace_one};
+use crate::track::{self, TrackCtx};
 use crate::view::View;
 
 /// Typing within this many milliseconds of the last keystroke joins the
@@ -37,6 +41,11 @@ pub struct Exec {
     pub seq: Option<u64>,
     /// Replaying an `undo` or `redo`: the step the entry says it reversed.
     pub step: Option<StepRef>,
+    /// Replaying: the entry's time, which a change the edit makes takes
+    /// (docs/specs/journal.md, "Entries").
+    pub t: Option<u64>,
+    /// Replaying: the journal's `semantics`. Absent for a live command.
+    pub semantics: Option<u32>,
 }
 
 impl Exec {
@@ -139,6 +148,12 @@ pub struct Session {
     /// opened or created. Never goes down.
     pub rev: u64,
     pub clock: Clock,
+    /// Milliseconds since the Unix epoch, for the time of a tracked change.
+    pub wall: Clock,
+    /// Overrides the document's switch for agents' edits in this session:
+    /// `coldopen mcp --untracked` (docs/specs/mcp.md §6.1). Not document
+    /// state; every edit journals the `tracked` it took.
+    pub agent_tracking: Option<bool>,
     undo: Vec<Step>,
     redo: Vec<Step>,
     /// The laid-out document, refreshed when `rev` moves on.
@@ -184,13 +199,35 @@ fn writer_label(cmd: &Command) -> String {
         Command::BlockSplit(_) => "Split block".into(),
         Command::BlockJoin(_) => "Join blocks".into(),
         Command::Batch(b) => b.label.clone().unwrap_or_else(|| "Batch".into()),
+        Command::ChangesAccept(p) => if p.id.is_some() {
+            "Accept change"
+        } else {
+            "Accept changes"
+        }
+        .into(),
+        Command::ChangesReject(p) => if p.id.is_some() {
+            "Reject change"
+        } else {
+            "Reject changes"
+        }
+        .into(),
+        Command::ChangesTrack(_) => "Track changes".into(),
         other => other.name().into(),
     }
 }
 
+/// The system clock in milliseconds since the Unix epoch.
+pub fn wall_clock() -> Clock {
+    Clock::new(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+    })
+}
+
 fn label(cmd: &Command, by: &Author) -> String {
     match by {
-        Author::Writer => writer_label(cmd),
+        Author::Writer { .. } => writer_label(cmd),
         Author::Agent { name, tool } => {
             let tool = tool.clone().unwrap_or_else(|| cmd.name().replace('.', "_"));
             format!("{name} · {tool}")
@@ -220,6 +257,8 @@ impl Session {
             saving: None,
             rev: 0,
             clock: Clock::default(),
+            wall: wall_clock(),
+            agent_tracking: None,
             undo: Vec::new(),
             redo: Vec::new(),
             view: None,
@@ -293,6 +332,10 @@ impl Session {
                 FormatId::from_name(&p.format),
                 p.format.to_ascii_lowercase().as_str(),
             ) {
+                (Some(FormatId::Bundle), _) => Err(CommandError::new(
+                    "unsupported_format",
+                    "a Cold Open project is a zip file, not text; save it with doc.save, or use \"json\" for its blocks",
+                )),
                 (Some(id), _) => {
                     // Text is UTF-8 with LF line ends, whatever the file uses.
                     let written = id.get().write(&self.doc, SourceStyle::default());
@@ -362,6 +405,16 @@ impl Session {
                 serde_json::to_value(c)
                     .map_err(|e| CommandError::new("internal_error", e.to_string()))
             }
+            Command::ChangesList(p) => {
+                let only = match p.scene {
+                    Some(s) => {
+                        let r = self.scope_range(Some(s))?;
+                        Some(self.doc.blocks[r].iter().map(|b| b.id).collect())
+                    }
+                    None => None,
+                };
+                Ok(json!({ "changes": track::list(&self.doc, only.as_ref()) }))
+            }
             Command::HistoryList(_) => {
                 let list = |steps: &[Step]| -> Vec<Value> {
                     steps
@@ -378,13 +431,7 @@ impl Session {
 
     /// Writer losses with element indices turned into block ids.
     pub fn losses_json(&self, losses: &[Loss]) -> Vec<Value> {
-        losses
-            .iter()
-            .map(|l| {
-                let id = l.element.and_then(|i| self.doc.blocks.get(i)).map(|b| b.id);
-                json!({ "id": id, "code": l.code, "message": l.message })
-            })
-            .collect()
+        losses_json(&self.doc, losses)
     }
 
     /// Lays out the document with its page format, title lines and spacing
@@ -396,14 +443,33 @@ impl Session {
         &self,
         options: &coldopen_layout::Options,
     ) -> (coldopen_layout::Layout, Vec<usize>) {
-        let LayoutForm { script, sources } = self.format.get().layout_form(&self.doc);
+        self.layout_as(options, PrintForm::Marked)
+    }
+
+    /// The layout of one of the document's print forms (docs/specs/
+    /// changes.md §9). For the accepted form, the map's indices are into
+    /// the accepted document's blocks, not the session's.
+    pub fn layout_as(
+        &self,
+        options: &coldopen_layout::Options,
+        form: PrintForm,
+    ) -> (coldopen_layout::Layout, Vec<usize>) {
+        let accepted;
+        let doc = match form {
+            PrintForm::Accepted if self.doc.has_changes() => {
+                accepted = self.doc.accepted();
+                &accepted
+            }
+            _ => &self.doc,
+        };
+        let LayoutForm { script, sources } = self.format.get().layout_form(&doc.marked());
         let map: Vec<usize> = sources.elements.iter().map(|e| e.source).collect();
         let options = coldopen_layout::Options {
-            overrides: self.doc.overrides(&map),
-            title_lines: crate::view::layout_options(&self.doc).title_lines,
+            overrides: doc.overrides(&map),
+            title_lines: crate::view::layout_options(doc).title_lines,
             ..options.clone()
         };
-        let format = crate::view::page_format(&self.doc);
+        let format = crate::view::page_format(doc);
         let layout = coldopen_layout::layout(&script, &format, &options);
         (layout, map)
     }
@@ -465,17 +531,38 @@ impl Session {
 
     fn edit(&mut self, cmd: &Command, ex: &Exec) -> Result<Value, CommandError> {
         let next_id = self.doc.next_id;
-        let (inverse, result, resolved) = match self.apply_edit(cmd) {
+        let changes = self.doc.changes.len();
+        let rollback = |s: &mut Session| {
+            s.doc.next_id = next_id;
+            s.doc.changes.truncate(changes);
+        };
+        // A tracked change takes the time of its journal entry, on replay as
+        // when it was made (docs/specs/journal.md, "Entries").
+        let t = ex.t.unwrap_or_else(|| self.wall.now_ms());
+        // An agent's edit must leave other authors' marks as they were
+        // (docs/specs/changes.md §5.4).
+        let by = ChangeBy::of(&ex.by);
+        let before = (!ex.by.is_writer()).then(|| track::others_marks(&self.doc, &by));
+        let (inverse, result, resolved) = match self.apply_edit(cmd, ex, t) {
             Ok(r) => r,
             Err(e) => {
-                self.doc.next_id = next_id;
+                rollback(self);
                 return Err(e);
             }
         };
         let Some(inverse) = inverse else {
-            self.doc.next_id = next_id;
+            rollback(self);
             return Ok(result);
         };
+        if let Some(before) = before
+            && before != track::others_marks(&self.doc, &by)
+        {
+            inverse.apply(&mut self.doc);
+            rollback(self);
+            return Err(track::not_your_change(
+                "this edit would remove or change another author's tracked change",
+            ));
+        }
         let now = self.clock.now_ms();
         let merge = self.should_merge(cmd, ex, now, &inverse);
         // The journal records what was done, defaults filled in, so a
@@ -487,9 +574,10 @@ impl Session {
             &ex.by,
             merge,
             None,
+            t,
         ) {
             inverse.apply(&mut self.doc);
-            self.doc.next_id = next_id;
+            rollback(self);
             return Err(e);
         }
         let group = if ex.by.is_writer() {
@@ -526,24 +614,46 @@ impl Session {
     fn apply_edit(
         &mut self,
         cmd: &Command,
+        ex: &Exec,
+        t: u64,
     ) -> Result<(Option<Transaction>, Value, Command), CommandError> {
+        let mut ctx = TrackCtx::new(&ex.by, t);
+        let table = self.doc.changes.len();
         if let Command::Batch(b) = cmd {
-            return self.apply_batch(b);
+            return self.apply_batch(b, ex, &mut ctx, table);
         }
-        let cmd = self.resolve(cmd);
-        let (tx, result) = self.plan(&cmd)?;
+        let cmd = self.resolve(cmd, ex)?;
+        let (tx, mut result) = self.plan(&cmd, ex, &mut ctx)?;
         if tx.is_empty() {
-            Ok((None, result, cmd))
-        } else {
-            Ok((Some(tx.apply(&mut self.doc)), result, cmd))
+            return Ok((None, result, cmd));
+        }
+        // A change the edit made but left no mark of, as when a tracked
+        // delete only took back the author's own insertion, is not kept.
+        if let Some(c) = ctx.change
+            && !tx.0.iter().any(|op| op_names(op, c))
+        {
+            self.drop_change(c, table);
+            ctx.change = None;
+        }
+        if let (Some(c), Value::Object(m)) = (ctx.change, &mut result) {
+            m.insert("change".into(), json!(c));
+        }
+        Ok((Some(tx.apply(&mut self.doc)), result, cmd))
+    }
+
+    /// Takes back change `c` if this edit added it to the table.
+    fn drop_change(&mut self, c: ChangeId, table: usize) {
+        if c.0 > table as u64 {
+            self.doc.changes.truncate(table);
         }
     }
 
     /// The command with the defaults that depend on the document filled
     /// in (docs/specs/journal.md, "Entries"): the style `text.insert` takes
-    /// from the text around it, and the type `block.split` keeps.
-    fn resolve(&self, cmd: &Command) -> Command {
-        match cmd {
+    /// from the text around it, the type `block.split` keeps, and whether
+    /// the edit is tracked (docs/specs/changes.md §7).
+    fn resolve(&self, cmd: &Command, ex: &Exec) -> Result<Command, CommandError> {
+        let cmd = match cmd {
             Command::TextInsert(p) if p.style.is_none() => {
                 let style = self
                     .doc
@@ -557,12 +667,46 @@ impl Session {
                 ..p.clone()
             }),
             other => other.clone(),
+        };
+        match cmd.tracked() {
+            Some(None) => {
+                let tracked = match ex.semantics {
+                    // Journals from before phase 5a hold no tracked edits.
+                    Some(s) if s < 2 => false,
+                    Some(_) => {
+                        return Err(CommandError::invalid_params(format!(
+                            "{} was journaled without \"tracked\"",
+                            cmd.name()
+                        )));
+                    }
+                    None => self.tracks(&ex.by),
+                };
+                Ok(cmd.with_tracked(tracked))
+            }
+            Some(Some(false)) if !ex.by.is_writer() && self.tracks(&ex.by) => {
+                Err(CommandError::new(
+                    "writer_only",
+                    "an agent's edits are tracked changes in this script; only the writer can turn that off (tracked: false)",
+                ))
+            }
+            _ => Ok(cmd),
+        }
+    }
+
+    /// Whether an author's edits are tracked when an edit does not say.
+    pub fn tracks(&self, by: &Author) -> bool {
+        match (by.is_writer(), self.agent_tracking) {
+            (false, Some(a)) => a,
+            _ => self.doc.tracking.for_author(by),
         }
     }
 
     fn apply_batch(
         &mut self,
         b: &Batch,
+        ex: &Exec,
+        ctx: &mut TrackCtx,
+        table: usize,
     ) -> Result<(Option<Transaction>, Value, Command), CommandError> {
         let mut cmds = Vec::with_capacity(b.commands.len());
         for (i, item) in b.commands.iter().enumerate() {
@@ -586,11 +730,22 @@ impl Session {
         let mut inverses: Vec<Transaction> = Vec::new();
         let mut results = Vec::with_capacity(cmds.len());
         let mut resolved = Vec::with_capacity(cmds.len());
+        let undo = |s: &mut Session, inverses: Vec<Transaction>| {
+            for inv in inverses.into_iter().rev() {
+                inv.apply(&mut s.doc);
+            }
+        };
         for (i, cmd) in cmds.iter().enumerate() {
             // Each edit's defaults depend on the document the edits before
             // it left.
-            let cmd = self.resolve(cmd);
-            match self.plan(&cmd) {
+            let cmd = match self.resolve(cmd, ex) {
+                Ok(c) => c,
+                Err(e) => {
+                    undo(self, inverses);
+                    return Err(at_index(e, i));
+                }
+            };
+            match self.plan(&cmd, ex, ctx) {
                 Ok((tx, r)) => {
                     if !tx.is_empty() {
                         inverses.push(tx.apply(&mut self.doc));
@@ -599,14 +754,33 @@ impl Session {
                     resolved.push(BatchItem::of(&cmd));
                 }
                 Err(e) => {
-                    for inv in inverses.into_iter().rev() {
-                        inv.apply(&mut self.doc);
-                    }
+                    undo(self, inverses);
                     return Err(at_index(e, i));
                 }
             }
         }
-        let result = json!({ "results": results });
+        if let Some(c) = ctx.change
+            && !self
+                .doc
+                .blocks
+                .iter()
+                .any(|b| b.change_ids().any(|x| x == c))
+        {
+            self.drop_change(c, table);
+            ctx.change = None;
+        }
+        // Every tracked edit of a batch records into its one change.
+        if let Some(c) = ctx.change {
+            for r in &mut results {
+                if let Value::Object(m) = r {
+                    m.insert("change".into(), json!(c));
+                }
+            }
+        }
+        let mut result = json!({ "results": results });
+        if let (Some(c), Value::Object(m)) = (ctx.change, &mut result) {
+            m.insert("change".into(), json!(c));
+        }
         let done = Command::Batch(Batch {
             commands: resolved,
             label: b.label.clone(),
@@ -674,6 +848,7 @@ impl Session {
     fn history(&mut self, cmd: &Command, ex: &Exec) -> Result<Value, CommandError> {
         let is_undo = matches!(cmd, Command::Undo(_));
         let key = if is_undo { "undone" } else { "redone" };
+        let t = ex.t.unwrap_or_else(|| self.wall.now_ms());
         // Replaying an undo or redo of a step made before the journal's
         // header: the rebuilt history cannot hold that step, so the entry
         // carries it (review finding C1).
@@ -746,7 +921,7 @@ impl Session {
                 tx: step.tx.clone(),
                 command: step.command.clone(),
                 label: step.label.clone(),
-                by: (!step.by.is_writer()).then(|| step.by.clone()),
+                by: (!step.by.is_plain_writer()).then(|| step.by.clone()),
             }),
         };
         let Step {
@@ -759,9 +934,15 @@ impl Session {
         } = step;
         let reverse = tx.apply(&mut self.doc);
         let result = json!({ key: command, "label": label });
-        if let Err(e) =
-            self.journal_append(cmd.name(), cmd.params(), &result, &ex.by, false, step_ref)
-        {
+        if let Err(e) = self.journal_append(
+            cmd.name(),
+            cmd.params(),
+            &result,
+            &ex.by,
+            false,
+            step_ref,
+            t,
+        ) {
             let restore = reverse.apply(&mut self.doc);
             let back = Step {
                 command,
@@ -832,6 +1013,7 @@ impl Session {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn journal_append(
         &mut self,
         name: &str,
@@ -840,9 +1022,10 @@ impl Session {
         by: &Author,
         merge: bool,
         step: Option<StepRef>,
+        t: u64,
     ) -> Result<(), CommandError> {
         if let Some(j) = &mut self.journal {
-            j.append(name, params, result, by, merge, step)
+            j.append(name, params, result, by, merge, step, t)
                 .map_err(|e| {
                     CommandError::new(
                         "journal_error",
@@ -859,6 +1042,24 @@ impl Session {
         self.doc
             .index_of(id)
             .ok_or(CommandError::block_not_found(id))
+    }
+
+    /// Fails with `change_pending` when the block is a pending deletion,
+    /// which cannot be edited until its change is settled
+    /// (docs/specs/changes.md §5.4).
+    fn refuse_pending(&self, index: usize) -> Result<(), CommandError> {
+        let b = &self.doc.blocks[index];
+        match b.marks.deleted {
+            Some(c) => Err(CommandError::new(
+                "change_pending",
+                format!(
+                    "{} is deleted pending review ({c}); accept or reject that change first",
+                    b.id
+                ),
+            )
+            .with_details(json!({ "id": b.id, "change": c }))),
+            None => Ok(()),
+        }
     }
 
     /// Block indices of a scene, or the whole document.
@@ -886,30 +1087,63 @@ impl Session {
     }
 
     /// Turns an edit into operations and its result, without changing the
-    /// document (apart from handing out ids).
-    fn plan(&mut self, cmd: &Command) -> Result<(Transaction, Value), CommandError> {
+    /// document (apart from handing out ids and adding to the change
+    /// table, which a failed edit rolls back).
+    fn plan(
+        &mut self,
+        cmd: &Command,
+        ex: &Exec,
+        ctx: &mut TrackCtx,
+    ) -> Result<(Transaction, Value), CommandError> {
+        let tracked = cmd.tracked().flatten() == Some(true);
+        let ctx = tracked.then_some(ctx);
         match cmd {
-            Command::BlockInsert(p) => self.plan_insert(p),
-            Command::BlockSetType(p) => self.plan_set_type(p),
-            Command::BlockSetText(p) => self.plan_set_text(p),
+            Command::BlockInsert(p) => self.plan_insert(p, ctx),
+            Command::BlockSetType(p) => self.plan_set_type(p, ctx),
+            Command::BlockSetText(p) => self.plan_set_text(p, ctx),
             Command::BlockSetAttrs(p) => self.plan_set_attrs(p),
-            Command::BlockDelete(p) => self.plan_delete(p),
-            Command::TextReplace(p) => self.plan_replace(p),
-            Command::SceneMove(p) => self.plan_move(p),
-            Command::TextInsert(p) => self.plan_text_insert(p),
-            Command::TextDelete(p) => self.plan_text_delete(p),
+            Command::BlockDelete(p) => self.plan_delete(p, ctx, &ex.by),
+            Command::TextReplace(p) => self.plan_replace(p, ctx),
+            Command::SceneMove(p) => self.plan_move(p, ctx),
+            Command::TextInsert(p) => self.plan_text_insert(p, ctx),
+            Command::TextDelete(p) => self.plan_text_delete(p, ctx),
             Command::TextStyle(p) => self.plan_text_style(p),
-            Command::BlockSplit(p) => self.plan_split(p),
-            Command::BlockJoin(p) => self.plan_join(p),
+            Command::BlockSplit(p) => self.plan_split(p, ctx),
+            Command::BlockJoin(p) => self.plan_join(p, ctx),
+            Command::ChangesAccept(p) => self.plan_settle(Settle::Accept, p, &ex.by),
+            Command::ChangesReject(p) => self.plan_settle(Settle::Reject, p, &ex.by),
+            Command::ChangesTrack(p) => self.plan_track(p, &ex.by),
             _ => Err(CommandError::new("invalid_request", "not an edit")),
         }
     }
 
-    fn plan_insert(&mut self, p: &BlockInsert) -> Result<(Transaction, Value), CommandError> {
-        let element = p
+    /// Whether change `c` is the edit's author's own.
+    fn own(&self, ctx: &TrackCtx, c: ChangeId) -> bool {
+        ctx.owns(&self.doc, c)
+    }
+
+    /// Whether a block's only mark is the author's own insertion: such a
+    /// block can be deleted or joined outright, since nothing else about it
+    /// is waiting for review (docs/specs/changes.md §5.2).
+    fn only_own_insert(&self, ctx: &TrackCtx, marks: &BlockMarks) -> bool {
+        marks.inserted.is_some_and(|c| self.own(ctx, c))
+            && BlockMarks {
+                inserted: None,
+                ..marks.clone()
+            }
+            .is_empty()
+    }
+
+    fn plan_insert(
+        &mut self,
+        p: &BlockInsert,
+        ctx: Option<&mut TrackCtx>,
+    ) -> Result<(Transaction, Value), CommandError> {
+        let mut element = p
             .element_repr()
             .into_element()
             .map_err(CommandError::invalid_params)?;
+        element.text = element.text.as_input();
         Self::check(&element)?;
         let index = match (p.after, p.before) {
             (Some(_), Some(_)) => {
@@ -922,11 +1156,14 @@ impl Session {
             (None, None) => self.doc.blocks.len(),
         };
         let id = self.doc.allocate_id().ok_or_else(ids_used_up)?;
+        let mut block = Block::new(id, element);
+        if let Some(ctx) = ctx {
+            let c = ctx.change(&mut self.doc, None);
+            block.element.text = mark_inserted(&block.element.text, c);
+            block.marks.inserted = Some(c);
+        }
         Ok((
-            Transaction(vec![Op::Insert {
-                index,
-                block: Block { id, element },
-            }]),
+            Transaction(vec![Op::Insert { index, block }]),
             json!({ "id": id }),
         ))
     }
@@ -939,17 +1176,65 @@ impl Session {
         }
     }
 
-    fn plan_set_type(&mut self, p: &BlockSetType) -> Result<(Transaction, Value), CommandError> {
+    /// Operations that give block `index` this element and these marks.
+    fn block_ops(
+        &self,
+        index: usize,
+        element: coldopen_screenplay::Element,
+        marks: BlockMarks,
+    ) -> Transaction {
+        let mut ops = self.replace_op(index, element).0;
+        if self.doc.blocks[index].marks != marks {
+            ops.push(Op::Mark { index, marks });
+        }
+        Transaction(ops)
+    }
+
+    fn plan_set_type(
+        &mut self,
+        p: &BlockSetType,
+        ctx: Option<&mut TrackCtx>,
+    ) -> Result<(Transaction, Value), CommandError> {
         let index = self.index(p.id)?;
-        let mut e = self.doc.blocks[index].element.clone();
+        self.refuse_pending(index)?;
+        let old = self.doc.blocks[index].element.clone();
+        let mut e = old.clone();
         e.kind = p.kind;
         e.clear_inapplicable();
         Self::check(&e)?;
-        Ok((self.replace_op(index, e), json!({})))
+        let mut marks = self.doc.blocks[index].marks.clone();
+        if let Some(ctx) = ctx
+            && e != old
+        {
+            // Each retype is kept, so rejecting undoes them in order
+            // (docs/specs/changes.md §5.2); the author's own new block just
+            // changes type.
+            let own_block = marks.inserted.is_some_and(|c| self.own(ctx, c));
+            if !own_block {
+                let c = ctx.change(&mut self.doc, None);
+                marks.retyped.push(Retyped {
+                    change: c,
+                    from: old.kind,
+                    scene_number: old
+                        .scene_number
+                        .clone()
+                        .filter(|_| e.scene_number.is_none()),
+                    dual: old.dual && !e.dual,
+                    centered: old.centered && !e.centered,
+                    depth: if e.depth == 0 { old.depth } else { 0 },
+                });
+            }
+        }
+        Ok((self.block_ops(index, e, marks), json!({})))
     }
 
-    fn plan_set_text(&mut self, p: &BlockSetText) -> Result<(Transaction, Value), CommandError> {
+    fn plan_set_text(
+        &mut self,
+        p: &BlockSetText,
+        ctx: Option<&mut TrackCtx>,
+    ) -> Result<(Transaction, Value), CommandError> {
         let index = self.index(p.id)?;
+        self.refuse_pending(index)?;
         if p.text.is_none() && p.runs.is_none() {
             return Err(CommandError::invalid_params("give \"text\" or \"runs\""));
         }
@@ -958,15 +1243,31 @@ impl Session {
             runs: p.runs.clone(),
         }
         .into_rich()
-        .map_err(CommandError::invalid_params)?;
+        .map_err(CommandError::invalid_params)?
+        .as_input();
         let mut e = self.doc.blocks[index].element.clone();
-        e.text = text;
+        e.text = match ctx {
+            Some(ctx) => {
+                let old = &self.doc.blocks[index].element.text;
+                // Only a change to the current text is a tracked change.
+                if old.plain_text() == text.plain_text() {
+                    keep_marks(old, &text)
+                } else {
+                    let c = ctx.change(&mut self.doc, None);
+                    let old = &self.doc.blocks[index].element.text;
+                    let own = |x: ChangeId| ctx.owns(&self.doc, x);
+                    track::set_text(old, &text, c, &own)
+                }
+            }
+            None => text,
+        };
         Self::check(&e)?;
         Ok((self.replace_op(index, e), json!({})))
     }
 
     fn plan_set_attrs(&mut self, p: &BlockSetAttrs) -> Result<(Transaction, Value), CommandError> {
         let index = self.index(p.id)?;
+        self.refuse_pending(index)?;
         let mut e = self.doc.blocks[index].element.clone();
         if let Some(n) = &p.scene_number {
             e.scene_number = n.clone();
@@ -987,16 +1288,57 @@ impl Session {
         Ok((self.replace_op(index, e), json!({})))
     }
 
-    fn plan_delete(&mut self, p: &BlockDelete) -> Result<(Transaction, Value), CommandError> {
+    fn plan_delete(
+        &mut self,
+        p: &BlockDelete,
+        ctx: Option<&mut TrackCtx>,
+        by: &Author,
+    ) -> Result<(Transaction, Value), CommandError> {
         let index = self.index(p.id)?;
-        Ok((Transaction(vec![Op::Remove { index }]), json!({})))
+        let Some(ctx) = ctx else {
+            // The writer may remove a pending deletion outright; nobody else
+            // edits one (docs/specs/changes.md §5.4).
+            if !by.is_writer() {
+                self.refuse_pending(index)?;
+            }
+            return Ok((Transaction(vec![Op::Remove { index }]), json!({})));
+        };
+        self.refuse_pending(index)?;
+        let b = &self.doc.blocks[index];
+        let own_block = self.only_own_insert(ctx, &b.marks);
+        let all_own = b
+            .element
+            .text
+            .runs()
+            .iter()
+            .all(|r| r.is_hidden() || r.marks().ins.is_some_and(|c| self.own(ctx, c)));
+        if own_block && all_own {
+            return Ok((Transaction(vec![Op::Remove { index }]), json!({})));
+        }
+        let c = ctx.change(&mut self.doc, None);
+        let b = &self.doc.blocks[index];
+        let mut e = b.element.clone();
+        let len = e.text.char_len();
+        let own = |x: ChangeId| ctx.owns(&self.doc, x);
+        e.text = e
+            .text
+            .delete_tracked(0, len, c, &own)
+            .map_err(range_error)?;
+        let mut marks = b.marks.clone();
+        marks.deleted = Some(c);
+        Ok((self.block_ops(index, e, marks), json!({})))
     }
 
-    fn plan_replace(&mut self, p: &TextReplace) -> Result<(Transaction, Value), CommandError> {
+    fn plan_replace(
+        &mut self,
+        p: &TextReplace,
+        mut ctx: Option<&mut TrackCtx>,
+    ) -> Result<(Transaction, Value), CommandError> {
         if p.find.is_empty() {
             return Err(CommandError::invalid_params("\"find\" must not be empty"));
         }
-        if let Some(at) = &p.at {
+        // The change is made only once something matches.
+        let first_match = if let Some(at) = &p.at {
             if p.scope.is_some() {
                 return Err(CommandError::invalid_params(
                     "give \"scope\" or \"at\", not both",
@@ -1004,10 +1346,36 @@ impl Session {
             }
             let index = self.index(at.id)?;
             let b = &self.doc.blocks[index];
+            !b.element.kind.is_raw_text()
+                && find_in(&b.element.text, &p.find, p.match_case).contains(&at.from)
+        } else {
+            let range = self.scope_range(p.scope.as_ref().map(|s| s.scene))?;
+            self.doc.blocks[range].iter().any(|b| {
+                !b.element.kind.is_raw_text()
+                    && !find_in(&b.element.text, &p.find, p.match_case).is_empty()
+            })
+        };
+        let change = match (&mut ctx, first_match) {
+            (Some(ctx), true) => Some(ctx.change(&mut self.doc, None)),
+            _ => None,
+        };
+        let ctx = ctx.as_deref();
+        let own = |x: ChangeId| ctx.is_some_and(|c| c.owns(&self.doc, x));
+        let tracked = change.map(|change| Tracked { change, own: &own });
+        if let Some(at) = &p.at {
+            let index = self.index(at.id)?;
+            let b = &self.doc.blocks[index];
             let replaced = if b.element.kind.is_raw_text() {
                 None
             } else {
-                replace_one(&b.element.text, &p.find, &p.with, p.match_case, at.from)
+                replace_one(
+                    &b.element.text,
+                    &p.find,
+                    &p.with,
+                    p.match_case,
+                    at.from,
+                    tracked.as_ref(),
+                )
             };
             let Some(text) = replaced else {
                 return Ok((Transaction::default(), json!({ "count": 0, "blocks": [] })));
@@ -1031,7 +1399,13 @@ impl Session {
             if b.element.kind.is_raw_text() {
                 continue;
             }
-            if let Some((text, n)) = replace_in(&b.element.text, &p.find, &p.with, p.match_case) {
+            if let Some((text, n)) = replace_in(
+                &b.element.text,
+                &p.find,
+                &p.with,
+                p.match_case,
+                tracked.as_ref(),
+            ) {
                 let mut e = b.element.clone();
                 e.text = text;
                 if e != b.element {
@@ -1048,7 +1422,11 @@ impl Session {
         ))
     }
 
-    fn plan_move(&mut self, p: &SceneMove) -> Result<(Transaction, Value), CommandError> {
+    fn plan_move(
+        &mut self,
+        p: &SceneMove,
+        ctx: Option<&mut TrackCtx>,
+    ) -> Result<(Transaction, Value), CommandError> {
         let scene = self
             .doc
             .scene(p.id)
@@ -1082,18 +1460,40 @@ impl Session {
         } else {
             target
         };
-        Ok((
-            Transaction(vec![Op::Move {
-                from: scene.start,
-                len,
-                to,
-            }]),
-            json!({}),
-        ))
+        let mut ops = Vec::new();
+        if let Some(ctx) = ctx {
+            // Where the scene stood: before the block after it, or at the
+            // end; and the blocks it took. Each move is kept, so rejecting
+            // undoes them in order.
+            let was = self.doc.blocks.get(scene.end).map(|b| b.id);
+            let last = self.doc.blocks[scene.end - 1].id;
+            let mut marks = self.doc.blocks[scene.start].marks.clone();
+            let c = ctx.change(&mut self.doc, None);
+            marks.moved.push(Moved {
+                change: c,
+                before: was,
+                last,
+            });
+            ops.push(Op::Mark {
+                index: scene.start,
+                marks,
+            });
+        }
+        ops.push(Op::Move {
+            from: scene.start,
+            len,
+            to,
+        });
+        Ok((Transaction(ops), json!({})))
     }
 
-    fn plan_text_insert(&mut self, p: &TextInsert) -> Result<(Transaction, Value), CommandError> {
+    fn plan_text_insert(
+        &mut self,
+        p: &TextInsert,
+        ctx: Option<&mut TrackCtx>,
+    ) -> Result<(Transaction, Value), CommandError> {
         let index = self.index(p.id)?;
+        self.refuse_pending(index)?;
         let mut e = self.doc.blocks[index].element.clone();
         if e.kind == ElementKind::PageBreak {
             return Err(CommandError::new(
@@ -1120,24 +1520,64 @@ impl Session {
         if p.text.is_empty() {
             return Ok((Transaction::default(), json!({})));
         }
-        e.text = e
-            .text
-            .insert(p.at, &p.text, p.style.map(Into::into))
-            .map_err(range_error)?;
+        let marks = match ctx {
+            Some(ctx) => {
+                // Next to the author's own pending insertion: the same change.
+                let (before, after) = e.text.ins_around(p.at);
+                let candidate = before
+                    .filter(|&c| self.own(ctx, c))
+                    .or(after.filter(|&c| self.own(ctx, c)));
+                Marks {
+                    ins: Some(ctx.change(&mut self.doc, candidate)),
+                    ..Marks::NONE
+                }
+            }
+            None => Marks::NONE,
+        };
+        let style = p.style.map(Into::into);
+        e.text = if p.after_deleted {
+            e.text.insert_after_deleted(p.at, &p.text, style, marks)
+        } else {
+            e.text.insert_marked(p.at, &p.text, style, marks)
+        }
+        .map_err(range_error)?;
         Self::check(&e)?;
         Ok((self.replace_op(index, e), json!({})))
     }
 
-    fn plan_text_delete(&mut self, p: &TextDelete) -> Result<(Transaction, Value), CommandError> {
+    fn plan_text_delete(
+        &mut self,
+        p: &TextDelete,
+        ctx: Option<&mut TrackCtx>,
+    ) -> Result<(Transaction, Value), CommandError> {
         let index = self.index(p.id)?;
+        self.refuse_pending(index)?;
         let mut e = self.doc.blocks[index].element.clone();
-        e.text = e.text.delete(p.from, p.to).map_err(range_error)?;
+        e.text = match ctx {
+            Some(ctx) if p.from < p.to => {
+                // Next to the author's own pending deletion: the same change.
+                let candidate = e
+                    .text
+                    .del_touching(p.from, p.to)
+                    .into_iter()
+                    .find(|&c| self.own(ctx, c));
+                // Check the range before a change is made for it.
+                e.text.delete(p.from, p.to).map_err(range_error)?;
+                let c = ctx.change(&mut self.doc, candidate);
+                let own = |x: ChangeId| ctx.owns(&self.doc, x);
+                e.text
+                    .delete_tracked(p.from, p.to, c, &own)
+                    .map_err(range_error)?
+            }
+            _ => e.text.delete(p.from, p.to).map_err(range_error)?,
+        };
         Self::check(&e)?;
         Ok((self.replace_op(index, e), json!({})))
     }
 
     fn plan_text_style(&mut self, p: &TextStyle) -> Result<(Transaction, Value), CommandError> {
         let index = self.index(p.id)?;
+        self.refuse_pending(index)?;
         let mut e = self.doc.blocks[index].element.clone();
         if e.kind.is_raw_text() {
             return Err(CommandError::new(
@@ -1155,10 +1595,20 @@ impl Session {
         Ok((self.replace_op(index, e), json!({})))
     }
 
-    fn plan_split(&mut self, p: &BlockSplit) -> Result<(Transaction, Value), CommandError> {
+    fn plan_split(
+        &mut self,
+        p: &BlockSplit,
+        ctx: Option<&mut TrackCtx>,
+    ) -> Result<(Transaction, Value), CommandError> {
         let index = self.index(p.id)?;
+        self.refuse_pending(index)?;
         let original = &self.doc.blocks[index].element;
-        let (head, rest) = original.text.split_at(p.at).map_err(range_error)?;
+        let (head, rest) = if p.after_deleted {
+            original.text.split_after_deleted(p.at)
+        } else {
+            original.text.split_at(p.at)
+        }
+        .map_err(range_error)?;
         let mut first = original.clone();
         first.text = head;
         let second = coldopen_screenplay::Element::new(p.kind.unwrap_or(original.kind), rest);
@@ -1166,31 +1616,200 @@ impl Session {
         Self::check(&second)?;
         let mut ops = self.replace_op(index, first).0;
         let id = self.doc.allocate_id().ok_or_else(ids_used_up)?;
+        let mut block = Block::new(id, second);
+        if let Some(ctx) = ctx {
+            let own_block = self.doc.blocks[index]
+                .marks
+                .inserted
+                .is_some_and(|c| self.own(ctx, c));
+            let c = ctx.change(&mut self.doc, None);
+            // Nothing moves to the new block: it is a new block, as Enter at
+            // the end of a line makes (docs/specs/changes.md §5.2).
+            if block.element.text.is_empty() || own_block {
+                block.marks.inserted = Some(c);
+            } else {
+                block.marks.split = Some(c);
+            }
+        }
         ops.push(Op::Insert {
             index: index + 1,
-            block: Block {
-                id,
-                element: second,
-            },
+            block,
         });
         Ok((Transaction(ops), json!({ "id": id })))
     }
 
-    fn plan_join(&mut self, p: &BlockJoin) -> Result<(Transaction, Value), CommandError> {
+    fn plan_join(
+        &mut self,
+        p: &BlockJoin,
+        ctx: Option<&mut TrackCtx>,
+    ) -> Result<(Transaction, Value), CommandError> {
         let index = self.index(p.id)?;
         if index == 0 {
             return Err(CommandError::invalid_params(
                 "the first block has no block before it to join",
             ));
         }
+        self.refuse_pending(index)?;
+        self.refuse_pending(index - 1)?;
         let prev = &self.doc.blocks[index - 1];
         let at = prev.element.text.char_len();
+        let prev_id = prev.id;
+        // A join is checked when it is proposed, as when it is done.
         let mut merged = prev.element.clone();
         merged.text = merged.text.concat(&self.doc.blocks[index].element.text);
         Self::check(&merged)?;
-        let prev_id = prev.id;
+        if let Some(ctx) = ctx {
+            let marks = &self.doc.blocks[index].marks;
+            if !self.only_own_insert(ctx, marks) {
+                // Joining another's block is proposed, not done: the block
+                // stays until the change is accepted.
+                let mut marks = marks.clone();
+                if marks.joined.is_some() {
+                    return Ok((Transaction::default(), json!({ "id": prev_id, "at": at })));
+                }
+                marks.joined = Some(ctx.change(&mut self.doc, None));
+                return Ok((
+                    Transaction(vec![Op::Mark { index, marks }]),
+                    json!({ "id": prev_id, "at": at }),
+                ));
+            }
+        }
         let mut ops = self.replace_op(index - 1, merged).0;
         ops.push(Op::Remove { index });
         Ok((Transaction(ops), json!({ "id": prev_id, "at": at })))
     }
+
+    fn plan_settle(
+        &mut self,
+        how: Settle,
+        p: &ChangesSettle,
+        by: &Author,
+    ) -> Result<(Transaction, Value), CommandError> {
+        if how == Settle::Accept && !by.is_writer() {
+            return Err(CommandError::new(
+                "writer_only",
+                "only the writer may accept tracked changes; an agent may reject its own",
+            ));
+        }
+        let given = [p.id.is_some(), p.scene.is_some(), p.all]
+            .iter()
+            .filter(|&&x| x)
+            .count();
+        if given != 1 {
+            return Err(CommandError::invalid_params(
+                "give exactly one of \"id\", \"scene\" and \"all\"",
+            ));
+        }
+        let pending = self.doc.pending();
+        let mine = ChangeBy::of(by);
+        let is_mine = |c: &ChangeId| self.doc.changes.get(*c).is_some_and(|e| e.by == mine);
+        let (changes, blocks) = if let Some(id) = p.id {
+            if !pending.contains(&id) {
+                return Err(CommandError::new(
+                    "change_not_found",
+                    format!("there is no pending change {id}"),
+                )
+                .with_details(json!({ "id": id })));
+            }
+            if !by.is_writer() && !is_mine(&id) {
+                return Err(track::not_your_change(&format!(
+                    "{id} is another author's change"
+                )));
+            }
+            (std::iter::once(id).collect(), None)
+        } else {
+            let blocks = match p.scene {
+                Some(s) => {
+                    let r = self.scope_range(Some(s))?;
+                    Some(
+                        self.doc.blocks[r]
+                            .iter()
+                            .map(|b| b.id)
+                            .collect::<std::collections::BTreeSet<_>>(),
+                    )
+                }
+                None => None,
+            };
+            let changes = pending
+                .iter()
+                .copied()
+                .filter(|c| by.is_writer() || is_mine(c))
+                .collect();
+            (changes, blocks)
+        };
+        let sel = track::Selection { changes, blocks };
+        let out = track::settle(&self.doc, how, &sel);
+        if let Some(id) = p.id
+            && out.skipped.contains(&id)
+        {
+            return Err(CommandError::new(
+                "change_conflict",
+                format!(
+                    "{id} cannot be carried out as it stands: a scene it moved has lost its old place, or blocks it would join no longer can be; settle it the other way, or edit the script yourself"
+                ),
+            )
+            .with_details(json!({ "id": id })));
+        }
+        Ok((
+            Transaction(out.ops),
+            json!({
+                "changes": out.settled,
+                "count": out.settled.len(),
+                "skipped": out.skipped,
+            }),
+        ))
+    }
+
+    fn plan_track(
+        &mut self,
+        p: &ChangesTrack,
+        by: &Author,
+    ) -> Result<(Transaction, Value), CommandError> {
+        if !by.is_writer() {
+            return Err(CommandError::new(
+                "writer_only",
+                "only the writer chooses which edits are tracked",
+            ));
+        }
+        let mut tracking = self.doc.tracking;
+        if let Some(w) = p.writer {
+            tracking.writer = w;
+        }
+        if let Some(a) = p.agents {
+            tracking.agents = a;
+        }
+        let result = json!({ "writer": tracking.writer, "agents": tracking.agents });
+        if tracking == self.doc.tracking {
+            return Ok((Transaction::default(), result));
+        }
+        Ok((Transaction(vec![Op::Track { tracking }]), result))
+    }
+}
+
+/// Whether an operation leaves a mark of change `c`.
+fn op_names(op: &Op, c: ChangeId) -> bool {
+    match op {
+        Op::Insert { block, .. } => block.change_ids().any(|x| x == c),
+        Op::Replace { element, .. } => crate::changes::text_ids(&element.text).any(|x| x == c),
+        Op::Mark { marks, .. } => marks.ids().any(|x| x == c),
+        Op::Remove { .. } | Op::Move { .. } | Op::Track { .. } => false,
+    }
+}
+
+/// New text whose current text is the old one's: the old marks are kept,
+/// with the new text's styles, notes and boneyard (a tracked
+/// `block.set_text` that changes no words is not a tracked change).
+fn keep_marks(old: &RichText, new: &RichText) -> RichText {
+    track::set_text(old, new, ChangeId(u64::MAX), &|_| false)
+}
+
+/// Losses as commands report them, with the id of the block each is about.
+pub(crate) fn losses_json(doc: &Document, losses: &[Loss]) -> Vec<Value> {
+    losses
+        .iter()
+        .map(|l| {
+            let id = l.element.and_then(|i| doc.blocks.get(i)).map(|b| b.id);
+            json!({ "id": id, "code": l.code, "class": l.class.name(), "message": l.message })
+        })
+        .collect()
 }

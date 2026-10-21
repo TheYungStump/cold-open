@@ -15,7 +15,8 @@ use crate::classify::{
     split_scene_number, strip_dual,
 };
 use crate::norm::{
-    RLine, clear_ws_styles, normalize_with_map, split, untangle_words, visible, without_ws_emphasis,
+    RLine, clear_ws_styles, normalizations, normalize_with_map, split, untangle_words, visible,
+    without_ws_emphasis,
 };
 use crate::{inline, line, scan, title};
 
@@ -35,27 +36,16 @@ pub struct Written {
     pub text: String,
     /// Empty when the text reads back as the script's normal form.
     pub losses: Vec<Loss>,
+    /// Where the normal form changed the script in ways that print the
+    /// same (spec §10, review finding F21), code `normalized`: never a
+    /// reason to refuse a save.
+    pub normalized: Vec<Loss>,
 }
 
 /// Writes a script as canonical Fountain.
 pub fn write(script: &Script) -> Written {
     let (norm, map) = normalize_with_map(script);
-    let mut w = Writer {
-        out: Vec::new(),
-        losses: Vec::new(),
-        map: &map,
-    };
-    let has_title = !norm.title_page.is_empty();
-    if has_title {
-        w.title_page(&norm.title_page);
-    }
-    w.body(&norm.elements, has_title);
-
-    let mut text = w.out.join("\n");
-    if !text.is_empty() {
-        text.push('\n');
-    }
-    let mut losses = w.losses;
+    let (text, mut losses) = render_script(&norm, &map);
     if losses.is_empty() {
         let back = crate::parse(&text).script;
         // Bold and italic on whitespace may be set aside (spec §9).
@@ -78,7 +68,49 @@ pub fn write(script: &Script) -> Written {
             });
         }
     }
-    Written { text, losses }
+    let normalized = normalizations(script, &norm, &map)
+        .into_iter()
+        .map(|(i, reason)| Loss {
+            element: Some(i),
+            code: "normalized",
+            message: format!("{reason}; it prints the same"),
+        })
+        .collect();
+    Written {
+        text,
+        losses,
+        normalized,
+    }
+}
+
+/// The text [`write`] gives, alone, without reading it back to find what
+/// it lost or listing what the normal form changed: for a copy that is
+/// never read back, such as a project bundle's `script.fountain`
+/// (docs/specs/bundle.md §6). The text is the same; it takes about a
+/// third of the time.
+pub fn write_text(script: &Script) -> String {
+    let (norm, map) = normalize_with_map(script);
+    render_script(&norm, &map).0
+}
+
+/// Writes a script already in normal form, with the losses found while
+/// writing it.
+fn render_script(norm: &Script, map: &[usize]) -> (String, Vec<Loss>) {
+    let mut w = Writer {
+        out: Vec::new(),
+        losses: Vec::new(),
+        map,
+    };
+    let has_title = !norm.title_page.is_empty();
+    if has_title {
+        w.title_page(&norm.title_page);
+    }
+    w.body(&norm.elements, has_title);
+    let mut text = w.out.join("\n");
+    if !text.is_empty() {
+        text.push('\n');
+    }
+    (text, w.losses)
 }
 
 // ---- Inline text ----
@@ -145,7 +177,7 @@ fn hoist_underline(line: &[Run]) -> RLine {
     let mut out: Vec<Run> = Vec::new();
     for r in line {
         match r {
-            Run::Text { text, style } if style.underline => {
+            Run::Text { text, style, .. } if style.underline => {
                 let core = text.trim();
                 if core.is_empty() {
                     out.push(Run::styled(
@@ -299,7 +331,7 @@ fn render(line: &[Run], plan: Plan, after: Option<char>, escape_at: &[usize]) ->
         match run {
             Run::Note(n) => pieces.push(Piece::Raw(format!("[[{}]]", note_body(n)))),
             Run::Boneyard(b) => pieces.push(Piece::Raw(format!("/*{b}*/"))),
-            Run::Text { text, style } => {
+            Run::Text { text, style, .. } => {
                 let want = Flag::of(*style);
                 if let Some(pos) = closing_from(&stack, &want, r) {
                     for f in stack.drain(pos..).rev() {
@@ -385,7 +417,7 @@ fn write_inline(line: &[Run], after: Option<char>, escape_at: &[usize]) -> (Stri
     let target = coldopen_screenplay::RichText::new(line.to_vec()).into_runs();
     // Fast path: most lines are plain text with nothing that needs escaping.
     if escape_at.is_empty()
-        && let [Run::Text { text, style }] = &target[..]
+        && let [Run::Text { text, style, .. }] = &target[..]
         && style.is_plain()
         && !text.contains(['*', '_', '\\', '[', '/'])
     {
@@ -1226,7 +1258,7 @@ mod tests {
             .unwrap_or_default()
             .into_iter()
             .filter_map(|r| match r {
-                Run::Text { text, style } => Some((text, style)),
+                Run::Text { text, style, .. } => Some((text, style)),
                 _ => None,
             })
             .filter(|(t, _)| !t.trim().is_empty())

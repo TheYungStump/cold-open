@@ -1,6 +1,9 @@
 //! Measures the phase 3 budgets (docs/spec.md, size and speed budgets):
 //! keystroke to screen, scrolling, repagination, memory and journal
 //! latency, with the real app running headless and drawing with tiny-skia.
+//! Since 2026-10-19 also the save budgets, for a feature-length script
+//! saved as Fountain, as .fdx and as a project with tracked changes: the
+//! time a save takes on the UI thread, and the whole save on the worker.
 //!
 //! ```text
 //! cargo run --release -p coldopen-app --example budgets -- \
@@ -19,6 +22,7 @@ use std::time::Instant;
 use coldopen_app::files::{Dialogs, Dirs};
 use coldopen_app::headless::Headless;
 use coldopen_app::{App, Boot};
+use coldopen_core::command::DocSave;
 use coldopen_core::{Command, Dispatcher, Durability, Options};
 use iced::keyboard::Modifiers;
 use iced::{Event, Point, Size, mouse};
@@ -168,18 +172,121 @@ fn journal(dir: &Path) -> (Stats, Stats, Stats) {
     (app, cli, stats(v))
 }
 
+fn run(d: &mut Dispatcher, c: &str, p: Value) -> Value {
+    d.execute(Command::from_parts(c, p).unwrap())
+        .unwrap_or_else(|e| panic!("{c}: {}", e.message))
+}
+
+/// One save of each kind of file, as the desktop app saves (journal.md,
+/// "Saving off the UI thread"), `runs` times after an edit: the UI thread's
+/// steps (the snapshot, the marker, the commit with the journal's new
+/// header) and the whole save, the worker's rendering and write included.
+/// The script is `source` as Fountain, as .fdx written by Cold Open, and as
+/// a project with tracked changes on every fourth scene.
+fn saves(dir: &Path, source: &str, runs: usize) -> Vec<(String, Stats, Stats)> {
+    let fountain = dir.join("saves.fountain");
+    std::fs::write(&fountain, source).unwrap();
+    let fdx = dir.join("saves.fdx");
+    let project = dir.join("saves.coldopen");
+    let mut d = Dispatcher::new(Options::default());
+    run(&mut d, "doc.open", json!({"path": fountain}));
+    run(
+        &mut d,
+        "export.fdx",
+        json!({"path": fdx, "allow_lossy": true}),
+    );
+    run(&mut d, "changes.track", json!({"writer": true}));
+    let blocks = run(&mut d, "doc.get", json!({}))["blocks"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let headings = blocks.iter().filter(|b| b["type"] == "scene_heading");
+    for (k, b) in headings.enumerate() {
+        if k.is_multiple_of(4) {
+            run(
+                &mut d,
+                "block.insert",
+                json!({"after": b["id"], "type": "action", "text": "A line added later."}),
+            );
+        }
+    }
+    run(&mut d, "doc.save", json!({"path": project}));
+    d.discard();
+
+    let mut out = Vec::new();
+    for (label, file) in [
+        ("Fountain", &fountain),
+        (".fdx", &fdx),
+        ("project, tracked changes", &project),
+    ] {
+        let mut d = Dispatcher::new(Options::default());
+        d.set_durability(Durability::APP);
+        run(&mut d, "doc.open", json!({"path": file}));
+        let id = d
+            .session()
+            .unwrap()
+            .doc
+            .blocks
+            .iter()
+            .find(|b| b.element.kind == coldopen_screenplay::ElementKind::Action)
+            .expect("an action to type in")
+            .id;
+        let (mut ui, mut whole) = (Vec::new(), Vec::new());
+        for i in 0..runs {
+            run(
+                &mut d,
+                "text.insert",
+                json!({"id": id, "at": 0, "text": if i % 2 == 0 { "x" } else { "y" }}),
+            );
+            let t = Instant::now();
+            let job = d.save_prepare(&DocSave::default()).unwrap();
+            let mut on_ui = ms(t);
+            // The worker.
+            let rendered = job.render();
+            let t = Instant::now();
+            let prepared = d.save_mark(rendered).unwrap();
+            on_ui += ms(t);
+            let written = coldopen_core::io::atomic_write(&prepared.target, &prepared.bytes);
+            let t = Instant::now();
+            d.save_commit(prepared, written).unwrap();
+            on_ui += ms(t);
+            ui.push(on_ui);
+        }
+        // The whole save, end to end, in a row of its own.
+        for i in 0..runs {
+            run(
+                &mut d,
+                "text.insert",
+                json!({"id": id, "at": 0, "text": if i % 2 == 0 { "x" } else { "y" }}),
+            );
+            let t = Instant::now();
+            let job = d.save_prepare(&DocSave::default()).unwrap();
+            let prepared = d.save_mark(job.render()).unwrap();
+            let written = coldopen_core::io::atomic_write(&prepared.target, &prepared.bytes);
+            d.save_commit(prepared, written).unwrap();
+            whole.push(ms(t));
+        }
+        d.shutdown();
+        out.push((label.to_string(), stats(ui), stats(whole)));
+    }
+    out
+}
+
 fn main() {
     let mut args = std::env::args().skip(1);
     let mut script: Option<PathBuf> = None;
     let mut json_out: Option<PathBuf> = None;
     let mut check = false;
     let mut renderer = "tiny-skia".to_string();
+    // Only the save budgets, for measuring them alone.
+    let mut saves_only = false;
     while let Some(a) = args.next() {
         match a.as_str() {
             "--script" => script = args.next().map(PathBuf::from),
             "--json" => json_out = args.next().map(PathBuf::from),
             "--assert" => check = true,
             "--renderer" => renderer = args.next().unwrap_or_default(),
+            "--saves-only" => saves_only = true,
             "--write-synthetic" => {
                 // For the windowed benchmark, which opens a file.
                 let out = args.next().expect("a path");
@@ -203,6 +310,19 @@ fn main() {
     };
     let mut results = serde_json::Map::new();
     let mut rows: Vec<(String, String, String)> = Vec::new();
+    if saves_only {
+        println!(
+            "| Save, {name} | UI thread | Whole save |
+| --- | --- | --- |"
+        );
+        for (label, ui, whole) in saves(work.path(), &source, 21) {
+            println!(
+                "| {label} | median {:.2} ms, p95 {:.2} ms | median {:.1} ms, p95 {:.1} ms |",
+                ui.median, ui.p95, whole.median, whole.p95
+            );
+        }
+        return;
+    }
 
     // Full layout and the incremental update, as the session does them.
     {
@@ -293,6 +413,31 @@ fn main() {
         h.app.d.discard();
     }
 
+    let save_rows = saves(work.path(), &source, 21);
+    for (label, ui, whole) in &save_rows {
+        results.insert(
+            format!("save {label}"),
+            json!({"ui_median": ui.median, "ui_p95": ui.p95, "ui_max": ui.max,
+                   "whole_median": whole.median, "whole_p95": whole.p95, "whole_max": whole.max}),
+        );
+        rows.push((
+            format!("Save on the UI thread, {label}"),
+            format!(
+                "median {:.2} ms, p95 {:.2} ms, max {:.2} ms",
+                ui.median, ui.p95, ui.max
+            ),
+            "under 4 ms".into(),
+        ));
+        rows.push((
+            format!("Whole save, {label}"),
+            format!(
+                "median {:.1} ms, p95 {:.1} ms, max {:.1} ms",
+                whole.median, whole.p95, whole.max
+            ),
+            "under 50 ms".into(),
+        ));
+    }
+
     let (app, cli, fsync) = journal(work.path());
     results.insert(
         "journal".into(),
@@ -301,12 +446,12 @@ fn main() {
                "fsync_median": fsync.median, "fsync_p95": fsync.p95, "fsync_max": fsync.max}),
     );
     rows.push((
-        "Journal write on the UI thread (app mode)".into(),
+        "Journal write per edit, on the UI thread (app mode)".into(),
         format!(
             "median {:.3} ms, p95 {:.3} ms, max {:.2} ms",
             app.median, app.p95, app.max
         ),
-        "under 10 ms".into(),
+        "under 1 ms".into(),
     ));
     rows.push((
         "fsync on the flusher thread".into(),
@@ -353,8 +498,19 @@ fn main() {
         if mem.is_some_and(|m| m >= 150.0) {
             missed.push(format!("memory {:.0} MiB", mem.unwrap_or(0.0)));
         }
-        if app.p95 >= 10.0 {
+        if app.p95 >= 1.0 {
             missed.push(format!("journal write p95 {:.2} ms", app.p95));
+        }
+        for (label, ui, whole) in &save_rows {
+            if ui.p95 >= 4.0 {
+                missed.push(format!(
+                    "{label} save on the UI thread p95 {:.2} ms",
+                    ui.p95
+                ));
+            }
+            if whole.p95 >= 50.0 {
+                missed.push(format!("{label} whole save p95 {:.1} ms", whole.p95));
+            }
         }
         if !missed.is_empty() {
             eprintln!("budgets missed: {}", missed.join(", "));

@@ -295,6 +295,7 @@ fn make_core(e: &Element, fmt: &ElementFormat, geom: Geom, format: &PageFormat) 
         bold: fmt.bold,
         italic: fmt.italic,
         underline: fmt.underline,
+        ..Look::default()
     };
     let (text, notes) = text::build(&e.text, fmt.caps, extra);
     let sentences = sentence_starts(&text.source, format.ellipsis_ends_sentence)
@@ -507,6 +508,7 @@ pub(crate) fn build(script: &Script, input: &FlowInput<'_>, mut memo: Option<&mu
                         bold: fmt.bold,
                         italic: fmt.italic,
                         underline: fmt.underline,
+                        ..Look::default()
                     };
                     let c = m.core_mut();
                     c.text = text::build(&name, fmt.caps, extra).0;

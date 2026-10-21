@@ -38,7 +38,7 @@ fn err(d: &mut Dispatcher, by: &Author, command: &str, params: Value) -> Command
 }
 
 fn text(d: &mut Dispatcher) -> String {
-    ok(d, &Author::Writer, "doc.export", json!({}))["text"]
+    ok(d, &Author::writer(), "doc.export", json!({}))["text"]
         .as_str()
         .unwrap()
         .to_string()
@@ -81,7 +81,7 @@ fn asides(dir: &Path, tag: &str) -> Vec<PathBuf> {
 #[test]
 fn f4_an_agent_cannot_discard_the_writers_recovered_work() {
     let dir = tempfile::tempdir().unwrap();
-    let p = crashed_with_work(dir.path(), &Author::Writer);
+    let p = crashed_with_work(dir.path(), &Author::writer());
     let j = journal::path_for(&p);
     let before = fs::read(&j).unwrap();
 
@@ -100,7 +100,7 @@ fn f4_an_agent_cannot_discard_the_writers_recovered_work() {
 #[test]
 fn f4_an_agent_cannot_set_the_writers_work_aside_another_way() {
     let dir = tempfile::tempdir().unwrap();
-    let p = crashed_with_work(dir.path(), &Author::Writer);
+    let p = crashed_with_work(dir.path(), &Author::writer());
     let j = journal::path_for(&p);
     let before = fs::read(&j).unwrap();
 
@@ -140,18 +140,18 @@ fn f4_an_agent_may_discard_its_own_recovered_work_and_a_copy_is_kept() {
 #[test]
 fn f4_a_writers_discard_keeps_a_copy_of_the_journal() {
     let dir = tempfile::tempdir().unwrap();
-    let p = crashed_with_work(dir.path(), &Author::Writer);
+    let p = crashed_with_work(dir.path(), &Author::writer());
     let mut d = Dispatcher::new(Options::default());
-    ok(&mut d, &Author::Writer, "doc.open", json!({"path": p}));
+    ok(&mut d, &Author::writer(), "doc.open", json!({"path": p}));
     ok(
         &mut d,
-        &Author::Writer,
+        &Author::writer(),
         "block.insert",
         json!({"type": "action", "text": "And this session's line."}),
     );
     let r = ok(
         &mut d,
-        &Author::Writer,
+        &Author::writer(),
         "doc.close",
         json!({"discard": true}),
     );
@@ -164,10 +164,10 @@ fn f4_a_writers_discard_keeps_a_copy_of_the_journal() {
     assert!(copy.contains(UNSAVED) && copy.contains("And this session's line."));
 
     // A clean close keeps nothing: there is nothing unsaved to keep.
-    ok(&mut d, &Author::Writer, "doc.open", json!({"path": p}));
+    ok(&mut d, &Author::writer(), "doc.open", json!({"path": p}));
     let r = ok(
         &mut d,
-        &Author::Writer,
+        &Author::writer(),
         "doc.close",
         json!({"discard": true}),
     );
@@ -178,9 +178,9 @@ fn f4_a_writers_discard_keeps_a_copy_of_the_journal() {
 #[test]
 fn f4_dispatcher_discard_keeps_a_copy_too() {
     let dir = tempfile::tempdir().unwrap();
-    let p = crashed_with_work(dir.path(), &Author::Writer);
+    let p = crashed_with_work(dir.path(), &Author::writer());
     let mut d = Dispatcher::new(Options::default());
-    ok(&mut d, &Author::Writer, "doc.open", json!({"path": p}));
+    ok(&mut d, &Author::writer(), "doc.open", json!({"path": p}));
     let kept = d.discard();
     assert!(kept.is_some());
     assert_eq!(kept, asides(dir.path(), "discarded").pop());
@@ -195,7 +195,7 @@ fn f5_doc_new_never_truncates_an_existing_journal() {
     const NEVER_SAVED: &str = "A WHOLE NEW SCENE NEVER SAVED";
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("Untitled-1.fountain");
-    let w = Author::Writer;
+    let w = Author::writer();
     let mut d = Dispatcher::new(Options::default());
     ok(&mut d, &w, "doc.new", json!({"path": p, "start": "action"}));
     ok(
@@ -225,7 +225,7 @@ fn f5_a_refused_doc_new_leaves_the_open_document_alone() {
     let dir = tempfile::tempdir().unwrap();
     let a = dir.path().join("a.fountain");
     fs::write(&a, SCRIPT).unwrap();
-    let w = Author::Writer;
+    let w = Author::writer();
     let mut d = Dispatcher::new(Options::default());
     ok(&mut d, &w, "doc.open", json!({"path": a}));
     let e = err(&mut d, &w, "doc.new", json!({"path": a}));
@@ -249,7 +249,7 @@ fn f5_a_refused_doc_new_leaves_the_open_document_alone() {
 fn other_document(dir: &Path) -> Dispatcher {
     let q = dir.join("other.fountain");
     fs::write(&q, "EXT. ELSEWHERE - NIGHT\n").unwrap();
-    let w = Author::Writer;
+    let w = Author::writer();
     let mut d = Dispatcher::new(Options::default());
     ok(&mut d, &w, "doc.open", json!({"path": q}));
     ok(
@@ -271,7 +271,7 @@ fn f2_save_as_onto_a_locked_script_writes_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("s.fountain");
     fs::write(&p, SCRIPT).unwrap();
-    let w = Author::Writer;
+    let w = Author::writer();
     let mut a = Dispatcher::new(Options::default());
     ok(&mut a, &w, "doc.open", json!({"path": p}));
 
@@ -296,10 +296,10 @@ fn f2_save_as_onto_a_locked_script_writes_nothing() {
 #[test]
 fn f2_save_as_onto_a_script_with_unsaved_work_writes_nothing() {
     let dir = tempfile::tempdir().unwrap();
-    let p = crashed_with_work(dir.path(), &Author::Writer);
+    let p = crashed_with_work(dir.path(), &Author::writer());
     let j = journal::path_for(&p);
     let before = fs::read(&j).unwrap();
-    let w = Author::Writer;
+    let w = Author::writer();
     let mut b = other_document(dir.path());
     let e = err(
         &mut b,
@@ -325,7 +325,7 @@ fn f2_save_as_onto_a_script_with_nothing_unsaved_goes_ahead() {
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("s.fountain");
     fs::write(&p, SCRIPT).unwrap();
-    let w = Author::Writer;
+    let w = Author::writer();
     let mut a = Dispatcher::new(Options::default());
     ok(&mut a, &w, "doc.open", json!({"path": p}));
     drop(a); // a crash with nothing unsaved
@@ -363,7 +363,7 @@ fn f14_a_header_that_disagrees_with_the_file_is_recovered() {
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("s.fountain");
     fs::write(&p, SCRIPT).unwrap();
-    let w = Author::Writer;
+    let w = Author::writer();
     let mut d = Dispatcher::new(Options::default());
     ok(&mut d, &w, "doc.open", json!({"path": p}));
     ok(
@@ -401,7 +401,7 @@ fn f14_a_header_that_matches_the_file_is_not_recovered() {
     let p = dir.path().join("s.fountain");
     // Not the normal form: trailing spaces and extra blank lines.
     fs::write(&p, "INT. HOUSE - DAY   \n\n\n\nRain.\n\n").unwrap();
-    let w = Author::Writer;
+    let w = Author::writer();
     let mut d = Dispatcher::new(Options::default());
     ok(&mut d, &w, "doc.open", json!({"path": p}));
     drop(d);
@@ -433,7 +433,7 @@ fn f14_discarding_a_recovered_header_keeps_a_copy() {
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("s.fountain");
     fs::write(&p, SCRIPT).unwrap();
-    let w = Author::Writer;
+    let w = Author::writer();
     let mut d = Dispatcher::new(Options::default());
     ok(&mut d, &w, "doc.open", json!({"path": p}));
     ok(
@@ -471,7 +471,7 @@ fn f13_saving_or_exporting_over_another_file_needs_overwrite() {
     let contract = dir.path().join("contract.pdf");
     fs::write(&notes, "My notes, not a script.\n").unwrap();
     fs::write(&contract, b"%PDF-1.4 not ours").unwrap();
-    let w = Author::Writer;
+    let w = Author::writer();
     let mut d = Dispatcher::new(Options::default());
     ok(&mut d, &w, "doc.new", json!({}));
     ok(
@@ -538,7 +538,7 @@ fn f9_a_diverged_entry_leaves_no_trace_in_the_recovered_document() {
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("s.fountain");
     fs::write(&p, SCRIPT).unwrap();
-    let w = Author::Writer;
+    let w = Author::writer();
     let mut d = Dispatcher::new(Options::default());
     ok(&mut d, &w, "doc.open", json!({"path": p}));
     ok(
@@ -596,7 +596,7 @@ fn text_of(d: &mut Dispatcher) -> String {
 /// not repeat (`nothing_to_undo`), so everything after it was lost.
 #[test]
 fn c1_undo_and_redo_across_a_save_survive_a_crash() {
-    let w = Author::Writer;
+    let w = Author::writer();
     // Codex's steps: set text, save, undo, type, crash.
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("o.fountain");
@@ -694,7 +694,7 @@ fn f16_an_undo_of_a_different_step_is_caught() {
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("s.fountain");
     fs::write(&p, SCRIPT).unwrap();
-    let w = Author::Writer;
+    let w = Author::writer();
     let mut d = Dispatcher::new(Options::default());
     ok(&mut d, &w, "doc.open", json!({"path": p}));
     ok(
@@ -740,7 +740,7 @@ fn f16_journaled_params_carry_their_defaults() {
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("s.fountain");
     fs::write(&p, SCRIPT).unwrap();
-    let w = Author::Writer;
+    let w = Author::writer();
     let mut d = Dispatcher::new(Options::default());
     ok(&mut d, &w, "doc.open", json!({"path": p}));
     ok(
@@ -807,7 +807,7 @@ fn edit_header(p: &Path, f: impl FnOnce(&mut Value)) {
 /// journal is now offered, never applied on its own.
 #[test]
 fn f16_a_journal_from_another_computer_or_folder_is_offered_not_applied() {
-    let w = Author::Writer;
+    let w = Author::writer();
     let dir = tempfile::tempdir().unwrap();
     let p = crashed_with_work(dir.path(), &w);
     let header = fs::read_to_string(journal::path_for(&p)).unwrap();
@@ -816,7 +816,7 @@ fn f16_a_journal_from_another_computer_or_folder_is_offered_not_applied() {
         header["host"].is_string() && header["path"].is_string(),
         "{header}"
     );
-    assert_eq!(header["semantics"], 1, "{header}");
+    assert_eq!(header["semantics"], journal::SEMANTICS, "{header}");
 
     // Synced from another computer.
     edit_header(&p, |h| h["host"] = json!("someone-elses-laptop"));
@@ -860,10 +860,10 @@ fn f16_a_journal_from_another_computer_or_folder_is_offered_not_applied() {
 /// this version does not know, is kept aside rather than replayed.
 #[test]
 fn f16_a_journal_with_newer_semantics_is_set_aside() {
-    let w = Author::Writer;
+    let w = Author::writer();
     let dir = tempfile::tempdir().unwrap();
     let p = crashed_with_work(dir.path(), &w);
-    edit_header(&p, |h| h["semantics"] = json!(2));
+    edit_header(&p, |h| h["semantics"] = json!(journal::SEMANTICS + 1));
     let mut d = Dispatcher::new(Options::default());
     let r = ok(&mut d, &w, "doc.open", json!({"path": p}));
     assert_eq!(r["warnings"][0]["code"], "journal_unreadable", "{r}");

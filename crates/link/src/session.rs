@@ -21,6 +21,11 @@ pub struct SessionFile {
     pub token: String,
     /// Canonical paths of the scripts open in the app.
     pub docs: Vec<PathBuf>,
+    /// For each of `docs`, in the same order, the script's identity when it
+    /// is a project bundle (docs/specs/mcp.md §5.1). Absent in files from
+    /// before 2026-10-18.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub doc_ids: Vec<Option<String>>,
 }
 
 /// `n` random bytes from the operating system, as hex.
@@ -157,6 +162,7 @@ mod tests {
             endpoint: "nowhere-at-all".into(),
             token: new_token().unwrap(),
             docs: vec![canonical(&script)],
+            doc_ids: Vec::new(),
         };
         assert_eq!(s.token.len(), 64);
         let p = s.write(&run).unwrap();

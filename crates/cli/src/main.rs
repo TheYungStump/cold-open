@@ -101,6 +101,9 @@ enum Cmd {
         /// Keep going after a command fails.
         #[arg(long)]
         keep_going: bool,
+        /// The name your tracked changes carry (default "Writer").
+        #[arg(long)]
+        author: Option<String>,
     },
     /// Print the licenses of Cold Open and of the fonts it bundles.
     Licenses,
@@ -110,6 +113,9 @@ enum Cmd {
         /// Use standard input and output (the only transport so far).
         #[arg(long)]
         stdio: bool,
+        /// The name your tracked changes carry (default "Writer").
+        #[arg(long)]
+        author: Option<String>,
     },
     /// Serve the Model Context Protocol on standard input and output, so an
     /// AI agent can read and edit scripts. When the Cold Open app has the
@@ -121,6 +127,11 @@ enum Cmd {
         /// Never attach to the app; always open the file in this process.
         #[arg(long)]
         no_attach: bool,
+        /// Do not record the agent's edits as tracked changes in scripts this
+        /// server opens itself. When the script is open in the app, the
+        /// app's setting decides.
+        #[arg(long)]
+        untracked: bool,
     },
 }
 
@@ -154,16 +165,22 @@ fn main() -> ExitCode {
             doc,
             save,
             keep_going,
-        } => run(&edits, doc.as_deref(), save, keep_going),
-        Cmd::Mcp { doc, no_attach } => coldopen_mcp::run_stdio(coldopen_mcp::McpOptions {
+            author,
+        } => run(&edits, doc.as_deref(), save, keep_going, author),
+        Cmd::Mcp {
+            doc,
+            no_attach,
+            untracked,
+        } => coldopen_mcp::run_stdio(coldopen_mcp::McpOptions {
             doc,
             no_attach,
             run_dir: coldopen_link::run_dir(),
+            untracked,
         })
         .map(|()| ExitCode::SUCCESS),
-        Cmd::Serve { stdio } => {
+        Cmd::Serve { stdio, author } => {
             if stdio {
-                serve_stdio()
+                serve_stdio(author)
             } else {
                 Err("choose a transport: coldopen serve --stdio".into())
             }
@@ -515,7 +532,13 @@ fn read_requests(source: &str) -> Result<Vec<Value>, String> {
         .collect()
 }
 
-fn run(source: &str, doc: Option<&Path>, save: bool, keep_going: bool) -> Result<ExitCode, String> {
+fn run(
+    source: &str,
+    doc: Option<&Path>,
+    save: bool,
+    keep_going: bool,
+    author: Option<String>,
+) -> Result<ExitCode, String> {
     let mut requests = read_requests(source)?;
     if let Some(p) = doc {
         requests.insert(
@@ -528,6 +551,7 @@ fn run(source: &str, doc: Option<&Path>, save: bool, keep_going: bool) -> Result
     }
 
     let mut d = Dispatcher::new(Options::default());
+    d.set_writer_name(author);
     let mut out = io::stdout().lock();
     let mut failed = false;
     for req in &requests {
@@ -582,8 +606,9 @@ fn run(source: &str, doc: Option<&Path>, save: bool, keep_going: bool) -> Result
     })
 }
 
-fn serve_stdio() -> Result<ExitCode, String> {
+fn serve_stdio(author: Option<String>) -> Result<ExitCode, String> {
     let mut d = Dispatcher::new(Options::default());
+    d.set_writer_name(author);
     let stdin = io::stdin();
     let mut input = stdin.lock();
     let mut out = io::stdout().lock();

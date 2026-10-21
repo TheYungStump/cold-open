@@ -64,13 +64,16 @@ impl App {
             // another (review finding F7).
             self.close_links();
             self.link_path = path.clone();
-            let docs = path.iter().map(|p| coldopen_link::canonical(p)).collect();
-            if let Some(link) = &self.link
-                && let Err(e) = link.set_docs(docs)
-            {
-                self.banners
-                    .push(format!("The agent link could not be updated: {e}").into());
-            }
+        }
+        // The session file names the script, and its identity when it is a
+        // bundle (docs/specs/mcp.md §5.1); it is rewritten only on a change.
+        let docs: Vec<_> = path.iter().map(|p| coldopen_link::canonical(p)).collect();
+        let ids = vec![self.d.session().and_then(|s| s.doc.doc_id.clone())];
+        if let Some(link) = &self.link
+            && let Err(e) = link.set_docs(docs, ids)
+        {
+            self.banners
+                .push(format!("The agent link could not be updated: {e}").into());
         }
         let Some(link) = &self.link else { return };
         let rev = self.d.session().map(|s| s.rev);
@@ -199,8 +202,12 @@ impl App {
         } else {
             format!("{} agents", self.agents.len())
         };
+        let review = match self.review.1 {
+            0 => String::new(),
+            n => format!(" · {n} to review"),
+        };
         Some(format!(
-            "{who} connected · {edits} {}",
+            "{who} connected · {edits} {}{review}",
             if edits == 1 { "edit" } else { "edits" }
         ))
     }

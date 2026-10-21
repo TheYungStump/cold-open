@@ -79,10 +79,7 @@ impl App {
             best.or(first)?
         };
         let b = self.d.session()?.doc.blocks.get(block)?;
-        let c = crate::editor::Caret {
-            block: b.id,
-            offset: b.element.text.char_len(),
-        };
+        let c = crate::editor::Caret::at(b.id, b.element.text.char_len());
         self.editor.caret = c;
         self.editor.anchor = c;
         Some(page)

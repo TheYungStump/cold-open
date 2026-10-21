@@ -8,6 +8,8 @@ use coldopen_screenplay::{
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::changes::{BlockMarks, Changes, Tracking};
+
 /// A block's stable id. Opaque to clients; written as `b_<n>`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BlockId(pub u64);
@@ -57,18 +59,33 @@ impl<'de> Deserialize<'de> for BlockId {
     }
 }
 
-/// One element of the document with its id.
+/// One element of the document with its id, and its structural tracked
+/// changes (docs/specs/changes.md §2.2).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Block {
     pub id: BlockId,
     pub element: Element,
+    pub marks: BlockMarks,
+}
+
+impl Block {
+    /// A block with no marks.
+    pub fn new(id: BlockId, element: Element) -> Block {
+        Block {
+            id,
+            element,
+            marks: BlockMarks::default(),
+        }
+    }
 }
 
 #[derive(Serialize)]
-struct BlockOut {
+struct BlockOut<'a> {
     id: BlockId,
     #[serde(flatten)]
     element: ElementRepr,
+    #[serde(skip_serializing_if = "BlockMarks::is_empty")]
+    change: &'a BlockMarks,
 }
 
 impl Serialize for Block {
@@ -76,6 +93,7 @@ impl Serialize for Block {
         BlockOut {
             id: self.id,
             element: ElementRepr::from_element(&self.element),
+            change: &self.marks,
         }
         .serialize(s)
     }
@@ -89,9 +107,13 @@ impl<'de> Deserialize<'de> for Block {
             .remove("id")
             .ok_or_else(|| D::Error::custom("a block needs an \"id\""))?;
         let id: BlockId = serde_json::from_value(id).map_err(D::Error::custom)?;
+        let marks: BlockMarks = match map.remove("change") {
+            Some(v) => serde_json::from_value(v).map_err(D::Error::custom)?,
+            None => BlockMarks::default(),
+        };
         let element: Element =
             serde_json::from_value(serde_json::Value::Object(map)).map_err(D::Error::custom)?;
-        Ok(Block { id, element })
+        Ok(Block { id, element, marks })
     }
 }
 
@@ -125,6 +147,19 @@ pub struct Document {
     /// document's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fdx: Option<Box<coldopen_fdx::Kept>>,
+    /// The tracking switches (docs/specs/changes.md §4); absent means the
+    /// defaults.
+    #[serde(default, skip_serializing_if = "Tracking::is_default")]
+    pub tracking: Tracking,
+    /// The change table. Not part of the document's JSON: a journal header
+    /// holds or names it, and a bundle keeps it in `changes.json`
+    /// (docs/specs/journal.md, "The change data").
+    #[serde(skip)]
+    pub changes: Changes,
+    /// A bundle's identity apart from its path (docs/specs/bundle.md §8).
+    /// Kept in `meta.json` and the journal header, not in the JSON.
+    #[serde(skip)]
+    pub doc_id: Option<String>,
 }
 
 /// A scene derived from the block list.
@@ -143,10 +178,7 @@ impl Document {
             .elements
             .into_iter()
             .enumerate()
-            .map(|(i, element)| Block {
-                id: BlockId(i as u64 + 1),
-                element,
-            })
+            .map(|(i, element)| Block::new(BlockId(i as u64 + 1), element))
             .collect();
         Document {
             title_page: script.title_page,
@@ -227,6 +259,25 @@ impl Document {
                     "block {} breaks a model rule: {}",
                     b.id,
                     problems.join("; ")
+                ));
+            }
+            // Every mark names a change the table has (docs/specs/bundle.md
+            // §4), and print-only marks never reach a document.
+            if let Some(c) = b.change_ids().find(|&c| self.changes.get(c).is_none()) {
+                return Err(format!(
+                    "block {} names {c}, which the change table does not have",
+                    b.id
+                ));
+            }
+            if b.element.text.runs().iter().any(|r| r.marks().show) {
+                return Err(format!("block {} holds a print-only mark", b.id));
+            }
+            if b.marks.moved.iter().any(|m| {
+                m.before.is_some_and(|id| id.0 >= self.next_id) || m.last.0 >= self.next_id
+            }) {
+                return Err(format!(
+                    "block {}'s move names a block not below next_id",
+                    b.id
                 ));
             }
         }
@@ -354,16 +405,33 @@ mod tests {
 
     #[test]
     fn block_json() {
-        let b = Block {
-            id: BlockId(3),
-            element: Element::new(ElementKind::Character, "MAYA").dual(),
-        };
+        let mut b = Block::new(
+            BlockId(3),
+            Element::new(ElementKind::Character, "MAYA").dual(),
+        );
         let json = serde_json::to_string(&b).unwrap();
         assert_eq!(
             json,
             r#"{"id":"b_3","type":"character","text":"MAYA","dual":true}"#
         );
         assert_eq!(serde_json::from_str::<Block>(&json).unwrap(), b);
+        b.marks.inserted = Some(crate::changes::ChangeId(2));
+        let json = serde_json::to_string(&b).unwrap();
+        assert_eq!(
+            json,
+            r#"{"id":"b_3","type":"character","text":"MAYA","dual":true,"change":{"inserted":"c_2"}}"#
+        );
+        assert_eq!(serde_json::from_str::<Block>(&json).unwrap(), b);
+    }
+
+    #[test]
+    fn marks_must_name_changes_the_table_has() {
+        use crate::changes::{ChangeBy, ChangeId};
+        let mut d = doc(&[ElementKind::Action]);
+        d.blocks[0].marks.deleted = Some(ChangeId(1));
+        assert!(d.check().is_err());
+        d.changes.push(ChangeBy::unknown(), 0);
+        assert!(d.check().is_ok());
     }
 
     #[test]

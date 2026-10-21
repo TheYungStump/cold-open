@@ -195,6 +195,11 @@ pub fn defaults() -> Vec<(&'static str, &'static str)> {
         ("Alt+PageUp", "nav.previous_scene"),
         ("Alt+PageDown", "nav.next_scene"),
         ("Mod+Shift+H", "app.history"),
+        ("Mod+Shift+Enter", "changes.accept_here"),
+        ("Mod+Shift+Backspace", "changes.reject_here"),
+        ("F7", "changes.next"),
+        ("Shift+F7", "changes.previous"),
+        ("Mod+Shift+R", "view.changes"),
     ];
     if MAC {
         v.push(("Mod+Alt+F", "edit.replace"));

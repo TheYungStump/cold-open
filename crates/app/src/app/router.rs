@@ -173,7 +173,8 @@ impl App {
             && edited
         {
             self.editor.follow(&cmd, result);
-            if let Some(s) = self.d.session() {
+            let tracked = result.get("change").is_some();
+            if !tracked && let Some(s) = self.d.session() {
                 for b in &s.doc.blocks {
                     if before.get(&b.id) != Some(&b.element) {
                         self.agent_marks.insert(b.id);

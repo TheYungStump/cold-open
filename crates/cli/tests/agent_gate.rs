@@ -202,9 +202,10 @@ fn an_agent_through_coldopen_mcp_edits_the_script_open_in_the_app() {
     let (_, label, by) = session.undo_steps().next().unwrap();
     assert_eq!(label, "gate-agent · block_insert");
     assert!(!by.is_writer());
+    // The edit is a tracked change waiting for the writer (editor.md §12).
     assert_eq!(
         h.app.agent_status().unwrap(),
-        "gate-agent connected · 1 edit"
+        "gate-agent connected · 1 edit · 1 to review"
     );
 
     // Refused while attached, with the reason in the tool result.
@@ -253,7 +254,12 @@ fn without_the_app_coldopen_mcp_opens_the_file_itself() {
         ..Boot::default()
     });
     let mut h = Headless::new(app, iced::Size::new(800.0, 600.0)).unwrap();
-    let mut mcp = Mcp::start(home.path(), &["--doc", script.to_str().unwrap()]);
+    // Agent edits in a .fountain file it opens itself can be saved there
+    // only untracked: the person running the server chose that.
+    let mut mcp = Mcp::start(
+        home.path(),
+        &["--doc", script.to_str().unwrap(), "--untracked"],
+    );
     mcp.request(
         &mut h,
         "initialize",
@@ -346,7 +352,7 @@ fn a_failed_doc_open_keeps_the_open_script() {
         ..Boot::default()
     });
     let mut h = Headless::new(app, iced::Size::new(800.0, 600.0)).unwrap();
-    let mut mcp = Mcp::start(home.path(), &["--no-attach"]);
+    let mut mcp = Mcp::start(home.path(), &["--no-attach", "--untracked"]);
     mcp.request(
         &mut h,
         "initialize",
@@ -434,6 +440,13 @@ fn an_agent_saves_an_fdx_script_and_writes_copies() {
         ..Boot::default()
     });
     app.set_dialogs(Dialogs::scripted(|_| None));
+    // The writer turns agent tracking off for this script, so the agent's
+    // edit can be saved to .fdx, which cannot hold tracked changes.
+    app.d
+        .execute(
+            coldopen_core::Command::from_parts("changes.track", json!({"agents": false})).unwrap(),
+        )
+        .unwrap();
     let mut h = Headless::new(app, iced::Size::new(1000.0, 700.0)).unwrap();
     let mut mcp = Mcp::start(home.path(), &[]);
     mcp.request(
@@ -520,4 +533,147 @@ fn an_agent_saves_an_fdx_script_and_writes_copies() {
     let r = mcp.tool(&mut h, "recovered_list", json!({}));
     assert_eq!(r["isError"], false, "{r}");
     h.app.d.discard();
+}
+
+fn initialize(mcp: &mut Mcp, h: &mut Headless, name: &str) {
+    mcp.request(
+        h,
+        "initialize",
+        json!({
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": name, "version": "1.0"}
+        }),
+    );
+    mcp.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+}
+
+fn writer_run(h: &mut Headless, command: &str, params: Value) -> Value {
+    let cmd = coldopen_core::Command::from_parts(command, params).unwrap();
+    h.app
+        .d
+        .execute(cmd)
+        .unwrap_or_else(|e| panic!("{command}: {e}"))
+}
+
+/// Phase 5a's gate: through a real `coldopen mcp` attached to the app, an
+/// agent's edits arrive as tracked changes under its name; the writer
+/// settles them, and the agent can settle none of the writer's.
+#[test]
+fn through_coldopen_mcp_agent_edits_arrive_as_tracked_changes() {
+    let home = tempfile::tempdir().unwrap();
+    let script = home.path().join("lighthouse.fountain");
+    std::fs::write(&script, SCRIPT).unwrap();
+    let mut app = App::new(Boot {
+        file: Some(script.clone()),
+        dirs: Some(Dirs::under(home.path())),
+        ..Boot::default()
+    });
+    app.set_dialogs(Dialogs::scripted(|_| None));
+    let mut h = Headless::new(app, iced::Size::new(1000.0, 700.0)).unwrap();
+    let mut mcp = Mcp::start(home.path(), &[]);
+    initialize(&mut mcp, &mut h, "gate-agent");
+    let r = mcp.tool(&mut h, "doc_open", json!({"path": script}));
+    assert_eq!(r["structuredContent"]["attached"], true, "{r}");
+
+    let r = mcp.tool(
+        &mut h,
+        "text_replace",
+        json!({"find": "Gulls", "with": "Terns"}),
+    );
+    assert_eq!(r["structuredContent"]["change"], "c_1", "{r}");
+    assert_eq!(texts(&h)[3], "Terns.");
+    let list = mcp.tool(&mut h, "changes_list", json!({}));
+    assert_eq!(
+        list["structuredContent"]["changes"][0]["by"],
+        json!({"kind": "agent", "name": "gate-agent"}),
+        "{list}"
+    );
+    // The changes resource says the same.
+    let res = mcp.request(
+        &mut h,
+        "resources/read",
+        json!({"uri": "coldopen://doc/changes"}),
+    );
+    assert!(
+        res["result"]["contents"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("gate-agent"),
+        "{res}"
+    );
+    // The agent cannot accept, nor opt out.
+    let r = mcp.tool(&mut h, "changes_accept", json!({"all": true}));
+    assert_eq!(r["structuredContent"]["code"], "writer_only", "{r}");
+    let r = mcp.tool(&mut h, "changes_track", json!({"agents": false}));
+    assert_eq!(r["structuredContent"]["code"], "writer_only", "{r}");
+
+    // The writer's own tracked change is out of the agent's reach.
+    writer_run(&mut h, "changes.track", json!({"writer": true}));
+    writer_run(
+        &mut h,
+        "text.insert",
+        json!({"id": "b_2", "at": 0, "text": "Slowly, "}),
+    );
+    let r = mcp.tool(&mut h, "changes_reject", json!({"id": "c_2"}));
+    assert_eq!(r["structuredContent"]["code"], "not_your_change", "{r}");
+    // The writer rejects the agent's change; then the agent proposes again
+    // and withdraws it itself.
+    writer_run(&mut h, "changes.reject", json!({"id": "c_1"}));
+    assert_eq!(texts(&h)[3], "Gulls.");
+    mcp.tool(
+        &mut h,
+        "block_insert",
+        json!({"type": "action", "text": "A ship."}),
+    );
+    let r = mcp.tool(&mut h, "changes_reject", json!({"all": true}));
+    assert_eq!(r["structuredContent"]["count"], 1, "{r}");
+    assert!(!texts(&h).iter().any(|t| t == "A ship."));
+    // What is left is the writer's, which the writer accepts.
+    writer_run(&mut h, "changes.accept", json!({"all": true}));
+    assert_eq!(texts(&h)[1], "Slowly, The lamp turns.");
+    let list = mcp.tool(&mut h, "changes_list", json!({}));
+    assert_eq!(list["structuredContent"]["changes"], json!([]));
+    mcp.tool(&mut h, "doc_close", json!({}));
+    h.app.d.discard();
+}
+
+/// Without the app, `coldopen mcp` tracks the agent's edits too: a
+/// Fountain file cannot hold them, so the agent saves them in a bundle,
+/// where the writer finds them under its name.
+#[test]
+fn without_the_app_an_agents_tracked_edits_go_into_a_bundle() {
+    let home = tempfile::tempdir().unwrap();
+    let script = home.path().join("solo.fountain");
+    std::fs::write(&script, SCRIPT).unwrap();
+    let app = App::new(Boot {
+        dirs: Some(Dirs::under(home.path())),
+        ..Boot::default()
+    });
+    let mut h = Headless::new(app, iced::Size::new(800.0, 600.0)).unwrap();
+    let mut mcp = Mcp::start(home.path(), &["--doc", script.to_str().unwrap()]);
+    initialize(&mut mcp, &mut h, "solo");
+    let r = mcp.tool(
+        &mut h,
+        "text_replace",
+        json!({"find": "Gulls", "with": "Terns"}),
+    );
+    assert_eq!(r["structuredContent"]["change"], "c_1", "{r}");
+    let r = mcp.tool(&mut h, "doc_save", json!({}));
+    assert_eq!(r["structuredContent"]["code"], "lossy_format", "{r}");
+    let bundle = home.path().join("solo.coldopen");
+    let r = mcp.tool(&mut h, "doc_save", json!({"path": bundle}));
+    assert_eq!(r["isError"], false, "{r}");
+    mcp.tool(&mut h, "doc_close", json!({}));
+    drop(mcp);
+    // The Fountain file is as it was; the bundle holds the change.
+    assert_eq!(std::fs::read_to_string(&script).unwrap(), SCRIPT);
+    let mut d = coldopen_core::Dispatcher::new(coldopen_core::Options::default());
+    d.execute(coldopen_core::Command::from_parts("doc.open", json!({"path": bundle})).unwrap())
+        .unwrap();
+    let list = d
+        .execute(coldopen_core::Command::from_parts("changes.list", json!({})).unwrap())
+        .unwrap();
+    assert_eq!(list["changes"][0]["by"]["name"], "solo", "{list}");
+    d.shutdown();
 }

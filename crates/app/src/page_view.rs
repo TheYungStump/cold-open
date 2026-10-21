@@ -5,7 +5,7 @@
 //! app turns events into commands.
 
 use std::cell::RefCell;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 
 use coldopen_core::{BlockId, Document, View};
@@ -416,6 +416,8 @@ impl<Message> widget::Widget<Message, iced::Theme, iced::Renderer> for PageView<
             pal.desk,
         );
 
+        // Tracked changes' authors, by slot (editor.md §17.1).
+        let slots = self.doc.change_slots();
         let pages: Vec<&Page> = self.pages();
         for p in 0..self.page_count() {
             let o = self.page_origin(bounds.width, p);
@@ -444,6 +446,7 @@ impl<Message> widget::Widget<Message, iced::Theme, iced::Renderer> for PageView<
                     .unwrap_or_default(),
             };
             let at = |x: Pt, y_top: f32| Point::new(rect.x + x.0 as f32 * k, rect.y + y_top);
+            let mut labelled: Option<usize> = None;
             for l in &lines {
                 let top = (l.y.0 - format.baseline.0) as f32 * k;
                 if rect.y + top > clip.y + clip.height || rect.y + top + lh < clip.y {
@@ -469,6 +472,41 @@ impl<Message> widget::Widget<Message, iced::Theme, iced::Renderer> for PageView<
                         pal.agent,
                     );
                 }
+                // Tracked changes in the left margin: a bar on every line
+                // holding a mark, and a label on the first line of a block
+                // with a structural mark (editor.md §17.1).
+                if matches!(l.kind, LineKind::Content(_)) {
+                    let inch = 72.0 * PX_PER_PT * self.zoom;
+                    if let Some(c) = l.clusters.iter().find_map(|c| c.look.change) {
+                        renderer.fill_quad(
+                            Quad {
+                                bounds: Rectangle::new(
+                                    Point::new(rect.x + 0.45 * inch, rect.y + top),
+                                    Size::new(3.0, lh),
+                                ),
+                                ..Quad::default()
+                            },
+                            change_color(&pal, &slots, c),
+                        );
+                    }
+                    if let Some(e) = elem
+                        && labelled != Some(e)
+                    {
+                        labelled = Some(e);
+                        if let Some((label, c)) = self.block_label(e) {
+                            let w = 0.95 * inch;
+                            let at = Point::new(rect.x + 0.45 * inch - w - 4.0, rect.y + top);
+                            let mut t = page_text(&label, font_px * 0.62, lh, fonts::UI, w);
+                            t.align_x = text::Alignment::Right;
+                            renderer.fill_text(
+                                t,
+                                Point::new(at.x + w, at.y),
+                                change_color(&pal, &slots, c),
+                                text_clip(at, w, lh),
+                            );
+                        }
+                    }
+                }
                 // Selection and find matches, behind the text.
                 if let Some(e) = elem {
                     let mut cell = 0i32;
@@ -493,7 +531,15 @@ impl<Message> widget::Widget<Message, iced::Theme, iced::Renderer> for PageView<
                     LineKind::PageNumber | LineKind::SceneNumber => pal.ink_quiet,
                     _ => pal.ink,
                 };
-                self.draw_line(renderer, state, l, at(l.x, top), pitch, lh, font_px, color);
+                self.draw_line(
+                    renderer,
+                    state,
+                    l,
+                    at(l.x, top),
+                    (pitch, lh, font_px),
+                    color,
+                    &slots,
+                );
             }
         }
 
@@ -571,6 +617,32 @@ impl<Message> PageView<'_, Message> {
     /// Draws a placed line cluster by cluster on the grid: runs of
     /// one-cell clusters in one style go in one text call; wide clusters
     /// and missing glyphs are placed on their own cells.
+    /// The label a laid-out element's block shows in the margin for its
+    /// structural tracked change, with that change.
+    fn block_label(&self, elem: usize) -> Option<(String, u64)> {
+        let bi = *self.view.map.get(elem)?;
+        let m = &self.doc.blocks.get(bi)?.marks;
+        if let Some(c) = m.deleted {
+            return Some(("Deleted".into(), c.0));
+        }
+        if let Some(c) = m.inserted {
+            return Some(("New".into(), c.0));
+        }
+        if let Some(r) = m.retyped.first() {
+            return Some((format!("Was {}", kind_title(r.from)), r.change.0));
+        }
+        if let Some(c) = m.split {
+            return Some(("Split".into(), c.0));
+        }
+        if let Some(c) = m.joined {
+            return Some(("Joined".into(), c.0));
+        }
+        if let Some(mv) = m.moved.first() {
+            return Some(("Moved".into(), mv.change.0));
+        }
+        None
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn draw_line(
         &self,
@@ -578,11 +650,15 @@ impl<Message> PageView<'_, Message> {
         state: &State,
         line: &PlacedLine,
         origin: Point,
-        pitch: f32,
-        lh: f32,
-        font_px: f32,
+        (pitch, lh, font_px): (f32, f32, f32),
         color: Color,
+        slots: &BTreeMap<u64, u8>,
     ) {
+        let pal = self.palette;
+        let ink = |look: Look| match look.change {
+            Some(c) => change_color(&pal, slots, c),
+            None => color,
+        };
         let mut run = String::new();
         let mut run_cell = 0i32;
         let mut run_look = Look::default();
@@ -591,6 +667,7 @@ impl<Message> PageView<'_, Message> {
             if run.is_empty() {
                 return;
             }
+            let color = ink(look);
             let w = run.chars().count() as f32 * pitch;
             let at = Point::new(origin.x + run_cell as f32 * pitch, origin.y);
             renderer.fill_text(
@@ -605,12 +682,25 @@ impl<Message> PageView<'_, Message> {
                 color,
                 text_clip(at, w + pitch, lh),
             );
+            let thick = (font_px / 16.0).max(1.0);
             if look.underline {
                 renderer.fill_quad(
                     Quad {
                         bounds: Rectangle::new(
                             Point::new(at.x, at.y + lh * 0.86),
-                            Size::new(run_cell_width(run, pitch), (font_px / 16.0).max(1.0)),
+                            Size::new(run_cell_width(run, pitch), thick),
+                        ),
+                        ..Quad::default()
+                    },
+                    color,
+                );
+            }
+            if look.strike {
+                renderer.fill_quad(
+                    Quad {
+                        bounds: Rectangle::new(
+                            Point::new(at.x, at.y + lh * 0.52),
+                            Size::new(run_cell_width(run, pitch), thick),
                         ),
                         ..Quad::default()
                     },
@@ -655,7 +745,7 @@ impl<Message> PageView<'_, Message> {
                                 Size::new(pitch * 0.7, lh * 0.6),
                             ),
                             border: Border {
-                                color,
+                                color: ink(c.look),
                                 width: 1.0,
                                 radius: 0.0.into(),
                             },
@@ -674,7 +764,7 @@ impl<Message> PageView<'_, Message> {
                         w + pitch,
                     ),
                     at,
-                    color,
+                    ink(c.look),
                     text_clip(at, w + pitch, lh),
                 );
             }
@@ -751,6 +841,33 @@ impl<'a, Message: 'a> From<PageView<'a, Message>> for Element<'a, Message> {
 }
 
 /// Block ids to normal-form element indices, for marks.
+/// The screen color of a tracked change's author (editor.md §17.1).
+pub fn change_color(pal: &Palette, slots: &BTreeMap<u64, u8>, change: u64) -> Color {
+    let slot = slots.get(&change).copied().unwrap_or(0);
+    pal.changes[usize::from(slot) % pal.changes.len()]
+}
+
+/// An element kind as the margin label says it.
+pub fn kind_title(k: coldopen_screenplay::ElementKind) -> &'static str {
+    use coldopen_screenplay::ElementKind::*;
+    match k {
+        SceneHeading => "Scene heading",
+        Action => "Action",
+        Character => "Character",
+        Parenthetical => "Parenthetical",
+        Dialogue => "Dialogue",
+        Transition => "Transition",
+        Lyric => "Lyric",
+        Shot => "Shot",
+        General => "General",
+        PageBreak => "Page break",
+        Section => "Section",
+        Synopsis => "Synopsis",
+        Note => "Note",
+        Boneyard => "Boneyard",
+    }
+}
+
 pub fn marked_elements(view: &View, doc: &Document, blocks: &BTreeSet<BlockId>) -> BTreeSet<usize> {
     let mut out = BTreeSet::new();
     for id in blocks {

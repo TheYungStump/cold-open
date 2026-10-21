@@ -11,6 +11,8 @@
 )]
 
 pub mod author;
+pub mod bundle;
+pub mod changes;
 pub mod command;
 pub mod complete;
 pub mod dispatcher;
@@ -26,11 +28,14 @@ pub mod ops;
 pub mod recovered;
 pub mod replace;
 pub mod session;
+pub mod track;
 pub mod view;
 
 pub use author::{Author, Clock};
 pub use command::Command;
-pub use dispatcher::{Dispatcher, Options, PreparedSave, to_line};
+pub use dispatcher::{
+    Dispatcher, Options, PreparedSave, RenderedSave, SaveJob, SaveTicket, to_line,
+};
 pub use document::{Block, BlockId, Document};
 pub use error::CommandError;
 pub use flush::{Durability, FlushStatus};

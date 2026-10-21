@@ -12,10 +12,7 @@ use coldopen_screenplay::{Align, Element, ElementKind, PageFormat, Pt, TitleLine
 use serde_json::{Value, json};
 
 fn action(i: u64, text: &str) -> Block {
-    Block {
-        id: BlockId(i),
-        element: Element::new(ElementKind::Action, text),
-    }
+    Block::new(BlockId(i), Element::new(ElementKind::Action, text))
 }
 
 /// A short script with a format of its own, a title line and an override
@@ -26,10 +23,10 @@ fn sample() -> Document {
         margin_bottom: Pt::points(54),
         ..PageFormat::default()
     };
-    let mut blocks = vec![Block {
-        id: BlockId(1),
-        element: Element::new(ElementKind::SceneHeading, "INT. LAB - NIGHT"),
-    }];
+    let mut blocks = vec![Block::new(
+        BlockId(1),
+        Element::new(ElementKind::SceneHeading, "INT. LAB - NIGHT"),
+    )];
     for i in 2..=40 {
         blocks.push(action(
             i,

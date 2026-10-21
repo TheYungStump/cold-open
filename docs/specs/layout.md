@@ -1,7 +1,7 @@
 # Layout and pagination
 
 - **Date:** 2026-10-13
-- **Status:** implemented in `crates/layout` (phase 2; §15 in phase 3). Phase 4 (2026-10-16) lays .fdx documents out with their own format and overrides as they are edited (§4.8, §15.2); being implemented.
+- **Status:** implemented in `crates/layout` (phase 2; §15 in phase 3; phase 4, 2026-10-16, lays .fdx documents out with their own format and overrides as they are edited, §4.8, §15.2). Phase 5a (2026-10-18) adds tracked-change marks (§17), being implemented.
 - **Sources:**
   - `docs/spec.md`, "Formatting and pagination rules": the page defaults table and the seven page-break rules. That section summarizes two public format guides, Highland's "Standard Screenplay Format" and the NFI screenplay-format page. Neither guide could be fetched from this build environment, so this document relies only on the spec's summary of them.
   - `docs/specs/fountain.md`: the element model, `space_before`, transparent elements, and dual dialogue.
@@ -133,7 +133,7 @@ Layout first turns a `Script` into a **flow**: a list of blocks, each made of me
 
    A scene heading resets this.
 7. **Empty elements.** A printing element with no visible text takes one blank line. Empty elements at the end of the script are dropped.
-8. **Normal form.** Core lays out a Fountain document as `normalize(script)` (`docs/specs/fountain.md` §10), so its pages never change when it is saved and read back. Layout itself accepts any script. (2026-10-16) An .fdx document is laid out as its blocks stand, with the file's page format, title lines and spacing overrides. The .fdx reader keeps text as it is (`docs/specs/fdx.md` §10), the reference comparison of §13 measured exactly that, and a Fountain normalization would merge and renumber elements under the overrides. Writing and reading back .fdx changes nothing that prints (`docs/specs/fdx.md` §16.2).
+8. **Normal form.** Core lays out a Fountain document as `normalize(script)` (`docs/specs/fountain.md` §10), so its pages never change when it is saved and read back. Layout itself accepts any script. (2026-10-16) An .fdx document is laid out as its blocks stand, with the file's page format, title lines and spacing overrides. (2026-10-18) So is a bundle (`docs/specs/bundle.md` §4). The .fdx reader keeps text as it is (`docs/specs/fdx.md` §10), the reference comparison of §13 measured exactly that, and a Fountain normalization would merge and renumber elements under the overrides. Writing and reading back .fdx changes nothing that prints (`docs/specs/fdx.md` §16.2).
 
 ## 5. Measure and wrapping
 
@@ -486,6 +486,28 @@ The editor also marks where each body page starts, using the spans of §10.
 ## 16. Not yet supported
 
 - Scene "CONTINUED" headers and footers. The format can hold them, the .fdx reader reports them, and they don't print.
-- Revision marks and colors, and locked or A-pages.
+- Production revision marks and colors (phase 5b), and locked or A-pages.
+
+## 17. Tracked changes
+
+Added 2026-10-18 (phase 5a). Sources: `docs/specs/changes.md`, the phase 5a brief and its decisions (2026-10-18), and the Okabe–Ito palette (Masataka Okabe and Kei Ito, "Color Universal Design", 2008, <https://jfly.uni-koeln.de/color/>) for print colors that stay distinct for most kinds of color blindness. Status: being implemented.
+
+Layout knows nothing about authors or changes. Core hands it one of the document's two print forms (`docs/specs/changes.md` §9):
+
+- **Accepted:** a script with no marks, laid out exactly as any other.
+- **Marked:** text runs keep their `ins` and `del` marks, and core gives `Options` the author slot of each change: a small number, assigned by the order in which authors first appear in the change table, the same in the editor and the PDF.
+
+**What marks change.**
+
+- **Nothing about measuring.** A pending deletion is text that prints, struck through, so it takes its cells, wraps and paginates like any other text. Insertions are ordinary text. The marked form of a document therefore paginates exactly like the same text with no marks, which is what makes the editor's pages and the marked PDF the same pages.
+- **Each cell's `Look`** gains `strike` (the cell is in a pending deletion) and `mark`, the author slot of the change that inserted or deleted it (the deletion's, when a cell has both). Runs, page view and source map are otherwise unchanged.
+- **Sentence ends** (§8) are found in the text as printed, struck text included.
+- **The page view** (§11) shows struck text as its characters, as it shows underlined text, with no marks.
+
+**In the PDF** (§12):
+
+- A cell with a `mark` is drawn in its author's color. Slots are taken in turn from this list, starting again after the last: `#0072B2`, `#D55E00`, `#009E73`, `#CC79A7`, `#3C3C99`, `#8F5A00`. The first four are Okabe–Ito colors; the last two are darker blends of its blue and orange, since its lighter colors are too faint for text on white.
+- A struck cell gets a filled rectangle at the face's strikeout position and thickness (from the font's `OS/2` table; 0.3 em and 0.05 em when the face has none), covering its cells, in the same color, drawn with the text, as underline is.
+- Bytes stay deterministic: the colors are fixed numbers, and the drawing order follows the cells.
 - Fallback fonts, right-to-left text and complex scripts.
 - Selectable templates (A4, television).

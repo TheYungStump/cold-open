@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use coldopen_core::command::DocSave;
-use coldopen_core::{Author, Command, Dispatcher, Durability, Options, io};
+use coldopen_core::{
+    Author, Command, CommandError, Dispatcher, Durability, Options, PreparedSave, io,
+};
 use serde_json::{Value, json};
 
 fn app() -> Dispatcher {
@@ -43,6 +45,14 @@ fn type_at_end(d: &mut Dispatcher, s: &str) {
             json!({"id": block["id"], "at": len + k, "text": c.to_string()}),
         );
     }
+}
+
+/// Steps 1 to 3 of a save off the UI thread (journal.md, "Saving off the
+/// UI thread"): the snapshot, the rendering the worker does, and the
+/// marker.
+fn prepare(d: &mut Dispatcher) -> Result<PreparedSave, CommandError> {
+    let job = d.save_prepare(&DocSave::default())?;
+    d.save_mark(job.render())
 }
 
 fn text(d: &mut Dispatcher) -> String {
@@ -95,7 +105,7 @@ fn a_save_with_no_edits_meanwhile_restarts_the_journal() {
     let mut d = app();
     ok(&mut d, "doc.open", json!({"path": p}));
     type_at_end(&mut d, " Wind.");
-    let prepared = d.save_prepare(&DocSave::default()).unwrap();
+    let prepared = prepare(&mut d).unwrap();
     let written = io::atomic_write(&prepared.target, &prepared.bytes);
     let r = d.save_commit(prepared, written).unwrap();
     assert_eq!(r["dirty"], false);
@@ -116,7 +126,7 @@ fn edits_during_a_save_stay_in_the_journal() {
     let mut d = app();
     ok(&mut d, "doc.open", json!({"path": p}));
     type_at_end(&mut d, " Wind.");
-    let prepared = d.save_prepare(&DocSave::default()).unwrap();
+    let prepared = prepare(&mut d).unwrap();
     // The writer keeps typing while the worker writes the file.
     type_at_end(&mut d, " Hail.");
     let written = io::atomic_write(&prepared.target, &prepared.bytes);
@@ -144,7 +154,7 @@ fn a_crash_before_the_file_is_replaced_recovers_everything() {
     let mut d = app();
     ok(&mut d, "doc.open", json!({"path": p}));
     type_at_end(&mut d, " Wind.");
-    let prepared = d.save_prepare(&DocSave::default()).unwrap();
+    let prepared = prepare(&mut d).unwrap();
     let live = text(&mut d);
     drop(prepared);
     drop(d); // crash before the worker wrote anything
@@ -165,7 +175,7 @@ fn a_crash_after_the_file_is_replaced_needs_no_recovery() {
     let mut d = app();
     ok(&mut d, "doc.open", json!({"path": p}));
     type_at_end(&mut d, " Wind.");
-    let prepared = d.save_prepare(&DocSave::default()).unwrap();
+    let prepared = prepare(&mut d).unwrap();
     io::atomic_write(&prepared.target, &prepared.bytes).unwrap();
     drop(d); // crash before the commit
 
@@ -182,7 +192,7 @@ fn a_failed_write_keeps_the_document_unsaved() {
     let mut d = app();
     ok(&mut d, "doc.open", json!({"path": p}));
     type_at_end(&mut d, "!");
-    let prepared = d.save_prepare(&DocSave::default()).unwrap();
+    let prepared = prepare(&mut d).unwrap();
     let e = d
         .save_commit(prepared, Err(std::io::Error::other("disk full")))
         .unwrap_err();
@@ -229,7 +239,7 @@ fn assert_clean_means_saved(d: &mut Dispatcher, p: &Path) {
 #[test]
 fn a_save_cannot_overlap_a_save_in_progress() {
     for by in [
-        Author::Writer,
+        Author::writer(),
         Author::agent("claude-code", Some("doc_save".into())),
     ] {
         let dir = tempfile::tempdir().unwrap();
@@ -237,7 +247,7 @@ fn a_save_cannot_overlap_a_save_in_progress() {
         let mut d = app();
         ok(&mut d, "doc.open", json!({"path": p}));
         type_at_end(&mut d, " Edit 1.");
-        let prepared = d.save_prepare(&DocSave::default()).unwrap();
+        let prepared = prepare(&mut d).unwrap();
         type_at_end(&mut d, " Edit 2, typed during the save.");
         let save = Command::from_parts("doc.save", json!({})).unwrap();
         let e = d.execute_as(save, &by).unwrap_err();
@@ -266,7 +276,7 @@ fn a_failed_save_lets_the_next_one_run() {
     let mut d = app();
     ok(&mut d, "doc.open", json!({"path": p}));
     type_at_end(&mut d, "!");
-    let prepared = d.save_prepare(&DocSave::default()).unwrap();
+    let prepared = prepare(&mut d).unwrap();
     d.save_commit(prepared, Err(std::io::Error::other("disk full")))
         .unwrap_err();
     ok(&mut d, "doc.save", json!({}));
@@ -289,7 +299,7 @@ fn a_save_never_commits_into_a_document_opened_after_it() {
         "block.insert",
         json!({"type": "action", "text": "X."}),
     );
-    let prepared = d.save_prepare(&DocSave::default()).unwrap();
+    let prepared = prepare(&mut d).unwrap();
     ok(&mut d, "doc.close", json!({"discard": true}));
     ok(&mut d, "doc.open", json!({"path": p}));
     ok(
@@ -320,7 +330,7 @@ fn a_save_never_replaces_another_programs_changes() {
         fs::write(&p, outside).unwrap();
         type_at_end(&mut d, " Wind.");
         let e = if off_the_ui_thread {
-            d.save_prepare(&DocSave::default()).unwrap_err()
+            prepare(&mut d).unwrap_err()
         } else {
             let save = Command::from_parts("doc.save", json!({})).unwrap();
             d.execute(save).unwrap_err()
@@ -347,7 +357,7 @@ fn saves_after_saves_and_reverts_go_ahead() {
     ok(&mut d, "doc.save", json!({}));
     type_at_end(&mut d, " Two.");
     // A background save that finishes while the writer types on.
-    let prepared = d.save_prepare(&DocSave::default()).unwrap();
+    let prepared = prepare(&mut d).unwrap();
     type_at_end(&mut d, " Three.");
     let written = io::atomic_write(&prepared.target, &prepared.bytes);
     d.save_commit(prepared, written).unwrap();
@@ -405,4 +415,102 @@ fn an_agent_never_saves_with_losses() {
     assert_eq!(e.code, "writer_only", "{e}");
     assert_eq!(fs::read_to_string(&p).unwrap(), SCRIPT_TEXT);
     d.discard();
+}
+
+/// Since 2026-10-19 the worker renders the file too, so the writer types
+/// while it does, and the marker for the save lands after those edits.
+/// Replay starts from the header whatever the markers' places, so after a
+/// crash once the file was replaced every edit comes back, and the saved
+/// file is not taken for another program's change.
+#[test]
+fn edits_typed_while_the_worker_renders_come_back_after_a_crash() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = script(dir.path());
+    let mut d = app();
+    ok(&mut d, "doc.open", json!({"path": p}));
+    type_at_end(&mut d, " Wind.");
+    let job = d.save_prepare(&DocSave::default()).unwrap();
+    type_at_end(&mut d, " Hail.");
+    let prepared = d.save_mark(job.render()).unwrap();
+    type_at_end(&mut d, " Snow.");
+    io::atomic_write(&prepared.target, &prepared.bytes).unwrap();
+    assert_eq!(
+        fs::read_to_string(&p).unwrap(),
+        "INT. LAB - NIGHT\n\nRain. Wind.\n",
+        "the snapshot's text"
+    );
+    let live = text(&mut d);
+    drop(d); // crash before the commit
+
+    let mut d2 = app();
+    let r = ok(&mut d2, "doc.open", json!({"path": p}));
+    assert_eq!(r["recovered"]["external_change"], false, "{r}");
+    assert_eq!(text(&mut d2), live);
+    d2.discard();
+}
+
+/// A save the worker can't render ends at the marker step: nothing is
+/// written, no marker is appended, and the next save goes ahead.
+#[test]
+fn a_render_that_fails_gives_the_save_token_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = script(dir.path());
+    let mut d = app();
+    ok(&mut d, "doc.open", json!({"path": p}));
+    ok(&mut d, "changes.track", json!({"writer": true}));
+    type_at_end(&mut d, " Wind.");
+    let entries = d.session().unwrap().journal.as_ref().unwrap().entries();
+    // Fountain can't hold the tracked change.
+    let e = prepare(&mut d).unwrap_err();
+    assert_eq!(e.code, "lossy_format", "{e}");
+    assert_eq!(
+        d.session().unwrap().journal.as_ref().unwrap().entries(),
+        entries,
+        "no marker"
+    );
+    assert_eq!(fs::read_to_string(&p).unwrap(), SCRIPT_TEXT);
+    let job = d
+        .save_prepare(&DocSave {
+            allow_lossy: true,
+            ..DocSave::default()
+        })
+        .unwrap();
+    let prepared = d.save_mark(job.render()).unwrap();
+    let written = io::atomic_write(&prepared.target, &prepared.bytes);
+    d.save_commit(prepared, written).unwrap();
+    assert_eq!(
+        fs::read_to_string(&p).unwrap(),
+        "INT. LAB - NIGHT\n\nRain. Wind.\n"
+    );
+    d.shutdown();
+}
+
+/// The writer saves, then closes and doesn't save what came after: the
+/// save they asked for still reaches the file, though the worker finished
+/// rendering it after the close. Its commit reports `save_superseded`.
+#[test]
+fn a_save_rendered_after_its_script_closed_is_still_written() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = script(dir.path());
+    let mut d = app();
+    ok(&mut d, "doc.open", json!({"path": p}));
+    type_at_end(&mut d, " Wind.");
+    let job = d.save_prepare(&DocSave::default()).unwrap();
+    type_at_end(&mut d, " Not saved.");
+    ok(&mut d, "doc.close", json!({"discard": true}));
+    let prepared = d.save_mark(job.render()).unwrap();
+    let written = io::atomic_write(&prepared.target, &prepared.bytes);
+    let e = d.save_commit(prepared, written).unwrap_err();
+    assert_eq!(e.code, "save_superseded", "{e}");
+    assert_eq!(
+        fs::read_to_string(&p).unwrap(),
+        "INT. LAB - NIGHT
+
+Rain. Wind.
+"
+    );
+    // Opened again, it is the saved script, with nothing to recover.
+    let r = ok(&mut d, "doc.open", json!({"path": p}));
+    assert_eq!(r["recovered"], Value::Null);
+    d.shutdown();
 }

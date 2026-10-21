@@ -3,6 +3,7 @@
 
 use serde_json::{Value, json};
 
+use crate::author::Author;
 use crate::command::{Class, Command};
 use crate::dispatcher::{Dispatcher, Options};
 
@@ -92,6 +93,198 @@ pub fn journal_replay(data: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// Reads arbitrary bytes as a `.coldopen` bundle (docs/specs/bundle.md).
+/// It must never panic, and whatever it reads keeps the model rules and
+/// writes a bundle that reads back as the same document, with nothing to
+/// repair, and writes again to the same bytes.
+pub fn bundle_read(data: &[u8]) -> Result<(), String> {
+    let Ok(read) = crate::bundle::read(data) else {
+        return Ok(());
+    };
+    read.doc
+        .check()
+        .map_err(|e| format!("a bundle read into a document that breaks a rule: {e}"))?;
+    let bytes = crate::bundle::write(&read.doc);
+    let back = crate::bundle::read(&bytes)
+        .map_err(|e| format!("a bundle Cold Open wrote cannot be read: {e}"))?;
+    if back.repaired.is_some() {
+        return Err(format!(
+            "a bundle Cold Open wrote needs repair: {:?}",
+            back.repaired
+        ));
+    }
+    if back.doc != read.doc {
+        return Err("a bundle does not read back as the document it was written from".into());
+    }
+    if crate::bundle::write(&back.doc) != bytes {
+        return Err("writing a bundle twice gives different bytes".into());
+    }
+    Ok(())
+}
+
+/// The script the `changes` check edits.
+const CHANGES_SCRIPT: &str = "INT. KITCHEN - DAY\n\nMaya makes toast.\n\nMAYA\nBreakfast is ready.\n\nEXT. GARDEN - DAY\n\nTheo waters plants.\n\nINT. SHED - NIGHT\n\nA lamp flickers.\n";
+
+/// Runs the edits arbitrary bytes describe on a short script: tracked
+/// edits by a writer and two agents, settling by id, scene and all, and
+/// undo and redo (docs/specs/changes.md). It must never panic; after every
+/// step the document keeps the model rules and every mark names a change
+/// the table has; accepting every change leaves no mark, and undoing that
+/// gives the marks back.
+pub fn changes(data: &[u8]) -> Result<(), String> {
+    let mut d = Dispatcher::new(Options {
+        journal: false,
+        fsync: false,
+    });
+    d.handle(&json!({ "command": "doc.new" }));
+    let script = coldopen_fountain::parse(CHANGES_SCRIPT).script;
+    for e in script.elements {
+        let mut p = serde_json::to_value(&e).map_err(|e| e.to_string())?;
+        p["tracked"] = json!(false);
+        d.handle(&json!({ "command": "block.insert", "params": p }));
+    }
+    let authors = [
+        Author::named_writer("Maya"),
+        Author::agent("agent-a", None),
+        Author::agent("agent-b", None),
+    ];
+    const WORDS: [&str; 4] = ["toast", "a", "plants", " "];
+    const KINDS: [&str; 5] = ["action", "dialogue", "character", "scene_heading", "note"];
+    for op in data.chunks(4) {
+        let [kind, who, x, y] = [0, 1, 2, 3].map(|i| op.get(i).copied().unwrap_or(0));
+        let by = &authors[usize::from(who) % authors.len()];
+        let Some(s) = d.session() else {
+            return Err("the document went away".into());
+        };
+        let blocks: Vec<(String, usize)> = s
+            .doc
+            .blocks
+            .iter()
+            .map(|b| (b.id.to_string(), b.element.text.char_len()))
+            .collect();
+        let heads: Vec<String> = s
+            .doc
+            .blocks
+            .iter()
+            .filter(|b| b.element.kind == coldopen_screenplay::ElementKind::SceneHeading)
+            .map(|b| b.id.to_string())
+            .collect();
+        let pending: Vec<String> = s.doc.pending().iter().map(|c| c.to_string()).collect();
+        let pick = |n: u8| -> (String, usize) {
+            if blocks.is_empty() {
+                ("b_1".into(), 0)
+            } else {
+                blocks[usize::from(n) % blocks.len()].clone()
+            }
+        };
+        let (id, len) = pick(x);
+        let at = usize::from(y) % (len + 1);
+        let word = WORDS[usize::from(y) % WORDS.len()];
+        let change = |n: u8| -> Value {
+            match pending.get(usize::from(n) % pending.len().max(1)) {
+                Some(c) => json!({ "id": c }),
+                None => json!({ "all": true }),
+            }
+        };
+        let settle = |n: u8| -> Value {
+            match n % 3 {
+                0 => change(n / 3),
+                1 => match heads.get(usize::from(n) % heads.len().max(1)) {
+                    Some(h) => json!({ "scene": h }),
+                    None => json!({ "all": true }),
+                },
+                _ => json!({ "all": true }),
+            }
+        };
+        let (name, params) = match kind % 16 {
+            0 => ("text.insert", json!({ "id": id, "at": at, "text": word })),
+            1 => (
+                "text.delete",
+                json!({ "id": id, "from": at, "to": (at + 1 + usize::from(y % 4)).min(len) }),
+            ),
+            2 => (
+                "text.replace",
+                json!({ "find": word, "with": WORDS[usize::from(x) % 4] }),
+            ),
+            3 => (
+                "block.set_text",
+                json!({ "id": id, "text": format!("{word} plants {y}") }),
+            ),
+            4 => (
+                "block.insert",
+                json!({ "after": id, "type": KINDS[usize::from(y) % KINDS.len()], "text": word }),
+            ),
+            5 => ("block.delete", json!({ "id": id })),
+            6 => (
+                "block.set_type",
+                json!({ "id": id, "type": KINDS[usize::from(y) % KINDS.len()] }),
+            ),
+            7 => ("block.split", json!({ "id": id, "at": at })),
+            8 => ("block.join", json!({ "id": id })),
+            9 => match (
+                heads.first(),
+                heads.get(usize::from(y) % heads.len().max(1)),
+            ) {
+                (Some(_), Some(to)) => (
+                    "scene.move",
+                    json!({ "id": heads[usize::from(x) % heads.len()], "before": to }),
+                ),
+                _ => continue,
+            },
+            10 => ("changes.accept", settle(y)),
+            11 => ("changes.reject", settle(y)),
+            12 => ("undo", json!({})),
+            13 => ("redo", json!({})),
+            14 => (
+                "text.style",
+                json!({ "id": id, "from": 0, "to": at, "bold": true }),
+            ),
+            _ => ("changes.track", json!({ "writer": y % 2 == 0 })),
+        };
+        let mut params = params;
+        if matches!(kind % 16, 0..=9) {
+            match kind / 16 % 4 {
+                1 => params["tracked"] = json!(false),
+                2 => params["tracked"] = json!(true),
+                _ => {}
+            }
+        }
+        let Ok(cmd) = Command::from_parts(name, params) else {
+            continue;
+        };
+        let _ = d.execute_as(cmd, by);
+        let Some(s) = d.session() else {
+            return Err("the document went away".into());
+        };
+        s.doc
+            .check()
+            .map_err(|e| format!("after {name}, the document breaks a rule: {e}"))?;
+    }
+    let Some(before) = d.session().map(|s| s.doc.clone()) else {
+        return Err("the document went away".into());
+    };
+    let accepted = d.handle(&json!({ "command": "changes.accept", "params": { "all": true } }));
+    let Some(s) = d.session() else {
+        return Err("the document went away".into());
+    };
+    if before.has_changes() {
+        if accepted["ok"] != true {
+            return Err(format!("accepting every change failed: {accepted}"));
+        }
+        if s.doc.has_changes() {
+            return Err("accepting every change left marks".into());
+        }
+        if s.doc.blocks != before.accepted().blocks {
+            return Err("accepting every change is not the accepted form".into());
+        }
+        d.handle(&json!({ "command": "undo" }));
+        if d.session().map(|s| &s.doc.blocks) != Some(&before.blocks) {
+            return Err("undoing an accept does not give the marks back".into());
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,6 +364,23 @@ mod tests {
         ] {
             assert!(!reaches_disk(line), "{line}");
         }
+    }
+
+    #[test]
+    fn the_bundle_and_change_checks_pass_on_simple_input() {
+        assert_eq!(bundle_read(b""), Ok(()));
+        assert_eq!(bundle_read(b"PK\x03\x04 not really"), Ok(()));
+        let doc =
+            crate::document::Document::from_script(coldopen_fountain::parse(CHANGES_SCRIPT).script);
+        assert_eq!(bundle_read(&crate::bundle::write(&doc)), Ok(()));
+        // An agent replaces words, the writer splits and joins, then
+        // settles by scene and all, with undos between.
+        let ops: Vec<u8> = vec![
+            2, 1, 0, 0, 7, 0, 1, 3, 8, 0, 2, 0, 10, 0, 0, 1, 12, 0, 0, 0, 11, 2, 0, 2, 13, 0, 0, 0,
+            5, 1, 4, 0, 9, 2, 1, 0, 3, 1, 5, 7,
+        ];
+        assert_eq!(changes(&ops), Ok(()));
+        assert_eq!(changes(&[]), Ok(()));
     }
 
     #[test]

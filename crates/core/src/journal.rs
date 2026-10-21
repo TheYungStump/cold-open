@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::author::Author;
+use crate::changes::{Changes, ChangesFile};
 use crate::document::Document;
 use crate::flush::{Durability, FlushStatus, Flusher};
 use crate::format::FormatId;
@@ -21,7 +22,7 @@ pub const VERSION: u32 = 1;
 /// What replaying entries means. Bumped whenever a command's replay
 /// changes meaning; a journal with a higher number is kept aside, never
 /// replayed (docs/specs/journal.md, "Header").
-pub const SEMANTICS: u32 = 1;
+pub const SEMANTICS: u32 = 2;
 /// The command name of a save marker (docs/specs/journal.md).
 pub const SAVED: &str = "doc.saved";
 
@@ -74,6 +75,26 @@ pub struct Header {
     /// (docs/specs/journal.md, "Recovered versions"). Absent means false.
     #[serde(default, skip_serializing_if = "is_false")]
     pub unsaved: bool,
+    /// A bundle's identity (2026-10-18, docs/specs/bundle.md §8).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub doc_id: Option<String>,
+    /// The change table, for a format that cannot hold it
+    /// (docs/specs/journal.md, "The change data"). Absent when empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changes: Option<ChangesFile>,
+    /// For a bundle: the change table, named by the number of its entries
+    /// and their fingerprint instead of copied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changes_ref: Option<ChangesRef>,
+}
+
+/// How a bundle's journal header names its change table.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChangesRef {
+    pub count: u64,
+    #[serde(with = "crate::io::hex64")]
+    pub fnv64: u64,
 }
 
 fn first_semantics() -> u32 {
@@ -301,6 +322,22 @@ impl Journal {
     /// Starts over: truncates the journal and writes a header with `doc`
     /// as the new base. Used after open and after every save.
     pub fn start(&mut self, doc: &Document, disk: Option<Fingerprint>) -> io::Result<()> {
+        let (changes, changes_ref) = if self.format.holds_changes() {
+            let count = doc.changes.len();
+            let fp = doc.changes.fingerprint(count).map(|f| f.fnv64);
+            (
+                None,
+                fp.filter(|_| count > 0).map(|fnv64| ChangesRef {
+                    count: count as u64,
+                    fnv64,
+                }),
+            )
+        } else {
+            (
+                (!doc.changes.is_empty()).then(|| doc.changes.to_file()),
+                None,
+            )
+        };
         let header = Header {
             journal: FORMAT.into(),
             v: VERSION,
@@ -312,6 +349,9 @@ impl Journal {
             path: self.doc_path.clone(),
             format: self.format,
             unsaved: self.unsaved && disk.is_none(),
+            doc_id: doc.doc_id.clone(),
+            changes,
+            changes_ref,
         };
         if disk.is_some() {
             self.unsaved = false;
@@ -348,7 +388,10 @@ impl Journal {
         Ok(())
     }
 
-    /// Appends one applied command in a single write.
+    /// Appends one applied command in a single write. `t` is its time in
+    /// milliseconds since the Unix epoch, which a tracked change it made
+    /// also takes.
+    #[allow(clippy::too_many_arguments)]
     pub fn append(
         &mut self,
         command: &str,
@@ -357,16 +400,15 @@ impl Journal {
         by: &Author,
         merge: bool,
         step: Option<StepRef>,
+        t: u64,
     ) -> io::Result<()> {
         let entry = Entry {
             seq: self.seq + 1,
-            t: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_or(0, |d| d.as_millis() as u64),
+            t,
             command: command.into(),
             params,
             result: result.clone(),
-            by: (!by.is_writer()).then(|| by.clone()),
+            by: (!by.is_plain_writer()).then(|| by.clone()),
             merge,
             step,
         };
@@ -480,7 +522,31 @@ pub struct ReadBack {
     entry_ends: Vec<u64>,
 }
 
+/// More changes than any real script could hold: a header naming more is
+/// damaged.
+const MAX_CHANGES: usize = 10_000_000;
+
 impl ReadBack {
+    /// Takes a bundle's change table for the one the header names, when
+    /// its first entries are that table. Returns false, leaving the
+    /// stand-in entries, when they are not (docs/specs/journal.md, "The
+    /// change data").
+    pub fn use_table(&mut self, table: &Changes) -> bool {
+        let Some(r) = self.header.changes_ref else {
+            return true;
+        };
+        let count = self.header.doc.changes.len();
+        match table.fingerprint(count) {
+            Some(fp) if fp.fnv64 == r.fnv64 => {
+                if let Some(t) = table.prefix(count) {
+                    self.header.doc.changes = t;
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Bytes up to the end of the header.
     pub fn header_len(&self) -> u64 {
         self.header_end
@@ -506,7 +572,7 @@ pub fn read(contents: &[u8]) -> Result<ReadBack, String> {
     let Some(&(h0, h1)) = lines.first() else {
         return Err("the journal has no complete header".into());
     };
-    let header: Header = serde_json::from_slice(&contents[h0..h1])
+    let mut header: Header = serde_json::from_slice(&contents[h0..h1])
         .map_err(|e| format!("the journal header is unreadable: {e}"))?;
     if header.journal != FORMAT || header.v != VERSION {
         return Err(format!(
@@ -519,6 +585,32 @@ pub fn read(contents: &[u8]) -> Result<ReadBack, String> {
             "the journal was written by a newer Cold Open (semantics {}; this version knows up to {SEMANTICS})",
             header.semantics
         ));
+    }
+    header.doc.doc_id = header.doc_id.clone();
+    // The change table: copied in the header, or named by it. A named table
+    // is found in the bundle by the dispatcher (`ReadBack::use_table`);
+    // until then it stands as that many entries of an unknown author, so
+    // replay hands out the same ids (docs/specs/journal.md, "The change
+    // data").
+    match (header.changes.take(), &header.changes_ref) {
+        (Some(_), Some(_)) => {
+            return Err("the journal header both holds and names a change table".into());
+        }
+        (Some(file), None) => {
+            header.doc.changes = Changes::from_file(file)
+                .map_err(|e| format!("the journal header is damaged: {e}"))?;
+        }
+        (None, Some(r)) => {
+            let count = usize::try_from(r.count)
+                .ok()
+                .filter(|&n| n <= MAX_CHANGES)
+                .ok_or("the journal header names a change table too large to be real")?;
+            header
+                .doc
+                .changes
+                .fill_to(crate::changes::ChangeId(count as u64));
+        }
+        (None, None) => {}
     }
     // A damaged or hand-made header must never put two blocks under one id
     // or run out of ids mid-replay (review finding C7).
@@ -575,9 +667,10 @@ mod tests {
                 "block.delete",
                 json!({ "id": format!("b_{k}") }),
                 &json!({}),
-                &Author::Writer,
+                &Author::writer(),
                 false,
                 None,
+                100,
             )
             .unwrap();
         }
@@ -666,15 +759,24 @@ mod tests {
         let (mut j, _) = Journal::open_locked(&p, Durability::OsOnly).ok().unwrap();
         j.start(&Document::default(), None).unwrap();
         let agent = Author::agent("claude-code", Some("text_insert".into()));
-        j.append("text.insert", json!({}), &json!({}), &agent, false, None)
-            .unwrap();
         j.append(
             "text.insert",
             json!({}),
             &json!({}),
-            &Author::Writer,
+            &agent,
+            false,
+            None,
+            100,
+        )
+        .unwrap();
+        j.append(
+            "text.insert",
+            json!({}),
+            &json!({}),
+            &Author::writer(),
             true,
             None,
+            100,
         )
         .unwrap();
         j.append_saved(Fingerprint::of(b"x")).unwrap();
@@ -698,9 +800,10 @@ mod tests {
             "block.delete",
             json!({ "id": format!("b_{k}") }),
             &json!({}),
-            &Author::Writer,
+            &Author::writer(),
             false,
             None,
+            100,
         )
     }
 

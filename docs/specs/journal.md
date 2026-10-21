@@ -1,8 +1,8 @@
 # Crash journal and atomic saves
 
-- **Date:** 2026-10-13, updated 2026-10-15 and 2026-10-16
-- **Status:** implemented in `crates/core` (phases 1 and 3, and the review fixes of 2026-10-16). The phase 4 changes (2026-10-16: the header's format, the document's .fdx parts, damaged originals, hidden files on Windows, Recovered versions and their clean-up, and the decisions for phase 5 at the end) are being implemented.
-- **Sources:** `docs/spec.md` (Reliability features, File formats), `CLAUDE.md` (Reliability), the phase 3 brief and its approved decisions (2026-10-15), the reviews of phases 1–3 (2026-10-15, listed in `docs/progress/review-fixes.md`; section "F18" there for the decisions at the end), the phase 4 brief and its decisions (2026-10-16, `docs/progress/phase-4.md`). No external material.
+- **Date:** 2026-10-13, updated 2026-10-15, 2026-10-16 and 2026-10-18
+- **Status:** implemented in `crates/core` (phases 1, 3 and 4, and the review fixes of 2026-10-16). Phase 5a (2026-10-18: `semantics` 2 and the `tracked` param, `doc_id`, the change data and how the header names it, bundles) is being implemented.
+- **Sources:** `docs/spec.md` (Reliability features, File formats), `CLAUDE.md` (Reliability), the phase 3 brief and its approved decisions (2026-10-15), the reviews of phases 1–3 (2026-10-15, listed in `docs/progress/review-fixes.md`; section "F18" there for the decisions at the end), the phase 4 brief and its decisions (2026-10-16, `docs/progress/phase-4.md`), the phase 5a brief and its decisions (2026-10-18, `docs/progress/phase-5a.md`), `docs/specs/changes.md`, `docs/specs/bundle.md`. No external material.
 
 **Promise:** a crash never costs more than the edits that had not yet been acknowledged. In the desktop app, an edit is acknowledged when it appears on screen. "Durability" below says exactly what each kind of crash can lose.
 
@@ -22,7 +22,9 @@
 | --- | --- |
 | `doc` | A full snapshot of the base document, with ids and `next_id`. This makes the journal self-contained: recovery works even if the script file was changed, damaged or deleted. |
 | `disk` | The length and FNV-1a 64-bit hash of the script file as last saved, or null if it has never been saved. It is used only to notice changes made by other programs. |
-| `semantics` | (2026-10-16) What replaying the entries means, now 1. It goes up whenever a command's replay changes meaning, because results alone cannot show that ("What replay compares"). Absent means 1. A journal with a higher number than this version knows is treated like an unreadable header: kept aside, never replayed. |
+| `semantics` | (2026-10-16) What replaying the entries means. It goes up whenever a command's replay changes meaning, because results alone cannot show that ("What replay compares"). Absent means 1. A journal with a higher number than this version knows is treated like an unreadable header: kept aside, never replayed. **2** since phase 5a (2026-10-18): edits can be tracked changes, and every edit entry says whether it is ("Entries"). |
+| `doc_id` | (2026-10-18, phase 5a) For a bundle, the document's identity (`docs/specs/bundle.md` §8). Absent for other formats. |
+| `changes`, `changes_ref` | (2026-10-18, phase 5a) The document's change table ("The change data"). For a bundle, `changes_ref` names it; for other formats, `changes` holds it. Both are absent when the table is empty. |
 | `host`, `path` | (2026-10-16) The computer's name and the script's canonical path when the header was written. Absent in older journals. |
 | `unsaved` | (2026-10-16, phase 4) `true` when the header's document is itself unsaved work with no file behind it, as for a restored copy ("Recovered versions"), so the app offers it at start-up though the journal has no entries. Written only in a header with no `disk`; absent means false. |
 | `format` | (2026-10-16, phase 4) The file format `doc` was read from or saved as, such as `"fdx"`. Recovery writes the replayed document in this format when it checks whether the file already holds it (step 4), so it compares like with like. Absent means Fountain, and Fountain is never written, so Fountain journals are exactly as before. A format this version does not know makes the header unreadable: the journal is kept aside (step 1), never replayed as the wrong format. |
@@ -38,7 +40,21 @@
 
 All four are left out when absent, so a Fountain journal is byte for byte what it was. Builds from before phase 4 cannot read a header that holds them: they keep such a journal aside as unreadable (recovery step 1), and never replay or lose it.
 
+Since phase 5a (2026-10-18) the blocks carry their tracked-change marks (`docs/specs/changes.md` §2), and `doc` may hold `tracking`, the tracking switches (absent means the defaults). The change table is not in `doc`; it is the header's `changes` or `changes_ref`.
+
 The header holds one copy of the store, written at each save, as it already held one copy of the blocks. The store holds only the kept parts of the file (`docs/specs/fdx.md` §13.2): about a tenth of Big Fish's paragraphs, and its settings. `crates/fdx/tests/roundtrip.rs` reports its size for every corpus file.
+
+**The change data** (2026-10-18, phase 5a). The change table (`docs/specs/changes.md` §3) grows with every round of review, and the header is written at every save, so it is never copied into a bundle's header:
+
+- **A bundle** names its table instead:
+
+  ```json
+  "changes_ref": {"count": 212, "fnv64": "03c1f2aa90b1e4d7"}
+  ```
+
+  `count` is the number of entries the table had when the header was written, and `fnv64` the FNV-1a 64-bit hash of those entries written as one compact JSON array, in order. Recovery reads the table from the bundle at the script's path and takes its first `count` entries. The table is append-only, so a bundle saved after the header was written, as when a crash falls between a save and the journal starting again, still starts with exactly those entries.
+- **A Fountain or .fdx document** has no file that can hold the table, so its header holds the table itself, `"changes": {"v": 1, "changes": [...]}`, when it has any entries. A document read from such a file has none; they come only from tracked edits made since.
+- **If the bundle's table does not start with those entries** (the bundle was replaced or damaged, `doc_id` aside), the changes the marks name are recovered with the author "Unknown" and time 0. Every mark and every character is still recovered, the warning `change_data_missing` says so, and `external_change` is true.
 
 **A journal from somewhere else** (2026-10-16). Writers keep scripts in git and in synced folders, and the journal can travel with the script. A journal whose `host` is not this computer, or whose `path` is not this script's canonical path, holds someone else's work, or work from another copy. `doc.open` never applies it on its own: where it would recover work, the open fails with `journal_foreign`, `details` giving `host` and `path`, and changes nothing. `recover: "apply"` recovers it anyway; `recover: "discard"` sets it aside, as always. A foreign journal with nothing to recover is simply started again. The desktop app asks the writer (`docs/specs/editor.md` §13).
 
@@ -51,10 +67,10 @@ The header holds one copy of the store, written at each save, as it already held
 | Entry field | Meaning |
 | --- | --- |
 | `seq` | Counts from 1. |
-| `t` | Milliseconds since the Unix epoch. Informational only. |
-| `command`, `params` | The command exactly as applied, with the defaults that depend on the document filled in (2026-10-16): the `style` a `text.insert` took from the text around it, and the `type` a `block.split` kept, inside a `batch` too. A later change to such a default therefore never changes what an old entry replays to. Static defaults, such as `text.replace`'s `match_case`, are always written already. |
+| `t` | Milliseconds since the Unix epoch. Informational, except that a change a tracked edit makes takes this time, on replay as when it was made (2026-10-18). |
+| `command`, `params` | The command exactly as applied, with the defaults that depend on the document filled in (2026-10-16): the `style` a `text.insert` took from the text around it, and the `type` a `block.split` kept, inside a `batch` too. A later change to such a default therefore never changes what an old entry replays to. Static defaults, such as `text.replace`'s `match_case`, are always written already. Since semantics 2 (2026-10-18), every edit that takes `tracked` carries it, true or false, as the dispatcher resolved it (`docs/specs/changes.md` §7). |
 | `result` | The command's result, including assigned ids, so replay can confirm it reached the same state. Replay compares only part of it ("What replay compares", below). |
-| `by` | Optional (2026-10-15). The command's author, as in `docs/specs/commands.md` ("Authors and undo steps"). Absent means a writer. |
+| `by` | Optional (2026-10-15). The command's author, as in `docs/specs/commands.md` ("Authors and undo steps"). Absent means a writer with no name. A writer with a name (2026-10-18) is written, as `{"kind": "writer", "name": "Maya"}`, because a tracked change records it. |
 | `merge` | Optional (2026-10-15). `true` when the command joined the undo step before it. Absent means false. |
 | `step` | `undo` and `redo` only, optional (2026-10-16). The step reversed: see "Undo and redo entries". |
 
@@ -78,7 +94,10 @@ A save also ends any typing group, so typing never joins a step across a journal
 **What replay compares** (2026-10-16). A replayed result must reproduce only what later entries depend on:
 
 - every id the recorded result names as `id`, at the top level or in a batch's `results` (later entries address blocks by these ids);
+- (2026-10-18) every change id it names as `change`, in the same places (later entries settle changes by these ids);
 - for `undo` and `redo`, the command name of the step reversed (`undone`, `redone`), and the step itself where the entry names it.
+
+**Replaying semantics 1** (2026-10-18). Journals written before phase 5a have no `tracked` in their entries. Their edits were never tracked, so replay reads an absent `tracked` as false in a journal whose header says `semantics` 1, whatever the document's switches say. The fixtures of phases 1–4 (`tests/fixtures/journal/`) therefore replay exactly as before. After such a journal is recovered, new entries are appended to it with `tracked` written, which replays the same way. In a semantics 2 journal, an edit entry without `tracked` stops replay, like any entry that cannot be trusted.
 
 Nothing else is compared. A field the recorded result lacks is never asked for, so a newer version may add result fields (as phase 3 added `label` to undo results) without stranding older journals, and labels may be reworded or translated. Because only ids and undo targets are checked, a change to what a command *does* must not hide behind an unchanged result: it needs a new `semantics` number (see "Header"). `tests/fixtures/journal/` holds journals written by the builds of phases 1 to 3, and `crates/core/tests/old_journals.rs` checks that each still recovers in full.
 
@@ -127,17 +146,23 @@ The two possible crash points are both safe:
 - **Between steps 1 and 2:** the old journal remains. It replays to exactly the saved state, which step 4 of recovery recognizes.
 - **During step 2:** the header may be torn. That means "nothing to recover", which is correct, because the saved file is current.
 
-**Saving off the UI thread** (desktop app, 2026-10-15). Writing and flushing a 120-page script can take tens of milliseconds, so the app saves in three steps, and the writer can keep typing throughout:
+**Saving off the UI thread** (desktop app, 2026-10-15; reworked 2026-10-19). Writing a 120-page script out takes tens of milliseconds: about 20 ms for Fountain's writer, and a project's JSON and deflate. So the app saves in five steps, and the writer can keep typing throughout. The UI thread does only steps 1, 3 and 5, in under 4 ms in all (`docs/spec.md`, budgets):
 
-1. **Prepare**, on the UI thread: write the document in its format (Fountain, or the format it was opened in; 2026-10-16), check for losses, and append a `doc.saved` marker with the fingerprint of the bytes about to be written.
-2. **Write**, on a worker thread: the atomic save below.
-3. **Commit**, back on the UI thread. If the write succeeded and nothing was edited since step 1, the journal is restarted exactly as in step 2 above. If edits arrived in the meantime, the journal is kept as it is: it already holds those edits after the marker, and the document stays unsaved. If the write failed, the error is shown, and the marker is harmless.
+1. **Snapshot**, on the UI thread: take the save token and a copy of the document, with what the save needs to know (its path, format, style, and what this session last read or wrote).
+2. **Render**, on a worker thread: write the copy in its format (Fountain, or the format it was opened in; 2026-10-16), check for losses (without `allow_lossy`, a loss of class `lost` ends the save with `lossy_format`), check that no other program changed the file (`file_changed`), and, for the first save in place of a repaired file, keep a copy of it.
+3. **Mark**, on the UI thread: append a `doc.saved` marker with the fingerprint of the rendered bytes. If step 2 failed, the save ends here instead, and its token is given back.
+4. **Write**, on a worker thread: the atomic save below.
+5. **Commit**, back on the UI thread. If the write succeeded and nothing was edited since step 1, the journal is restarted exactly as in step 2 of "Saving" above. Its header is written here and flushed by the background flusher, as entries are ("Durability"). If edits arrived in the meantime, the journal is kept as it is: it holds them, and the document stays unsaved. If the write failed, the error is shown, and the marker is harmless.
 
-Every crash point is safe. The journal always holds the last saved base plus every later edit, so replay reaches the latest acknowledged state. The file is either the old version or the new one, each named by the header or a marker. "Save as" to a new path is done in one step, as before, because a file dialog has just paused the writer anyway.
+**The marker's place does not matter.** Edits typed during step 2 are journaled before the marker, edits typed later after it. Replay always starts from the header and applies every entry. Markers only name versions of the file the journal knows, so a file that holds one is not taken for another program's change. So every crash point is safe. The journal always holds the last saved base plus every later edit, so replay reaches the latest acknowledged state. The file is either the old version or the new one, each named by the header or a marker.
+
+**A save whose script was closed while it rendered** still goes ahead. The writer who saved, then closed and chose not to save what came after, still gets the save they asked for. The closed session's journal is gone, so there is no marker, and the commit reports `save_superseded`.
+
+"Save as" to a new path is done in one step, as before, because a file dialog has just paused the writer anyway.
 
 **One save at a time** (2026-10-16). If a second save could run while a prepared one is being written, the older write could land last, and the commit of either could mark newer edits as saved. So:
 
-- From prepare to commit, the save holds the session's only save token, numbered among that session's saves. Every other save of that session, `doc.save` (in place or "save as") or another prepare, fails with `save_in_progress` and changes nothing. The error is retryable. The app's own Mod+S during a save waits and saves again after it; an agent's `doc_save` gets the error and tries again.
+- From snapshot to commit, the save holds the session's only save token, numbered among that session's saves. Every other save of that session, `doc.save` (in place or "save as") or another prepare, fails with `save_in_progress` and changes nothing. The error is retryable. The app's own Mod+S during a save waits and saves again after it; an agent's `doc_save` gets the error and tries again.
 - The commit ends the save, whatever the outcome, so a failed write never leaves the token held.
 - A commit applies only to the session it was prepared for, and only for the token it holds. If that session was closed, reopened or reverted meanwhile, the commit changes nothing and reports `save_superseded`: the file was written, with the version saved then. The session open now keeps its own unsaved state.
 
@@ -167,7 +192,7 @@ When `doc.open` finds a journal for the file:
    - A complete line that does not parse, or a `seq` out of order, stops replay at that point. The journal is copied aside, and a warning names how many entries were recovered.
    - If a replayed result does not reproduce the recorded one ("What replay compares"), replay stops at that entry, the journal is copied aside to `<journal>.diverged-<ms>`, and a warning is returned. The diverged entry's change is not kept (2026-10-16): the recovered document is exactly what the trusted entries before it give, which is what the journal is cut back to, so a later crash recovers the same document again.
 3. **Discard if asked.** With `recover: "discard"`, the journal is copied to `<journal>.discarded-<ms>`, and a fresh journal is started from the file.
-4. **Nothing to recover?** If the replayed document writes in the header's format (`format`, Fountain when absent) **without loss** and equals the file's bytes, open the file normally. A lossy write can produce the file's exact text while the document differs (for example, a scene heading retyped as a stray parenthetical), so a lossy write always recovers.
+4. **Nothing to recover?** If the replayed document writes in the header's format (`format`, Fountain when absent) **without loss** and equals the file's bytes, open the file normally. A lossy write can produce the file's exact text while the document differs (for example, a scene heading retyped as a stray parenthetical), so a lossy write always recovers. (2026-10-18) Only losses of class `lost` count here. A `normalized` loss changes nothing that prints (`docs/specs/fountain.md` §10), and before phase 5a such writes reported no loss at all, so this check is unchanged. Pending tracked changes are a `lost` loss for Fountain and .fdx, so a journal holding them always recovers.
    - **No entries** (2026-10-16). Nothing is to recover when the file is the version the header's `disk` or a marker names, or holds the header's document as above. Otherwise the header is the only copy of the last save: the save's rename never reached the disk (a power cut), or another program changed the file and then Cold Open crashed. The header's document is then recovered, with `commands: 0` and `external_change: true`, and the writer decides. Before 2026-10-16, such a journal was overwritten without a word.
 5. **Otherwise, recover.** Open the replayed document as unsaved, with its undo history rebuilt, and report `recovered: {commands, external_change, last}`, where `last` is the newest replayed entry's `t`.
    - **Undo history.** It is rebuilt with each step's author and label. Entries marked `merge` join the step before them, exactly as they did when they were made.
@@ -179,6 +204,8 @@ When `doc.open` finds a journal for the file:
 - `external_change` is false when the header's `disk` is null, and true otherwise, because a file that was once saved is now gone.
 
 Without a journal, a missing file fails with `io_error` as before.
+
+**A bundle** (2026-10-18, phase 5a; `docs/specs/bundle.md` §9). Before replay, the header's change table is found as "The change data" says. A header whose `doc_id` is not the `doc_id` of the bundle at the path, or a bundle that cannot be read, counts as a change by another program: `external_change` is true, and the file is never overwritten automatically.
 
 Because such a journal is the only copy of the work, `doc.new` never starts over on top of it (2026-10-16): `doc.new` at a path whose journal holds anything fails with `already_exists` and leaves the journal untouched.
 
@@ -205,7 +232,7 @@ Added 2026-10-16 (phase 4). Journals and set-aside copies start with a dot, whic
 
 Added 2026-10-16 (phase 4). Set-aside copies hold work a writer may want back, so they are never deleted silently, and writers never need to know where they are.
 
-**What is listed.** For a script, every file in its folder named after its journal plus `.discarded-<ms>`, `.corrupt-<ms>` or `.diverged-<ms>`, and every damaged original, `.<name>.coldopen-original-<ms>`. The time is the `<ms>` in the name, so copying a folder keeps it. `recovered.list` (`docs/specs/commands.md`) lists them, newest first. The desktop app shows them for the open script, the recent scripts and the untitled scripts in `Unsaved/` (`docs/specs/editor.md`).
+**What is listed.** For a script, every file in its folder named after its journal plus `.discarded-<ms>`, `.corrupt-<ms>`, `.diverged-<ms>` or (2026-10-21) `.marked-<ms>`, and every damaged original, `.<name>.coldopen-original-<ms>`. A `.marked` copy is the journal as it stood just before a save to Fountain or .fdx accepted the script's pending changes (`docs/specs/commands.md`, `doc.save`), so it replays to the version with them marked. The time is the `<ms>` in the name, so copying a folder keeps it. `recovered.list` (`docs/specs/commands.md`) lists them, newest first. The desktop app shows them for the open script, the recent scripts and the untitled scripts in `Unsaved/` (`docs/specs/editor.md`).
 
 **Preview.** A journal copy is replayed exactly as recovery would replay it (steps 1 and 2 of "Recovery on open"), without touching the disk, and the document it reaches is shown. A damaged original is read as its script would be. A copy whose header cannot be read is listed as unreadable: it can be deleted, not restored.
 
@@ -226,7 +253,7 @@ The app records when it first showed each copy, in `recovered.json` in its data 
 
 ## Decisions for phase 5
 
-Written 2026-10-16, before phase 5, as the review of phases 1–3 asked (`docs/progress/review-fixes.md`, F18.2 to F18.4).
+Written 2026-10-16, before phase 5, as the review of phases 1–3 asked (`docs/progress/review-fixes.md`, F18.2 to F18.4). Phase 5a (2026-10-18) builds them: the bundle in `docs/specs/bundle.md`, track changes in `docs/specs/changes.md`, and the header fields above (`semantics` 2, `doc_id`, the change data). Two details were settled then: the journal names the change table by the count and fingerprint of its entries, which works because the table is append-only; and the bundle's readable copy holds the script with its pending changes accepted.
 
 **Ids that survive a reload, and the bundle (F18.3).**
 
