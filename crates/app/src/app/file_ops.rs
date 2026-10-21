@@ -598,10 +598,18 @@ impl App {
         // The UI thread only takes a copy of the document; the worker
         // writes the file out and checks it (journal.md, "Saving off the UI
         // thread").
+        let rev = self.d.session().map(|s| s.rev);
         match self.d.save_prepare(&p) {
             Ok(job) => {
                 self.saving = Some(Saving::Rendering { allow_lossy });
-                render_on_worker(job)
+                let render = render_on_worker(job);
+                // Saving anyway to Fountain or .fdx accepted the pending
+                // changes first (commands.md, `doc.save`): the page, the
+                // navigator and the panel show that now, not at the next key.
+                if self.d.session().map(|s| s.rev) != rev {
+                    return Task::batch([self.after_change(false), render]);
+                }
+                render
             }
             Err(e) => {
                 self.after_save = None;

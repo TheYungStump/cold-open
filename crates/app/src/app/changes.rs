@@ -454,6 +454,11 @@ impl App {
         }
     }
 
+    /// The navigator's rows as they are drawn.
+    pub fn nav_rows(&self) -> &[super::NavRow] {
+        &self.nav
+    }
+
     /// The name the writer's tracked changes carry now.
     pub fn editing_as(&self) -> String {
         match self.d.writer() {

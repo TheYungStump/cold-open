@@ -564,6 +564,66 @@ fn the_lossy_question_saves_as_a_project_and_the_bundle_reopens_with_its_changes
     h.app.d.discard();
 }
 
+/// What is drawn right after Save anyway accepts the changes in an .fdx
+/// script, before any other input: the page, the navigator, the panel and
+/// the status bar show the accepted script (editor.md §17.5, 2026-10-21).
+/// Found in the retest: the marks stayed until the next key or click.
+#[test]
+fn save_anyway_shows_the_accepted_script_at_once() {
+    let home = tempfile::tempdir().unwrap();
+    // The lab script as .fdx, written by Cold Open.
+    let fountain = home.path().join("lab.fountain");
+    std::fs::write(&fountain, SCRIPT).unwrap();
+    let fdx = home.path().join("lab.fdx");
+    let mut d = coldopen_core::Dispatcher::new(coldopen_core::Options::default());
+    let run = |d: &mut coldopen_core::Dispatcher, c: &str, p: Value| {
+        d.execute(coldopen_core::Command::from_parts(c, p).unwrap())
+            .unwrap()
+    };
+    run(&mut d, "doc.open", json!({"path": fountain}));
+    run(&mut d, "export.fdx", json!({"path": fdx}));
+    d.discard();
+
+    let mut h = open(&fdx, home.path(), Choice::Light);
+    h.app.settings.author_name = Some("Dana".into());
+    h.app.d.set_writer_name(Some("Dana".into()));
+    action(&mut h, "changes.track_mine");
+    action(&mut h, "view.changes");
+    end_of(&mut h, 1);
+    h.type_text(" Thunder.");
+    // The navigator and panel catch up with typing on the next tick.
+    h.run(vec![Message::Tick]);
+    let blue = Palette::of(Choice::Light, false).changes[0];
+    let (_, px) = h.frame(1.0);
+    assert!(has_color(&px, blue), "the mark is drawn");
+    assert_eq!(h.app.changes.rows.len(), 1);
+    assert!(h.app.nav_rows().iter().any(|n| n.change.is_some()));
+
+    h.shortcut('s', false);
+    assert!(matches!(h.app.prompt, Some(Prompt::Lossy { .. })));
+    // S runs the whole save: headless runs the worker's tasks to the end.
+    h.key(
+        iced::keyboard::Key::Character("s".into()),
+        Modifiers::empty(),
+        Some("s"),
+    );
+    assert!(!h.app.d.session().unwrap().dirty, "{:?}", h.app.banners);
+    assert_eq!(pending(&h), 0);
+    // Nothing else has happened since: what is drawn now is the accepted
+    // script, with no mark in the author's color anywhere.
+    let (_, px) = h.frame(1.0);
+    assert!(!has_color(&px, blue), "the marks are still drawn");
+    assert!(h.app.changes.rows.is_empty(), "{:?}", h.app.changes.rows);
+    assert_eq!(h.app.review, (0, 0));
+    assert!(h.app.nav_rows().iter().all(|n| n.change.is_none()));
+    let shown = h.app.d.cached_view().unwrap().layout().pages[0]
+        .lines
+        .iter()
+        .any(|l| l.clusters.iter().any(|c| c.look.change.is_some()));
+    assert!(!shown, "the laid-out page still holds marks");
+    h.app.d.discard();
+}
+
 #[test]
 fn save_anyway_accepts_the_changes_and_keeps_the_marked_version() {
     let home = tempfile::tempdir().unwrap();
