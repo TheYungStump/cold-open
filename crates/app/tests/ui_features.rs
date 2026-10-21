@@ -237,3 +237,45 @@ fn esc_dismisses_messages_once_nothing_else_is_open() {
     assert!(h.app.leftover.is_empty());
     h.app.d.discard();
 }
+
+/// A recent script deep in long folders shows on one line in the palette:
+/// its name first, its folder shortened in the middle (editor.md §9,
+/// 2026-10-21). A long folder once took the whole row, and the title,
+/// squeezed to nothing, wrapped a letter a line into a tall empty row.
+#[test]
+fn palette_rows_with_long_paths_stay_one_line() {
+    use coldopen_app::app::iced_settings;
+    let home = tempfile::tempdir().unwrap();
+    let mut h = app(home.path());
+    let deep = home
+        .path()
+        .join("Writing")
+        .join("Feature drafts for the spring fellowship")
+        .join("Second act rewrites after the table read");
+    h.app.settings.recent = vec![deep.join("low-tide.fdx")];
+    h.run(vec![
+        Message::Action("app.palette".into()),
+        Message::PaletteInput("open".into()),
+    ]);
+    let mut sim = iced_test::Simulator::with_size(
+        iced_settings(),
+        iced::Size::new(1200.0, 800.0),
+        h.app.view(),
+    );
+    let title = sim.find("Open recent: low-tide.fdx").unwrap().bounds();
+    let folder = sim.find(r"C:\…\Second act re…he table read");
+    let row = sim.find("Open a script").unwrap().bounds();
+    assert!(
+        title.height <= row.height + 1.0 && title.width > 100.0,
+        "the title is {title:?}, a one-line title is {row:?}"
+    );
+    // The folder, shortened: on Windows its drive, else the root.
+    let shown = if cfg!(windows) {
+        folder.is_ok()
+    } else {
+        sim.find("/…/Second act rew…the table read").is_ok()
+    };
+    assert!(shown, "the folder is not shortened as expected");
+    drop(sim);
+    h.app.d.discard();
+}
