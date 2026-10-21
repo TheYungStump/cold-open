@@ -115,7 +115,7 @@ The promise is simple: a crash or a bad file never costs a writer more than the 
 
 1. **Command journal.** Every edit is a command, appended to a journal file as it happens. After a crash, the app replays the journal on top of the last save, so nothing typed before the crash is lost.
 2. **Atomic saves.** Saving writes a temporary file in the same folder, flushes it to disk, then swaps it in with a single rename. A crash mid-save leaves the previous version intact, never a half-written file.
-3. **Fast, invisible saving.** Every edit is journaled as it is made, in under 1 ms: that is the autosave, and it is what makes a crash cost nothing. A save of the file takes a snapshot of the script on the UI thread, in under 4 ms on a 120-page script, and writes it out on a background thread in under 50 ms, so it never interrupts typing. (2026-10-19: this replaces "autosave in under 10 ms". The journal already did that, in about 0.01 ms per edit. But a whole save of a 120-page script took 20 to 35 ms, much of it on the UI thread, so the one number described neither. The three budgets say what each part must do.)
+3. **Fast, invisible saving.** Every edit is journaled as it is made, in under 1 ms: that is the autosave, and it is what makes a crash cost nothing. A save of the file takes a snapshot of the script on the UI thread, in under 4 ms on a 120-page script, and writes it out on a background thread in under 50 ms, so it never interrupts typing. (2026-10-19: this replaces "autosave in under 10 ms". The journal already did that, in about 0.01 ms per edit. But a whole save of a 120-page script took 20 to 35 ms, much of it on the UI thread, so the one number described neither. The three budgets say what each part must do.) (2026-10-21: CI checks the whole save against its median over 21 saves, and reports its p95 for information. A shared CI runner's disk sometimes stalls a file sync for 100 ms or more: one run measured a median of 15 ms and a p95 of 91 ms, which says nothing about Cold Open's own work. The UI thread's time does no disk work, so it stays checked on p95.)
 4. **Version history.** Timestamped snapshots of the script, browsable and restorable from the app, with automatic pruning of old ones.
 5. **Tolerant .fdx import.** The importer recovers what it can from malformed XML, keeps any elements it does not understand so they survive a round trip, and shows a short report of what it fixed. The same logic runs as `coldopen repair broken.fdx`, useful even for people who stay on Final Draft.
 6. **Track changes.** Records insertions and deletions with author and time; deletions show as strikethrough. Changes can be accepted or rejected one at a time, by scene or all at once. This is separate from production revision colors, which mark what changed between distributed drafts.
@@ -214,8 +214,8 @@ These are release targets, checked in CI on all three operating systems; missing
 | Keystroke to screen | Under 16 ms (one frame at 60 Hz) |
 | Full repagination, 120 pages | Under 50 ms; typical edits repaginate incrementally |
 | Journal write per edit (the autosave) | Under 1 ms |
-| A save's time on the UI thread, 120-page script | Under 4 ms |
-| A whole save in the background, 120-page script | Under 50 ms |
+| A save's time on the UI thread, 120-page script | Under 4 ms (p95) |
+| A whole save in the background, 120-page script | Under 50 ms (median; p95 reported, 2026-10-21) |
 | Memory with a feature script open | Under 150 MB |
 | Page breaks across OSes | Identical |
 

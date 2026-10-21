@@ -3,7 +3,9 @@
 //! latency, with the real app running headless and drawing with tiny-skia.
 //! Since 2026-10-19 also the save budgets, for a feature-length script
 //! saved as Fountain, as .fdx and as a project with tracked changes: the
-//! time a save takes on the UI thread, and the whole save on the worker.
+//! time a save takes on the UI thread (gated on p95), and the whole save on
+//! the worker (gated on the median since 2026-10-21, p95 reported: a shared
+//! CI runner's disk can stall one file sync for 100 ms or more).
 //!
 //! ```text
 //! cargo run --release -p coldopen-app --example budgets -- \
@@ -426,7 +428,7 @@ fn main() {
                 "median {:.2} ms, p95 {:.2} ms, max {:.2} ms",
                 ui.median, ui.p95, ui.max
             ),
-            "under 4 ms".into(),
+            "p95 under 4 ms".into(),
         ));
         rows.push((
             format!("Whole save, {label}"),
@@ -434,7 +436,7 @@ fn main() {
                 "median {:.1} ms, p95 {:.1} ms, max {:.1} ms",
                 whole.median, whole.p95, whole.max
             ),
-            "under 50 ms".into(),
+            "median under 50 ms (p95 for information)".into(),
         ));
     }
 
@@ -508,8 +510,17 @@ fn main() {
                     ui.p95
                 ));
             }
-            if whole.p95 >= 50.0 {
-                missed.push(format!("{label} whole save p95 {:.1} ms", whole.p95));
+            // The median, not p95 (2026-10-21, docs/spec.md): the whole
+            // save ends in a file sync, and a shared runner's disk can stall
+            // one for 100 ms or more, which says nothing about the save's
+            // own work. p95 stays in the table, and is noted when it is over.
+            if whole.median >= 50.0 {
+                missed.push(format!("{label} whole save median {:.1} ms", whole.median));
+            } else if whole.p95 >= 50.0 {
+                eprintln!(
+                    "note: {label} whole save p95 {:.1} ms (max {:.1} ms) is over 50 ms; it is reported, not gated",
+                    whole.p95, whole.max
+                );
             }
         }
         if !missed.is_empty() {
