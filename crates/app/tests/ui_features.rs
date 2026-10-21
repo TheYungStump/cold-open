@@ -237,3 +237,64 @@ fn esc_dismisses_messages_once_nothing_else_is_open() {
     assert!(h.app.leftover.is_empty());
     h.app.d.discard();
 }
+
+/// With both side panels open in a window 1280 pixels wide, a page at 100%
+/// is wider than the page area, which never scrolls sideways: the page is
+/// drawn at the largest zoom that fits, and the status bar says so
+/// (editor.md §3, 2026-10-21). Once the window is wide enough, the
+/// writer's zoom comes back.
+#[test]
+fn the_page_fits_between_both_panels_at_1280() {
+    use coldopen_app::page_view::MARGIN;
+    let home = tempfile::tempdir().unwrap();
+    let p = home.path().join("lab.fountain");
+    std::fs::write(&p, SCRIPT.repeat(40)).unwrap();
+    let mut app = App::new(Boot {
+        file: Some(p),
+        dirs: Some(Dirs::under(home.path())),
+        ..Boot::default()
+    });
+    app.set_dialogs(Dialogs::scripted(|_| None));
+    let mut h = Headless::new(app, iced::Size::new(1280.0, 860.0)).expect("a headless renderer");
+    assert!(h.app.settings.navigator, "the navigator shows by default");
+    h.run(vec![Message::Action("view.changes".into())]);
+    assert_eq!(h.app.settings.zoom, 1.0);
+    // The page area reports its size when it is redrawn, as the window
+    // does every frame.
+    let redraw = |h: &mut Headless| {
+        h.events(vec![iced::Event::Window(
+            iced::window::Event::RedrawRequested(std::time::Instant::now()),
+        )]);
+    };
+    redraw(&mut h);
+    let width = h
+        .app
+        .page_area_width()
+        .expect("the page area reported its size");
+    let page = |h: &Headless| {
+        let f = h.app.d.cached_view().unwrap().layout().format();
+        f.page_width.0 as f32 * h.app.shown_zoom() * 96.0 / 72.0 / 100.0
+    };
+    assert!(
+        width < 816.0 + 2.0 * MARGIN,
+        "a page at 100% fits {width} pixels; the test needs a narrower area"
+    );
+    assert!(h.app.shown_zoom() < 1.0);
+    assert!(
+        page(&h) + 2.0 * MARGIN <= width + 0.5,
+        "the page ({}) is wider than the page area ({width})",
+        page(&h)
+    );
+    // Zoom out works from what is shown; zoom in stops at the fit.
+    let fitted = h.app.shown_zoom();
+    h.run(vec![Message::Action("view.zoom_out".into())]);
+    assert!(h.app.shown_zoom() < fitted);
+    h.run(vec![Message::Action("view.zoom_reset".into())]);
+    assert_eq!(h.app.shown_zoom(), fitted);
+    // Without the changes panel the page fits at 100% again.
+    h.run(vec![Message::Action("view.changes".into())]);
+    redraw(&mut h);
+    assert!(h.app.page_area_width().unwrap() > width);
+    assert_eq!(h.app.shown_zoom(), 1.0);
+    h.app.d.discard();
+}

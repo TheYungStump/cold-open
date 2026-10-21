@@ -846,7 +846,7 @@ impl App {
             return Task::none();
         };
         let f = view.layout().format();
-        let k = self.settings.zoom * 96.0 / 72.0 / 100.0;
+        let k = self.shown_zoom() * 96.0 / 72.0 / 100.0;
         let page_h = if self.editor.draft {
             0.0
         } else {
@@ -903,7 +903,7 @@ impl App {
     /// The page and the Pt-unit height on it at a y in the page area's
     /// content, at the current zoom.
     fn page_at(&self, y: f32) -> Option<(usize, f32)> {
-        let (k, page_h, pages) = self.page_geometry(self.settings.zoom)?;
+        let (k, page_h, pages) = self.page_geometry(self.shown_zoom())?;
         let step = page_h + page_view::GAP;
         let p = (((y - page_view::MARGIN) / step).floor().max(0.0) as usize).min(pages - 1);
         Some((p, (y - page_view::MARGIN - p as f32 * step) / k))
@@ -944,7 +944,7 @@ impl App {
         let y = self.caret_screen_y()?;
         let vp = self.viewport.as_ref()?;
         let spot = self.caret_spot?;
-        let (k, _, _) = self.page_geometry(self.settings.zoom)?;
+        let (k, _, _) = self.page_geometry(self.shown_zoom())?;
         let page_w = self.d.cached_view()?.layout().format().page_width.0 as f32 * k;
         let left = ((vp.content_bounds().width - page_w) / 2.0).max(page_view::MARGIN);
         let b = vp.bounds();
@@ -959,7 +959,7 @@ impl App {
     pub fn caret_screen_y(&self) -> Option<f32> {
         let vp = self.viewport.as_ref()?;
         let spot = self.caret_spot?;
-        let (k, page_h, _) = self.page_geometry(self.settings.zoom)?;
+        let (k, page_h, _) = self.page_geometry(self.shown_zoom())?;
         let y = page_view::MARGIN
             + spot.page as f32 * (page_h + page_view::GAP)
             + spot.top.0 as f32 * k;
@@ -975,7 +975,7 @@ impl App {
         self.save_settings();
         let refresh = self.after_change(false);
         let (Some((page, y_pt, on_screen)), Some((k, page_h, _))) =
-            (anchor, self.page_geometry(zoom))
+            (anchor, self.page_geometry(self.shown_zoom()))
         else {
             return refresh;
         };
@@ -992,7 +992,31 @@ impl App {
 
     fn screen_height(&self) -> Pt {
         let h = self.viewport.as_ref().map_or(700.0, |v| v.bounds().height);
-        Pt((h / (self.settings.zoom * 96.0 / 72.0 / 100.0)) as i32)
+        Pt((h / (self.shown_zoom() * 96.0 / 72.0 / 100.0)) as i32)
+    }
+
+    /// The zoom the pages are drawn at: the writer's, or less while a page
+    /// at that zoom would be wider than the page area, which never scrolls
+    /// sideways (editor.md §3, 2026-10-21). With both side panels open in
+    /// a window 1280 pixels wide, a page at 100% was cut off on the right.
+    pub fn shown_zoom(&self) -> f32 {
+        self.fit_zoom()
+            .map_or(self.settings.zoom, |fit| self.settings.zoom.min(fit))
+    }
+
+    /// The largest zoom at which a page and the space beside it fit the
+    /// page area's width, and never less than the smallest zoom step. None
+    /// before the page area has reported its size.
+    fn fit_zoom(&self) -> Option<f32> {
+        let vp = self.viewport.as_ref()?;
+        let f = self.d.cached_view()?.layout().format();
+        let page = f.page_width.0 as f32 * 96.0 / 72.0 / 100.0;
+        (page > 0.0).then(|| ((vp.bounds().width - 2.0 * page_view::MARGIN) / page).max(0.5))
+    }
+
+    /// The page area's width, once it has reported it.
+    pub fn page_area_width(&self) -> Option<f32> {
+        self.viewport.as_ref().map(|v| v.bounds().width)
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -1914,7 +1938,10 @@ impl App {
             "edit.find_next" => return self.find_step(false),
             "edit.find_previous" => return self.find_step(true),
             "view.zoom_in" | "view.zoom_out" => {
+                // From the zoom shown, so zooming out of a fitted page
+                // makes it smaller at once.
                 let mut s = self.settings.clone();
+                s.zoom = self.shown_zoom();
                 s.zoom_step(if name == "view.zoom_in" { 1 } else { -1 });
                 return self.zoom_to(s.zoom);
             }

@@ -20,6 +20,24 @@ fn shot(app: &App, out: &std::path::Path, name: &str) {
     snap.matches_image(&path).unwrap();
 }
 
+/// Lets the page area report its size, as the window's first frame does,
+/// so the page is drawn at the zoom that fits it (editor.md §3).
+fn settle(app: &mut App) {
+    let sent: Vec<Message> = {
+        let mut sim =
+            iced_test::Simulator::with_size(iced_settings(), Size::new(1280.0, 860.0), app.view());
+        let _ = sim.simulate([iced::Event::Window(iced::window::Event::RedrawRequested(
+            std::time::Instant::now(),
+        ))]);
+        sim.into_messages()
+            .filter(|m| matches!(m, Message::Scrolled(_)))
+            .collect()
+    };
+    for m in sent {
+        let _ = app.update(m);
+    }
+}
+
 /// Tracked edits on the first page: the writer's insertion and deletion in
 /// the first action, and an agent's rewrite of the next one.
 fn tracked_demo(app: &mut App) {
@@ -106,6 +124,7 @@ fn main() {
         tracked_demo(&mut app);
         let _ = app.update(Message::Action("view.changes".into()));
         app.banners.clear();
+        settle(&mut app);
         shot(&app, &out, &format!("{name}-changes"));
         app.d.discard();
 
