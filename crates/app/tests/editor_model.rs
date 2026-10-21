@@ -163,8 +163,9 @@ fn backspace_joins_and_deletes_empty_blocks() {
     typ(&mut d, &mut e, " more words");
     e.motion(&mut d, Motion::DocEnd, false, Pt::ZERO);
     e.delete(&mut d, false, true);
-    // A word and the punctuation after it go together.
-    assert_eq!(blocks(&mut d)[1], "action:One more ");
+    // A word and the punctuation after it go together, and so does the
+    // space before them, which would be left at the end (2026-10-21).
+    assert_eq!(blocks(&mut d)[1], "action:One more");
 }
 
 #[test]
@@ -263,4 +264,54 @@ fn motion_and_selection_across_blocks() {
     e.motion(&mut d, Motion::Up, true, Pt::ZERO);
     e.delete(&mut d, false, false);
     assert_eq!(blocks(&mut d), ["scene_heading:INT. LAB"]);
+}
+
+/// Deleting a whole word takes one space with it, tracked or not, so
+/// accepting the deletion leaves no double space (editor.md §5.1).
+#[test]
+fn deleting_a_whole_word_takes_one_space() {
+    use coldopen_app::editor::Caret;
+    const LINE: &str = "Rain on the roof.";
+    // (caret, selection anchor, Word+Backspace or Word+Delete or a plain
+    // Delete of the selection, the line after, the caret after)
+    let cases: [(usize, usize, &str, &str, usize); 3] = [
+        (7, 7, "word back", "Rain the roof.", 5),
+        (12, 12, "word forward", "Rain on the.", 11),
+        (4, 0, "selection", "on the roof.", 0),
+    ];
+    for tracked in [false, true] {
+        for (at, anchor, how, want, caret) in cases {
+            let (mut d, mut e) = new_script();
+            typ(&mut d, &mut e, "int. lab - night");
+            e.enter(&mut d);
+            typ(&mut d, &mut e, LINE);
+            if tracked {
+                d.execute(Command::from_parts("changes.track", json!({"writer": true})).unwrap())
+                    .unwrap();
+            }
+            let id = e.caret.block;
+            e.anchor = Caret::at(id, anchor);
+            e.caret = Caret::at(id, at);
+            match how {
+                "word back" => e.delete(&mut d, false, true),
+                "word forward" => e.delete(&mut d, true, true),
+                _ => e.delete(&mut d, true, false),
+            }
+            let label = format!("{how}, tracked: {tracked}");
+            assert_eq!(blocks(&mut d)[1], format!("action:{want}"), "{label}");
+            assert_eq!(e.caret.offset, caret, "{label}");
+            if tracked {
+                let settle = |d: &mut Dispatcher, c: &str| {
+                    d.execute(Command::from_parts(c, json!({"all": true})).unwrap())
+                        .unwrap();
+                };
+                settle(&mut d, "changes.reject");
+                assert_eq!(blocks(&mut d)[1], format!("action:{LINE}"), "{label}");
+                d.execute(Command::from_parts("undo", json!({})).unwrap())
+                    .unwrap();
+                settle(&mut d, "changes.accept");
+                assert_eq!(blocks(&mut d)[1], format!("action:{want}"), "{label}");
+            }
+        }
+    }
 }
