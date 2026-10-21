@@ -25,6 +25,10 @@ pub const VERSION: u32 = 1;
 pub const SEMANTICS: u32 = 2;
 /// The command name of a save marker (docs/specs/journal.md).
 pub const SAVED: &str = "doc.saved";
+/// The command name of the marker that makes a journal from somewhere else
+/// this computer's, once the writer has recovered it (docs/specs/journal.md,
+/// "A journal from somewhere else", 2026-10-21).
+pub const ADOPTED: &str = "journal.adopted";
 
 /// `.script.fountain.coldopen-journal` next to `script.fountain`.
 pub fn path_for(doc: &Path) -> PathBuf {
@@ -150,6 +154,16 @@ impl Entry {
             return None;
         }
         serde_json::from_value(self.params.get("disk")?.clone()).ok()
+    }
+
+    /// The computer and script path an adoption marker names, or `None`
+    /// for any other entry.
+    pub fn adopted(&self) -> Option<(String, String)> {
+        if self.command != ADOPTED {
+            return None;
+        }
+        let field = |k: &str| Some(self.params.get(k)?.as_str()?.to_string());
+        Some((field("host")?, field("path")?))
     }
 }
 
@@ -425,6 +439,31 @@ impl Journal {
                 .map_or(0, |d| d.as_millis() as u64),
             command: SAVED.into(),
             params: serde_json::json!({ "disk": disk }),
+            result: serde_json::json!({}),
+            by: None,
+            merge: false,
+            step: None,
+        };
+        self.write_entry(&entry)
+    }
+
+    /// Appends a marker saying this computer, at this journal's script
+    /// path, took the journal over: the writer recovered a journal written
+    /// somewhere else (docs/specs/journal.md, "A journal from somewhere
+    /// else"). One appended line, so a crash never costs the work it holds,
+    /// as starting the journal again would risk. Does nothing for a journal
+    /// that knows no computer or path.
+    pub fn append_adopted(&mut self) -> io::Result<()> {
+        let (Some(host), Some(path)) = (self.host.clone(), self.doc_path.clone()) else {
+            return Ok(());
+        };
+        let entry = Entry {
+            seq: self.seq + 1,
+            t: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as u64),
+            command: ADOPTED.into(),
+            params: serde_json::json!({ "host": host, "path": path }),
             result: serde_json::json!({}),
             by: None,
             merge: false,

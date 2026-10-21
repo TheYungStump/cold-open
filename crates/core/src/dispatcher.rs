@@ -223,6 +223,9 @@ struct Replay {
     /// The entry after the trusted ones was applied, then gave a
     /// different result.
     diverged: bool,
+    /// The computer and path of the newest adoption marker, which stand
+    /// for the header's from there on.
+    adopted: Option<(String, String)>,
 }
 
 /// A document written out for saving, before anything touches the disk.
@@ -665,6 +668,13 @@ impl Dispatcher {
                                 if r.recover {
                                     warnings.extend(r.notes.iter().cloned());
                                     j.resume(r.valid_len, r.applied).map_err(|e| jio(e, &j))?;
+                                    // The writer chose to recover a journal
+                                    // from somewhere else: it is this
+                                    // computer's now, so a crash here does
+                                    // not ask again.
+                                    if r.foreign.is_some() {
+                                        j.append_adopted().map_err(|e| jio(e, &j))?;
+                                    }
                                     recovered = json!({
                                         "commands": r.commands,
                                         "external_change": r.external_change,
@@ -733,10 +743,17 @@ impl Dispatcher {
             valid_len: read.header_len(),
             problem: read.problem.clone(),
             diverged: false,
+            adopted: None,
         };
         for (k, entry) in read.entries.iter().enumerate().take(limit) {
             if let Some(fp) = entry.saved_disk() {
                 r.known_disk.push(fp);
+                r.applied = k + 1;
+                r.valid_len = read.entry_end(k);
+                continue;
+            }
+            if let Some(who) = entry.adopted() {
+                r.adopted = Some(who);
                 r.applied = k + 1;
                 r.valid_len = read.entry_end(k);
                 continue;
@@ -834,7 +851,9 @@ impl Dispatcher {
             // The diverged entry was applied before its result was compared.
             // Replay the trusted prefix again, so the document holds exactly
             // what the journal will be cut to (review finding F9).
-            r.session = self.replay(&read, path, (format, style), r.applied).session;
+            let trusted = self.replay(&read, path, (format, style), r.applied);
+            r.session = trusted.session;
+            r.adopted = trusted.adopted;
         }
         let Replay {
             session: mut replay,
@@ -845,6 +864,7 @@ impl Dispatcher {
             mut writer,
             valid_len,
             problem,
+            adopted,
             ..
         } = r;
 
@@ -878,8 +898,11 @@ impl Dispatcher {
         // writer's, which is the cautious choice.
         writer |= commands == 0;
         replay.journal = None;
-        let host = read.header.host.as_deref();
-        let at = read.header.path.as_deref();
+        // A journal this computer took over at this path is its own.
+        let (host, at) = match &adopted {
+            Some((h, p)) => (Some(h.as_str()), Some(p.as_str())),
+            None => (read.header.host.as_deref(), read.header.path.as_deref()),
+        };
         let here = canonical(path);
         let foreign = (host.is_some_and(|h| h != this_host()) || at.is_some_and(|p| p != here))
             .then(|| json!({ "host": host, "path": at }));
