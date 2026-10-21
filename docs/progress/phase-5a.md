@@ -6,6 +6,100 @@ Phase 5 is split in two. **5a** (this phase) brings the `.coldopen` project bund
 
 **Before the phase:** `main` holds the phase 4 final report (TheYungStump/cold-open#5, 3aa6a60). It also holds the fixes for the two fuzz findings of run 39030169983 (#6, bf7c856: the 21-byte `fountain_roundtrip` input, a title value whose emphasis left an edge space, and the `fdx_roundtrip` input whose XML declaration held a forbidden character) and the emphasis-writer fix that followed (#7, cddbb1d).
 
+## Final report (2026-10-21)
+
+Phase 5a is done: the `.coldopen` project bundle, track changes (F18.2), agents' edits as tracked changes, and F21. It is squash-merged from TheYungStump/cold-open#8 once CI is green on the last commit. Every step of the plan below is done, and the project owner's manual test and retest passed. The phase changed 109 files: about 11,500 lines in the crates, fuzz targets and fixtures, and 660 lines of specs.
+
+### What was built
+
+- **The change model** (`changes.md`, new).
+  - **Marks in text runs.** A run carries `ins` and `del`, so insertions and deletions live in the text itself.
+  - **Marks on blocks.** Inserted, deleted, retyped, split, joined and moved blocks stay visible, marked, until settled.
+  - **An append-only change table** with authors and times, with room for 5b's revision sets.
+  - **Pending deletions take no offsets**, so `text`, every offset, find and replace work on the current text. Agents never meet struck text unless they read the runs.
+- **Commands.** `changes.list`, `changes.accept`, `changes.reject` and `changes.track`, all undoable and journaled.
+  - Ten edit commands take `tracked`.
+  - `text.insert` and `block.split` take `after_deleted` (from the manual test).
+  - Journals write `semantics: 2`, and older journals replay unchanged.
+- **Who may do what**, decided in core by author on every front end:
+  - only the writer accepts;
+  - an agent rejects only its own changes;
+  - an agent's untracked edit can't touch another author's marks;
+  - agents' edits are tracked by default.
+- **The bundle** (`bundle.md`, new).
+  - A deterministic zip, with no times, deflated at level 2. It holds `meta.json`, `document.json` with ids and marks, `changes.json`, and a readable `script.fountain`.
+  - A tolerant reader that falls back to `script.fountain`.
+  - A `doc_id` that follows the project, not its path.
+  - The journal header names the change table by count and fingerprint instead of copying it.
+- **Losses.** Pending changes are a `tracked_changes` loss in Fountain and .fdx. F21 is option (a): normalisations are a `normalized` loss class that never blocks a save.
+- **Save anyway accepts.** Saving to Fountain or .fdx with pending changes keeps the marked version as a Recovered version, then accepts every change as one undoable step, so the script on screen and the file agree (decision 51).
+- **Layout and PDF.** A marked and an accepted print form, and author colors on screen and in print. `export.pdf` prints marks by default; "Print the current text" prints the accepted form.
+- **MCP.** The tools `changes_list`, `changes_accept`, `changes_reject` and `changes_track`, and the resource `coldopen://doc/changes`. `coldopen mcp --untracked` turns tracking off for people who use an agent without the app.
+- **The app.**
+  - **On the page:** marks in the author's color, deletions struck, and a bar in the margin.
+  - **The caret** steps over struck text one side at a time.
+  - **Keys:** accept and reject at the caret (Ctrl+Shift+Enter, Ctrl+Shift+Backspace), and F7 and Shift+F7 to move between changes.
+  - **The changes panel** (Ctrl+Shift+R): rows, keys, a filter by author, and who is editing with Change my name….
+  - **The writer's name** is asked for once.
+  - **Switches** for my tracking and for agents' tracking.
+  - **The lossy question** offers "Save as Cold Open project…".
+- **Saving off the UI thread.** The UI thread only takes a snapshot; the worker renders and writes. Three save budgets replace "autosave under 10 ms" in `docs/spec.md` (decisions 44–47).
+
+### Checks
+
+- **Tests:** 556 pass on the last commit, and `cargo fmt` and `cargo clippy` are clean on Windows and for the Linux and macOS targets. CI is green on Windows, macOS and Linux (21 checks).
+- **Crash gate:**
+  - It kills the app during tracked typing, accepting and rejecting, undo and redo across a save, and saves of a project: 22 kill points, two new scenarios.
+  - It passed five runs in a row after every change to the save path. The last runs were after the retest fix.
+- **Typing gate:** the scene is typed into Fountain, .fdx and a project, with the caret checked after every key in all three.
+- **Old journals:** journals written by the phase 4 build are fixtures now, and recover in full with undo.
+- **Corpus and reference:**
+  - All 34 corpus .fdx files still write back byte for byte.
+  - The reference gate gives phase 4's numbers: Big Fish's wraps 100.0%, resynced breaks 97.4%, pages 120/120, scene starts 99.5%.
+- **Fuzzing:**
+  - Two new targets, `bundle_read` and `changes`, so the weekly workflow runs ten.
+  - The run by hand on the branch (39182703613, ten minutes per target) passed.
+  - The accept and reject property test passes at 100,000 cases.
+- **Measurements:**
+  - Big Fish as a project opens in about 31 ms, against 46 ms as .fdx and the 200 ms budget.
+  - A save holds the UI thread for 1.3–1.5 ms and finishes in 7–25 ms, against the new 4 ms and 50 ms budgets. CI asserts the budgets on Linux.
+  - With 141 pending changes the journal header grows by 22 KB.
+- **Manual test** (Windows CI builds, by the project owner, 2026-10-21):
+  - The first test found four things: the space in .fdx and project scripts, the caret over struck text, the name in the panel, and Save anyway (decisions 48–52).
+  - The retest passed all four and found one leftover, the marks staying on screen after Save anyway (decision 53).
+  - The table under "Manual test results" lists each with its tests.
+
+### Deferred
+
+- **Follow-ups after the merge**, each its own PR:
+  - deleting a whole word also takes one adjacent space;
+  - the palette's long paths and tall empty rows;
+  - the notices list and "Dismiss all";
+  - the page at 1280 pixels with both side panels open (decision 41);
+  - the question asked again after recovering a journal from somewhere else (decision 43).
+- **To 5b:** production revision sets (the change table has room for them), script diff, the title page editor and reports.
+- **Not tracked in 5a:** styles (`text.style`) and block attributes (`block.set_attrs`).
+- **Marks in .fdx files.** The clean room gives us no public source to write them from (`fdx.md`), so .fdx files hold the accepted text and a project is the way to keep changes. Phase 5's gate asks that tracked changes survive .fdx export. In 5a they don't survive it as marks: the export asks first, then writes them accepted, and a project keeps them.
+- **The journal header's restart could move to the save worker**, saving about 0.5 ms; the budget doesn't need it (decision 47).
+
+### Decisions
+
+- **The project owner's, before the phase:**
+  - the writer's name asked for once;
+  - agents reject only their own changes and accept nothing;
+  - PDFs print marks by default;
+  - rawzip with miniz_oxide for the bundle.
+- **During the phase:** 53 decisions, listed below. The ones that shape later work:
+  - pending structure stays visible (2);
+  - pending deletions take no offsets (3);
+  - the append-only table (6);
+  - the writer's name is part of the author (21);
+  - who makes `doc_id` (25);
+  - a cell's look carries the change number, not a color (31);
+  - the save worker and the save budgets (45, 46);
+  - the caret's two sides at struck text (49);
+  - Save anyway accepts the changes (51).
+
 ## The plan, in order
 
 | Step | What | State |
@@ -20,7 +114,7 @@ Phase 5 is split in two. **5a** (this phase) brings the `.coldopen` project bund
 | 8 | MCP tools and resource; the session file's `doc_ids`; agent tests through the real link and `coldopen mcp` | done |
 | 9 | App: marks on the page, caret over them, keys and palette, the changes panel, the writer's name, the per-script agent switch, "Save as Cold Open project" | done: headless tests in `crates/app/tests/changes.rs` (8) and the agent tests; screenshots of the marks and the panel reviewed in three themes; 541 tests pass |
 | 10 | Gates: crash gate (tracked edits, accept and reject, bundle saves), phase 4 journal fixtures, corpus round trip, reference gate, CI on three OSes, fuzzing, measurements | done (below). PR TheYungStump/cold-open#8: CI green on three OSes (21 checks, on 78bdd08 after the save rework); the fuzz run 39182703613 (ten targets, ten minutes each) green |
-| 11 | Manual test steps for a Windows CI build; the project owner's test; the final report | the project owner tested the Windows build (2026-10-21) and reported four things to fix first; fixed (decisions 48–52, "Manual test results" below); the retest of those four, then the final report |
+| 11 | Manual test steps for a Windows CI build; the project owner's test; the final report | done: the project owner's test found four things (decisions 48–52); the retest passed and found one leftover (decision 53); final report above |
 
 ## Decisions made with the project's owner before the phase (2026-10-18)
 
@@ -59,7 +153,7 @@ Phase 5 is split in two. **5a** (this phase) brings the `.coldopen` project bund
 19. **Agent tracking is decided in core, by author, on every front end.** With it on by default, an agent alone on a .fountain or .fdx file cannot save its tracked edits there (a lossy save is the writer's call). The three phase 3 and 4 agent-gate tests that were about saving, not tracking, now run `coldopen mcp --untracked`, or have the writer turn agent tracking off first.
 20. **`coldopen mcp --untracked`**: for people who use an agent on a Fountain file without the app. It is set in the MCP client's configuration by the person, never by the agent, and overrides the switch only in scripts the server opens itself. It is a dispatcher setting, not document state; every edit journals the `tracked` it took (`mcp.md` §6.1).
 21. **The writer's name is part of the author**: `Author::Writer { name }`. The journal writes `by` for a named writer; the plain writer is still left out, so old journals are unchanged. `coldopen run` and `serve --stdio` take `--author NAME`.
-22. **After "Save anyway" to Fountain or .fdx, the open script keeps its marks**, but the file is the record: reopening it, after a close or a crash, gives the file's text, as for any loss the writer accepted. Rewriting the open document into its accepted form would change blocks under the undo history (`changes.md` §9).
+22. **After "Save anyway" to Fountain or .fdx, the open script keeps its marks**, but the file is the record: reopening it, after a close or a crash, gives the file's text, as for any loss the writer accepted. Rewriting the open document into its accepted form would change blocks under the undo history (`changes.md` §9). **Replaced on 2026-10-21 by decision 51**: the manual test showed the script on screen and the file disagreeing. Accepting as an undoable step, rather than rewriting the document under the history, avoids the problem this decision guarded against.
 23. **F21's normalisations are a separate list from the Fountain crate** (`Written::normalized`), so the crate's `losses` keep their meaning for its own property tests and fuzz checks; core gives them the class `normalized`. Each names its block and the case. The recovery check counts only `lost` losses, exactly as it counted none of these before.
 24. **The bundle records no times.** rawzip writes a timestamp extra field whenever an entry is given a time, so entries are given none: their date and time fields are zero and there are no extra fields (`bundle.md` §2, corrected from "1980-01-01").
 25. **Who makes `doc_id`.** The dispatcher, never the writer of the bytes, so writing stays deterministic: `doc.new` at a `.coldopen` path, and a save that first writes a bundle at a path (Save as, a conversion), make a new one; a save in place keeps it; a conversion to Fountain or .fdx drops it (`format::adopt`). A bundle whose `meta.json` is unreadable gets a new one when read.
@@ -103,6 +197,8 @@ Phase 5 is split in two. **5a** (this phase) brings the `.coldopen` project bund
 
     The script on screen and the file then agree, and the next save asks nothing. A `changes_accepted` warning gives the count and the copy. The app shows "Saving accepted 3 pending changes. The version with them marked is in Recovered versions." with the Recovered versions button. The question now says so before the save: "Saving accepts all 3 pending changes in the script. The version with them marked is kept in Recovered versions." This is done in core, not the app, so the CLI and JSON clients get the same result. Undo brings the marks back, unsaved. Exports (`export.fdx`, `export.fountain`, "Save a copy as") don't touch the script, so they accept nothing, and their question says the script keeps its changes.
 52. **The acceptance happens before the save is written, not after.** The writers already write the accepted form, so the bytes are the same either way. Accepting first means the save itself finds nothing to lose, and the document is clean once it is written, with no extra edit after the save. The cost: if the save then fails (another program changed the file, a full disk), the changes stay accepted, and undo takes that back. The copy with the marks is kept in either case.
+
+53. **The page shows the accepted script as soon as Save anyway accepts it** (2026-10-21, from the retest). The save in place takes its snapshot through `save_prepare`, which now accepts the changes first. Unlike every edit, that path never asked the app to refresh its view, so the page, the navigator and the panel showed the marks until the next key or click. The app now refreshes them when taking the snapshot changed the script. Save as already did. `save_anyway_shows_the_accepted_script_at_once` checks the drawn frame, the panel, the navigator, the status bar count and the laid-out page right after the save, before any other input; without the fix it fails on the frame.
 
 ## Measurements (2026-10-18)
 
@@ -157,6 +253,7 @@ The project owner ran the steps below on the Windows CI build from 78bdd08 and r
 | 2 | One Right from before struck text skipped the next character too; the same for Left and Shift-selection | decision 49 | `the_caret_steps_over_struck_text`, `shift_selection_steps_over_struck_text_one_side_at_a_time`, `typing_and_enter_go_on_the_side_of_the_struck_text_the_caret_is` (app); `text_and_splits_can_go_after_struck_text` (core); `text_can_go_after_the_struck_text_at_its_offset` (screenplay) |
 | 3 | No way to see or change your name from the changes panel; clearing the name didn't go back to "Writer" | decision 50 | `the_panel_shows_and_changes_the_writers_name` |
 | 4 | "Save anyway" to .fdx or Fountain left the changes pending on screen while the file held them accepted | decisions 51, 52 | `save_anyway_accepts_the_changes_and_keeps_the_marked_version` (app); `saving_pending_changes_to_fountain_asks_first`, extended to .fdx, a project, undo and a crash (core) |
+| 5 | Retest (on the build from bde8fa7): all four fixes work. One leftover: after Save anyway to .fdx, the marks stayed on screen until the next click or key | decision 53 | `save_anyway_shows_the_accepted_script_at_once` |
 
 **After the fixes** (2026-10-21): 555 tests pass; `cargo fmt` and `cargo clippy` (Windows, and the Linux and macOS targets) are clean; the crash gate passed five times in a row (eight scenarios each); the typing gate passes in all three formats. Screenshots of the panel with its new line were checked in three themes.
 
