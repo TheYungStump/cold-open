@@ -200,6 +200,12 @@ Sections are not dragged in phase 3.
 Mod+K or Mod+Shift+P opens the palette.
 
 - **What it lists.** Every core command, by its dotted name and a short title, and every app action (§10), with its shortcut. Typing filters the list by subsequence, and the best matches come first.
+- **Files** (recent scripts and leftover work, §11) are listed by name first ("Open recent: low-tide.fdx"), then their folder (2026-10-21). Every row is one line:
+  - a name too long for the row is shortened in the middle, so its extension shows;
+  - a long folder keeps its first part (the drive, or `/`) and as many of its last folders as fit, around "…": `C:\…\Drafts\Act two`. A last folder too long even alone is itself shortened in the middle.
+  - The whole path shows in a tooltip when the mouse rests on the row.
+  - Typing still matches the whole folder.
+  - Before, a long folder took the row's width, and the title, squeezed to nothing, made a tall empty row.
 - **Commands that use the caret or selection** run directly: element types, styles, `scene.move` for the current scene, undo and redo.
 - **Any other command** opens a small form where its params can be written as JSON, and shows the response. Every command is reachable from the keyboard, including queries such as `doc.get`. What the form sends goes through the app's command router like everything else (§16): the commands that open, create, close, revert or save the script, export it, repair a file or restore a copy run the app's own flows, so the form never skips a question the screens ask. `doc.close` with `discard` still asks.
 

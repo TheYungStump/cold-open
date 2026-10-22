@@ -255,6 +255,8 @@ struct PaletteItem {
     title: String,
     /// The command's name, or a file's folder.
     detail: String,
+    /// A file's full path, shown on hover.
+    path: Option<PathBuf>,
 }
 
 #[derive(Debug, Default)]
@@ -2029,12 +2031,16 @@ impl App {
             let name = p
                 .file_name()
                 .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+            // The name first, shortened in the middle so its extension
+            // shows; the folder after it (view.rs shortens it).
+            let room = view::TITLE_CHARS.saturating_sub(verb.chars().count() + 2);
             PaletteItem {
                 action,
-                title: format!("{verb}: {name}"),
+                title: format!("{verb}: {}", view::shorten_middle(&name, room)),
                 detail: p
                     .parent()
                     .map_or_else(String::new, |d| d.display().to_string()),
+                path: Some(p.to_path_buf()),
             }
         };
         let mut all: Vec<PaletteItem> = Vec::new();
@@ -2046,6 +2052,7 @@ impl App {
                 action: n.to_string(),
                 title: t.to_string(),
                 detail: n.to_string(),
+                path: None,
             });
         }
         for (i, p) in self.settings.recent.iter().enumerate() {
