@@ -879,42 +879,73 @@ impl App {
             .into()
     }
 
+    /// The notices (editor.md §13): the newest, with "+N more" when there
+    /// are others, or the full list, newest first.
     fn banner(&self, pal: Palette) -> Element<'_, Message> {
-        let msg = self
-            .banners
-            .last()
-            .map_or_else(String::new, |b| b.text.clone());
-        let more = if self.banners.len() > 1 {
-            format!("  (+{} more)", self.banners.len() - 1)
-        } else {
-            String::new()
+        let small = |label: String, m: Message| {
+            button(text(label).font(fonts::UI).size(12))
+                .on_press(m)
+                .padding([3, 10])
         };
-        container(
-            row![
-                text(format!("{msg}{more}"))
+        let line = |b: &super::Banner, dismiss: Message| {
+            let mut r = row![
+                text(b.text.clone())
                     .font(fonts::UI)
                     .size(13)
                     .color(pal.text)
                     .width(Fill),
-                button(text("Recovered versions").font(fonts::UI).size(12))
-                    .on_press_maybe(
-                        self.banners
-                            .last()
-                            .is_some_and(|b| b.recovered)
-                            .then(|| Message::Action("app.recovered".into()))
-                    )
-                    .padding([3, 10]),
-                button(text("Dismiss").font(fonts::UI).size(12))
-                    .on_press(Message::DismissBanner)
-                    .padding([3, 10]),
             ]
             .spacing(10)
-            .align_y(Center),
-        )
-        .padding([6, 14])
-        .width(Fill)
-        .style(move |_| bar(pal.accent_soft, pal.border))
-        .into()
+            .align_y(Center);
+            if b.recovered {
+                r = r.push(small(
+                    "Recovered versions".into(),
+                    Message::Action("app.recovered".into()),
+                ));
+            }
+            r.push(small("Dismiss".into(), dismiss))
+        };
+        let n = self.banners.len();
+        let content: Element<'_, Message> = if self.banners_open && n > 1 {
+            let mut list = column![
+                row![
+                    text(format!("{n} notices"))
+                        .font(fonts::UI_BOLD)
+                        .size(13)
+                        .color(pal.text)
+                        .width(Fill),
+                    small("Show fewer".into(), Message::BannersList(false)),
+                    small("Dismiss all".into(), Message::DismissAllBanners),
+                ]
+                .spacing(10)
+                .align_y(Center)
+            ]
+            .spacing(6);
+            for (i, b) in self.banners.iter().enumerate().rev() {
+                list = list.push(line(b, Message::DismissBannerAt(i)));
+            }
+            scrollable(list).height(Length::Shrink).into()
+        } else {
+            let Some(newest) = self.banners.last() else {
+                return space().into();
+            };
+            let mut r = line(newest, Message::DismissBanner);
+            if n > 1 {
+                r = r
+                    .push(small(
+                        format!("+{} more", n - 1),
+                        Message::BannersList(true),
+                    ))
+                    .push(small("Dismiss all".into(), Message::DismissAllBanners));
+            }
+            r.into()
+        };
+        container(content)
+            .padding([6, 14])
+            .width(Fill)
+            .max_height(260.0)
+            .style(move |_| bar(pal.accent_soft, pal.border))
+            .into()
     }
 
     fn find_bar(&self, pal: Palette) -> Element<'_, Message> {

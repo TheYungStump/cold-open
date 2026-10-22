@@ -279,3 +279,69 @@ fn palette_rows_with_long_paths_stay_one_line() {
     drop(sim);
     h.app.d.discard();
 }
+
+/// Notices (editor.md §13, 2026-10-21): the bar shows the newest with
+/// "+N more", which opens the full list; Dismiss closes one and shows the
+/// next; Dismiss all closes them all; Esc closes the list, then the rest.
+#[test]
+fn notices_dismiss_one_at_a_time_and_open_as_a_list() {
+    use coldopen_app::app::iced_settings;
+    let home = tempfile::tempdir().unwrap();
+    let mut h = app(home.path());
+    let set = |h: &mut Headless, texts: &[&str]| {
+        h.app.banners = texts.iter().map(|t| t.to_string().into()).collect();
+    };
+    let shown =
+        |h: &Headless| -> Vec<String> { h.app.banners.iter().map(|b| b.text.clone()).collect() };
+    // Clicks the button labelled `label` in the drawn window, as the
+    // mouse would, and runs what it sends.
+    let click = |h: &mut Headless, label: &str| {
+        let mut sim = iced_test::Simulator::with_size(
+            iced_settings(),
+            iced::Size::new(1200.0, 800.0),
+            h.app.view(),
+        );
+        sim.click(label)
+            .unwrap_or_else(|e| panic!("no {label:?} button: {e:?}"));
+        let sent: Vec<Message> = sim.into_messages().collect();
+        h.run(sent);
+    };
+    let on_screen = |h: &Headless, label: &str| {
+        iced_test::Simulator::with_size(
+            iced_settings(),
+            iced::Size::new(1200.0, 800.0),
+            h.app.view(),
+        )
+        .find(label)
+        .is_ok()
+    };
+
+    set(&mut h, &["First.", "Second.", "Third."]);
+    assert!(on_screen(&h, "Third.") && on_screen(&h, "+2 more"));
+    assert!(!on_screen(&h, "Second."));
+    // Dismiss closes the one shown, and the next takes its place.
+    click(&mut h, "Dismiss");
+    assert_eq!(shown(&h), ["First.", "Second."]);
+    assert!(on_screen(&h, "Second.") && on_screen(&h, "+1 more"));
+    // "+1 more" opens the list, newest first, each with its own Dismiss.
+    click(&mut h, "+1 more");
+    assert!(h.app.banners_open);
+    assert!(on_screen(&h, "2 notices") && on_screen(&h, "First.") && on_screen(&h, "Second."));
+    click(&mut h, "Dismiss");
+    assert_eq!(shown(&h), ["First."], "the newest row's Dismiss");
+    assert!(!h.app.banners_open, "one notice needs no list");
+    assert!(!on_screen(&h, "+0 more") && !on_screen(&h, "Dismiss all"));
+    // Dismiss all.
+    set(&mut h, &["A.", "B.", "C."]);
+    click(&mut h, "Dismiss all");
+    assert!(h.app.banners.is_empty());
+    // Esc closes the list first, then dismisses the rest.
+    set(&mut h, &["A.", "B."]);
+    click(&mut h, "+1 more");
+    h.named(Named::Escape, Modifiers::empty());
+    assert!(!h.app.banners_open);
+    assert_eq!(shown(&h), ["A.", "B."]);
+    h.named(Named::Escape, Modifiers::empty());
+    assert!(h.app.banners.is_empty());
+    h.app.d.discard();
+}
