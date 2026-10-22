@@ -324,6 +324,13 @@ impl Journal {
         }
     }
 
+    /// For a deferred journal, a handle that waits until everything
+    /// written so far is flushed; `None` in the other modes, which have
+    /// nothing in flight.
+    pub fn flush_waiter(&self) -> Option<crate::flush::FlushWaiter> {
+        self.flusher.as_ref().map(Flusher::waiter)
+    }
+
     /// The deferred flusher's state, or `None` in the other modes.
     pub fn status(&self) -> Option<FlushStatus> {
         self.flusher.as_ref().map(Flusher::status)
