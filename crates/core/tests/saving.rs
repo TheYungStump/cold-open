@@ -514,3 +514,45 @@ Rain. Wind.
     assert_eq!(r["recovered"], Value::Null);
     d.shutdown();
 }
+
+/// Typing during a save never meets a journal being cut back (journal.md,
+/// "Saving off the UI thread", 2026-10-21). With edits between the
+/// snapshot and the commit, the commit keeps the journal and it only
+/// grows. With none, the worker's wait leaves nothing unflushed, and only
+/// then does the commit cut the journal back to a new header.
+#[test]
+fn a_save_with_an_edit_during_it_never_cuts_the_journal() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = script(dir.path());
+    let mut d = app();
+    ok(&mut d, "doc.open", json!({"path": p}));
+    let j = coldopen_core::journal::path_for(&p);
+    let len = || fs::metadata(&j).unwrap().len();
+    type_at_end(&mut d, " Wind.");
+
+    // Edits while the worker renders and while it writes.
+    let job = d.save_prepare(&DocSave::default()).unwrap();
+    type_at_end(&mut d, " Rain.");
+    let prepared = d.save_mark(job.render()).unwrap();
+    let written = io::atomic_write(&prepared.target, &prepared.bytes);
+    prepared.wait_for_journal();
+    type_at_end(&mut d, " Hail.");
+    let before = len();
+    let r = d.save_commit(prepared, written).unwrap();
+    assert_eq!(r["dirty"], true, "{r}");
+    assert!(len() >= before, "the journal was cut back");
+
+    // No edit during the save: the wait leaves nothing unflushed, then
+    // the commit starts the journal again.
+    let prepared = prepare(&mut d).unwrap();
+    let written = io::atomic_write(&prepared.target, &prepared.bytes);
+    prepared.wait_for_journal();
+    let status = d.journal_status().unwrap();
+    assert_eq!(status.pending, 0, "{status:?}");
+    let before = len();
+    let r = d.save_commit(prepared, written).unwrap();
+    assert_eq!(r["dirty"], false, "{r}");
+    assert!(len() < before, "the journal starts again");
+    assert_eq!(fs::read_to_string(&p).unwrap(), text(&mut d));
+    d.shutdown();
+}

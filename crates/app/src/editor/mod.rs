@@ -172,6 +172,37 @@ fn word_left(s: &str, at: usize) -> usize {
     i
 }
 
+/// Closing punctuation a deleted word's space should not be left before.
+const CLOSING: [char; 8] = ['.', ',', ';', ':', '!', '?', ')', '\u{2026}'];
+
+/// A deletion of the characters `from..to` of `s`, taking one space with
+/// it when it takes out whole words and would leave two spaces together,
+/// a space at the start or end of the text, or a space before closing
+/// punctuation (editor.md §5.1): the space after the words when there is
+/// one, else the space before. Anything else is deleted as given.
+fn with_one_space(s: &str, from: usize, to: usize) -> (usize, usize) {
+    let cs: Vec<char> = s.chars().collect();
+    if from >= to || to > cs.len() {
+        return (from, to);
+    }
+    let before = from.checked_sub(1).map(|i| cs[i]);
+    let after = cs.get(to).copied();
+    let whole = cs[from..to].iter().any(|&c| is_word(c))
+        && !cs[from..to].contains(&'\n')
+        && before.is_none_or(|c| !is_word(c))
+        && after.is_none_or(|c| !is_word(c));
+    if !whole {
+        return (from, to);
+    }
+    if after == Some(' ') && before.is_none_or(|c| c == ' ') {
+        (from, to + 1)
+    } else if before == Some(' ') && after.is_none_or(|c| CLOSING.contains(&c)) {
+        (from - 1, to)
+    } else {
+        (from, to)
+    }
+}
+
 fn word_right(s: &str, at: usize) -> usize {
     let cs: Vec<char> = s.chars().collect();
     let mut i = at.min(cs.len());
@@ -747,8 +778,15 @@ impl Editor {
             return;
         };
         if self.has_selection() {
-            let (start, _) = self.selection(&doc);
-            let cmds = self.delete_selection(&doc);
+            let (mut start, _) = self.selection(&doc);
+            let mut cmds = self.delete_selection(&doc);
+            // Whole words selected in one block take one space with them.
+            if let [Command::TextDelete(p)] = cmds.as_mut_slice() {
+                (p.from, p.to) = with_one_space(&text_of(&doc, p.id), p.from, p.to);
+                if p.from < start.offset {
+                    start = Caret::at(p.id, p.from);
+                }
+            }
             // A selection of struck text alone deletes nothing.
             if cmds.is_empty() || self.run(d, cmds).is_some() {
                 self.set_caret(start, false);
@@ -772,10 +810,16 @@ impl Editor {
                     .copied()
                     .unwrap_or(0)
             };
+            // A whole word takes one space with it (editor.md §5.1).
+            let (from, to) = if word {
+                with_one_space(&text, from, off)
+            } else {
+                (from, off)
+            };
             let cmd = Command::TextDelete(TextDelete {
                 id,
                 from,
-                to: off,
+                to,
                 tracked: None,
             });
             let old = &doc.blocks[i].element.text;
@@ -788,7 +832,7 @@ impl Editor {
                 let cut: usize = text
                     .chars()
                     .skip(from)
-                    .take(off - from)
+                    .take(to - from)
                     .map(char::len_utf8)
                     .sum();
                 let past = past
@@ -814,13 +858,22 @@ impl Editor {
                     .copied()
                     .unwrap_or(len)
             };
+            let (from, to) = if word {
+                with_one_space(&text, off, to)
+            } else {
+                (off, to)
+            };
             let cmd = Command::TextDelete(TextDelete {
                 id,
-                from: off,
+                from,
                 to,
                 tracked: None,
             });
-            self.run(d, vec![cmd]);
+            // The space before a last word goes too, so the caret moves
+            // back over it.
+            if self.run(d, vec![cmd]).is_some() && from < off {
+                self.set_caret(Caret::at(id, from), false);
+            }
         } else if !forward {
             self.join_back(d, &doc, i);
         } else if let Some(next) = doc.blocks.get(i + 1) {
@@ -1433,5 +1486,28 @@ mod tests {
         assert_eq!(word_left("say it's fine", 13), 9);
         assert_eq!(word_left("say it's fine", 9), 4);
         assert_eq!(word_right("say it's fine", 3), 8);
+    }
+
+    #[test]
+    fn a_deleted_word_takes_one_space() {
+        let t = "the quick brown";
+        // Between two words: the space after it.
+        assert_eq!(with_one_space(t, 4, 9), (4, 10));
+        // Already taking its space, or part of a word: as given.
+        assert_eq!(with_one_space(t, 4, 10), (4, 10));
+        assert_eq!(with_one_space(t, 3, 9), (3, 9));
+        assert_eq!(with_one_space(t, 5, 9), (5, 9));
+        // First and last words.
+        assert_eq!(with_one_space(t, 0, 3), (0, 4));
+        assert_eq!(with_one_space(t, 10, 15), (9, 15));
+        // Before closing punctuation, the space before.
+        assert_eq!(with_one_space("the quick.", 4, 9), (3, 9));
+        assert_eq!(with_one_space("so (quick) then", 4, 9), (4, 9));
+        // Two words at once, and a lone word.
+        assert_eq!(with_one_space(t, 4, 15), (3, 15));
+        assert_eq!(with_one_space("word", 0, 4), (0, 4));
+        // Spaces alone, or across a line break, are left as they are.
+        assert_eq!(with_one_space("a  b", 1, 2), (1, 2));
+        assert_eq!(with_one_space("a b\nc d", 2, 5), (2, 5));
     }
 }

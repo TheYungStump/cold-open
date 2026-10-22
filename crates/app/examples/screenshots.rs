@@ -20,6 +20,41 @@ fn shot(app: &App, out: &std::path::Path, name: &str) {
     snap.matches_image(&path).unwrap();
 }
 
+/// Writes one screenshot with the mouse resting on the text `on`, so its
+/// tooltip shows.
+fn shot_hovering(app: &App, out: &std::path::Path, name: &str, on: &str) {
+    let theme = app.theme();
+    let mut sim =
+        iced_test::Simulator::with_size(iced_settings(), Size::new(1280.0, 860.0), app.view());
+    let at = sim.find(on).unwrap().bounds().center();
+    sim.point_at(at);
+    let _ = sim.simulate([iced::Event::Mouse(iced::mouse::Event::CursorMoved {
+        position: at,
+    })]);
+    let snap = sim.snapshot(&theme).unwrap();
+    let path = out.join(format!("cold-open-{name}.png"));
+    let _ = std::fs::remove_file(out.join(format!("cold-open-{name}-tiny-skia.png")));
+    snap.matches_image(&path).unwrap();
+}
+
+/// Lets the page area report its size, as the window's first frame does,
+/// so the page is drawn at the zoom that fits it (editor.md §3).
+fn settle(app: &mut App) {
+    let sent: Vec<Message> = {
+        let mut sim =
+            iced_test::Simulator::with_size(iced_settings(), Size::new(1280.0, 860.0), app.view());
+        let _ = sim.simulate([iced::Event::Window(iced::window::Event::RedrawRequested(
+            std::time::Instant::now(),
+        ))]);
+        sim.into_messages()
+            .filter(|m| matches!(m, Message::Scrolled(_)))
+            .collect()
+    };
+    for m in sent {
+        let _ = app.update(m);
+    }
+}
+
 /// Tracked edits on the first page: the writer's insertion and deletion in
 /// the first action, and an agent's rewrite of the next one.
 fn tracked_demo(app: &mut App) {
@@ -90,6 +125,55 @@ fn main() {
         shot(&app, &out, name);
         app.d.discard();
 
+        // The palette with recent scripts deep in long folders
+        // (editor.md §9): each row on one line, the folder shortened in the
+        // middle, and the whole path on hover.
+        let mut app = App::new(Boot {
+            file: Some(script.clone()),
+            dirs: Some(coldopen_app::files::Dirs::under(&home)),
+            theme: Some(theme),
+            ..Boot::default()
+        });
+        app.banners.clear();
+        let deep = home
+            .join("Writing")
+            .join("Feature drafts for the spring fellowship")
+            .join("Second act rewrites after the table read");
+        app.settings.recent = vec![
+            deep.join("The Lighthouse Keeper's Daughter, revised.fountain"),
+            deep.join("low-tide.fdx"),
+        ];
+        let _ = app.update(Message::Action("app.palette".into()));
+        let _ = app.update(Message::PaletteInput("open".into()));
+        shot(&app, &out, &format!("{name}-palette"));
+        shot_hovering(
+            &app,
+            &out,
+            &format!("{name}-palette-hover"),
+            "Open recent: low-tide.fdx",
+        );
+        app.d.discard();
+
+        // Notices (editor.md §13): the newest with "+2 more", then the
+        // full list.
+        let mut app = App::new(Boot {
+            file: Some(script.clone()),
+            dirs: Some(coldopen_app::files::Dirs::under(&home)),
+            theme: Some(theme),
+            ..Boot::default()
+        });
+        app.banners = vec![
+            "Exported 119 pages to low-tide.pdf.".to_string().into(),
+            coldopen_app::app::Banner::set_aside(),
+            "The keymap file has an unknown action, \"view.zen\"; it was skipped."
+                .to_string()
+                .into(),
+        ];
+        shot(&app, &out, &format!("{name}-notices"));
+        let _ = app.update(Message::BannersList(true));
+        shot(&app, &out, &format!("{name}-notices-list"));
+        app.d.discard();
+
         // Phase 5a (editor.md §17): the writer's tracked typing and a
         // deletion, an agent's tracked edit, and the changes panel.
         let mut app = App::new(Boot {
@@ -106,6 +190,7 @@ fn main() {
         tracked_demo(&mut app);
         let _ = app.update(Message::Action("view.changes".into()));
         app.banners.clear();
+        settle(&mut app);
         shot(&app, &out, &format!("{name}-changes"));
         app.d.discard();
 

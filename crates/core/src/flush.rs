@@ -125,6 +125,15 @@ impl Flusher {
         self.shared.cv.notify_all();
     }
 
+    /// A handle that waits, on any thread, until everything written so far
+    /// has been flushed.
+    pub fn waiter(&self) -> FlushWaiter {
+        FlushWaiter {
+            shared: self.shared.clone(),
+            target: self.shared.lock().written,
+        }
+    }
+
     pub fn status(&self) -> FlushStatus {
         let st = self.shared.lock();
         FlushStatus {
@@ -146,6 +155,46 @@ impl Flusher {
         self.shared.cv.notify_all();
         if let Some(t) = self.thread.take() {
             let _ = t.join();
+        }
+    }
+}
+
+/// Waits until the writes made before it was taken are flushed
+/// ([`Flusher::waiter`]).
+#[derive(Clone)]
+pub struct FlushWaiter {
+    shared: Arc<Shared>,
+    target: u64,
+}
+
+impl fmt::Debug for FlushWaiter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FlushWaiter")
+            .field("target", &self.target)
+            .finish()
+    }
+}
+
+impl FlushWaiter {
+    /// Blocks until those writes are flushed, a flush fails, the flusher
+    /// stops, or `timeout` passes. True when they were flushed.
+    pub fn wait(&self, timeout: Duration) -> bool {
+        let until = Instant::now() + timeout;
+        let mut st = self.shared.lock();
+        loop {
+            if st.flushed >= self.target {
+                return true;
+            }
+            let now = Instant::now();
+            if st.stop || st.error.is_some() || now >= until {
+                return false;
+            }
+            st = self
+                .shared
+                .cv
+                .wait_timeout(st, until - now)
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
         }
     }
 }
@@ -200,6 +249,8 @@ fn run(shared: &Shared, file: &File, max_delay: Duration, idle: Duration) {
                 st.flushed = st.flushed.max(target);
                 st.error = None;
                 st.flushes += 1;
+                // Someone may wait for this flush (FlushWaiter).
+                shared.cv.notify_all();
             }
             Err(e) => {
                 st.error = Some(e.to_string());
@@ -278,5 +329,41 @@ mod tests {
         fl.stop();
         // The final flush is not counted, but the thread is gone.
         assert!(fl.thread.is_none());
+    }
+
+    #[test]
+    fn a_waiter_returns_once_the_writes_before_it_are_flushed() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = File::create(dir.path().join("j")).unwrap();
+        let mut fl = Flusher::spawn(
+            f.try_clone().unwrap(),
+            Duration::from_secs(60),
+            Duration::from_secs(60),
+        )
+        .unwrap();
+        // Nothing written: nothing to wait for.
+        assert!(fl.waiter().wait(Duration::ZERO));
+        fl.wrote();
+        let w = fl.waiter();
+        // With 60 s limits and no flush asked for, it times out.
+        assert!(!w.wait(Duration::from_millis(30)));
+        // On another thread, as the save worker waits.
+        let on_worker = {
+            let w = w.clone();
+            std::thread::spawn(move || w.wait(Duration::from_secs(10)))
+        };
+        fl.flush_now();
+        assert!(on_worker.join().unwrap());
+        assert!(w.wait(Duration::ZERO));
+        // Writes after it was taken are not its business.
+        fl.wrote();
+        assert!(w.wait(Duration::ZERO));
+        assert!(!fl.waiter().wait(Duration::ZERO));
+        // A stopped flusher never leaves a waiter hanging.
+        let later = fl.waiter();
+        fl.stop();
+        let t = Instant::now();
+        later.wait(Duration::from_secs(10));
+        assert!(t.elapsed() < Duration::from_secs(5));
     }
 }

@@ -856,6 +856,79 @@ fn f16_a_journal_from_another_computer_or_folder_is_offered_not_applied() {
     d.discard();
 }
 
+/// Phase 5a decision 43: after the writer recovered a journal from
+/// another computer, the journal went on under the other computer's
+/// header, so a crash here asked the same question again. Recovering it
+/// now appends a marker that makes it this computer's: a crash after that
+/// is recovered here without the question, and the journal still counts
+/// as someone else's in any other folder (journal.md, 2026-10-21).
+#[test]
+fn a_recovered_foreign_journal_is_not_offered_again_here() {
+    let w = Author::writer();
+    let dir = tempfile::tempdir().unwrap();
+    let p = crashed_with_work(dir.path(), &w);
+    edit_header(&p, |h| h["host"] = json!("someone-elses-laptop"));
+    let mut d = Dispatcher::new(Options::default());
+    let e = err(&mut d, &w, "doc.open", json!({"path": p}));
+    assert_eq!(e.code, "journal_foreign", "{e}");
+    ok(
+        &mut d,
+        &w,
+        "doc.open",
+        json!({"path": p, "recover": "apply"}),
+    );
+    // More work, then a crash.
+    ok(
+        &mut d,
+        &w,
+        "block.insert",
+        json!({"type": "action", "text": "After the recovery."}),
+    );
+    let want = text(&mut d);
+    assert!(want.contains(UNSAVED));
+    drop(d);
+    // The header is as it was; one marker was appended.
+    let journal = fs::read_to_string(journal::path_for(&p)).unwrap();
+    assert!(
+        journal
+            .lines()
+            .next()
+            .unwrap()
+            .contains("someone-elses-laptop")
+    );
+    assert_eq!(journal.matches(journal::ADOPTED).count(), 1, "{journal}");
+    // Reopened here: recovered without the question, the work all there.
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, &w, "doc.open", json!({"path": p}));
+    assert_eq!(r["recovered"]["commands"], 2, "{r}");
+    assert_eq!(text(&mut d), want);
+    drop(d); // a crash again
+
+    // Copied to another folder, it is someone else's again.
+    let other = tempfile::tempdir().unwrap();
+    let q = other.path().join("s.fountain");
+    fs::copy(&p, &q).unwrap();
+    fs::copy(journal::path_for(&p), journal::path_for(&q)).unwrap();
+    let mut d = Dispatcher::new(Options::default());
+    let e = err(&mut d, &w, "doc.open", json!({"path": q}));
+    assert_eq!(e.code, "journal_foreign", "{e}");
+    // Recovered there too, it gains a marker of its own.
+    ok(
+        &mut d,
+        &w,
+        "doc.open",
+        json!({"path": q, "recover": "apply"}),
+    );
+    assert_eq!(text(&mut d), want);
+    drop(d);
+    let journal = fs::read_to_string(journal::path_for(&q)).unwrap();
+    assert_eq!(journal.matches(journal::ADOPTED).count(), 2, "{journal}");
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &w, "doc.open", json!({"path": q}));
+    assert_eq!(text(&mut d), want);
+    d.discard();
+}
+
 /// A journal written by a newer Cold Open, whose entries may mean things
 /// this version does not know, is kept aside rather than replayed.
 #[test]

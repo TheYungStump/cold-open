@@ -79,7 +79,13 @@ pub enum Message {
     PaletteRun(usize),
     ParamsInput(String),
     ParamsRun,
+    /// Closes the notice the bar shows; the next one takes its place.
     DismissBanner,
+    /// Closes one notice of the full list, by its place in `banners`.
+    DismissBannerAt(usize),
+    DismissAllBanners,
+    /// Opens or closes the full list of notices.
+    BannersList(bool),
     /// A file dialog's answer: a path, or `None` for Cancel.
     Chosen(Ask, Option<PathBuf>),
     /// The save worker rendered the file (docs/specs/journal.md, "Saving
@@ -255,6 +261,8 @@ struct PaletteItem {
     title: String,
     /// The command's name, or a file's folder.
     detail: String,
+    /// A file's full path, shown on hover.
+    path: Option<PathBuf>,
 }
 
 #[derive(Debug, Default)]
@@ -274,7 +282,7 @@ pub(super) enum Saving {
     /// the question a changed file asks.
     Rendering { allow_lossy: bool },
     /// The worker is writing these bytes.
-    Writing(PreparedSave),
+    Writing(Box<PreparedSave>),
 }
 
 /// How long a keystroke took from arrival to the end of the update that
@@ -294,6 +302,8 @@ pub struct App {
     caret_on: bool,
     last_input: Instant,
     pub banners: Vec<Banner>,
+    /// The full list of notices is open (editor.md §13).
+    pub banners_open: bool,
     viewport: Option<scrollable::Viewport>,
     fonts: Box<dyn coldopen_layout::Coverage>,
     keymap: Keymap,
@@ -423,6 +433,7 @@ impl App {
             caret_on: true,
             last_input: Instant::now(),
             banners,
+            banners_open: false,
             viewport: None,
             fonts: coverage(),
             keymap,
@@ -846,7 +857,7 @@ impl App {
             return Task::none();
         };
         let f = view.layout().format();
-        let k = self.settings.zoom * 96.0 / 72.0 / 100.0;
+        let k = self.shown_zoom() * 96.0 / 72.0 / 100.0;
         let page_h = if self.editor.draft {
             0.0
         } else {
@@ -903,7 +914,7 @@ impl App {
     /// The page and the Pt-unit height on it at a y in the page area's
     /// content, at the current zoom.
     fn page_at(&self, y: f32) -> Option<(usize, f32)> {
-        let (k, page_h, pages) = self.page_geometry(self.settings.zoom)?;
+        let (k, page_h, pages) = self.page_geometry(self.shown_zoom())?;
         let step = page_h + page_view::GAP;
         let p = (((y - page_view::MARGIN) / step).floor().max(0.0) as usize).min(pages - 1);
         Some((p, (y - page_view::MARGIN - p as f32 * step) / k))
@@ -944,7 +955,7 @@ impl App {
         let y = self.caret_screen_y()?;
         let vp = self.viewport.as_ref()?;
         let spot = self.caret_spot?;
-        let (k, _, _) = self.page_geometry(self.settings.zoom)?;
+        let (k, _, _) = self.page_geometry(self.shown_zoom())?;
         let page_w = self.d.cached_view()?.layout().format().page_width.0 as f32 * k;
         let left = ((vp.content_bounds().width - page_w) / 2.0).max(page_view::MARGIN);
         let b = vp.bounds();
@@ -959,7 +970,7 @@ impl App {
     pub fn caret_screen_y(&self) -> Option<f32> {
         let vp = self.viewport.as_ref()?;
         let spot = self.caret_spot?;
-        let (k, page_h, _) = self.page_geometry(self.settings.zoom)?;
+        let (k, page_h, _) = self.page_geometry(self.shown_zoom())?;
         let y = page_view::MARGIN
             + spot.page as f32 * (page_h + page_view::GAP)
             + spot.top.0 as f32 * k;
@@ -975,7 +986,7 @@ impl App {
         self.save_settings();
         let refresh = self.after_change(false);
         let (Some((page, y_pt, on_screen)), Some((k, page_h, _))) =
-            (anchor, self.page_geometry(zoom))
+            (anchor, self.page_geometry(self.shown_zoom()))
         else {
             return refresh;
         };
@@ -992,7 +1003,31 @@ impl App {
 
     fn screen_height(&self) -> Pt {
         let h = self.viewport.as_ref().map_or(700.0, |v| v.bounds().height);
-        Pt((h / (self.settings.zoom * 96.0 / 72.0 / 100.0)) as i32)
+        Pt((h / (self.shown_zoom() * 96.0 / 72.0 / 100.0)) as i32)
+    }
+
+    /// The zoom the pages are drawn at: the writer's, or less while a page
+    /// at that zoom would be wider than the page area, which never scrolls
+    /// sideways (editor.md §3, 2026-10-21). With both side panels open in
+    /// a window 1280 pixels wide, a page at 100% was cut off on the right.
+    pub fn shown_zoom(&self) -> f32 {
+        self.fit_zoom()
+            .map_or(self.settings.zoom, |fit| self.settings.zoom.min(fit))
+    }
+
+    /// The largest zoom at which a page and the space beside it fit the
+    /// page area's width, and never less than the smallest zoom step. None
+    /// before the page area has reported its size.
+    fn fit_zoom(&self) -> Option<f32> {
+        let vp = self.viewport.as_ref()?;
+        let f = self.d.cached_view()?.layout().format();
+        let page = f.page_width.0 as f32 * 96.0 / 72.0 / 100.0;
+        (page > 0.0).then(|| ((vp.bounds().width - 2.0 * page_view::MARGIN) / page).max(0.5))
+    }
+
+    /// The page area's width, once it has reported it.
+    pub fn page_area_width(&self) -> Option<f32> {
+        self.viewport.as_ref().map(|v| v.bounds().width)
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -1087,7 +1122,24 @@ impl App {
             }
             Message::ParamsRun => self.params_run(),
             Message::DismissBanner => {
+                self.banners.pop();
+                self.banners_open &= self.banners.len() > 1;
+                Task::none()
+            }
+            Message::DismissBannerAt(i) => {
+                if i < self.banners.len() {
+                    self.banners.remove(i);
+                }
+                self.banners_open &= self.banners.len() > 1;
+                Task::none()
+            }
+            Message::DismissAllBanners => {
                 self.banners.clear();
+                self.banners_open = false;
+                Task::none()
+            }
+            Message::BannersList(open) => {
+                self.banners_open = open && self.banners.len() > 1;
                 Task::none()
             }
             Message::Chosen(ask, path) => self.chosen(ask, path),
@@ -1376,10 +1428,13 @@ impl App {
         self.agent_marks.remove(&self.editor.caret.block);
     }
 
-    /// Clears the banners, then (once they are gone) the leftover-work
-    /// offer: Esc and the palette reach both.
+    /// Closes the full list of notices, then clears the notices, then
+    /// (once they are gone) the leftover-work offer: Esc and the palette
+    /// reach all three.
     fn dismiss_messages(&mut self) {
-        if self.banners.is_empty() {
+        if self.banners_open {
+            self.banners_open = false;
+        } else if self.banners.is_empty() {
             self.leftover.clear();
         } else {
             self.banners.clear();
@@ -1914,7 +1969,10 @@ impl App {
             "edit.find_next" => return self.find_step(false),
             "edit.find_previous" => return self.find_step(true),
             "view.zoom_in" | "view.zoom_out" => {
+                // From the zoom shown, so zooming out of a fitted page
+                // makes it smaller at once.
                 let mut s = self.settings.clone();
+                s.zoom = self.shown_zoom();
                 s.zoom_step(if name == "view.zoom_in" { 1 } else { -1 });
                 return self.zoom_to(s.zoom);
             }
@@ -2029,12 +2087,16 @@ impl App {
             let name = p
                 .file_name()
                 .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+            // The name first, shortened in the middle so its extension
+            // shows; the folder after it (view.rs shortens it).
+            let room = view::TITLE_CHARS.saturating_sub(verb.chars().count() + 2);
             PaletteItem {
                 action,
-                title: format!("{verb}: {name}"),
+                title: format!("{verb}: {}", view::shorten_middle(&name, room)),
                 detail: p
                     .parent()
                     .map_or_else(String::new, |d| d.display().to_string()),
+                path: Some(p.to_path_buf()),
             }
         };
         let mut all: Vec<PaletteItem> = Vec::new();
@@ -2046,6 +2108,7 @@ impl App {
                 action: n.to_string(),
                 title: t.to_string(),
                 detail: n.to_string(),
+                path: None,
             });
         }
         for (i, p) in self.settings.recent.iter().enumerate() {

@@ -248,7 +248,10 @@ jobs:
   # Fountain, as .fdx and as a project with tracked changes, a save's UI
   # thread time under 4 ms and the whole save under 50 ms. Numbers go to the
   # job summary and an artifact. Linux asserts the headless budgets that do
-  # not depend on the renderer; everything else is reported.
+  # not depend on the renderer; everything else is reported. The UI thread's
+  # save time is asserted on p95; since 2026-10-21 the whole save is
+  # asserted on its median, and its p95 only reported, because the runner's
+  # disk can stall one file sync for 100 ms or more (docs/spec.md).
   budgets:
     name: budgets (${{ matrix.os }})
     strategy:

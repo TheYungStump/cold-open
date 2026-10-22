@@ -58,6 +58,10 @@ The header holds one copy of the store, written at each save, as it already held
 
 **A journal from somewhere else** (2026-10-16). Writers keep scripts in git and in synced folders, and the journal can travel with the script. A journal whose `host` is not this computer, or whose `path` is not this script's canonical path, holds someone else's work, or work from another copy. `doc.open` never applies it on its own: where it would recover work, the open fails with `journal_foreign`, `details` giving `host` and `path`, and changes nothing. `recover: "apply"` recovers it anyway; `recover: "discard"` sets it aside, as always. A foreign journal with nothing to recover is simply started again. The desktop app asks the writer (`docs/specs/editor.md` §13).
 
+**Adopting it** (2026-10-21, phase 5a decision 43). Once `recover: "apply"` has recovered a journal from somewhere else, the journal is this computer's: `doc.open` appends a `journal.adopted` marker naming this computer and the script's canonical path. From that marker on, they stand for the header's `host` and `path`, and the newest such marker counts. So a crash here afterwards is recovered as any of this computer's journals is, without asking again. A copy of the journal in another folder, or on another computer, is still someone else's there, and is asked about as before. Before, the journal went on under the old header, and every crash asked the same question again.
+
+**Why a marker, not a new header.** Starting the journal again under this computer's header would cut it to nothing first. Until the new header was on the disk, the recovered work would then exist only in memory, the one moment Cold Open never allows. A marker is one appended line, like any entry, so no crash point can cost the work. The next save starts the journal again anyway, under this computer's header.
+
 - **Entries.** Each following line is one applied command:
 
 ```json
@@ -74,7 +78,7 @@ The header holds one copy of the store, written at each save, as it already held
 | `merge` | Optional (2026-10-15). `true` when the command joined the undo step before it. Absent means false. |
 | `step` | `undo` and `redo` only, optional (2026-10-16). The step reversed: see "Undo and redo entries". |
 
-Only edits, `undo`, `redo` and `doc.saved` markers are written. Queries, output commands and session commands are not. Replay stops at any other entry, so a damaged or hand-made journal can never make recovery write files.
+Only edits, `undo`, `redo`, `doc.saved` markers and (2026-10-21) `journal.adopted` markers are written. Queries, output commands and session commands are not. Replay stops at any other entry, so a damaged or hand-made journal can never make recovery write files.
 
 **`doc.saved` markers** (2026-10-15). A marker records that a save of the document, as it stood at that point in the journal, was started:
 
@@ -83,6 +87,14 @@ Only edits, `undo`, `redo` and `doc.saved` markers are written. Queries, output 
 ```
 
 Replay runs nothing for a marker. It only remembers the fingerprint, for `external_change` (recovery step 5). The marker is written before the file is replaced, so whether or not that save completed, the file on disk matches either the header's `disk` or a marker's.
+
+**`journal.adopted` markers** (2026-10-21). A marker records that this computer took over a journal written somewhere else, after the writer recovered it ("A journal from somewhere else" above):
+
+```json
+{"seq":4,"t":1761040000000,"command":"journal.adopted","params":{"host":"studio-pc","path":"C:\\Scripts\\lab.fountain"},"result":{}}
+```
+
+Replay runs nothing for it either. It remembers the newest one's `host` and `path`, which stand for the header's when recovery asks whether the journal is from somewhere else. Builds from before 2026-10-21 do not know this marker: they stop replay at it and keep the journal aside as a copy, so they recover the entries before it, and the copy holds the rest.
 
 **Undo and redo entries** (2026-10-16). Replay must reverse exactly the step the writer reversed, so each `undo` or `redo` entry says which step that was:
 
@@ -151,8 +163,20 @@ The two possible crash points are both safe:
 1. **Snapshot**, on the UI thread: take the save token and a copy of the document, with what the save needs to know (its path, format, style, and what this session last read or wrote).
 2. **Render**, on a worker thread: write the copy in its format (Fountain, or the format it was opened in; 2026-10-16), check for losses (without `allow_lossy`, a loss of class `lost` ends the save with `lossy_format`), check that no other program changed the file (`file_changed`), and, for the first save in place of a repaired file, keep a copy of it.
 3. **Mark**, on the UI thread: append a `doc.saved` marker with the fingerprint of the rendered bytes. If step 2 failed, the save ends here instead, and its token is given back.
-4. **Write**, on a worker thread: the atomic save below.
+4. **Write**, on a worker thread: the atomic save below. Then (2026-10-21), for a journal flushed in the background ("Durability"), the worker waits, for at most two seconds, until the journal is flushed up to the marker. Step 5 cuts the journal back and writes a new header on the UI thread. On Linux, cutting a file back waits for any flush of it still in flight, and on a stalled disk (a CI runner's) that held the UI thread for 76 ms. With the marker's flush done first, nothing of the journal is in flight when step 5 runs. Step 5 only cuts the journal when nothing was edited since step 1, so no later write can start a flush in between.
 5. **Commit**, back on the UI thread. If the write succeeded and nothing was edited since step 1, the journal is restarted exactly as in step 2 of "Saving" above. Its header is written here and flushed by the background flusher, as entries are ("Durability"). If edits arrived in the meantime, the journal is kept as it is: it holds them, and the document stays unsaved. If the write failed, the error is shown, and the marker is harmless.
+
+**Typing during a save never meets a journal being cut back** (2026-10-21). Step 4's wait covers the marker only. The question is whether edits typed while a save runs could still leave the UI thread cutting the journal back while a flush of it is in flight. They can't:
+
+- **An edit during the save means no cut.** Step 5 cuts the journal back only when nothing was edited since step 1. After any edit it keeps the journal as it is, since the journal holds that edit, and only asks for a flush.
+- **Nothing slips in between.** Edits, an agent's included, and step 5 all run on the UI thread, one after another, so none can land between step 5's check and its cut.
+- **Only the save writes without an edit.** Markers come only from the one save in flight (the save token). So when step 5 does cut, the only write since step 1 is the marker, which step 4 waited for. Its flush was the last one, and the cut finds nothing in flight.
+- **The next save** starts again from step 1, with its own marker and its own wait.
+- **What an edit costs the UI thread** is an append, as every keystroke is, and an append does not wait for a flush in flight. The per-edit budget, measured on CI, stays near 0.01 ms.
+
+So restarting the journal on the save worker (phase 5a decision 47) is not needed for typing, and the restart stays on the UI thread. `a_save_with_an_edit_during_it_never_cuts_the_journal` (`crates/core/tests/saving.rs`) checks both sides.
+
+The other places that start the journal again or stop its flusher on the UI thread are Save as onto the script's own path, Reload (`doc.revert`) and closing a script. Each follows a dialog or ends the editing, so it never interrupts typing. On a stalled disk, each can still wait for a flush in flight.
 
 **The marker's place does not matter.** Edits typed during step 2 are journaled before the marker, edits typed later after it. Replay always starts from the header and applies every entry. Markers only name versions of the file the journal knows, so a file that holds one is not taken for another program's change. So every crash point is safe. The journal always holds the last saved base plus every later edit, so replay reaches the latest acknowledged state. The file is either the old version or the new one, each named by the header or a marker.
 

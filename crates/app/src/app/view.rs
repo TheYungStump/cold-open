@@ -3,6 +3,7 @@
 
 use iced::widget::{
     button, column, container, mouse_area, opaque, row, scrollable, space, stack, text, text_input,
+    tooltip,
 };
 use iced::{Background, Border, Center, Color, Element, Fill, Length, Theme};
 
@@ -54,7 +55,7 @@ impl App {
                 None
             },
             palette: pal,
-            zoom: self.settings.zoom,
+            zoom: self.shown_zoom(),
             focused: self.focus == Focus::Page && self.palette.is_none() && !self.modal(),
             caret: self.caret_spot,
             caret_on: self.caret_on,
@@ -865,11 +866,18 @@ impl App {
                 .style(move |_| outline(pal.agent)),
             );
         }
+        // A page fitted to the window says so: zooming in shows no more.
+        let shown = self.shown_zoom();
+        let fitted = shown < self.settings.zoom;
         r = r.push(
-            text(format!("{}%", (self.settings.zoom * 100.0).round() as u32))
-                .font(fonts::UI)
-                .size(12)
-                .color(pal.text_quiet),
+            text(format!(
+                "{}%{}",
+                (shown * 100.0).round() as u32,
+                if fitted { " (fit)" } else { "" }
+            ))
+            .font(fonts::UI)
+            .size(12)
+            .color(pal.text_quiet),
         );
         container(r)
             .padding([5, 14])
@@ -878,42 +886,73 @@ impl App {
             .into()
     }
 
+    /// The notices (editor.md §13): the newest, with "+N more" when there
+    /// are others, or the full list, newest first.
     fn banner(&self, pal: Palette) -> Element<'_, Message> {
-        let msg = self
-            .banners
-            .last()
-            .map_or_else(String::new, |b| b.text.clone());
-        let more = if self.banners.len() > 1 {
-            format!("  (+{} more)", self.banners.len() - 1)
-        } else {
-            String::new()
+        let small = |label: String, m: Message| {
+            button(text(label).font(fonts::UI).size(12))
+                .on_press(m)
+                .padding([3, 10])
         };
-        container(
-            row![
-                text(format!("{msg}{more}"))
+        let line = |b: &super::Banner, dismiss: Message| {
+            let mut r = row![
+                text(b.text.clone())
                     .font(fonts::UI)
                     .size(13)
                     .color(pal.text)
                     .width(Fill),
-                button(text("Recovered versions").font(fonts::UI).size(12))
-                    .on_press_maybe(
-                        self.banners
-                            .last()
-                            .is_some_and(|b| b.recovered)
-                            .then(|| Message::Action("app.recovered".into()))
-                    )
-                    .padding([3, 10]),
-                button(text("Dismiss").font(fonts::UI).size(12))
-                    .on_press(Message::DismissBanner)
-                    .padding([3, 10]),
             ]
             .spacing(10)
-            .align_y(Center),
-        )
-        .padding([6, 14])
-        .width(Fill)
-        .style(move |_| bar(pal.accent_soft, pal.border))
-        .into()
+            .align_y(Center);
+            if b.recovered {
+                r = r.push(small(
+                    "Recovered versions".into(),
+                    Message::Action("app.recovered".into()),
+                ));
+            }
+            r.push(small("Dismiss".into(), dismiss))
+        };
+        let n = self.banners.len();
+        let content: Element<'_, Message> = if self.banners_open && n > 1 {
+            let mut list = column![
+                row![
+                    text(format!("{n} notices"))
+                        .font(fonts::UI_BOLD)
+                        .size(13)
+                        .color(pal.text)
+                        .width(Fill),
+                    small("Show fewer".into(), Message::BannersList(false)),
+                    small("Dismiss all".into(), Message::DismissAllBanners),
+                ]
+                .spacing(10)
+                .align_y(Center)
+            ]
+            .spacing(6);
+            for (i, b) in self.banners.iter().enumerate().rev() {
+                list = list.push(line(b, Message::DismissBannerAt(i)));
+            }
+            scrollable(list).height(Length::Shrink).into()
+        } else {
+            let Some(newest) = self.banners.last() else {
+                return space().into();
+            };
+            let mut r = line(newest, Message::DismissBanner);
+            if n > 1 {
+                r = r
+                    .push(small(
+                        format!("+{} more", n - 1),
+                        Message::BannersList(true),
+                    ))
+                    .push(small("Dismiss all".into(), Message::DismissAllBanners));
+            }
+            r.into()
+        };
+        container(content)
+            .padding([6, 14])
+            .width(Fill)
+            .max_height(260.0)
+            .style(move |_| bar(pal.accent_soft, pal.border))
+            .into()
     }
 
     fn find_bar(&self, pal: Palette) -> Element<'_, Message> {
@@ -1021,39 +1060,76 @@ impl App {
                 let keys = self.keymap.keys_for(&it.action).join(", ");
                 let selected = i == sel;
                 let fg = if selected { pal.accent_text } else { pal.text };
+                // One line a row (editor.md §9): a long folder once took the
+                // row's width, and the title, squeezed to nothing, wrapped a
+                // letter a line into a tall empty row.
+                let detail = match &it.path {
+                    Some(_) => shorten_path(&it.detail, DETAIL_CHARS),
+                    None => it.detail,
+                };
                 let item = row![
                     text(it.title)
                         .font(fonts::UI)
                         .size(13)
                         .color(fg)
+                        .wrapping(text::Wrapping::None)
                         .width(Fill),
-                    text(it.detail)
+                    text(detail)
                         .font(fonts::UI)
                         .size(11)
                         .color(pal.text_quiet)
                         .wrapping(text::Wrapping::None),
-                    text(keys).font(fonts::UI).size(11).color(pal.text_quiet),
+                    text(keys)
+                        .font(fonts::UI)
+                        .size(11)
+                        .color(pal.text_quiet)
+                        .wrapping(text::Wrapping::None),
                 ]
                 .spacing(10);
-                col = col.push(
-                    button(item)
-                        .on_press(Message::PaletteRun(i))
-                        .padding([5, 8])
-                        .width(Fill)
-                        .style(move |_t: &Theme, _s| button::Style {
-                            background: Some(Background::Color(if selected {
-                                pal.accent_soft
-                            } else {
-                                Color::TRANSPARENT
-                            })),
-                            text_color: fg,
+                let entry = button(item)
+                    .on_press(Message::PaletteRun(i))
+                    .padding([5, 8])
+                    .width(Fill)
+                    .style(move |_t: &Theme, _s| button::Style {
+                        background: Some(Background::Color(if selected {
+                            pal.accent_soft
+                        } else {
+                            Color::TRANSPARENT
+                        })),
+                        text_color: fg,
+                        border: Border {
+                            radius: 4.0.into(),
+                            ..Border::default()
+                        },
+                        ..button::Style::default()
+                    });
+                // A file's whole path on hover.
+                let entry: Element<'_, Message> = match it.path {
+                    Some(p) => tooltip(
+                        entry,
+                        container(
+                            text(p.display().to_string())
+                                .font(fonts::UI)
+                                .size(12)
+                                .color(pal.text),
+                        )
+                        .padding([4, 8])
+                        .max_width(640.0)
+                        .style(move |_| container::Style {
+                            background: Some(Background::Color(pal.panel)),
                             border: Border {
+                                color: pal.border,
+                                width: 1.0,
                                 radius: 4.0.into(),
-                                ..Border::default()
                             },
-                            ..button::Style::default()
+                            ..container::Style::default()
                         }),
-                );
+                        tooltip::Position::Bottom,
+                    )
+                    .into(),
+                    None => entry.into(),
+                };
+                col = col.push(entry);
             }
         }
         let card = container(col)
@@ -1112,6 +1188,57 @@ fn bar(bg: Color, edge: Color) -> container::Style {
         },
         ..container::Style::default()
     }
+}
+
+/// How many characters a palette row's title and a file's folder take
+/// at most, so a row fits the palette's 560 points on one line.
+pub(super) const TITLE_CHARS: usize = 44;
+const DETAIL_CHARS: usize = 32;
+
+/// `s` in at most `n` characters, shortened in the middle with "…", so
+/// both its start and its end show, such as a file name's extension.
+pub(super) fn shorten_middle(s: &str, n: usize) -> String {
+    let cs: Vec<char> = s.chars().collect();
+    if cs.len() <= n || n < 3 {
+        return s.to_string();
+    }
+    let head = (n - 1) / 2;
+    let tail = n - 1 - head;
+    let start: String = cs[..head].iter().collect();
+    let end: String = cs[cs.len() - tail..].iter().collect();
+    format!("{}…{}", start.trim_end(), end.trim_start())
+}
+
+/// A folder's path in at most `n` characters: its first part, such as a
+/// drive, and as many of its last folders as fit, around "…"
+/// (editor.md §9). A last folder too long even alone is itself shortened
+/// in the middle.
+pub(super) fn shorten_path(p: &str, n: usize) -> String {
+    let count = |s: &str| s.chars().count();
+    if count(p) <= n {
+        return p.to_string();
+    }
+    let sep = if p.contains('\\') { '\\' } else { '/' };
+    let parts: Vec<&str> = p.split(sep).collect();
+    let head = parts[0];
+    let mut tail: Vec<&str> = Vec::new();
+    let mut used = count(head) + 3;
+    for part in parts[1..].iter().rev() {
+        let more = count(part) + usize::from(!tail.is_empty());
+        if used + more > n {
+            break;
+        }
+        used += more;
+        tail.insert(0, part);
+    }
+    if tail.is_empty() {
+        let last = parts.last().copied().unwrap_or("");
+        return match n.checked_sub(count(head) + 3) {
+            Some(room) if room >= 8 => format!("{head}{sep}…{sep}{}", shorten_middle(last, room)),
+            _ => shorten_middle(p, n),
+        };
+    }
+    format!("{head}{sep}…{sep}{}", tail.join(&sep.to_string()))
 }
 
 pub(super) fn ellipsize(s: &str, n: usize) -> String {
@@ -1221,5 +1348,45 @@ pub fn eighths(n: u64) -> String {
         (0, r) => format!("{r}/8"),
         (w, 0) => format!("{w}"),
         (w, r) => format!("{w} {r}/8"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn long_paths_are_shortened_in_the_middle() {
+        let p = r"C:\Users\Dana\Writing\Feature drafts for the fellowship\Act two";
+        let short = shorten_path(p, 32);
+        assert_eq!(short, r"C:\…\Act two");
+        assert!(short.chars().count() <= 32);
+        assert_eq!(
+            shorten_path("/home/dana/scripts/drafts/act-two", 25),
+            "/…/scripts/drafts/act-two"
+        );
+        assert_eq!(
+            shorten_path("/home/dana/scripts/drafts/act-two", 24),
+            "/…/drafts/act-two"
+        );
+        assert_eq!(shorten_path("/home/dana", 32), "/home/dana");
+        // A last folder too long alone keeps the drive and its own ends.
+        let p = r"C:\Users\Dana\Second act rewrites after the table read";
+        let short = shorten_path(p, 32);
+        assert!(
+            short.starts_with(r"C:\…\Second") && short.ends_with("read"),
+            "{short}"
+        );
+        assert!(short.chars().count() <= 32, "{short}");
+        let long = shorten_path(&format!("{}/{}", "y".repeat(30), "x".repeat(60)), 20);
+        assert_eq!(long.chars().count(), 20);
+        assert!(long.contains('…'));
+        let name = "The Lighthouse Keeper's Daughter, revised.fountain";
+        let short = shorten_middle(name, 31);
+        assert!(
+            short.ends_with(".fountain") && short.chars().count() <= 31,
+            "{short}"
+        );
+        assert_eq!(shorten_middle("low-tide.fdx", 31), "low-tide.fdx");
     }
 }
