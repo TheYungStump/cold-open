@@ -74,6 +74,29 @@ pub struct PreparedSave {
     /// What the save did before it was taken, such as accepting tracked
     /// changes (`changes_accepted`), for the commit's warnings.
     notes: Vec<Value>,
+    /// Waits for the journal's flush of the save marker (a deferred
+    /// journal only); see [`PreparedSave::wait_for_journal`].
+    journal: Option<crate::flush::FlushWaiter>,
+}
+
+impl PreparedSave {
+    /// Step 4's end, on the thread that wrote the file: waits, for at most
+    /// two seconds, until the journal is flushed up to the save marker.
+    /// The commit then starts the journal again with no flush of it in
+    /// flight. On Linux, cutting a file back waits for the writes in
+    /// flight to it, and on a stalled disk that held the UI thread for
+    /// 76 ms (docs/specs/journal.md, "Saving off the UI thread",
+    /// 2026-10-21).
+    pub fn wait_for_journal(&self) {
+        if let Some(w) = &self.journal {
+            w.wait(std::time::Duration::from_secs(2));
+        }
+    }
+
+    /// The same wait, as a handle to move to the thread that writes.
+    pub fn journal_waiter(&self) -> Option<crate::flush::FlushWaiter> {
+        self.journal.clone()
+    }
 }
 
 /// A save in place taken on the UI thread, to be written out on another
@@ -135,6 +158,7 @@ impl SaveJob {
                 number: self.number,
                 original,
                 notes: self.notes,
+                journal: None,
             })
         })();
         RenderedSave {
@@ -1201,7 +1225,7 @@ impl Dispatcher {
         let Some(session) = session else {
             return result;
         };
-        let prepared = match result {
+        let mut prepared = match result {
             Ok(p) => p,
             Err(e) => {
                 session.saving = None;
@@ -1221,6 +1245,7 @@ impl Dispatcher {
                 ));
             }
             j.flush_now();
+            prepared.journal = j.flush_waiter();
         }
         Ok(prepared)
     }

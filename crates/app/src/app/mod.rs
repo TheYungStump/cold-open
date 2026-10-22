@@ -274,7 +274,7 @@ pub(super) enum Saving {
     /// the question a changed file asks.
     Rendering { allow_lossy: bool },
     /// The worker is writing these bytes.
-    Writing(PreparedSave),
+    Writing(Box<PreparedSave>),
 }
 
 /// How long a keystroke took from arrival to the end of the update that
