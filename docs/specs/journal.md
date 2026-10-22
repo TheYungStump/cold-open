@@ -58,6 +58,10 @@ The header holds one copy of the store, written at each save, as it already held
 
 **A journal from somewhere else** (2026-10-16). Writers keep scripts in git and in synced folders, and the journal can travel with the script. A journal whose `host` is not this computer, or whose `path` is not this script's canonical path, holds someone else's work, or work from another copy. `doc.open` never applies it on its own: where it would recover work, the open fails with `journal_foreign`, `details` giving `host` and `path`, and changes nothing. `recover: "apply"` recovers it anyway; `recover: "discard"` sets it aside, as always. A foreign journal with nothing to recover is simply started again. The desktop app asks the writer (`docs/specs/editor.md` §13).
 
+**Adopting it** (2026-10-21, phase 5a decision 43). Once `recover: "apply"` has recovered a journal from somewhere else, the journal is this computer's: `doc.open` appends a `journal.adopted` marker naming this computer and the script's canonical path. From that marker on, they stand for the header's `host` and `path`, and the newest such marker counts. So a crash here afterwards is recovered as any of this computer's journals is, without asking again. A copy of the journal in another folder, or on another computer, is still someone else's there, and is asked about as before. Before, the journal went on under the old header, and every crash asked the same question again.
+
+**Why a marker, not a new header.** Starting the journal again under this computer's header would cut it to nothing first. Until the new header was on the disk, the recovered work would then exist only in memory, the one moment Cold Open never allows. A marker is one appended line, like any entry, so no crash point can cost the work. The next save starts the journal again anyway, under this computer's header.
+
 - **Entries.** Each following line is one applied command:
 
 ```json
@@ -74,7 +78,7 @@ The header holds one copy of the store, written at each save, as it already held
 | `merge` | Optional (2026-10-15). `true` when the command joined the undo step before it. Absent means false. |
 | `step` | `undo` and `redo` only, optional (2026-10-16). The step reversed: see "Undo and redo entries". |
 
-Only edits, `undo`, `redo` and `doc.saved` markers are written. Queries, output commands and session commands are not. Replay stops at any other entry, so a damaged or hand-made journal can never make recovery write files.
+Only edits, `undo`, `redo`, `doc.saved` markers and (2026-10-21) `journal.adopted` markers are written. Queries, output commands and session commands are not. Replay stops at any other entry, so a damaged or hand-made journal can never make recovery write files.
 
 **`doc.saved` markers** (2026-10-15). A marker records that a save of the document, as it stood at that point in the journal, was started:
 
@@ -83,6 +87,14 @@ Only edits, `undo`, `redo` and `doc.saved` markers are written. Queries, output 
 ```
 
 Replay runs nothing for a marker. It only remembers the fingerprint, for `external_change` (recovery step 5). The marker is written before the file is replaced, so whether or not that save completed, the file on disk matches either the header's `disk` or a marker's.
+
+**`journal.adopted` markers** (2026-10-21). A marker records that this computer took over a journal written somewhere else, after the writer recovered it ("A journal from somewhere else" above):
+
+```json
+{"seq":4,"t":1761040000000,"command":"journal.adopted","params":{"host":"studio-pc","path":"C:\\Scripts\\lab.fountain"},"result":{}}
+```
+
+Replay runs nothing for it either. It remembers the newest one's `host` and `path`, which stand for the header's when recovery asks whether the journal is from somewhere else. Builds from before 2026-10-21 do not know this marker: they stop replay at it and keep the journal aside as a copy, so they recover the entries before it, and the copy holds the rest.
 
 **Undo and redo entries** (2026-10-16). Replay must reverse exactly the step the writer reversed, so each `undo` or `redo` entry says which step that was:
 
