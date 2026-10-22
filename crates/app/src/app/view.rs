@@ -55,7 +55,7 @@ impl App {
                 None
             },
             palette: pal,
-            zoom: self.settings.zoom,
+            zoom: self.shown_zoom(),
             focused: self.focus == Focus::Page && self.palette.is_none() && !self.modal(),
             caret: self.caret_spot,
             caret_on: self.caret_on,
@@ -866,11 +866,18 @@ impl App {
                 .style(move |_| outline(pal.agent)),
             );
         }
+        // A page fitted to the window says so: zooming in shows no more.
+        let shown = self.shown_zoom();
+        let fitted = shown < self.settings.zoom;
         r = r.push(
-            text(format!("{}%", (self.settings.zoom * 100.0).round() as u32))
-                .font(fonts::UI)
-                .size(12)
-                .color(pal.text_quiet),
+            text(format!(
+                "{}%{}",
+                (shown * 100.0).round() as u32,
+                if fitted { " (fit)" } else { "" }
+            ))
+            .font(fonts::UI)
+            .size(12)
+            .color(pal.text_quiet),
         );
         container(r)
             .padding([5, 14])
