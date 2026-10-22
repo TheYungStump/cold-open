@@ -154,6 +154,18 @@ The two possible crash points are both safe:
 4. **Write**, on a worker thread: the atomic save below. Then (2026-10-21), for a journal flushed in the background ("Durability"), the worker waits, for at most two seconds, until the journal is flushed up to the marker. Step 5 cuts the journal back and writes a new header on the UI thread. On Linux, cutting a file back waits for any flush of it still in flight, and on a stalled disk (a CI runner's) that held the UI thread for 76 ms. With the marker's flush done first, nothing of the journal is in flight when step 5 runs. Step 5 only cuts the journal when nothing was edited since step 1, so no later write can start a flush in between.
 5. **Commit**, back on the UI thread. If the write succeeded and nothing was edited since step 1, the journal is restarted exactly as in step 2 of "Saving" above. Its header is written here and flushed by the background flusher, as entries are ("Durability"). If edits arrived in the meantime, the journal is kept as it is: it holds them, and the document stays unsaved. If the write failed, the error is shown, and the marker is harmless.
 
+**Typing during a save never meets a journal being cut back** (2026-10-21). Step 4's wait covers the marker only. The question is whether edits typed while a save runs could still leave the UI thread cutting the journal back while a flush of it is in flight. They can't:
+
+- **An edit during the save means no cut.** Step 5 cuts the journal back only when nothing was edited since step 1. After any edit it keeps the journal as it is, since the journal holds that edit, and only asks for a flush.
+- **Nothing slips in between.** Edits, an agent's included, and step 5 all run on the UI thread, one after another, so none can land between step 5's check and its cut.
+- **Only the save writes without an edit.** Markers come only from the one save in flight (the save token). So when step 5 does cut, the only write since step 1 is the marker, which step 4 waited for. Its flush was the last one, and the cut finds nothing in flight.
+- **The next save** starts again from step 1, with its own marker and its own wait.
+- **What an edit costs the UI thread** is an append, as every keystroke is, and an append does not wait for a flush in flight. The per-edit budget, measured on CI, stays near 0.01 ms.
+
+So restarting the journal on the save worker (phase 5a decision 47) is not needed for typing, and the restart stays on the UI thread. `a_save_with_an_edit_during_it_never_cuts_the_journal` (`crates/core/tests/saving.rs`) checks both sides.
+
+The other places that start the journal again or stop its flusher on the UI thread are Save as onto the script's own path, Reload (`doc.revert`) and closing a script. Each follows a dialog or ends the editing, so it never interrupts typing. On a stalled disk, each can still wait for a flush in flight.
+
 **The marker's place does not matter.** Edits typed during step 2 are journaled before the marker, edits typed later after it. Replay always starts from the header and applies every entry. Markers only name versions of the file the journal knows, so a file that holds one is not taken for another program's change. So every crash point is safe. The journal always holds the last saved base plus every later edit, so replay reaches the latest acknowledged state. The file is either the old version or the new one, each named by the header or a marker.
 
 **A save whose script was closed while it rendered** still goes ahead. The writer who saved, then closed and chose not to save what came after, still gets the save they asked for. The closed session's journal is gone, so there is no marker, and the commit reports `save_superseded`.
