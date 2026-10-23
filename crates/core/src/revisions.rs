@@ -271,6 +271,59 @@ pub fn utc_date(ms: u64) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
+/// The color a name stands for, for its paper and inks: the name without a
+/// leading "Double ", "2nd " or "Triple ", ignoring case
+/// (docs/specs/revisions.md §2.3).
+fn base(name: &str) -> String {
+    let lower = name.to_lowercase();
+    let mut s = lower.as_str();
+    for prefix in ["double ", "2nd ", "triple "] {
+        if let Some(rest) = s.strip_prefix(prefix) {
+            s = rest;
+        }
+    }
+    s.trim().to_string()
+}
+
+/// A color's paper and its ink for the light, dark and high-contrast
+/// themes, as RGB; `None` for an ink means the theme's text color
+/// (docs/specs/revisions.md §2.3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Shades {
+    pub paper: (u8, u8, u8),
+    pub inks: [Option<(u8, u8, u8)>; 3],
+}
+
+const fn rgb(v: u32) -> (u8, u8, u8) {
+    ((v >> 16) as u8, (v >> 8) as u8, v as u8)
+}
+
+/// The paper and inks of a color name. A name that matches nothing gets
+/// white paper and the text color.
+pub fn shades(name: &str) -> Shades {
+    let s = |paper: u32, light: u32, dark: u32, high: u32| Shades {
+        paper: rgb(paper),
+        inks: [Some(rgb(light)), Some(rgb(dark)), Some(rgb(high))],
+    };
+    let plain = |paper: u32| Shades {
+        paper: rgb(paper),
+        inks: [None; 3],
+    };
+    match base(name).as_str() {
+        "blue" => s(0xCFE3FF, 0x1F5FBF, 0x7FB2FF, 0x66CCFF),
+        "pink" => s(0xFFD6E7, 0xB8336A, 0xFF8FBF, 0xFF99CC),
+        "yellow" => s(0xFFF6B3, 0x8A6D00, 0xF2D15C, 0xFFFF66),
+        "green" => s(0xD4F2CF, 0x2E7D32, 0x7FD98A, 0x66FF66),
+        "goldenrod" => s(0xF5DFA0, 0x9A6A00, 0xE6B84D, 0xFFCC33),
+        "buff" => s(0xF2E3C6, 0x7A5C3A, 0xD9B98C, 0xFFD9A0),
+        "salmon" => s(0xFFD1C2, 0xB5462A, 0xFF9C80, 0xFF9966),
+        "cherry" => s(0xF7C1C8, 0xA3122E, 0xFF7A8F, 0xFF6680),
+        "tan" => s(0xE8D9C0, 0x7D6440, 0xCCB088, 0xFFE0B0),
+        "ivory" => plain(0xFFFBEA),
+        _ => plain(0xFFFFFF),
+    }
+}
+
 /// What a revised page's header prints: the label, a space and the date
 /// as `MM/DD/YY` (docs/specs/revisions.md §7.2).
 pub fn header_text(set: &RevisionSet) -> String {
@@ -332,6 +385,15 @@ mod tests {
             assert!(parse_date(bad).is_err(), "{bad}");
         }
         assert_eq!(header_text(&set(1, "Blue")), "Blue Rev. 10/22/26");
+    }
+
+    #[test]
+    fn shades_follow_the_base_color() {
+        assert_eq!(shades("Blue").paper, (0xCF, 0xE3, 0xFF));
+        assert_eq!(shades("Double BLUE"), shades("blue"));
+        assert_eq!(shades("2nd Pink"), shades("Pink"));
+        assert_eq!(shades("White").inks, [None; 3]);
+        assert_eq!(shades("Lavender").paper, (0xFF, 0xFF, 0xFF));
     }
 
     #[test]

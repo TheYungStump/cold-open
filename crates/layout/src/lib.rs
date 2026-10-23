@@ -47,6 +47,11 @@ pub use page::{
 };
 pub use paginate::{Cursor, Rules};
 pub use text::Look;
+
+/// Cells a placed line covers.
+fn line_cells(line: &PlacedLine) -> i32 {
+    line.clusters.iter().map(|c| i32::from(c.cells)).sum()
+}
 pub use title::title_lines;
 
 /// A page format that passed validation (§3.3). Layout only accepts these,
@@ -166,6 +171,7 @@ impl Engine {
             diagnostics: b.diagnostics,
             start: b.start,
             next: b.next,
+            revision: None,
         }
     }
 
@@ -289,6 +295,7 @@ pub(crate) fn number_page(
         diagnostics: Vec::new(),
         start: body.start,
         next: body.next,
+        revision: None,
     };
     set_number_line(p.format, &mut page, n);
     (
@@ -353,9 +360,94 @@ pub struct Layout {
     format: PageFormat,
 }
 
+/// What production revision marks a layout prints (layout.md §18): the
+/// set marking each whole element, by element index, and the header text
+/// of each set, by set number. Marks inside an element's text come from
+/// its runs.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RevisionMarks {
+    pub elements: BTreeMap<usize, u64>,
+    pub headers: BTreeMap<u64, String>,
+}
+
+/// The revision set marking a placed line: the newest among its cells and
+/// its element's own mark. Only script text is ever marked.
+pub fn line_revision(line: &PlacedLine, elements: &BTreeMap<usize, u64>) -> Option<u64> {
+    if !matches!(line.kind, LineKind::Content(_)) {
+        return None;
+    }
+    let cells = line.clusters.iter().filter_map(|c| c.look.rev).max();
+    let whole = line.source.and_then(|(e, ..)| elements.get(&e).copied());
+    cells.max(whole)
+}
+
+/// How far the asterisk sits from the paper's right edge: 0.4 in, which
+/// puts it at 8.1 in on US Letter (layout.md §18).
+pub const REVISION_MARK_INSET: Pt = Pt(2880);
+
 impl Layout {
     pub fn format(&self) -> &PageFormat {
         &self.format
+    }
+
+    /// Adds production revision marks to the body pages (layout.md §18):
+    /// an asterisk beside every marked line, and the newest set's header on
+    /// every page that has one. Marks added before are taken off first, so
+    /// it can run again after any change.
+    pub fn mark_revisions(&mut self, marks: &RevisionMarks) {
+        let format = &self.format;
+        let pitch = format.pitch.0.max(1);
+        for page in &mut self.pages {
+            page.lines
+                .retain(|l| !matches!(l.kind, LineKind::RevisionMark | LineKind::RevisionHeader));
+            page.revision = None;
+            // The rows marked, by baseline: dual dialogue's two columns
+            // share a row and get one asterisk.
+            let mut rows: BTreeMap<i32, Pt> = BTreeMap::new();
+            let mut newest: Option<u64> = None;
+            for line in &page.lines {
+                if let Some(r) = line_revision(line, &marks.elements) {
+                    newest = newest.max(Some(r));
+                    rows.entry(line.y.0).or_insert(Pt::ZERO);
+                }
+            }
+            // A right scene number on the row pushes the asterisk past it.
+            let column = format.page_width.0 - REVISION_MARK_INSET.0;
+            for line in &page.lines {
+                if line.kind == LineKind::SceneNumber
+                    && let Some(at) = rows.get_mut(&line.y.0)
+                {
+                    let end = line.x.0 + line_cells(line) * pitch;
+                    if line.x.0 >= format.page_width.0 / 2 && end > column {
+                        *at = Pt(end + pitch);
+                    }
+                }
+            }
+            for (&y, &pushed) in &rows {
+                let x = if pushed.0 > 0 { pushed } else { Pt(column) };
+                page.lines
+                    .push(paginate::plain_line("*", x, Pt(y), LineKind::RevisionMark));
+            }
+            page.revision = newest;
+            let Some(text) = newest.and_then(|r| marks.headers.get(&r)) else {
+                continue;
+            };
+            let cells = |s: &str| {
+                text::build_plain(s, false, Look::default())
+                    .cells
+                    .iter()
+                    .map(|c| i32::from(c.width))
+                    .sum::<i32>()
+            };
+            let right = match page.lines.iter().find(|l| l.kind == LineKind::PageNumber) {
+                Some(n) => n.x.0 - 3 * pitch,
+                None => format.page_numbers.right.0,
+            };
+            let x = Pt((right - cells(text) * pitch).max(0));
+            let y = Pt(format.header_top.0 + format.baseline.0);
+            page.lines
+                .push(paginate::plain_line(text, x, y, LineKind::RevisionHeader));
+        }
     }
 
     /// Collects where elements landed and shows each script diagnostic on

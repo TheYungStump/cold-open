@@ -1398,6 +1398,16 @@ impl Dispatcher {
                 watermark: p.watermark.clone(),
                 title,
                 change_slots: session.doc.change_slots(),
+                revision_fills: match p.revision_pages {
+                    crate::command::RevisionPages::White => Default::default(),
+                    crate::command::RevisionPages::Colored => session
+                        .doc
+                        .revisions
+                        .sets
+                        .iter()
+                        .map(|s| (s.id.0, crate::revisions::shades(&s.color).paper))
+                        .collect(),
+                },
             },
         )
         .map_err(|e| CommandError::new("internal_error", e.to_string()))?;

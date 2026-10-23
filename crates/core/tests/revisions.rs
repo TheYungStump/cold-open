@@ -686,3 +686,93 @@ fn save_anyway_with_tracked_changes_and_revisions_does_both() {
     assert_eq!(ok(&mut d, "changes.list", json!({}))["changes"], json!([]));
     assert_eq!(block(&mut d, "b_2")["text"], "Sleepy Maya makes toast.");
 }
+
+// ---- Printing ----
+
+fn pages(d: &mut Dispatcher) -> String {
+    ok(d, "doc.export", json!({"format": "pages"}))["text"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+#[test]
+fn marked_lines_print_an_asterisk_and_the_page_its_header() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, _) = open(dir.path());
+    let plain = pages(&mut d);
+    assert!(!plain.contains('*'));
+    ok(&mut d, "revision.start", json!({"date": "2026-10-22"}));
+    ok(
+        &mut d,
+        "text.insert",
+        json!({"id": "b_8", "at": 0, "text": "Then "}),
+    );
+    let marked = pages(&mut d);
+    let rows: Vec<&str> = marked.lines().collect();
+    let line = rows
+        .iter()
+        .find(|r| r.contains("Then A lamp flickers."))
+        .unwrap_or_else(|| panic!("{marked}"));
+    // The asterisk sits 0.4 in from the right edge: cell 81 on Letter.
+    assert_eq!(line.chars().count(), 82, "{line:?}");
+    assert!(line.ends_with('*'), "{line:?}");
+    assert_eq!(rows.iter().filter(|r| r.ends_with('*')).count(), 1);
+    assert!(marked.contains("Blue Rev. 10/22/26"), "{marked}");
+    // Nothing else moved.
+    let unmarked: Vec<String> = marked
+        .lines()
+        .map(|r| {
+            r.trim_end_matches('*')
+                .trim_end()
+                .replace("Blue Rev. 10/22/26", "")
+                .trim_end()
+                .to_string()
+        })
+        .collect();
+    let want: Vec<String> = plain
+        .lines()
+        .map(|r| {
+            r.replace("A lamp flickers.", "Then A lamp flickers.")
+                .trim_end()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(unmarked, want);
+    let list = ok(&mut d, "revision.list", json!({}));
+    assert_eq!(list["sets"][0]["pages"], 1, "{list}");
+    assert_eq!(list["sets"][0]["blocks"], 1, "{list}");
+}
+
+#[test]
+fn colored_pages_are_an_option() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, _) = open(dir.path());
+    ok(&mut d, "revision.start", json!({"date": "2026-10-22"}));
+    ok(
+        &mut d,
+        "text.insert",
+        json!({"id": "b_8", "at": 0, "text": "Then "}),
+    );
+    let white = dir.path().join("white.pdf");
+    let colored = dir.path().join("colored.pdf");
+    let again = dir.path().join("again.pdf");
+    ok(&mut d, "export.pdf", json!({"path": white}));
+    ok(
+        &mut d,
+        "export.pdf",
+        json!({"path": colored, "revision_pages": "colored"}),
+    );
+    ok(
+        &mut d,
+        "export.pdf",
+        json!({"path": again, "revision_pages": "colored"}),
+    );
+    let (w, c) = (fs::read(&white).unwrap(), fs::read(&colored).unwrap());
+    assert_ne!(w, c);
+    assert_eq!(
+        c,
+        fs::read(&again).unwrap(),
+        "the same options, the same bytes"
+    );
+}

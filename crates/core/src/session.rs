@@ -359,7 +359,14 @@ impl Session {
                     Ok(json!({ "format": "json", "text": text + "\n", "losses": [] }))
                 }
                 (None, "pages") => {
-                    let layout = self.view().layout();
+                    let marks = self.doc.has_revision_data().then(|| {
+                        let map = self.view().map.clone();
+                        self.doc.revision_marks(&map)
+                    });
+                    let mut layout = self.view().layout().clone();
+                    if let Some(marks) = &marks {
+                        layout.mark_revisions(marks);
+                    }
                     let text = match coldopen_layout::Fonts::new() {
                         Ok(fonts) => layout.page_view(&fonts),
                         Err(_) => layout.page_view(&coldopen_layout::AllGlyphs),
@@ -473,7 +480,10 @@ impl Session {
             ..options.clone()
         };
         let format = crate::view::page_format(doc);
-        let layout = coldopen_layout::layout(&script, &format, &options);
+        let mut layout = coldopen_layout::layout(&script, &format, &options);
+        if doc.has_revision_data() {
+            layout.mark_revisions(&doc.revision_marks(&map));
+        }
         (layout, map)
     }
 
@@ -2026,7 +2036,18 @@ impl Session {
 
     /// For each body page with a revision header, the set it names.
     fn revision_pages(&mut self) -> Vec<RevisionId> {
-        Vec::new()
+        if !self.doc.has_revision_data() {
+            return Vec::new();
+        }
+        let map = self.view().map.clone();
+        let marks = self.doc.revision_marks(&map);
+        let mut layout = self.view().layout().clone();
+        layout.mark_revisions(&marks);
+        layout
+            .pages
+            .iter()
+            .filter_map(|p| p.revision.map(RevisionId))
+            .collect()
     }
 }
 

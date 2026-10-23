@@ -178,7 +178,7 @@ Removed text leaves nothing to mark, so the gap marks what is next to it, and th
 ### 7.1 Asterisks
 
 - **A marked line** is a printed line holding any cell with a `rev` mark, or any line of a block with a block mark.
-- It prints `*` at the page format's `revision_mark` column, measured from the paper's left edge (default 8.1 in, so it clears a right scene number at 7.6 in).
+- It prints `*` 0.4 in from the paper's right edge: at 8.1 in on US Letter, so it clears a right scene number at 7.6 in (`docs/specs/layout.md` §18).
 - **Continued names and (MORE)** are added by layout, not the writer, and are never marked.
 - **Dual dialogue:** a marked line in either column marks the row.
 - **The page view** (`docs/specs/layout.md` §11) shows the asterisk in its cell, so the goldens hold it.

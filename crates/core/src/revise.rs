@@ -43,6 +43,25 @@ impl Document {
         !self.revisions.is_default() || self.blocks.iter().any(Block::has_revisions)
     }
 
+    /// What layout needs to print the revision marks of the blocks laid
+    /// out as `map` gives them (docs/specs/layout.md §18): each element's
+    /// block mark, and each set's header text.
+    pub fn revision_marks(&self, map: &[usize]) -> coldopen_layout::RevisionMarks {
+        coldopen_layout::RevisionMarks {
+            elements: map
+                .iter()
+                .enumerate()
+                .filter_map(|(i, &b)| Some((i, self.blocks.get(b)?.rev?.0)))
+                .collect(),
+            headers: self
+                .revisions
+                .sets
+                .iter()
+                .map(|s| (s.id.0, crate::revisions::header_text(s)))
+                .collect(),
+        }
+    }
+
     /// The document with its revision table and marks reset to the default.
     pub fn without_revisions(&self) -> Document {
         let mut d = self.clone();

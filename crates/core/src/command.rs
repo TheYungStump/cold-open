@@ -649,6 +649,10 @@ pub struct ExportPdf {
     /// (docs/specs/changes.md §9).
     #[serde(default, skip_serializing_if = "is_marked")]
     pub changes: PrintForm,
+    /// Revised pages on white (the default) or on their set's color
+    /// (docs/specs/revisions.md §7.3).
+    #[serde(default, skip_serializing_if = "is_white")]
+    pub revision_pages: RevisionPages,
     /// Replace a file already at `path`. Writers only.
     #[serde(default, skip_serializing_if = "is_false")]
     pub overwrite: bool,
@@ -656,6 +660,20 @@ pub struct ExportPdf {
 
 fn is_marked(f: &PrintForm) -> bool {
     *f == PrintForm::Marked
+}
+
+/// The paper revised pages print on (docs/specs/revisions.md §7.3).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum RevisionPages {
+    #[default]
+    White,
+    Colored,
+}
+
+fn is_white(p: &RevisionPages) -> bool {
+    *p == RevisionPages::White
 }
 
 /// Params for `export.fdx` and `export.fountain`: a copy of the document
