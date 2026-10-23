@@ -328,3 +328,9 @@ Added 2026-10-18 (phase 5a). Sources: `docs/specs/changes.md`, the phase 5a brie
 | `tracked_changes` | Pending tracked changes, counted in the message | Writes the current text with every change applied |
 
 It is of class `lost`, so the writer is asked first. The desktop app's question also offers "Save as Cold Open project…", which keeps everything (`docs/specs/editor.md` §11).
+
+**Production revisions** (2026-10-22, phase 5b; `docs/specs/revisions.md` §9). Fountain has no syntax for revision sets or marks either, so they are left out, and a save or export of a document holding any reports one more loss:
+
+| Code | Content | What the writer does |
+| --- | --- | --- |
+| `revision_marks` | Revision sets and marks, with the counts in the message | Writes the text without them |

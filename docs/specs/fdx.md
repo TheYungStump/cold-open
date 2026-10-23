@@ -587,6 +587,8 @@ Writing .fdx lists these losses, each with the block it concerns. A save refuses
 
 A save also reports `reencoded` when the file was read as Windows-1252 or with bytes replaced, and is about to be written as UTF-8 (`docs/specs/journal.md`, "Encoding").
 
+**Production revisions** (2026-10-22, phase 5b; `docs/specs/revisions.md` §9). A document with revision sets or revision marks is written without them, and the save reports a `revision_marks` loss for the document, as for tracked changes. A file's own `Revisions` section (Brick & Steel has one) is passed through untouched, as every section is (§13). It is never read into the document's revision table, and never written from it. **Decision (2026-10-22, the phase 5b brief):** no public sample shows how revision-marked runs are stored, so marks are not written into .fdx.
+
 **Tracked changes** (2026-10-18, phase 5a; `docs/specs/changes.md` §9). A document with pending tracked changes is written from its accepted form, the script as accepting every change would leave it, and the save reports a `tracked_changes` loss for the document, as a Fountain save does (`docs/specs/fountain.md` §12). Edited paragraphs are then generated as §14.4 says. **Decision (2026-10-18, with the project's owner):** no public .fdx sample shows how marked runs are stored. Some runs carry a `RevisionID` (§6.2), but nothing in the corpus shows what it refers to, or how deleted text would be kept (§11). So the clean room gives us nothing to write tracked changes from, and they are not mapped. If a public file with revision-marked runs turns up, mapping them becomes its own task.
 
 ## 16. Round trip
@@ -621,4 +623,4 @@ The property tests generate documents, write them, read them back and compare wi
 
 ## 18. Not yet
 
-Act breaks and other custom types as model elements; revision sets, marks and colors; script notes (§15); header and footer content and geometry beyond the page number (§5.3); scene numbering options; locked pages; A4 and other page sizes as templates.
+Act breaks and other custom types as model elements; reading or writing revision sets, marks and colors in .fdx (2026-10-22: Cold Open keeps them in projects, §15); script notes (§15); header and footer content and geometry beyond the page number (§5.3); scene numbering options; locked pages; A4 and other page sizes as templates.

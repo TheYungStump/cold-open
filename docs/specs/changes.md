@@ -1,7 +1,7 @@
 # Track changes
 
 - **Date:** 2026-10-18
-- **Status:** phase 5a, being implemented in `crates/screenplay` (marks in text runs), `crates/core` (block marks, the change table, tracked edits, settling), `crates/layout` (marked pages) and `crates/app`.
+- **Status:** implemented in phase 5a, in `crates/screenplay` (marks in text runs), `crates/core` (block marks, the change table, tracked edits, settling), `crates/layout` (marked pages) and `crates/app`. Phase 5b (2026-10-22) adds the revision set an entry was made under (§3) and `changes.import` (`docs/specs/diff.md` §6).
 - **Sources:**
   - `docs/spec.md`: "Revising", "Reliability features" item 6 (track changes), "Agents edit in the open", and the pain point it answers (added text colored, deleted text not tracked).
   - The review of phases 1–3 (2026-10-15), finding F18.2, as written up in `docs/progress/review-fixes.md` ("F18") and `docs/specs/journal.md` ("Decisions for phase 5").
@@ -81,6 +81,7 @@ The document holds one entry per change, in the order they were made:
 
 - **Append-only.** An entry is never removed or rewritten while the document lives, in memory or in a bundle (`docs/specs/bundle.md`). Accepting, rejecting or undoing a change removes its marks, not its entry. A change whose marks are all gone is **settled**, and `changes.list` leaves it out. This keeps every undo and redo, including the steps a journal carries across a save, pointing at an entry that exists, and it lets the journal name the table by its length and fingerprint (`docs/specs/journal.md`, "The change data").
 - **Room for phase 5b.** Each entry will be able to carry the revision set it belongs to. That comes with a new `v` for the table, so a 5a build never misreads a 5b table.
+- **The revision set** (2026-10-22, phase 5b; `docs/specs/revisions.md` §6.3). An entry made while a revision set is active carries it as `rev`: `{"id": "c_7", "by": {...}, "t": 1761140000000, "rev": "r_2"}`. Accepting the change marks its text with the set active then, or, with none, with this one. A table with any `rev` is written as `{"v": 2, ...}`; one without is written as `v: 1`, byte for byte as before. Readers take both. A phase 5a build reads only `v: 1`, and never meets a `v: 2` table: the bundle holding one is `meta.json` version 2, which it refuses (`docs/specs/bundle.md` §3), and a journal header holding one has `semantics` 3, which it keeps aside unread (`docs/specs/journal.md`).
 
 ## 4. The tracking switches
 
@@ -238,9 +239,9 @@ A document with pending changes has two print forms:
 
 ## 10. Not tracked in phase 5a
 
-- Styles (`text.style`) and block attributes (`block.set_attrs`): they change how text looks, not what it says.
+- Styles (`text.style`) and block attributes (`block.set_attrs`): they change how text looks, not what it says. (2026-10-22: they still get production revision marks while a set is active, `docs/specs/revisions.md` §6.1.)
 - Notes and boneyard inside a line: they never print, and a run of them carries no marks. Note and boneyard blocks are tracked like any other block, so their text can carry marks.
-- The title page, the page format and paragraph spacing: no command changes them yet.
+- The title page, the page format and paragraph spacing: no command changes them yet. (2026-10-22, phase 5b: `title.set` and `title.set_lines` change the title page. They are never tracked, decided with the project's owner, `docs/specs/commands.md`.)
 
 ## 11. Testing
 

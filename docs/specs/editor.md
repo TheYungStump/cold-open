@@ -1,7 +1,7 @@
 # The desktop editor
 
 - **Date:** 2026-10-15, updated 2026-10-16
-- **Status:** implemented in `crates/app` (phase 3); the 2026-10-16 changes come from the reviews of phases 1–3; phase 4 (2026-10-16) added .fdx files, the repair report, Recovered versions and one command router (§16). Phase 5a (2026-10-18) adds bundles and track changes (§17); being implemented.
+- **Status:** implemented in `crates/app` (phase 3); the 2026-10-16 changes come from the reviews of phases 1–3; phase 4 (2026-10-16) added .fdx files, the repair report, Recovered versions and one command router (§16). Phase 5a (2026-10-18) added bundles and track changes (§17). Phase 5b (2026-10-22) adds production revisions (§18), the title page editor (§19), reports (§20), comparing drafts (§21) and missing recent files (§11); being implemented.
 - **Sources:**
   - `docs/spec.md`: Writing, Structure and navigation, Comfort, Reliability.
   - The phase 3 brief and its approved decisions (2026-10-15).
@@ -39,7 +39,7 @@
 
 - **Page view.**
   - **Pages.** The body pages come from the session's layout (`docs/specs/layout.md`). Lines are drawn on the character grid in Courier Prime. A cluster with no glyph in the bundled face is drawn as the same box the PDF prints.
-  - **Title page.** Title pages are shown before the body, read-only in phase 3.
+  - **Title page.** Title pages are shown before the body, read-only in phase 3. Since phase 5b (2026-10-22) they are edited with "Edit title page…" (§19).
   - **Non-printing content.** Notes and boneyard inside a line, and transparent elements (sections, synopses, notes, boneyard, page breaks), never change the page. Each is shown by a small marker in the left margin at the line it belongs to.
 - **Draft view.** One continuous column with the same wrapping as the pages, from layout's draft lines (`docs/specs/layout.md` §15.3). There are no page breaks, (MORE) or (CONT'D). A thin rule and the page number mark where each body page starts. Transparent elements show as grey, non-printing lines, so sections and synopses can be read and edited.
 - **Zoom.** The steps are 50, 67, 80, 90, 100, 110, 125, 150, 175, 200, 250 and 300 percent. At 100% a page is drawn at its paper size on a 96-pixels-per-inch logical display; the operating system's scale factor applies on top. Zooming keeps what is in view in place: the caret's line stays at the same height on screen when the caret is in view, and otherwise the middle of the view stays put (2026-10-15).
@@ -251,6 +251,11 @@ Shortcuts are looked up by **action** name: a core command (`undo`, `doc.save`, 
 | `changes.accept_scene`, `changes.reject_scene`, `changes.accept_all`, `changes.reject_all` | — (palette, panel) |
 | `changes.track_mine`, `changes.track_agents` (toggle) | — (palette, status bar) |
 | `app.save_as_project` (Save as a `.coldopen` bundle) | — (palette, the lossy-save question) |
+| `app.revision_start`, `revision.end`, `app.revision_colors`, `app.revision_clear` (2026-10-22, §18) | — (palette, the hint bar's revision menu) |
+| `app.title_page` (the title page editor, §19) | Mod+Shift+T |
+| `app.reports` (§20) | Mod+Shift+I |
+| `app.compare`, `app.import_draft` (§21) | — (palette) |
+| `app.forget_recent` (remove a missing recent file, §11) | — (palette, Delete on the start screen) |
 
 Esc closes the topmost overlay, or the autocomplete list. Movement and editing keys (§4, §5.1) are built in and not listed in the map.
 
@@ -291,6 +296,8 @@ Esc closes the topmost overlay, or the autocomplete list. Movement and editing k
 - **A repaired file** (2026-10-16). When `doc.open` reports `repaired`, a dialog says "Cold Open repaired this file", gives the counts (fixed, dropped) and the first few issues in plain words, with no script text. **OK** (Enter, Esc or O) continues with the repaired script; nothing has been written yet. **Details** (D) shows the whole report. **Save repaired copy…** (S) runs Save as. The first save over the damaged file keeps a hidden copy of it, listed in Recovered versions, and says so in a banner.
 - **Repair a file…** (`app.repair`, 2026-10-16) asks for an .fdx file, then for where to write the repaired copy, runs `file.repair`, and shows the report in the same dialog. The open script is not touched.
 - **Recent files** are listed in the palette and the open dialog, .fdx files included. A script opened, saved as or restored is added.
+  - **A recent file that is gone** (2026-10-22, decided with the project's owner) stays in the list, dimmed, with "Missing", on the start screen and in the palette. It is never dropped on its own: a drive that was unplugged, or a synced folder that hasn't synced yet, comes back. "Remove from recent" (Delete on the start screen's row, and a palette entry for each missing file) takes it out of `settings.json`. Choosing a missing file says it can't be found and offers to remove it.
+  - The files are checked off the UI thread, once each time the list is shown, so a slow network path never holds a frame. Until a check answers, a file shows as present.
 - **Save.** `doc.save` runs off the UI thread (`docs/specs/journal.md`, "Saving off the UI thread"): the UI thread only takes a snapshot of the script and appends the journal's marker and header (2026-10-19). The status bar shows "Saving…" until it is done. Mod+S during a save saves again when it finishes. If Fountain can't hold something in the script, the app says what and asks "Save anyway" (`allow_lossy`) or Cancel. Only losses of class `lost` are asked about (2026-10-18; `docs/specs/commands.md`, "Losses"). For a .fountain or .fdx script the question also offers **Save as Cold Open project…** (P), which runs Save as with the `.coldopen` type chosen and the script's name, so nothing is dropped (`docs/spec.md`: never silently drop data). Pending tracked changes are such a loss (`tracked_changes`).
 - **Changed by another program** (2026-10-16). If the save fails with `file_changed`, the app says the file was changed by another program and asks: **Save as…** (Enter or A, the default, which keeps both versions), **Overwrite** (O: saves again with `overwrite`), **Reload** (R: `doc.revert`, which keeps a copy of the unsaved changes, and a banner names it), or Cancel (Esc or C). A pending close or quit waits on the answer, as for "Save anyway".
 - **Save as.** A dialog, then `doc.save` with `path`, on the UI thread. PDF export passes `overwrite` the same way. The dialog offers Fountain (`.fountain`), FDX (`.fdx`) and (2026-10-18) Cold Open project (`.coldopen`); the extension of the name chosen decides the format, so Save as converts (`docs/specs/commands.md`), and what the new format cannot hold is asked about first, as "Save anyway" does. A name typed without an extension gets the extension of the script's own format (2026-10-16; before, always `.fountain`).
@@ -451,3 +458,45 @@ Added 2026-10-18 (phase 5a). Sources: `docs/spec.md` ("Revising", "Agents edit i
 
   Screenshots of the panel and the marks in all three themes are reviewed.
 - **The agent tests** (`crates/app/tests/agent_link.rs`) attach a real link client, make edits, and check that they arrive tracked under the agent's name, that the writer can accept and reject them, and that the agent cannot settle the writer's.
+
+## 18. Production revisions
+
+Added 2026-10-22 (phase 5b). Sources: `docs/specs/revisions.md`, the phase 5b brief and the decisions taken with the project's owner (2026-10-22, `docs/progress/phase-5b.md`). The form, the keys and the look are our own choices.
+
+- **On the page.** Revision-marked text is drawn in its set's ink for the theme (`docs/specs/revisions.md` §2.3). A tracked-change mark on the same cell wins, in its author's color. Every marked line shows `*` in the page's right margin, and every revised page its revision header, exactly as the PDF prints them.
+- **The hint bar** shows the active set, "Blue Rev. 10/22/26", while one is active. A click on it opens the revision menu below.
+- **The navigator** shows a small `*` after the heading of a scene holding revision marks.
+- **Starting a set.** "Start revision…" (palette) opens a small form with three fields: the color (the next one chosen, Up and Down step through the document's list, and any name may be typed), the label ("<color> Rev.", following the color until it is edited) and the date (today's date in UTC, as `YYYY-MM-DD`). The color field has the keyboard. Enter sends `revision.start`; Esc cancels. With a set active, the form first asks "End Blue Rev. first?" (Enter ends it and goes on, Esc cancels).
+- **Ending, colors and clearing.**
+  - "End revision" sends `revision.end`.
+  - "Revision colors…" opens the list, one name per line, to edit and confirm with Mod+Enter.
+  - "Clear revision marks…" asks which set (or all) and confirms: "Clear the marks of Blue Rev.? The set stays in the list." Each is one undo step.
+- **Saving.** A .fountain or .fdx script with revision data asks before saving, as for tracked changes (§17.5): "Fountain can't hold revision marks." It says that saving takes them out and that the marked version is kept in Recovered versions. **Save as Cold Open project…** (P) is the default (Enter), **Save anyway** (S) runs `doc.save` with `allow_lossy`, and **Cancel** (Esc or C).
+- **PDF export.** The export form gains "Colored pages" (Mod+4, off by default, shown only when the script has revision marks): `revision_pages: "colored"`.
+
+## 19. The title page editor
+
+Added 2026-10-22 (phase 5b; decided with the project's owner: edits are journaled and undoable, never tracked or marked).
+
+- **Opening it.** "Edit title page…" (palette, and Mod+Shift+T) opens a sheet on the right of the page area, with the title page as it prints beside it. The page area scrolls to the title page.
+- **Keys** (a Fountain script, or any script whose title page is keys). One field per key, in the title page's order, each holding its values one per line: the usual keys Title, Credit, Author, Source, Draft date, Contact, Notes and Copyright are always shown, empty ones too, and the script's other keys after them. "Add a key…" adds one by name. Tab and Shift+Tab move between fields; leaving a field that changed sends `title.set` for that key, one undo step.
+- **Lines** (an .fdx script, or any whose title page is positioned lines). A list of the lines, each with its text, its alignment (Left, Center, Right, chosen with Mod+L, Mod+E and Mod+R) and its space above in lines. Enter adds a line after the current one, and Mod+Backspace removes it. Leaving a line that changed sends `title.set_lines` with the whole list, one undo step.
+- **Undo** works from the sheet and the page alike: the steps are labelled "Title page".
+- **Esc** closes the sheet, and the page area takes the keyboard back.
+- **An agent** editing the title page arrives as any other edit, while agent tracking is off. With it on, the agent's request is refused in core (`writer_only`).
+
+## 20. Reports
+
+Added 2026-10-22 (phase 5b; `docs/specs/reports.md`).
+
+- "Reports…" (palette, and Mod+Shift+I) opens a view in place of the page area, with three tabs: Scenes, Characters and Locations. Ctrl+Tab and Ctrl+Shift+Tab change tabs.
+- Each tab is a table with the report's fields as columns, and counts right-aligned. Up and Down choose a row, stopping at the ends; Enter goes to the row's scene (a character's first speech, a location's first scene) and closes the view; Esc closes it.
+- "Copy as CSV" (Mod+C in the view) puts the tab's CSV (`docs/specs/reports.md` §5) on the clipboard.
+- The view refreshes when the navigator does.
+
+## 21. Comparing drafts
+
+Added 2026-10-22 (phase 5b; `docs/specs/diff.md`).
+
+- **Compare with…** (palette) asks for a draft (.fountain, .fdx or .coldopen), then runs `diff` with the open script as A, as it stands now, and the draft as B. It opens a read-only view in place of the page area: B's pages with the changes marked as the diff PDF marks them, and a list of the changed scenes on the left, in place of the navigator. Up and Down choose a scene, Enter scrolls to it, "Save as PDF…" (Mod+Shift+E in the view) writes the diff PDF, and Esc closes the view. The open script is not changed, and nothing can be typed into the view.
+- **Review a draft as changes…** (palette) asks for a draft and the name its changes should carry, prefilled with the file's name, then sends `changes.import` and opens the changes panel (§17.3). What could not be brought in as changes (styles, attributes, the title page) is listed in a notice, and the draft itself is never changed.
