@@ -1,7 +1,7 @@
 # Fountain: how Cold Open reads and writes it
 
 - **Date:** 2026-10-13
-- **Updated:** 2026-10-13 (phase 2): reversed scene heading prefixes (§4, §6.2, §9). 2026-10-15 (phase 3): the normal form's source map (§10). 2026-10-16: hidden-only lines inside an element (§5); time in proportion to the input (§1); a document read from .fdx (§11). 2026-10-17: an opening paragraph that starts with U+FEFF, and a dual-dialogue name that reads as a scene heading (§9); title values brought to normal form after emphasis (§4); the ordered emphasis arrangement, styles that emphasis cannot spell and the round-trip check (§9, §10). 2026-10-18 (phase 5a): normalisation reported as a `normalized` loss (§10, F21); tracked changes (§12).
+- **Updated:** 2026-10-13 (phase 2): reversed scene heading prefixes (§4, §6.2, §9). 2026-10-15 (phase 3): the normal form's source map (§10). 2026-10-16: hidden-only lines inside an element (§5); time in proportion to the input (§1); a document read from .fdx (§11). 2026-10-17: an opening paragraph that starts with U+FEFF, and a dual-dialogue name that reads as a scene heading (§9); title values brought to normal form after emphasis (§4); the ordered emphasis arrangement, styles that emphasis cannot spell and the round-trip check (§9, §10). 2026-10-18 (phase 5a): normalisation reported as a `normalized` loss (§10, F21); tracked changes (§12). 2026-10-22: hidden-only lines inside an element never join an empty line (§5).
 - **Status:** implemented in `crates/fountain` (phase 1)
 - **Sources:**
   - The public Fountain syntax page, <https://fountain.io/syntax>, read 2026-10-13.
@@ -79,6 +79,9 @@ For this rule, a *run* is the lines between blank lines; hold lines belong to th
 - If its run has no content lines at all, each of its pieces becomes a **Note** or **Boneyard element** of its own. This matches the syntax page: a note on its own line does not leave empty lines behind.
 - Otherwise its pieces join the nearest content line in the same run, as inline runs. They join the end of the previous content line if there is one, otherwise the start of the next. The hidden-only line itself disappears, so no visible empty line is created.
 - **Resolution** (2026-10-16): the same holds for a line that becomes hidden-only inside an element after its markers are removed, such as an empty lyric line `~` followed by a note that spans lines. The reader joins it to the line before, as the normal form does (§10), so what it reads is always in normal form. The round-trip property test found this case.
+- **Resolution** (2026-10-22): inside an element, "the previous content line" means the nearest earlier line with visible text, and "the next" the nearest later one. Empty lines, such as `~` in a lyric or a hold line in a speech, never take hidden pieces. Before, a hidden-only line could join an empty lyric line before it. That line then held only hidden pieces itself, so normalising again joined it to the line before it, and each pass lost one more empty line. A lyric of `~`, `~/**/`, `~`, `~` read as two lines and normalised to one. Now one pass is final, and every printed line of the source stays a line.
+  - **An element with no visible text at all**, only empty lines and hidden-only lines, has no line to join. Its hidden pieces all go to its first line, and its other empty lines stay. One known difference from the source: when that first line is itself hidden-only, it stays as a line, so the element prints one more blank line than the source showed.
+  - Found by the `fountain_roundtrip` fuzz target (run 39260012138).
 
 ## 6. Classifying paragraphs
 

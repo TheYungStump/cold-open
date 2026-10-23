@@ -81,6 +81,13 @@ Phase 5a is done: the `.coldopen` project bundle, track changes (F18.2), agents'
 - **Not tracked in 5a:** styles (`text.style`) and block attributes (`block.set_attrs`).
 - **Marks in .fdx files.** The clean room gives us no public source to write them from (`fdx.md`), so .fdx files hold the accepted text and a project is the way to keep changes. Phase 5's gate asks that tracked changes survive .fdx export. In 5a they don't survive it as marks: the export asks first, then writes them accepted, and a project keeps them.
 - **The journal header's restart could move to the save worker**, saving about 0.5 ms; the budget doesn't need it (decision 47).
+- **After the phase: the 2026-10-19 fuzz finding** (2026-10-22, before phase 5b).
+  - **The finding.** The weekly run 39260012138, on `cddbb1d`, failed `fountain_roundtrip` with "parser output is not in normal form". Its 43-byte input still failed on `main` (23eae79).
+  - **The input** minimises to `~\n~/**/\n~\n~`: a lyric of an empty line, a line holding only a boneyard, and two more empty lines.
+  - **The cause.** A hidden-only line joined the empty lyric line before it. That line then held only hidden runs itself, so normalising again joined it once more, and each pass lost an empty line. Speeches lost hold lines the same way. So the normal form changed what prints, not only what the check sees.
+  - **The fix** (`norm.rs`, `merge_hidden_only`, which the reader and the normal form share). Hidden-only lines join the nearest line with visible text, and never an empty line. In an element with no visible text, every hidden run goes to the first line. One pass is now final (`fountain.md` §5, 2026-10-22).
+  - **Tests.** `hidden_only_lines_never_eat_empty_lines` (the inputs, and the line counts they must keep), and the property test `hidden_only_lines_normalise_once` (normalising is idempotent, writes back as itself, and keeps every printed line). Both failed before the fix.
+  - **The 30-minute run** of `fountain_roundtrip` on the fix's branch: pending.
 
 ### Decisions
 
