@@ -43,7 +43,9 @@ impl TrackCtx {
         }
         let c = match candidate.filter(|&c| self.owns(doc, c)) {
             Some(c) => c,
-            None => doc.changes.push(self.by.clone(), self.t),
+            None => doc
+                .changes
+                .push(self.by.clone(), self.t, doc.revisions.active),
         };
         self.change = Some(c);
         c

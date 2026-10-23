@@ -20,7 +20,7 @@ Locked pages (A and B pages) and locked scene numbers are not in 5b.
 | --- | --- | --- |
 | 1 | Branch, and this file | done (branch rebased onto `main` once #16 is merged) |
 | 2 | Specs before code: `revisions.md`, `diff.md` and `reports.md` (new); `changes.md`, `bundle.md`, `journal.md`, `commands.md`, `layout.md`, `editor.md`, `mcp.md`, `fdx.md` and `fountain.md`; the crate table in `CLAUDE.md` | done |
-| 3 | The revision model: marks, the revision table, the commands, marking in the dispatcher and on accept, change table v2, `semantics` 3; property tests | |
+| 3 | The revision model: marks, the revision table, the commands, marking in the dispatcher and on accept, change table v2, `semantics` 3; property tests | done: `crates/core/tests/revisions.rs` (13 tests, a property test among them); `revision.list`'s `pages` comes with layout (step 5) |
 | 4 | Files: bundle v2 and `revisions.json`, the journal header, the `revision_marks` loss and Save anyway, the `revisions` fuzz target | |
 | 5 | Layout and PDF: asterisks, revised-page headers, colored pages; page view and PDF goldens | |
 | 6 | The app's revisions: start form, palette, inks, asterisks, the active set in the hint bar | |
@@ -70,3 +70,13 @@ The project's owner approved the plan without choosing on these, so they stand a
 13. **`changes.import` is writer-only and journals the edits it resolved**, so replay never rereads the draft and no client can claim a writer's name for edits it sends.
 14. **The characters report sorts by words, then name.** Lines depend on page breaks, and speeches count a one-word reply like a monologue.
 15. **`layout.md` §16's last two items** had ended up after §17 when 5a added it. They are back in §16.
+16. **One marking pass for every edit** (step 3). Rather than marking in each command, core applies an edit's operations one at a time, recording each block they touch as it was. It then compares each touched block's distributed form (pending insertions left out, pending deletions kept) with what it was (`crates/core/src/revise.rs`):
+    - what differs takes the active set's mark;
+    - a gap marks its neighbour;
+    - a change of kind, printing attribute or place marks the block.
+
+    So tracked edits and rejects mark nothing by construction, an accept marks exactly what it brings into the distributed text, and every command, `batch` and `changes.import` included, marks by one rule.
+17. **Changed words are marked whole.** The changed middle is widened to word boundaries before the word comparison, so a word that lost or gained a letter is marked whole, not from its first differing letter. Typed text in a new word marks only that word.
+18. **Unchanged text keeps its marks, even with no set active.** An untracked `block.set_text` rebuilds the runs, so the pass carries each unchanged character's mark across. It runs whenever the document's revision table is not the default.
+19. **An accept with no set active** marks with the newest set the accepted changes were made under.
+20. **The table's version.** The change table is written `v: 2` only when an entry carries `rev`, so tables and journal fingerprints from before are unchanged. `semantics` is 3.

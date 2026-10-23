@@ -191,7 +191,7 @@ mod tests {
         Marks {
             ins: ins.map(ChangeId),
             del: del.map(ChangeId),
-            show: false,
+            ..Marks::NONE
         }
     }
 

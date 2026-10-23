@@ -919,7 +919,8 @@ mod tests {
                     Marks {
                         ins: Some(ChangeId(2)),
                         del: Some(ChangeId(3)),
-                        show: false
+                        show: false,
+                        rev: None,
                     }
                 ),
                 Run::marked("f", Style::PLAIN, ins(2)),

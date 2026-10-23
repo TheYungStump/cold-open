@@ -87,6 +87,16 @@ pub enum Command {
     ChangesReject(ChangesSettle),
     #[serde(rename = "changes.track")]
     ChangesTrack(ChangesTrack),
+    #[serde(rename = "revision.start")]
+    RevisionStart(RevisionStart),
+    #[serde(rename = "revision.end")]
+    RevisionEnd(Empty),
+    #[serde(rename = "revision.list")]
+    RevisionList(Empty),
+    #[serde(rename = "revision.colors")]
+    RevisionColors(RevisionColors),
+    #[serde(rename = "revision.clear")]
+    RevisionClear(RevisionClear),
 }
 
 /// How a command interacts with undo and the journal.
@@ -106,7 +116,7 @@ pub enum Class {
 
 impl Command {
     /// Every command name, in a stable order (for a command palette).
-    pub const NAMES: [&'static str; 37] = [
+    pub const NAMES: [&'static str; 42] = [
         "doc.new",
         "doc.open",
         "doc.save",
@@ -144,6 +154,11 @@ impl Command {
         "changes.accept",
         "changes.reject",
         "changes.track",
+        "revision.start",
+        "revision.end",
+        "revision.list",
+        "revision.colors",
+        "revision.clear",
     ];
 
     pub fn name(&self) -> &'static str {
@@ -185,6 +200,11 @@ impl Command {
             Command::ChangesAccept(_) => "changes.accept",
             Command::ChangesReject(_) => "changes.reject",
             Command::ChangesTrack(_) => "changes.track",
+            Command::RevisionStart(_) => "revision.start",
+            Command::RevisionEnd(_) => "revision.end",
+            Command::RevisionList(_) => "revision.list",
+            Command::RevisionColors(_) => "revision.colors",
+            Command::RevisionClear(_) => "revision.clear",
         }
     }
 
@@ -201,7 +221,8 @@ impl Command {
             | Command::TextFind(_)
             | Command::TextComplete(_)
             | Command::HistoryList(_)
-            | Command::ChangesList(_) => Class::Query,
+            | Command::ChangesList(_)
+            | Command::RevisionList(_) => Class::Query,
             Command::Undo(_) | Command::Redo(_) => Class::History,
             Command::ExportPdf(_) | Command::ExportFdx(_) | Command::ExportFountain(_) => {
                 Class::Output
@@ -227,7 +248,11 @@ impl Command {
             | Command::Batch(_)
             | Command::ChangesAccept(_)
             | Command::ChangesReject(_)
-            | Command::ChangesTrack(_) => Class::Edit,
+            | Command::ChangesTrack(_)
+            | Command::RevisionStart(_)
+            | Command::RevisionEnd(_)
+            | Command::RevisionColors(_)
+            | Command::RevisionClear(_) => Class::Edit,
         }
     }
 
@@ -333,9 +358,11 @@ impl Command {
             "changes.list" => of::<ChangesList>(),
             "changes.accept" | "changes.reject" => of::<ChangesSettle>(),
             "changes.track" => of::<ChangesTrack>(),
-            "doc.get" | "scene.list" | "undo" | "redo" | "doc.revert" | "history.list" => {
-                of::<Empty>()
-            }
+            "revision.start" => of::<RevisionStart>(),
+            "revision.colors" => of::<RevisionColors>(),
+            "revision.clear" => of::<RevisionClear>(),
+            "doc.get" | "scene.list" | "undo" | "redo" | "doc.revert" | "history.list"
+            | "revision.end" | "revision.list" => of::<Empty>(),
             _ => return None,
         })
     }
@@ -887,6 +914,44 @@ pub struct ChangesTrack {
     pub agents: Option<bool>,
 }
 
+/// Params for `revision.start` (docs/specs/revisions.md §5). Each is
+/// filled in before the command is journaled, so replay never takes a
+/// default.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct RevisionStart {
+    /// The set's color; the next one in the document's list by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    /// What revised pages' headers print before the date; "<color> Rev."
+    /// by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// `YYYY-MM-DD`; today's date in UTC by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date: Option<String>,
+}
+
+/// Params for `revision.colors`: the whole list of color names.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct RevisionColors {
+    pub colors: Vec<String>,
+}
+
+/// Params for `revision.clear`: exactly one of `set` and `all`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct RevisionClear {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set: Option<crate::revisions::RevisionId>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub all: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -930,6 +995,7 @@ mod tests {
                 "batch" => json!({"commands": []}),
                 "text.find" => json!({"find": "x"}),
                 "changes.accept" | "changes.reject" => json!({"all": true}),
+                "revision.colors" => json!({"colors": ["White"]}),
                 _ => json!({}),
             };
             let cmd = Command::from_parts(name, params).unwrap();

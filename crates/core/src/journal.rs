@@ -22,7 +22,7 @@ pub const VERSION: u32 = 1;
 /// What replaying entries means. Bumped whenever a command's replay
 /// changes meaning; a journal with a higher number is kept aside, never
 /// replayed (docs/specs/journal.md, "Header").
-pub const SEMANTICS: u32 = 2;
+pub const SEMANTICS: u32 = 3;
 /// The command name of a save marker (docs/specs/journal.md).
 pub const SAVED: &str = "doc.saved";
 /// The command name of the marker that makes a journal from somewhere else

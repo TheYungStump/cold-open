@@ -425,9 +425,11 @@ mod tests {
             doc_id: Some("6f0f3c1e-8a52-4d6b-9a8e-0b8f4ac2d3e7".into()),
             ..Document::default()
         };
-        let c = doc
-            .changes
-            .push(ChangeBy::of(&Author::agent("claude", None)), 1760356801123);
+        let c = doc.changes.push(
+            ChangeBy::of(&Author::agent("claude", None)),
+            1760356801123,
+            None,
+        );
         doc.blocks.push(Block::new(
             BlockId(1),
             Element::new(ElementKind::SceneHeading, "INT. LAB - NIGHT"),

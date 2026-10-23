@@ -2,11 +2,12 @@
 //! through [`Op::apply`], which returns the exact inverse; undo and redo are
 //! built from those inverses.
 
-use coldopen_screenplay::Element;
+use coldopen_screenplay::{Element, TitleLine, TitlePage};
 use serde::{Deserialize, Serialize};
 
 use crate::changes::{BlockMarks, Tracking};
 use crate::document::{Block, Document};
+use crate::revisions::{RevisionId, Revisions};
 
 /// Serialized, as in a journal entry that carries a step from before the
 /// journal's header (docs/specs/journal.md, "Undo and redo entries").
@@ -39,6 +40,20 @@ pub enum Op {
     /// Replaces the document's tracking switches (2026-10-18).
     Track {
         tracking: Tracking,
+    },
+    /// Replaces a block's revision mark (2026-10-22).
+    Rev {
+        index: usize,
+        rev: Option<RevisionId>,
+    },
+    /// Replaces the revision table (2026-10-22).
+    Revisions {
+        revisions: Box<Revisions>,
+    },
+    /// Replaces the title page, both its keys and its lines (2026-10-22).
+    TitlePage {
+        title_page: TitlePage,
+        title_lines: Vec<TitleLine>,
     },
 }
 
@@ -82,6 +97,23 @@ impl Op {
                 let old = std::mem::replace(&mut doc.tracking, tracking);
                 Op::Track { tracking: old }
             }
+            Op::Rev { index, rev } if index < n => {
+                let old = std::mem::replace(&mut doc.blocks[index].rev, rev);
+                Op::Rev { index, rev: old }
+            }
+            Op::Revisions { revisions } => {
+                let old = std::mem::replace(&mut doc.revisions, *revisions);
+                Op::Revisions {
+                    revisions: Box::new(old),
+                }
+            }
+            Op::TitlePage {
+                title_page,
+                title_lines,
+            } => Op::TitlePage {
+                title_page: std::mem::replace(&mut doc.title_page, title_page),
+                title_lines: std::mem::replace(&mut doc.title_lines, title_lines),
+            },
             _ => Op::Move {
                 from: 0,
                 len: 0,

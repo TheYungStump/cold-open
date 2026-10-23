@@ -27,6 +27,8 @@ pub mod journal;
 pub mod ops;
 pub mod recovered;
 pub mod replace;
+pub mod revise;
+pub mod revisions;
 pub mod session;
 pub mod track;
 pub mod view;

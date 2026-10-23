@@ -80,7 +80,7 @@ The document holds one entry per set, in the order they were started:
 | `started`, `ended` | When the set was started and ended, in milliseconds since the Unix epoch. `ended` is absent while the set is active. |
 
 - `colors` is the editable list (§2.2), and `active` the active set, or absent when none is.
-- **Append-only.** A set is never removed or renumbered while the document lives, in memory or in a bundle, so every mark, every undo step and every journal entry names a set that exists. `revision.clear` removes marks, never sets.
+- **Never renumbered.** Sets are only ever added at the end, and `revision.clear` removes marks, never sets. The one way a set goes is undoing the `revision.start` that made it (and Save anyway to Fountain or .fdx, §9, which resets the table as an undoable step). By then every later step has been undone first, so no mark names it. Redo brings it back with the same id.
 - **The default table** has no sets, the default colors and no active set. A document with the default table is written exactly as before phase 5b (§9).
 
 ## 4. Marks
@@ -130,7 +130,7 @@ Defined in `docs/specs/commands.md`:
 - **`revision.colors`** replaces the color list. It must hold 1 to 64 names, by §2.2's rules (`invalid_params` otherwise). Sets already made keep their colors.
 - **`revision.clear`** removes the marks of one set (`set: "r_1"`) or of all sets (`all: true`), in text and on blocks. The sets stay in the table. It is for a production that starts its pages over, or for a writer who started a set by mistake. An unknown set fails with `revision_not_found`.
 - **All five are writer-only**, except `revision.list`. An agent gets `writer_only`, enforced in core by author as the rules for `changes.accept` are. Agents' edits are marked like anyone's while a set is active (§6).
-- **Each edit is one undo step** ("Start revision", "End revision", "Revision colors", "Clear revision marks"), journaled. Starting or ending a set changes no text, but undo gives back the table as it was, so undoing `revision.start` also undoes the marks of the edits after it, which come off with their own steps first.
+- **Each edit is one undo step** ("Start revision", "End revision", "Revision colors", "Clear revision marks"), journaled. Starting or ending a set changes no text. Undoing one gives back the table as it was.
 
 ## 6. What marks
 

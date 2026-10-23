@@ -13,8 +13,8 @@ use crate::author::{Author, Clock};
 use crate::changes::{BlockMarks, ChangeBy, ChangeId, Moved, PrintForm, Retyped, mark_inserted};
 use crate::command::{
     Batch, BatchItem, BlockDelete, BlockInsert, BlockJoin, BlockSetAttrs, BlockSetText,
-    BlockSetType, BlockSplit, ChangesSettle, ChangesTrack, Class, Command, SceneMove, TextDelete,
-    TextInsert, TextReplace, TextStyle,
+    BlockSetType, BlockSplit, ChangesSettle, ChangesTrack, Class, Command, RevisionClear,
+    RevisionColors, RevisionStart, SceneMove, TextDelete, TextInsert, TextReplace, TextStyle,
 };
 use crate::document::{Block, BlockId, Document, word_count};
 use crate::error::CommandError;
@@ -23,6 +23,8 @@ use crate::io::{Fingerprint, SourceStyle};
 use crate::journal::{Journal, StepRef};
 use crate::ops::{Op, Transaction};
 use crate::replace::{Tracked, find_in, replace_in, replace_one};
+use crate::revise;
+use crate::revisions::{self, RevisionId, RevisionSet};
 use crate::track::{self, TrackCtx};
 use crate::view::View;
 
@@ -405,6 +407,7 @@ impl Session {
                 serde_json::to_value(c)
                     .map_err(|e| CommandError::new("internal_error", e.to_string()))
             }
+            Command::RevisionList(_) => Ok(self.revision_list()),
             Command::ChangesList(p) => {
                 let only = match p.scene {
                     Some(s) => {
@@ -622,7 +625,7 @@ impl Session {
         if let Command::Batch(b) = cmd {
             return self.apply_batch(b, ex, &mut ctx, table);
         }
-        let cmd = self.resolve(cmd, ex)?;
+        let cmd = self.resolve(cmd, ex)?.with_revision_defaults(&self.doc, t);
         let (tx, mut result) = self.plan(&cmd, ex, &mut ctx)?;
         if tx.is_empty() {
             return Ok((None, result, cmd));
@@ -638,7 +641,28 @@ impl Session {
         if let (Some(c), Value::Object(m)) = (ctx.change, &mut result) {
             m.insert("change".into(), json!(c));
         }
-        Ok((Some(tx.apply(&mut self.doc)), result, cmd))
+        Ok((Some(self.apply_marking(tx, &cmd)), result, cmd))
+    }
+
+    /// Applies an edit's operations. While the document has revision sets,
+    /// an untracked edit or an accept is marked with the active set, and
+    /// text it did not change keeps its marks (docs/specs/revisions.md §6).
+    fn apply_marking(&mut self, tx: Transaction, cmd: &Command) -> Transaction {
+        let untracked = cmd.tracked().is_some_and(|t| t != Some(true))
+            || matches!(cmd, Command::TextStyle(_) | Command::BlockSetAttrs(_));
+        let accept = matches!(cmd, Command::ChangesAccept(_));
+        if self.doc.revisions.is_default() || !(untracked || accept) {
+            return tx.apply(&mut self.doc);
+        }
+        let active = self.doc.revisions.active;
+        let before: std::collections::BTreeSet<ChangeId> = if accept && active.is_none() {
+            self.doc.blocks.iter().flat_map(Block::change_ids).collect()
+        } else {
+            Default::default()
+        };
+        revise::apply(tx, &mut self.doc, |doc| {
+            active.or_else(|| accept.then(|| revise::settled_rev(doc, &before)).flatten())
+        })
     }
 
     /// Takes back change `c` if this edit added it to the table.
@@ -739,7 +763,7 @@ impl Session {
             // Each edit's defaults depend on the document the edits before
             // it left.
             let cmd = match self.resolve(cmd, ex) {
-                Ok(c) => c,
+                Ok(c) => c.with_revision_defaults(&self.doc, ctx.t),
                 Err(e) => {
                     undo(self, inverses);
                     return Err(at_index(e, i));
@@ -748,7 +772,7 @@ impl Session {
             match self.plan(&cmd, ex, ctx) {
                 Ok((tx, r)) => {
                     if !tx.is_empty() {
-                        inverses.push(tx.apply(&mut self.doc));
+                        inverses.push(self.apply_marking(tx, &cmd));
                     }
                     results.push(r);
                     resolved.push(BatchItem::of(&cmd));
@@ -1095,6 +1119,7 @@ impl Session {
         ex: &Exec,
         ctx: &mut TrackCtx,
     ) -> Result<(Transaction, Value), CommandError> {
+        let t = ctx.t;
         let tracked = cmd.tracked().flatten() == Some(true);
         let ctx = tracked.then_some(ctx);
         match cmd {
@@ -1113,6 +1138,10 @@ impl Session {
             Command::ChangesAccept(p) => self.plan_settle(Settle::Accept, p, &ex.by),
             Command::ChangesReject(p) => self.plan_settle(Settle::Reject, p, &ex.by),
             Command::ChangesTrack(p) => self.plan_track(p, &ex.by),
+            Command::RevisionStart(p) => self.plan_revision_start(p, &ex.by, t),
+            Command::RevisionEnd(_) => self.plan_revision_end(&ex.by, t),
+            Command::RevisionColors(p) => self.plan_revision_colors(p, &ex.by),
+            Command::RevisionClear(p) => self.plan_revision_clear(p, &ex.by),
             _ => Err(CommandError::new("invalid_request", "not an edit")),
         }
     }
@@ -1784,6 +1813,250 @@ impl Session {
         }
         Ok((Transaction(vec![Op::Track { tracking }]), result))
     }
+
+    /// `revision.start` (docs/specs/revisions.md §5): its params already
+    /// have their defaults filled in.
+    fn plan_revision_start(
+        &mut self,
+        p: &RevisionStart,
+        by: &Author,
+        t: u64,
+    ) -> Result<(Transaction, Value), CommandError> {
+        revision_writer(by, "start a revision set")?;
+        let table = &self.doc.revisions;
+        if let Some(a) = table.active {
+            return Err(CommandError::new(
+                "revision_active",
+                format!("{a} is active: end it before starting another"),
+            )
+            .with_details(json!({ "active": a })));
+        }
+        let (Some(color), Some(label), Some(date)) = (&p.color, &p.label, &p.date) else {
+            return Err(CommandError::invalid_params(
+                "revision.start needs a color, a label and a date",
+            ));
+        };
+        revisions::check_name(color, "color", revisions::MAX_COLOR)
+            .and_then(|()| revisions::check_name(label, "label", revisions::MAX_LABEL))
+            .and_then(|()| revisions::parse_date(date).map(|_| ()))
+            .map_err(CommandError::invalid_params)?;
+        let mut next = table.clone();
+        let set = RevisionSet {
+            id: next.next_id(),
+            color: color.clone(),
+            label: label.clone(),
+            date: date.clone(),
+            started: t,
+            ended: None,
+        };
+        next.active = Some(set.id);
+        next.sets.push(set.clone());
+        Ok((
+            Transaction(vec![Op::Revisions {
+                revisions: Box::new(next),
+            }]),
+            json!({ "set": set }),
+        ))
+    }
+
+    fn plan_revision_end(
+        &mut self,
+        by: &Author,
+        t: u64,
+    ) -> Result<(Transaction, Value), CommandError> {
+        revision_writer(by, "end a revision set")?;
+        let mut next = self.doc.revisions.clone();
+        let Some(i) = next.active.and_then(|a| usize::try_from(a.0 - 1).ok()) else {
+            return Err(CommandError::new(
+                "revision_not_active",
+                "no revision set is active",
+            ));
+        };
+        next.active = None;
+        let Some(set) = next.sets.get_mut(i) else {
+            return Err(CommandError::new(
+                "revision_not_active",
+                "no revision set is active",
+            ));
+        };
+        set.ended = Some(t);
+        let result = json!({ "set": set });
+        Ok((
+            Transaction(vec![Op::Revisions {
+                revisions: Box::new(next),
+            }]),
+            result,
+        ))
+    }
+
+    fn plan_revision_colors(
+        &mut self,
+        p: &RevisionColors,
+        by: &Author,
+    ) -> Result<(Transaction, Value), CommandError> {
+        revision_writer(by, "change the revision colors")?;
+        revisions::check_colors(&p.colors).map_err(CommandError::invalid_params)?;
+        let result = json!({ "colors": p.colors });
+        if p.colors == self.doc.revisions.colors {
+            return Ok((Transaction::default(), result));
+        }
+        let mut next = self.doc.revisions.clone();
+        next.colors = p.colors.clone();
+        Ok((
+            Transaction(vec![Op::Revisions {
+                revisions: Box::new(next),
+            }]),
+            result,
+        ))
+    }
+
+    fn plan_revision_clear(
+        &mut self,
+        p: &RevisionClear,
+        by: &Author,
+    ) -> Result<(Transaction, Value), CommandError> {
+        revision_writer(by, "clear revision marks")?;
+        let which: Box<dyn Fn(RevisionId) -> bool> = match (p.set, p.all) {
+            (Some(s), false) => {
+                if self.doc.revisions.get(s).is_none() {
+                    return Err(CommandError::new(
+                        "revision_not_found",
+                        format!("no revision set {s}"),
+                    ));
+                }
+                Box::new(move |r| r == s)
+            }
+            (None, true) => Box::new(|_| true),
+            _ => {
+                return Err(CommandError::invalid_params(
+                    "give exactly one of \"set\" and \"all\"",
+                ));
+            }
+        };
+        let mut ops = Vec::new();
+        let mut count = 0;
+        for (index, b) in self.doc.blocks.iter().enumerate() {
+            let mut touched = false;
+            if b.rev.is_some_and(&which) {
+                ops.push(Op::Rev { index, rev: None });
+                touched = true;
+            }
+            if b.element
+                .text
+                .runs()
+                .iter()
+                .any(|r| r.marks().rev.is_some_and(&which))
+            {
+                let runs = b
+                    .element
+                    .text
+                    .runs()
+                    .iter()
+                    .map(|r| match r {
+                        coldopen_screenplay::Run::Text { text, style, marks }
+                            if marks.rev.is_some_and(&which) =>
+                        {
+                            coldopen_screenplay::Run::marked(
+                                text.clone(),
+                                *style,
+                                Marks {
+                                    rev: None,
+                                    ..*marks
+                                },
+                            )
+                        }
+                        other => other.clone(),
+                    })
+                    .collect();
+                let mut element = b.element.clone();
+                element.text = RichText::new(runs);
+                ops.push(Op::Replace { index, element });
+                touched = true;
+            }
+            count += usize::from(touched);
+        }
+        Ok((Transaction(ops), json!({ "count": count })))
+    }
+
+    /// `revision.list`: every set, oldest first, with the blocks holding
+    /// its marks (docs/specs/revisions.md §5).
+    fn revision_list(&mut self) -> Value {
+        let pages = self.revision_pages();
+        let table = &self.doc.revisions;
+        let mut blocks = vec![0usize; table.sets.len()];
+        for b in &self.doc.blocks {
+            let mut seen: Vec<RevisionId> = b.rev_ids().collect();
+            seen.sort();
+            seen.dedup();
+            for r in seen {
+                if let Some(n) = usize::try_from(r.0)
+                    .ok()
+                    .and_then(|i| blocks.get_mut(i - 1))
+                {
+                    *n += 1;
+                }
+            }
+        }
+        let sets: Vec<Value> = table
+            .sets
+            .iter()
+            .zip(blocks)
+            .map(|(s, n)| {
+                let mut v = json!(s);
+                if let Value::Object(m) = &mut v {
+                    m.insert("blocks".into(), json!(n));
+                    m.insert(
+                        "pages".into(),
+                        json!(pages.iter().filter(|&&p| p == s.id).count()),
+                    );
+                }
+                v
+            })
+            .collect();
+        json!({ "active": table.active, "colors": table.colors, "sets": sets })
+    }
+
+    /// For each body page with a revision header, the set it names.
+    fn revision_pages(&mut self) -> Vec<RevisionId> {
+        Vec::new()
+    }
+}
+
+/// Revision sets are the production's record: only the writer starts,
+/// ends, recolors or clears them (docs/specs/revisions.md §5).
+fn revision_writer(by: &Author, what: &str) -> Result<(), CommandError> {
+    if by.is_writer() {
+        Ok(())
+    } else {
+        Err(CommandError::new(
+            "writer_only",
+            format!("only the writer can {what}"),
+        ))
+    }
+}
+
+impl Command {
+    /// `revision.start` with the defaults that depend on the document and
+    /// the time filled in, so the journal records them
+    /// (docs/specs/revisions.md §5). Other commands are returned as they are.
+    fn with_revision_defaults(self, doc: &Document, t: u64) -> Command {
+        match self {
+            Command::RevisionStart(p) => {
+                let color = p
+                    .color
+                    .map(|c| c.trim().to_string())
+                    .unwrap_or_else(|| doc.revisions.next_color());
+                let label = p.label.unwrap_or_else(|| format!("{color} Rev."));
+                let date = p.date.unwrap_or_else(|| revisions::utc_date(t));
+                Command::RevisionStart(RevisionStart {
+                    color: Some(color),
+                    label: Some(label),
+                    date: Some(date),
+                })
+            }
+            other => other,
+        }
+    }
 }
 
 /// Whether an operation leaves a mark of change `c`.
@@ -1792,7 +2065,12 @@ fn op_names(op: &Op, c: ChangeId) -> bool {
         Op::Insert { block, .. } => block.change_ids().any(|x| x == c),
         Op::Replace { element, .. } => crate::changes::text_ids(&element.text).any(|x| x == c),
         Op::Mark { marks, .. } => marks.ids().any(|x| x == c),
-        Op::Remove { .. } | Op::Move { .. } | Op::Track { .. } => false,
+        Op::Remove { .. }
+        | Op::Move { .. }
+        | Op::Track { .. }
+        | Op::Rev { .. }
+        | Op::Revisions { .. }
+        | Op::TitlePage { .. } => false,
     }
 }
 
