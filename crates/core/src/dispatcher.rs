@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use crate::author::{Author, Clock};
 use crate::command::{
     ChangesSettle, Class, Command, DocClose, DocNew, DocOpen, DocSave, ExportFile, ExportPdf,
-    FileRepair, Recover, RecoveredDelete, RecoveredList, RecoveredRestore,
+    FileRepair, Recover, RecoveredDelete, RecoveredList, RecoveredRestore, RevisionClear,
 };
 use crate::document::Document;
 use crate::error::CommandError;
@@ -1070,11 +1070,13 @@ impl Dispatcher {
     /// the form the file will hold, as a converting save does. The version
     /// with its changes marked is set aside first, as a Recovered version
     /// (docs/specs/journal.md), then every pending change is accepted as
-    /// one undoable step, journaled like any other. Returns the warning
-    /// that says so, or nothing when the save keeps the marks or has none.
-    fn accept_for_save(&mut self, p: &DocSave) -> Result<Option<Value>, CommandError> {
+    /// one undoable step, journaled like any other. The same holds for
+    /// revision sets and marks (docs/specs/revisions.md §9), reset as one
+    /// more step. Returns the warnings that say so, none when the save
+    /// keeps everything or there is nothing to take out.
+    fn accept_for_save(&mut self, p: &DocSave) -> Result<Vec<Value>, CommandError> {
         let Some(session) = self.session.as_mut() else {
-            return Ok(None);
+            return Ok(Vec::new());
         };
         let target = p.path.as_deref().map(Path::new).or(session.path.as_deref());
         let format = match (&p.format, target) {
@@ -1084,13 +1086,20 @@ impl Dispatcher {
         };
         // A bundle keeps the marks; a format that is not known fails when
         // the save renders, as before.
-        if !p.allow_lossy
-            || format.is_none_or(|f| f == FormatId::Bundle)
-            || !session.doc.has_changes()
+        let changes = session.doc.has_changes();
+        let revisions = session.doc.has_revision_data();
+        if !p.allow_lossy || format.is_none_or(|f| f == FormatId::Bundle) || !(changes || revisions)
         {
-            return Ok(None);
+            return Ok(Vec::new());
         }
         let count = session.doc.pending().len();
+        let sets = session.doc.revisions.sets.len();
+        let marked = session
+            .doc
+            .blocks
+            .iter()
+            .filter(|b| b.has_revisions())
+            .count();
         let copy = match &mut session.journal {
             Some(j) => {
                 let path = j.path().to_path_buf();
@@ -1100,32 +1109,27 @@ impl Dispatcher {
             }
             None => None,
         };
-        let accept = Command::ChangesAccept(ChangesSettle {
-            all: true,
-            ..ChangesSettle::default()
-        });
-        session.execute_with(&accept, &Exec::by(self.writer.clone()))?;
         let name = format.map_or("this format", |f| f.title());
-        let changes = if count == 1 {
-            "1 pending change".to_string()
-        } else {
-            format!("{count} pending changes")
-        };
-        Ok(Some(match copy {
-            Some(copy) => json!({
-                "code": "changes_accepted",
-                "message": format!(
-                    "{name} cannot hold tracked changes, so saving accepted {changes};                      the version with them marked is kept in {}",
-                    copy.display()
-                ),
-                "details": { "copy": copy.display().to_string(), "count": count },
-            }),
-            None => json!({
-                "code": "changes_accepted",
-                "message": format!("{name} cannot hold tracked changes, so saving accepted {changes}"),
-                "details": { "count": count },
-            }),
-        }))
+        let mut warnings = Vec::new();
+        if changes {
+            let accept = Command::ChangesAccept(ChangesSettle {
+                all: true,
+                ..ChangesSettle::default()
+            });
+            session.execute_with(&accept, &Exec::by(self.writer.clone()))?;
+            warnings.push(accepted_warning(name, count, copy.as_deref()));
+        }
+        if revisions {
+            // Accepting may have marked text: the reset takes it out too.
+            let clear = Command::RevisionClear(RevisionClear {
+                all: true,
+                sets: true,
+                ..RevisionClear::default()
+            });
+            session.execute_with(&clear, &Exec::by(self.writer.clone()))?;
+            warnings.push(cleared_warning(name, sets, marked, copy.as_deref()));
+        }
+        Ok(warnings)
     }
 
     /// Locks the journal of a "save as" target and judges what it holds
@@ -2209,6 +2213,55 @@ fn exists(target: &Path) -> CommandError {
 
 /// Some choices are the writer's to make, never an agent's: an agent would
 /// simply pass the flag.
+/// The warning a save that accepted pending changes gives.
+fn accepted_warning(name: &str, count: usize, copy: Option<&Path>) -> Value {
+    let changes = if count == 1 {
+        "1 pending change".to_string()
+    } else {
+        format!("{count} pending changes")
+    };
+    match copy {
+        Some(copy) => json!({
+            "code": "changes_accepted",
+            "message": format!(
+                "{name} cannot hold tracked changes, so saving accepted {changes}; the version with them marked is kept in {}",
+                copy.display()
+            ),
+            "details": { "copy": copy.display().to_string(), "count": count },
+        }),
+        None => json!({
+            "code": "changes_accepted",
+            "message": format!("{name} cannot hold tracked changes, so saving accepted {changes}"),
+            "details": { "count": count },
+        }),
+    }
+}
+
+/// The warning a save that took out revision sets and marks gives
+/// (docs/specs/revisions.md §9).
+fn cleared_warning(name: &str, sets: usize, blocks: usize, copy: Option<&Path>) -> Value {
+    let what = format!(
+        "{sets} revision set{} and the marks on {blocks} block{}",
+        if sets == 1 { "" } else { "s" },
+        if blocks == 1 { "" } else { "s" },
+    );
+    match copy {
+        Some(copy) => json!({
+            "code": "revisions_cleared",
+            "message": format!(
+                "{name} cannot hold revision marks, so saving took out {what}; the version with them is kept in {}",
+                copy.display()
+            ),
+            "details": { "copy": copy.display().to_string(), "sets": sets, "blocks": blocks },
+        }),
+        None => json!({
+            "code": "revisions_cleared",
+            "message": format!("{name} cannot hold revision marks, so saving took out {what}"),
+            "details": { "sets": sets, "blocks": blocks },
+        }),
+    }
+}
+
 fn writer_only(what: &str) -> CommandError {
     CommandError::new(
         "writer_only",

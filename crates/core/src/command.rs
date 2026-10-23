@@ -950,6 +950,10 @@ pub struct RevisionClear {
     pub set: Option<crate::revisions::RevisionId>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub all: bool,
+    /// With `all`: the sets go too, and the table is the default again, as
+    /// Save anyway to Fountain or .fdx leaves it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub sets: bool,
 }
 
 #[cfg(test)]

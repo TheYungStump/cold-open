@@ -157,24 +157,47 @@ impl Written {
     }
 }
 
-/// The document a format that cannot hold tracked changes writes: as
-/// accepting every change leaves it, with a loss saying so
-/// (docs/specs/changes.md §9).
-fn without_changes(doc: &Document) -> Option<(Document, Loss)> {
-    if !doc.has_changes() {
+/// The document a format that holds neither tracked changes nor revision
+/// sets writes: as accepting every change leaves it (docs/specs/changes.md
+/// §9), without revision sets or marks (docs/specs/revisions.md §9), with a
+/// loss for each it leaves out.
+fn plain_form(doc: &Document) -> Option<(Document, Vec<Loss>)> {
+    let changes = doc.has_changes();
+    let revisions = doc.has_revision_data();
+    if !changes && !revisions {
         return None;
     }
-    let n = doc.pending().len();
-    let loss = Loss::lost(
-        None,
-        "tracked_changes",
-        format!(
-            "{n} pending tracked change{} cannot be kept, so the script is written as accepting {} leaves it",
-            if n == 1 { "" } else { "s" },
-            if n == 1 { "it" } else { "them all" }
-        ),
-    );
-    Some((doc.accepted(), loss))
+    let mut losses = Vec::new();
+    let mut plain = if changes {
+        let n = doc.pending().len();
+        losses.push(Loss::lost(
+            None,
+            "tracked_changes",
+            format!(
+                "{n} pending tracked change{} cannot be kept, so the script is written as accepting {} leaves it",
+                if n == 1 { "" } else { "s" },
+                if n == 1 { "it" } else { "them all" }
+            ),
+        ));
+        doc.accepted()
+    } else {
+        doc.clone()
+    };
+    if revisions {
+        let sets = doc.revisions.sets.len();
+        let blocks = doc.blocks.iter().filter(|b| b.has_revisions()).count();
+        losses.push(Loss::lost(
+            None,
+            "revision_marks",
+            format!(
+                "{sets} revision set{} and the revision marks on {blocks} block{} cannot be kept",
+                if sets == 1 { "" } else { "s" },
+                if blocks == 1 { "" } else { "s" },
+            ),
+        ));
+        plain = plain.without_revisions();
+    }
+    Some((plain, losses))
 }
 
 /// A document written out.
@@ -245,7 +268,7 @@ impl Format for Fountain {
     }
 
     fn write(&self, doc: &Document, style: SourceStyle) -> Written {
-        let accepted = without_changes(doc);
+        let accepted = plain_form(doc);
         let doc = accepted.as_ref().map_or(doc, |(d, _)| d);
         let (script, mut losses) = fountain_script(doc);
         let written = coldopen_fountain::write(&script);
@@ -255,7 +278,7 @@ impl Format for Fountain {
             .map(|l| Loss::lost(l.element, l.code, l.message))
             .collect();
         all.append(&mut losses);
-        all.extend(accepted.map(|(_, l)| l));
+        all.extend(accepted.into_iter().flat_map(|(_, l)| l));
         all.extend(written.normalized.into_iter().map(|l| Loss {
             element: l.element,
             code: l.code.to_string(),
@@ -530,10 +553,10 @@ impl Format for Fdx {
     }
 
     fn write(&self, doc: &Document, style: SourceStyle) -> Written {
-        let accepted = without_changes(doc);
+        let accepted = plain_form(doc);
         let doc = accepted.as_ref().map_or(doc, |(d, _)| d);
         let format = doc.page_format.as_deref().cloned().unwrap_or_default();
-        let mut losses: Vec<Loss> = accepted.iter().map(|(_, l)| l.clone()).collect();
+        let mut losses: Vec<Loss> = accepted.iter().flat_map(|(_, l)| l.clone()).collect();
         // A Fountain title page is written as the lines it prints as
         // (docs/specs/fdx.md §14.3).
         let converted;

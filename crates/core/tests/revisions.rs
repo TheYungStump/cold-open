@@ -544,3 +544,145 @@ proptest! {
         prop_assert!(!any_marks(&mut d));
     }
 }
+
+// ---- Files ----
+
+#[test]
+fn a_project_keeps_sets_and_marks_across_a_reopen_and_a_crash() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, _) = open(dir.path());
+    ok(&mut d, "revision.start", json!({"date": "2026-10-22"}));
+    ok(
+        &mut d,
+        "text.insert",
+        json!({"id": "b_2", "at": 0, "text": "Sleepy "}),
+    );
+    ok(
+        &mut d,
+        "block.set_type",
+        json!({"id": "b_4", "type": "action"}),
+    );
+    let b = dir.path().join("s.coldopen");
+    let r = ok(&mut d, "doc.save", json!({"path": b}));
+    assert_eq!(r["losses"], json!([]), "{r}");
+    let want = blocks(&mut d);
+    let list = ok(&mut d, "revision.list", json!({}));
+    ok(&mut d, "doc.close", json!({}));
+    ok(&mut d, "doc.open", json!({"path": b}));
+    assert_eq!(blocks(&mut d), want);
+    assert_eq!(ok(&mut d, "revision.list", json!({})), list);
+    // Marking goes on, and a crash after a save recovers it all.
+    ok(
+        &mut d,
+        "text.insert",
+        json!({"id": "b_8", "at": 0, "text": "Then "}),
+    );
+    let want = blocks(&mut d);
+    drop(d);
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, "doc.open", json!({"path": b}));
+    assert_eq!(r["recovered"]["commands"], 1, "{r}");
+    assert_eq!(blocks(&mut d), want);
+}
+
+#[test]
+fn fountain_and_fdx_report_the_revision_marks() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, _) = open(dir.path());
+    ok(&mut d, "revision.start", json!({}));
+    ok(
+        &mut d,
+        "text.insert",
+        json!({"id": "b_2", "at": 0, "text": "Sleepy "}),
+    );
+    let e = run(&mut d, &writer(), "doc.save", json!({})).unwrap_err();
+    assert_eq!(e.code, "lossy_format");
+    let losses = e.details.as_ref().unwrap()["losses"].to_string();
+    assert!(losses.contains("revision_marks"), "{losses}");
+    let fdx = dir.path().join("s.fdx");
+    let e = run(&mut d, &writer(), "export.fdx", json!({"path": fdx})).unwrap_err();
+    assert!(
+        e.details.as_ref().unwrap()["losses"]
+            .to_string()
+            .contains("revision_marks")
+    );
+    // An export leaves the script's marks as they are.
+    ok(
+        &mut d,
+        "export.fdx",
+        json!({"path": fdx, "allow_lossy": true}),
+    );
+    assert!(any_marks(&mut d));
+    let text = fs::read_to_string(&fdx).unwrap();
+    assert!(text.contains("Sleepy Maya makes toast."));
+}
+
+#[test]
+fn save_anyway_takes_the_marks_out_and_keeps_the_marked_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, p) = open(dir.path());
+    ok(&mut d, "revision.start", json!({}));
+    ok(
+        &mut d,
+        "text.insert",
+        json!({"id": "b_2", "at": 0, "text": "Sleepy "}),
+    );
+    let marked = blocks(&mut d);
+    let r = ok(&mut d, "doc.save", json!({"allow_lossy": true}));
+    let codes: Vec<&str> = r["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|w| w["code"].as_str())
+        .collect();
+    assert_eq!(codes, ["revisions_cleared"], "{r}");
+    assert!(
+        r["losses"].to_string().find("revision_marks").is_none(),
+        "{r}"
+    );
+    assert!(!any_marks(&mut d));
+    assert_eq!(ok(&mut d, "revision.list", json!({}))["sets"], json!([]));
+    assert!(
+        fs::read_to_string(&p)
+            .unwrap()
+            .contains("Sleepy Maya makes toast.")
+    );
+    // The next save asks nothing, and undo brings the marks back.
+    ok(&mut d, "doc.save", json!({}));
+    ok(&mut d, "undo", json!({}));
+    assert_eq!(blocks(&mut d), marked);
+    let copies = ok(&mut d, "recovered.list", json!({}))["copies"].clone();
+    assert!(
+        copies
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["kind"] == "marked"),
+        "{copies}"
+    );
+}
+
+#[test]
+fn save_anyway_with_tracked_changes_and_revisions_does_both() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, _) = open(dir.path());
+    ok(&mut d, "revision.start", json!({}));
+    run(
+        &mut d,
+        &agent(),
+        "text.insert",
+        json!({"id": "b_2", "at": 0, "text": "Sleepy "}),
+    )
+    .unwrap();
+    let r = ok(&mut d, "doc.save", json!({"allow_lossy": true}));
+    let codes: Vec<&str> = r["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|w| w["code"].as_str())
+        .collect();
+    assert_eq!(codes, ["changes_accepted", "revisions_cleared"], "{r}");
+    assert!(!any_marks(&mut d));
+    assert_eq!(ok(&mut d, "changes.list", json!({}))["changes"], json!([]));
+    assert_eq!(block(&mut d, "b_2")["text"], "Sleepy Maya makes toast.");
+}

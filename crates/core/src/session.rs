@@ -1916,6 +1916,9 @@ impl Session {
         by: &Author,
     ) -> Result<(Transaction, Value), CommandError> {
         revision_writer(by, "clear revision marks")?;
+        if p.sets && !p.all {
+            return Err(CommandError::invalid_params("\"sets\" goes with \"all\""));
+        }
         let which: Box<dyn Fn(RevisionId) -> bool> = match (p.set, p.all) {
             (Some(s), false) => {
                 if self.doc.revisions.get(s).is_none() {
@@ -1974,6 +1977,11 @@ impl Session {
                 touched = true;
             }
             count += usize::from(touched);
+        }
+        if p.sets && !self.doc.revisions.is_default() {
+            ops.push(Op::Revisions {
+                revisions: Box::default(),
+            });
         }
         Ok((Transaction(ops), json!({ "count": count })))
     }

@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 use crate::author::Author;
 use crate::command::{Class, Command};
 use crate::dispatcher::{Dispatcher, Options};
+use crate::document::Document;
 
 /// Feeds each line of `data` to a dispatcher holding an untitled document.
 /// Every line must get exactly one well-formed response echoing its id.
@@ -125,13 +126,8 @@ pub fn bundle_read(data: &[u8]) -> Result<(), String> {
 /// The script the `changes` check edits.
 const CHANGES_SCRIPT: &str = "INT. KITCHEN - DAY\n\nMaya makes toast.\n\nMAYA\nBreakfast is ready.\n\nEXT. GARDEN - DAY\n\nTheo waters plants.\n\nINT. SHED - NIGHT\n\nA lamp flickers.\n";
 
-/// Runs the edits arbitrary bytes describe on a short script: tracked
-/// edits by a writer and two agents, settling by id, scene and all, and
-/// undo and redo (docs/specs/changes.md). It must never panic; after every
-/// step the document keeps the model rules and every mark names a change
-/// the table has; accepting every change leaves no mark, and undoing that
-/// gives the marks back.
-pub fn changes(data: &[u8]) -> Result<(), String> {
+/// A dispatcher with the `changes` script open in memory, untracked.
+fn script_session() -> Dispatcher {
     let mut d = Dispatcher::new(Options {
         journal: false,
         fsync: false,
@@ -139,116 +135,143 @@ pub fn changes(data: &[u8]) -> Result<(), String> {
     d.handle(&json!({ "command": "doc.new" }));
     let script = coldopen_fountain::parse(CHANGES_SCRIPT).script;
     for e in script.elements {
-        let mut p = serde_json::to_value(&e).map_err(|e| e.to_string())?;
+        let Ok(mut p) = serde_json::to_value(&e) else {
+            continue;
+        };
         p["tracked"] = json!(false);
         d.handle(&json!({ "command": "block.insert", "params": p }));
     }
-    let authors = [
+    d
+}
+
+/// The authors the edit checks take turns as.
+fn authors() -> [Author; 3] {
+    [
         Author::named_writer("Maya"),
         Author::agent("agent-a", None),
         Author::agent("agent-b", None),
-    ];
+    ]
+}
+
+/// The command four bytes describe on `doc`: an edit, a settle, undo or
+/// redo, and with `revisions` the revision commands too.
+fn edit_for(op: &[u8], doc: &Document, revisions: bool) -> Option<(&'static str, Value)> {
     const WORDS: [&str; 4] = ["toast", "a", "plants", " "];
     const KINDS: [&str; 5] = ["action", "dialogue", "character", "scene_heading", "note"];
+    let [kind, _, x, y] = [0, 1, 2, 3].map(|i| op.get(i).copied().unwrap_or(0));
+    let blocks: Vec<(String, usize)> = doc
+        .blocks
+        .iter()
+        .map(|b| (b.id.to_string(), b.element.text.char_len()))
+        .collect();
+    let heads: Vec<String> = doc
+        .blocks
+        .iter()
+        .filter(|b| b.element.kind == coldopen_screenplay::ElementKind::SceneHeading)
+        .map(|b| b.id.to_string())
+        .collect();
+    let pending: Vec<String> = doc.pending().iter().map(|c| c.to_string()).collect();
+    let pick = |n: u8| -> (String, usize) {
+        if blocks.is_empty() {
+            ("b_1".into(), 0)
+        } else {
+            blocks[usize::from(n) % blocks.len()].clone()
+        }
+    };
+    let (id, len) = pick(x);
+    let at = usize::from(y) % (len + 1);
+    let word = WORDS[usize::from(y) % WORDS.len()];
+    let change = |n: u8| -> Value {
+        match pending.get(usize::from(n) % pending.len().max(1)) {
+            Some(c) => json!({ "id": c }),
+            None => json!({ "all": true }),
+        }
+    };
+    let settle = |n: u8| -> Value {
+        match n % 3 {
+            0 => change(n / 3),
+            1 => match heads.get(usize::from(n) % heads.len().max(1)) {
+                Some(h) => json!({ "scene": h }),
+                None => json!({ "all": true }),
+            },
+            _ => json!({ "all": true }),
+        }
+    };
+    let kinds = if revisions { 20 } else { 16 };
+    let (name, mut params) = match kind % kinds {
+        0 => ("text.insert", json!({ "id": id, "at": at, "text": word })),
+        1 => (
+            "text.delete",
+            json!({ "id": id, "from": at, "to": (at + 1 + usize::from(y % 4)).min(len) }),
+        ),
+        2 => (
+            "text.replace",
+            json!({ "find": word, "with": WORDS[usize::from(x) % 4] }),
+        ),
+        3 => (
+            "block.set_text",
+            json!({ "id": id, "text": format!("{word} plants {y}") }),
+        ),
+        4 => (
+            "block.insert",
+            json!({ "after": id, "type": KINDS[usize::from(y) % KINDS.len()], "text": word }),
+        ),
+        5 => ("block.delete", json!({ "id": id })),
+        6 => (
+            "block.set_type",
+            json!({ "id": id, "type": KINDS[usize::from(y) % KINDS.len()] }),
+        ),
+        7 => ("block.split", json!({ "id": id, "at": at })),
+        8 => ("block.join", json!({ "id": id })),
+        9 => match (
+            heads.first(),
+            heads.get(usize::from(y) % heads.len().max(1)),
+        ) {
+            (Some(_), Some(to)) => (
+                "scene.move",
+                json!({ "id": heads[usize::from(x) % heads.len()], "before": to }),
+            ),
+            _ => return None,
+        },
+        10 => ("changes.accept", settle(y)),
+        11 => ("changes.reject", settle(y)),
+        12 => ("undo", json!({})),
+        13 => ("redo", json!({})),
+        14 => (
+            "text.style",
+            json!({ "id": id, "from": 0, "to": at, "bold": true }),
+        ),
+        15 => ("changes.track", json!({ "writer": y % 2 == 0 })),
+        16 => ("revision.start", json!({})),
+        17 => ("revision.end", json!({})),
+        18 => (
+            "revision.clear",
+            json!({ "set": format!("r_{}", 1 + usize::from(y) % doc.revisions.sets.len().max(1)) }),
+        ),
+        _ => ("revision.clear", json!({ "all": true, "sets": y % 4 == 0 })),
+    };
+    if matches!(kind % kinds, 0..=9) {
+        match kind / kinds % 4 {
+            1 => params["tracked"] = json!(false),
+            2 => params["tracked"] = json!(true),
+            _ => {}
+        }
+    }
+    Some((name, params))
+}
+
+/// Runs the edits `data` describes, checking the model rules after each.
+fn run_edits(d: &mut Dispatcher, data: &[u8], revisions: bool) -> Result<(), String> {
+    let authors = authors();
     for op in data.chunks(4) {
-        let [kind, who, x, y] = [0, 1, 2, 3].map(|i| op.get(i).copied().unwrap_or(0));
+        let who = op.get(1).copied().unwrap_or(0);
         let by = &authors[usize::from(who) % authors.len()];
         let Some(s) = d.session() else {
             return Err("the document went away".into());
         };
-        let blocks: Vec<(String, usize)> = s
-            .doc
-            .blocks
-            .iter()
-            .map(|b| (b.id.to_string(), b.element.text.char_len()))
-            .collect();
-        let heads: Vec<String> = s
-            .doc
-            .blocks
-            .iter()
-            .filter(|b| b.element.kind == coldopen_screenplay::ElementKind::SceneHeading)
-            .map(|b| b.id.to_string())
-            .collect();
-        let pending: Vec<String> = s.doc.pending().iter().map(|c| c.to_string()).collect();
-        let pick = |n: u8| -> (String, usize) {
-            if blocks.is_empty() {
-                ("b_1".into(), 0)
-            } else {
-                blocks[usize::from(n) % blocks.len()].clone()
-            }
+        let Some((name, params)) = edit_for(op, &s.doc, revisions) else {
+            continue;
         };
-        let (id, len) = pick(x);
-        let at = usize::from(y) % (len + 1);
-        let word = WORDS[usize::from(y) % WORDS.len()];
-        let change = |n: u8| -> Value {
-            match pending.get(usize::from(n) % pending.len().max(1)) {
-                Some(c) => json!({ "id": c }),
-                None => json!({ "all": true }),
-            }
-        };
-        let settle = |n: u8| -> Value {
-            match n % 3 {
-                0 => change(n / 3),
-                1 => match heads.get(usize::from(n) % heads.len().max(1)) {
-                    Some(h) => json!({ "scene": h }),
-                    None => json!({ "all": true }),
-                },
-                _ => json!({ "all": true }),
-            }
-        };
-        let (name, params) = match kind % 16 {
-            0 => ("text.insert", json!({ "id": id, "at": at, "text": word })),
-            1 => (
-                "text.delete",
-                json!({ "id": id, "from": at, "to": (at + 1 + usize::from(y % 4)).min(len) }),
-            ),
-            2 => (
-                "text.replace",
-                json!({ "find": word, "with": WORDS[usize::from(x) % 4] }),
-            ),
-            3 => (
-                "block.set_text",
-                json!({ "id": id, "text": format!("{word} plants {y}") }),
-            ),
-            4 => (
-                "block.insert",
-                json!({ "after": id, "type": KINDS[usize::from(y) % KINDS.len()], "text": word }),
-            ),
-            5 => ("block.delete", json!({ "id": id })),
-            6 => (
-                "block.set_type",
-                json!({ "id": id, "type": KINDS[usize::from(y) % KINDS.len()] }),
-            ),
-            7 => ("block.split", json!({ "id": id, "at": at })),
-            8 => ("block.join", json!({ "id": id })),
-            9 => match (
-                heads.first(),
-                heads.get(usize::from(y) % heads.len().max(1)),
-            ) {
-                (Some(_), Some(to)) => (
-                    "scene.move",
-                    json!({ "id": heads[usize::from(x) % heads.len()], "before": to }),
-                ),
-                _ => continue,
-            },
-            10 => ("changes.accept", settle(y)),
-            11 => ("changes.reject", settle(y)),
-            12 => ("undo", json!({})),
-            13 => ("redo", json!({})),
-            14 => (
-                "text.style",
-                json!({ "id": id, "from": 0, "to": at, "bold": true }),
-            ),
-            _ => ("changes.track", json!({ "writer": y % 2 == 0 })),
-        };
-        let mut params = params;
-        if matches!(kind % 16, 0..=9) {
-            match kind / 16 % 4 {
-                1 => params["tracked"] = json!(false),
-                2 => params["tracked"] = json!(true),
-                _ => {}
-            }
-        }
         let Ok(cmd) = Command::from_parts(name, params) else {
             continue;
         };
@@ -260,6 +283,18 @@ pub fn changes(data: &[u8]) -> Result<(), String> {
             .check()
             .map_err(|e| format!("after {name}, the document breaks a rule: {e}"))?;
     }
+    Ok(())
+}
+
+/// Runs the edits arbitrary bytes describe on a short script: tracked
+/// edits by a writer and two agents, settling by id, scene and all, and
+/// undo and redo (docs/specs/changes.md). It must never panic; after every
+/// step the document keeps the model rules and every mark names a change
+/// the table has; accepting every change leaves no mark, and undoing that
+/// gives the marks back.
+pub fn changes(data: &[u8]) -> Result<(), String> {
+    let mut d = script_session();
+    run_edits(&mut d, data, false)?;
     let Some(before) = d.session().map(|s| s.doc.clone()) else {
         return Err("the document went away".into());
     };
@@ -281,6 +316,40 @@ pub fn changes(data: &[u8]) -> Result<(), String> {
         if d.session().map(|s| &s.doc.blocks) != Some(&before.blocks) {
             return Err("undoing an accept does not give the marks back".into());
         }
+    }
+    Ok(())
+}
+
+/// The same edits with revision sets started, ended and cleared among them
+/// (docs/specs/revisions.md). It must never panic; after every step the
+/// document keeps the model rules and every revision mark names a set the
+/// table has; the document written as a bundle reads back as it was; and
+/// undoing every step leaves no revision mark and the default table.
+pub fn revisions(data: &[u8]) -> Result<(), String> {
+    let mut d = script_session();
+    run_edits(&mut d, data, true)?;
+    let Some(doc) = d.session().map(|s| s.doc.clone()) else {
+        return Err("the document went away".into());
+    };
+    let back = crate::bundle::read(&crate::bundle::write(&doc))
+        .map_err(|e| format!("a bundle Cold Open wrote cannot be read: {e}"))?;
+    if back.repaired.is_some() {
+        return Err(format!(
+            "a bundle Cold Open wrote needs repair: {:?}",
+            back.repaired
+        ));
+    }
+    if back.doc.blocks != doc.blocks || back.doc.revisions != doc.revisions {
+        return Err("a bundle does not read back with its revision sets and marks".into());
+    }
+    // Every step, the script's own insertions included, so nothing can be
+    // left that an edit made.
+    while d.handle(&json!({ "command": "undo" }))["ok"] == true {}
+    let Some(s) = d.session() else {
+        return Err("the document went away".into());
+    };
+    if s.doc.has_revision_data() {
+        return Err("undoing every step leaves revision data".into());
     }
     Ok(())
 }
@@ -381,6 +450,13 @@ mod tests {
         ];
         assert_eq!(changes(&ops), Ok(()));
         assert_eq!(changes(&[]), Ok(()));
+        // Start a set, type, delete, end it, clear it, with undos.
+        let ops: Vec<u8> = vec![
+            16, 0, 0, 0, 0, 0, 1, 3, 1, 0, 3, 1, 17, 0, 0, 0, 6, 0, 2, 1, 16, 0, 0, 0, 9, 0, 1, 0,
+            18, 0, 0, 0, 12, 0, 0, 0, 19, 0, 0, 0,
+        ];
+        assert_eq!(revisions(&ops), Ok(()));
+        assert_eq!(revisions(&[]), Ok(()));
     }
 
     #[test]
