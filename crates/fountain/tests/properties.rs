@@ -550,8 +550,35 @@ fn hidden_only_lines_never_eat_empty_lines() {
     }
 }
 
-/// A line of a lyric or a speech: empty, holding only notes or boneyard,
-/// or words (with the odd note).
+/// Found by the 30-minute `fountain_roundtrip` run on the fix above (run
+/// 39876198784, 2026-10-22), and on `main` before it: "unexpected losses:
+/// unexpressible". An action of two lines that each hold only a boneyard
+/// was written with `!` on the first, and a lone `!` hands its hidden runs
+/// to the line after it, so the two lines read back as one. The first line
+/// is anchored like the others when more lines follow (spec §9).
+#[test]
+fn a_first_action_line_of_hidden_runs_stays_a_line() {
+    for input in [
+        &b"\t!\t\t\t*/*\x02*/*\t\t\r\t*/*\x02*/*"[..],
+        b"*/**/*\r*/**/*",
+        b"*[[a]]*\n*[[b]]*\n*[[c]]*",
+    ] {
+        assert_eq!(
+            coldopen_fountain::fuzzing::round_trip_bytes(input),
+            Ok(()),
+            "{:?}",
+            String::from_utf8_lossy(input)
+        );
+    }
+    let s = parse("*/**/*\n*/**/*").script;
+    assert_eq!(s.elements[0].text.plain_text().split('\n').count(), 2);
+    assert_eq!(write(&s).text, "*/**/*\n*/**/*\n");
+    // One line alone keeps its `!`.
+    assert_eq!(write(&parse("*/**/*").script).text, "!/**/\n");
+}
+
+/// A line of a lyric, a speech or an action: empty, holding only notes or
+/// boneyard, or words (with the odd note).
 fn sparse_line() -> impl Strategy<Value = Vec<Run>> {
     prop_oneof![
         3 => Just(Vec::new()),
@@ -563,16 +590,21 @@ fn sparse_line() -> impl Strategy<Value = Vec<Run>> {
     ]
 }
 
-/// One lyric or one speech, made of sparse lines.
+/// One lyric, speech, action or centered action, made of sparse lines.
 fn sparse_script() -> impl Strategy<Value = Script> {
-    (any::<bool>(), prop::collection::vec(sparse_line(), 1..7)).prop_map(|(speech, lines)| {
-        let elements = if speech {
-            vec![
+    (0..4u8, prop::collection::vec(sparse_line(), 1..7)).prop_map(|(kind, mut lines)| {
+        // An action of empty lines alone has nothing to print or keep.
+        if kind >= 2 && lines.iter().all(Vec::is_empty) {
+            lines[0] = vec![Run::Note("n".into())];
+        }
+        let elements = match kind {
+            0 => vec![
                 Element::new(ElementKind::Character, "BOB"),
                 Element::new(ElementKind::Dialogue, rich(lines)),
-            ]
-        } else {
-            vec![Element::new(ElementKind::Lyric, rich(lines))]
+            ],
+            1 => vec![Element::new(ElementKind::Lyric, rich(lines))],
+            2 => vec![Element::new(ElementKind::Action, rich(lines))],
+            _ => vec![Element::new(ElementKind::Action, rich(lines)).centered()],
         };
         Script {
             title_page: TitlePage::default(),
@@ -626,8 +658,11 @@ proptest! {
         let w = write(&n);
         prop_assert!(w.losses.is_empty(), "losses {:?}\n--- written\n{}", w.losses, w.text);
         prop_assert_eq!(&parse(&w.text).script, &n, "\n--- written\n{}", w.text);
-        let source = lines_of(&s.elements.last().unwrap().text);
-        if source.iter().any(|l| has_words(l)) {
+        let last = s.elements.last().unwrap();
+        let source = lines_of(&last.text);
+        // Action splits at empty lines, so only lyrics and speeches keep
+        // theirs within one element.
+        if last.kind != ElementKind::Action && source.iter().any(|l| has_words(l)) {
             let kept: Vec<String> = source
                 .iter()
                 .filter(|l| !hidden_only(l))

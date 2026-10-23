@@ -87,7 +87,11 @@ Phase 5a is done: the `.coldopen` project bundle, track changes (F18.2), agents'
   - **The cause.** A hidden-only line joined the empty lyric line before it. That line then held only hidden runs itself, so normalising again joined it once more, and each pass lost an empty line. Speeches lost hold lines the same way. So the normal form changed what prints, not only what the check sees.
   - **The fix** (`norm.rs`, `merge_hidden_only`, which the reader and the normal form share). Hidden-only lines join the nearest line with visible text, and never an empty line. In an element with no visible text, every hidden run goes to the first line. One pass is now final (`fountain.md` §5, 2026-10-22).
   - **Tests.** `hidden_only_lines_never_eat_empty_lines` (the inputs, and the line counts they must keep), and the property test `hidden_only_lines_normalise_once` (normalising is idempotent, writes back as itself, and keeps every printed line). Both failed before the fix.
-  - **The 30-minute run** of `fountain_roundtrip` on the fix's branch: pending.
+  - **A second finding, from the first 30-minute run** (39876198784, after about eight minutes). It failed on `main` too: "unexpected losses: unexpressible", minimised to `*/**/*\r*/**/*`.
+    - **The cause.** An action of two lines, each holding only a boneyard, was written with `!` on the first line. A lone `!` hands its hidden runs to the next line, so the two lines read back as one.
+    - **The fix.** The writer now anchors that first line with an empty emphasis pair, as it already did every later one, whenever more lines follow (`write.rs`, `fountain.md` §9, 2026-10-22).
+    - **Tests.** `a_first_action_line_of_hidden_runs_stays_a_line` fails without the fix. The property test now also makes actions and centered actions, and it failed without the fix too.
+  - **The 30-minute run** of `fountain_roundtrip` on the fix's branch, with both fixes: pending.
 
 ### Decisions
 
