@@ -234,7 +234,8 @@ impl App {
             self.recovered_view(pal, s)
         } else if let Some(f) = &self.export {
             let marks = self.d.session().is_some_and(|s| s.doc.has_changes());
-            export_view(pal, f, marks)
+            let revised = self.d.session().is_some_and(|s| s.doc.has_revision_data());
+            export_view(pal, f, marks, revised)
         } else {
             self.sheet_view(pal, self.sheet?)
         };
@@ -309,6 +310,7 @@ impl App {
                 path,
                 export,
                 tracked,
+                revisions,
                 ..
             } => {
                 let format = path
@@ -317,10 +319,11 @@ impl App {
                     .or_else(|| self.d.session().map(|s| s.format))
                     .unwrap_or_default()
                     .title();
-                let heading = if *tracked > 0 {
-                    format!("{format} can't hold tracked changes")
-                } else {
-                    format!("{format} can't hold everything in this script")
+                let heading = match (*tracked > 0, *revisions) {
+                    (true, true) => format!("{format} can't hold tracked changes or revision marks"),
+                    (true, false) => format!("{format} can't hold tracked changes"),
+                    (false, true) => format!("{format} can't hold revision marks"),
+                    (false, false) => format!("{format} can't hold everything in this script"),
                 };
                 // Saving the script itself can keep everything as a
                 // project bundle (editor.md §17.5).
@@ -333,7 +336,7 @@ impl App {
                         "Enter: Save anyway  ·  Esc: Cancel",
                     )
                 } else {
-                    let project = *tracked > 0;
+                    let project = *tracked > 0 || *revisions;
                     (
                         row![
                             dialog_button(
@@ -361,6 +364,12 @@ impl App {
                 .into()
             }
             Prompt::AuthorName { name, .. } => self.name_view(pal, name),
+            p @ (Prompt::RevisionStart(_)
+            | Prompt::RevisionEndFirst { .. }
+            | Prompt::RevisionColors(_)
+            | Prompt::RevisionClear { .. }) => self
+                .revision_prompt_view(pal, p)
+                .unwrap_or_else(|| column![].into()),
             Prompt::SettleAll { accept, count } => self.settle_all_view(pal, *accept, *count),
             Prompt::Foreign { path, host, at } => column![
                 title(pal, "Unsaved changes from somewhere else"),
@@ -629,6 +638,30 @@ impl App {
                 }),
             );
         }
+        // The active revision set, as revised pages print it (editor.md
+        // §18); a click opens the revision commands in the palette.
+        if let Some(set) = session.and_then(|s| s.doc.revisions.active_set()) {
+            r = r.push(
+                button(
+                    text(coldopen_core::revisions::header_text(set))
+                        .font(fonts::UI_BOLD)
+                        .size(12)
+                        .color(pal.accent_text),
+                )
+                .on_press(Message::Action("app.revision_menu".into()))
+                .padding([2, 10])
+                .style(move |_t: &Theme, _s| button::Style {
+                    background: Some(Background::Color(pal.accent_soft)),
+                    text_color: pal.accent_text,
+                    border: Border {
+                        color: pal.accent,
+                        width: 1.0,
+                        radius: 999.0.into(),
+                    },
+                    ..button::Style::default()
+                }),
+            );
+        }
         r = r.push(space::horizontal());
         if let Some(k) = kind {
             let row_flow = self.editor.flow.row(k);
@@ -731,6 +764,11 @@ impl App {
                         .width(Length::Fixed(22.0)),
                     text("●").font(fonts::UI).size(9).color(dot),
                     heading,
+                    // A scene with revision marks (editor.md §18).
+                    text(if r.revised { "*" } else { "" })
+                        .font(fonts::UI_BOLD)
+                        .size(12)
+                        .color(pal.text_quiet),
                     text(page).font(fonts::UI).size(12).color(pal.text_quiet),
                 ]
                 .spacing(6)
@@ -1253,7 +1291,7 @@ pub(super) fn ellipsize(s: &str, n: usize) -> String {
 
 /// The PDF export form; `marks` when the script has pending changes, which
 /// print marked unless the writer asks for the current text.
-fn export_view(pal: Palette, f: &ExportForm, marks: bool) -> Element<'_, Message> {
+fn export_view(pal: Palette, f: &ExportForm, marks: bool, revised: bool) -> Element<'_, Message> {
     let toggle = |label: &'static str, on: bool, m: Message| {
         button(
             text(format!("{label}: {}", if on { "on" } else { "off" }))
@@ -1281,15 +1319,22 @@ fn export_view(pal: Palette, f: &ExportForm, marks: bool) -> Element<'_, Message
             Message::ExportChanges,
         ));
     }
-    let keys = if marks {
-        format!(
-            "{m}+1: scene numbers  ·  {m}+2: title page  ·  {m}+3: the current text  ·  Enter: choose where to save  ·  Esc: cancel"
-        )
-    } else {
-        format!(
-            "{m}+1: scene numbers  ·  {m}+2: title page  ·  Enter: choose where to save  ·  Esc: cancel"
-        )
-    };
+    if revised {
+        toggles = toggles.push(toggle("Colored pages", f.colored, Message::ExportColored));
+    }
+    let keys = format!(
+        "{m}+1: scene numbers  ·  {m}+2: title page{}{}  ·  Enter: choose where to save  ·  Esc: cancel",
+        if marks {
+            format!("  ·  {m}+3: the current text")
+        } else {
+            String::new()
+        },
+        if revised {
+            format!("  ·  {m}+4: colored pages")
+        } else {
+            String::new()
+        },
+    );
     column![
         title(pal, "Export a PDF"),
         toggles,

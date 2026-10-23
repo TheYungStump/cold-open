@@ -464,12 +464,12 @@ Added 2026-10-18 (phase 5a). Sources: `docs/spec.md` ("Revising", "Agents edit i
 Added 2026-10-22 (phase 5b). Sources: `docs/specs/revisions.md`, the phase 5b brief and the decisions taken with the project's owner (2026-10-22, `docs/progress/phase-5b.md`). The form, the keys and the look are our own choices.
 
 - **On the page.** Revision-marked text is drawn in its set's ink for the theme (`docs/specs/revisions.md` §2.3). A tracked-change mark on the same cell wins, in its author's color. Every marked line shows `*` in the page's right margin, and every revised page its revision header, exactly as the PDF prints them.
-- **The hint bar** shows the active set, "Blue Rev. 10/22/26", while one is active. A click on it opens the revision menu below.
+- **The hint bar** shows the active set, "Blue Rev. 10/22/26", while one is active. A click on it opens the palette showing the revision commands.
 - **The navigator** shows a small `*` after the heading of a scene holding revision marks.
 - **Starting a set.** "Start revision…" (palette) opens a small form with three fields: the color (the next one chosen, Up and Down step through the document's list, and any name may be typed), the label ("<color> Rev.", following the color until it is edited) and the date (today's date in UTC, as `YYYY-MM-DD`). The color field has the keyboard. Enter sends `revision.start`; Esc cancels. With a set active, the form first asks "End Blue Rev. first?" (Enter ends it and goes on, Esc cancels).
 - **Ending, colors and clearing.**
   - "End revision" sends `revision.end`.
-  - "Revision colors…" opens the list, one name per line, to edit and confirm with Mod+Enter.
+  - "Revision colors…" opens the list as one line, names between commas, to edit and confirm with Enter.
   - "Clear revision marks…" asks which set (or all) and confirms: "Clear the marks of Blue Rev.? The set stays in the list." Each is one undo step.
 - **Saving.** A .fountain or .fdx script with revision data asks before saving, as for tracked changes (§17.5): "Fountain can't hold revision marks." It says that saving takes them out and that the marked version is kept in Recovered versions. **Save as Cold Open project…** (P) is the default (Enter), **Save anyway** (S) runs `doc.save` with `allow_lossy`, and **Cancel** (Esc or C).
 - **PDF export.** The export form gains "Colored pages" (Mod+4, off by default, shown only when the script has revision marks): `revision_pages: "colored"`.

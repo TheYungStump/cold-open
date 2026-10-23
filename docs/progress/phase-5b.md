@@ -23,7 +23,7 @@ Locked pages (A and B pages) and locked scene numbers are not in 5b.
 | 3 | The revision model: marks, the revision table, the commands, marking in the dispatcher and on accept, change table v2, `semantics` 3; property tests | done: `crates/core/tests/revisions.rs` (13 tests, a property test among them); `revision.list`'s `pages` comes with layout (step 5) |
 | 4 | Files: bundle v2 and `revisions.json`, the journal header, the `revision_marks` loss and Save anyway, the `revisions` fuzz target | done: bundle unit tests, file tests in `revisions.rs`, and the `revisions` check and fuzz target (eleven targets now) |
 | 5 | Layout and PDF: asterisks, revised-page headers, colored pages; page view and PDF goldens | done: `Layout::mark_revisions`; page view and colored-PDF tests in `revisions.rs`; existing goldens unchanged |
-| 6 | The app's revisions: start form, palette, inks, asterisks, the active set in the hint bar | |
+| 6 | The app's revisions: start form, palette, inks, asterisks, the active set in the hint bar | done: `crates/app/tests/revisions.rs` (6 tests: the form, inks in three themes, ending first, clearing, Save anyway, colored pages); screenshots reviewed in three themes |
 | 7 | Shared names and the three reports: core, CLI (text, JSON, CSV), MCP tools and resources, the report view | |
 | 8 | The title page editor: commands, op, the agent rule, the app sheet | |
 | 9 | Script diff: the `coldopen-diff` crate, the `diff` command, CLI, MCP, PDF, Compare with…; the Big Fish variants; the budget; property tests and a fuzz target | |
@@ -85,3 +85,7 @@ The project's owner approved the plan without choosing on these, so they stand a
 23. **Phase 5a's `changes_accepted` message** had a run of stray spaces in the middle, from a line continuation that lost its backslash. The message is now written once, in a helper the revision warning shares.
 24. **The asterisk sits 0.4 in from the paper's right edge** (step 5), 8.1 in on Letter, not at a page-format field. A field would have changed every page format's JSON, and a phase 5a build reading a version 1 bundle of an .fdx script would then fail on it.
 25. **Revision marks are a pass over finished pages**, not part of pagination (`Layout::mark_revisions`). Marks never move a line, so the incremental engine needs nothing new, and the pass runs again after any change. Dual dialogue gets one asterisk per row, and a right scene number in the way pushes it one cell past.
+26. **The app paints revision marks for the pages in view only** (step 6). It calls layout's per-page `revision_lines` while drawing, so typing never copies the layout. A tracked change's author color wins over a revision's ink on the same cell.
+27. **The hint bar's badge** ("Blue Rev. 10/22/26") opens the palette showing the revision commands, rather than ending the set on a click, since one stray click would end it.
+28. **The color list is edited as one line**, names between commas, rather than one per line: a single field needs no multi-line editor, and Enter saves it as every other question does.
+29. **`App::refresh`** (hidden from the docs) shows edits made straight through the dispatcher, as the app's own edits are shown. The screenshot example needed it; tests can use it too.

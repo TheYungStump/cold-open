@@ -288,6 +288,26 @@ pub const APP_ACTIONS: &[ActionInfo] = &[
         name: "app.author_name",
         title: "Change my name for changes…",
     },
+    ActionInfo {
+        name: "app.revision_menu",
+        title: "Revision commands…",
+    },
+    ActionInfo {
+        name: "app.revision_start",
+        title: "Start revision…",
+    },
+    ActionInfo {
+        name: "app.revision_end",
+        title: "End revision",
+    },
+    ActionInfo {
+        name: "app.revision_colors",
+        title: "Revision colors…",
+    },
+    ActionInfo {
+        name: "app.revision_clear",
+        title: "Clear revision marks…",
+    },
 ];
 
 /// A short title for a core command.

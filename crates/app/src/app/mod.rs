@@ -21,6 +21,7 @@ mod bench;
 mod changes;
 mod copies;
 mod file_ops;
+mod revisions;
 mod router;
 mod view;
 
@@ -123,6 +124,10 @@ pub enum Message {
     RecoveredRestore,
     RecoveredDelete,
     RecoveredClose,
+    /// Typing and Enter in the revision questions (editor.md §18).
+    Revision(revisions::RevisionInput),
+    /// The export form's "Colored pages" (editor.md §18).
+    ExportColored,
     /// The writer's name, as typed in its question (editor.md §17.4).
     NameInput(String),
     NameSubmit,
@@ -158,6 +163,19 @@ impl Banner {
     /// A save to a format that cannot hold tracked changes accepted them
     /// (editor.md §17.5); `kept` when the version with them marked was set
     /// aside.
+    /// Saving to Fountain or .fdx took the revision marks out
+    /// (editor.md §18).
+    pub fn revisions_cleared(kept: bool) -> Banner {
+        Banner {
+            text: if kept {
+                "Saving took the revision sets and marks out. The version with them is in Recovered versions.".into()
+            } else {
+                "Saving took the revision sets and marks out.".into()
+            },
+            recovered: kept,
+        }
+    }
+
     pub fn accepted(count: u64, kept: bool) -> Banner {
         let (changes, them) = if count == 1 {
             ("the pending change".to_string(), "it")
@@ -229,6 +247,8 @@ pub struct NavRow {
     pub deleted: bool,
     /// The scene's first pending change, for the dot in its color.
     pub change: Option<ChangeId>,
+    /// The scene holds revision marks (editor.md §18).
+    pub revised: bool,
 }
 
 #[derive(Debug, Default)]
@@ -693,6 +713,14 @@ impl App {
     /// Everything that follows a change: refresh the layout, keep the
     /// caret inside the document, recompute what the view draws, and
     /// scroll the caret into sight.
+    /// Shows edits made straight through the dispatcher, as the app's own
+    /// edits are shown: the page, the caret and, at the next tick, the
+    /// navigator. For examples and tests that drive `d` directly.
+    #[doc(hidden)]
+    pub fn refresh(&mut self) -> Task<Message> {
+        self.after_change(false)
+    }
+
     fn after_change(&mut self, scroll: bool) -> Task<Message> {
         self.d.view();
         self.sync_link();
@@ -816,6 +844,7 @@ impl App {
                     eighths: 0,
                     deleted: b.marks.deleted.is_some(),
                     change: None,
+                    revised: false,
                 }),
                 ElementKind::SceneHeading => {
                     if let Some(s) = si.next() {
@@ -831,6 +860,7 @@ impl App {
                             eighths: s["eighths"].as_u64().unwrap_or(0),
                             deleted: b.marks.deleted.is_some(),
                             change: None,
+                            revised: false,
                         });
                     }
                 }
@@ -842,6 +872,11 @@ impl App {
                 && last.change.is_none()
             {
                 last.change = b.change_ids().next();
+            }
+            if let Some(last) = rows.last_mut()
+                && !last.section
+            {
+                last.revised |= b.has_revisions();
             }
         }
         self.nav = rows;
@@ -1160,6 +1195,13 @@ impl App {
                 self.recovered = None;
                 Task::none()
             }
+            Message::Revision(input) => self.revision_input(input),
+            Message::ExportColored => {
+                if let Some(f) = &mut self.export {
+                    f.colored = !f.colored;
+                }
+                Task::none()
+            }
             Message::NameInput(t) => {
                 if let Some(Prompt::AuthorName { name, .. }) = &mut self.prompt {
                     *name = t;
@@ -1229,6 +1271,18 @@ impl App {
             Message::Escaped => {
                 if matches!(self.prompt, Some(Prompt::AuthorName { .. })) {
                     return self.name_done(false);
+                }
+                if matches!(
+                    self.prompt,
+                    Some(
+                        Prompt::RevisionStart(_)
+                            | Prompt::RevisionEndFirst { .. }
+                            | Prompt::RevisionColors(_)
+                            | Prompt::RevisionClear { .. }
+                    )
+                ) {
+                    self.prompt = None;
+                    return Task::none();
                 }
                 if self.palette.is_some() {
                     self.palette = None;
@@ -1461,6 +1515,9 @@ impl App {
         let cmd = kp.modifiers.command();
         let enter = matches!(kp.key.as_ref(), Key::Named(Named::Enter));
         let esc = matches!(kp.key.as_ref(), Key::Named(Named::Escape));
+        if let Some(t) = self.revision_key(kp, enter, esc) {
+            return t;
+        }
         if matches!(self.prompt, Some(Prompt::Foreign { .. })) {
             return if enter || ch == "r" {
                 self.reply(Reply::Recover)
@@ -1500,10 +1557,11 @@ impl App {
         if let Some(Prompt::Lossy {
             export: false,
             tracked,
+            revisions,
             ..
         }) = &self.prompt
         {
-            let tracked = *tracked > 0;
+            let tracked = *tracked > 0 || *revisions;
             return if ch == "p" || (enter && tracked) {
                 self.reply(Reply::SaveAsProject)
             } else if enter || ch == "s" {
@@ -1590,6 +1648,8 @@ impl App {
                 return self.update(Message::ExportTitle);
             } else if cmd && ch == "3" {
                 return self.update(Message::ExportChanges);
+            } else if cmd && ch == "4" {
+                return self.update(Message::ExportColored);
             }
         }
         Task::none()
@@ -1808,6 +1868,19 @@ impl App {
                 self.focus = Focus::Palette;
                 return iced::widget::operation::focus(PALETTE);
             }
+            // The hint bar's revision badge: the palette, showing the
+            // revision commands (editor.md §18).
+            "app.revision_menu" => {
+                self.palette = Some(PaletteState {
+                    query: "revision".into(),
+                    ..PaletteState::default()
+                });
+                self.focus = Focus::Palette;
+                return Task::batch([
+                    iced::widget::operation::focus(PALETTE),
+                    iced::widget::operation::move_cursor_to_end(PALETTE),
+                ]);
+            }
             "app.new" => return self.leave(After::New),
             "app.open" => return self.leave(After::Open),
             "app.close" => return self.leave(After::Close),
@@ -1889,6 +1962,13 @@ impl App {
                 }
             }
             "app.author_name" => return self.ask_name(NameThen::Nothing),
+            "app.revision_start" => return self.revision_start_ask(),
+            "app.revision_end" => self.revision_end(),
+            "app.revision_colors" => return self.revision_colors_ask(),
+            "app.revision_clear" => {
+                self.revision_clear_ask();
+                scroll = false;
+            }
             "changes.accept_here" => self.settle_here(true),
             "changes.reject_here" => self.settle_here(false),
             "changes.accept_scene" => self.settle_scene(true),

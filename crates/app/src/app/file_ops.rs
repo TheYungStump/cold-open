@@ -53,6 +53,8 @@ pub enum Prompt {
         /// The pending tracked changes the save would accept, when tracked
         /// changes are among its losses (editor.md §17.5).
         tracked: usize,
+        /// Revision sets and marks are among its losses (editor.md §18).
+        revisions: bool,
     },
     /// Another program changed the file since Cold Open last read or saved
     /// it: overwrite, reload, or save as? With the save's `allow_lossy`.
@@ -70,6 +72,14 @@ pub enum Prompt {
     AuthorName { name: String, then: super::NameThen },
     /// Accept, or reject, every pending change? (editor.md §17.2)
     SettleAll { accept: bool, count: usize },
+    /// Start a revision set: its color, label and date (editor.md §18).
+    RevisionStart(super::revisions::StartForm),
+    /// A set is active: end it before starting another?
+    RevisionEndFirst { active: String },
+    /// The revision colors, as one list between commas.
+    RevisionColors(String),
+    /// Clear which set's marks? 0 is every set.
+    RevisionClear { choice: usize },
 }
 
 /// The writer's answer to a [`Prompt`].
@@ -114,6 +124,8 @@ pub struct ExportForm {
     /// Print the script with every pending change accepted, instead of
     /// marked (editor.md §17).
     pub accepted: bool,
+    /// Revised pages on their set's color (editor.md §18).
+    pub colored: bool,
 }
 
 impl Default for ExportForm {
@@ -123,6 +135,7 @@ impl Default for ExportForm {
             title_page: true,
             watermark: String::new(),
             accepted: false,
+            colored: false,
         }
     }
 }
@@ -394,6 +407,10 @@ impl App {
                 let n = w["details"]["count"].as_u64().unwrap_or(1);
                 self.banners
                     .push(super::Banner::accepted(n, w["details"]["copy"].is_string()));
+            } else if w["code"] == "revisions_cleared" {
+                self.banners.push(super::Banner::revisions_cleared(
+                    w["details"]["copy"].is_string(),
+                ));
             } else if w["details"]["copy"].is_string() {
                 let b = if w["code"] == "original_kept" {
                     super::Banner::original_kept()
@@ -430,24 +447,36 @@ impl App {
         } else {
             0
         };
+        let revisions = losses.iter().any(|l| l["code"] == "revision_marks");
         // The heading names the format (view.rs).
-        let message = if tracked > 0 {
-            let others = losses
-                .iter()
-                .any(|l| l["code"] != "tracked_changes" && l["class"] == "lost");
+        let message = if tracked > 0 || revisions {
+            let others = losses.iter().any(|l| {
+                l["code"] != "tracked_changes"
+                    && l["code"] != "revision_marks"
+                    && l["class"] == "lost"
+            });
             let (changes, them) = if tracked == 1 {
                 ("the pending change".to_string(), "it")
             } else {
                 (format!("all {tracked} pending changes"), "them")
             };
-            let saving = if export {
-                format!(
+            let saving = match (tracked > 0, revisions, export) {
+                (true, false, true) => format!(
                     "Saving the copy writes it with {changes} accepted. The script keeps {them}."
-                )
-            } else {
-                format!(
+                ),
+                (true, false, false) => format!(
                     "Saving accepts {changes} in the script. The version with {them} marked is kept in Recovered versions."
-                )
+                ),
+                (false, _, true) => {
+                    "Saving the copy writes it without its revision marks. The script keeps them.".to_string()
+                }
+                (false, _, false) => "Saving takes the revision sets and marks out of the script. The version with them is kept in Recovered versions.".to_string(),
+                (true, true, true) => format!(
+                    "Saving the copy writes it with {changes} accepted and without its revision marks. The script keeps them."
+                ),
+                (true, true, false) => format!(
+                    "Saving accepts {changes} and takes the revision marks out of the script. The version with them is kept in Recovered versions."
+                ),
             };
             format!(
                 "{saving}{}",
@@ -466,6 +495,7 @@ impl App {
             overwrite,
             export,
             tracked,
+            revisions,
         }
     }
 
@@ -841,6 +871,9 @@ impl App {
         }
         if form.accepted {
             params["changes"] = json!("accepted");
+        }
+        if form.colored {
+            params["revision_pages"] = json!("colored");
         }
         if let Some(r) = self.run("export.pdf", params) {
             let warnings = r["warnings"].as_array().map_or(0, Vec::len);

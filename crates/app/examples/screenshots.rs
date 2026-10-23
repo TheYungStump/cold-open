@@ -95,6 +95,53 @@ fn tracked_demo(app: &mut App) {
     );
 }
 
+/// A Blue revision set on the first page: words added to the first
+/// action, the start of the second taken out, and a speech retyped.
+fn revisions_demo(app: &mut App) {
+    use coldopen_core::Command;
+    let run = |app: &mut App, name: &str, params: serde_json::Value| {
+        let cmd = Command::from_parts(name, params).unwrap();
+        app.d.execute(cmd).unwrap();
+    };
+    run(
+        app,
+        "revision.start",
+        serde_json::json!({ "date": "2026-10-22" }),
+    );
+    let doc = &app.d.session().unwrap().doc;
+    let actions: Vec<(coldopen_core::BlockId, usize)> = doc
+        .blocks
+        .iter()
+        .filter(|b| b.element.kind == coldopen_screenplay::ElementKind::Action)
+        .take(2)
+        .map(|b| (b.id, b.element.text.char_len()))
+        .collect();
+    let speech = doc
+        .blocks
+        .iter()
+        .find(|b| b.element.kind == coldopen_screenplay::ElementKind::Dialogue)
+        .map(|b| b.id);
+    let (first, len) = &actions[0];
+    run(
+        app,
+        "text.insert",
+        serde_json::json!({ "id": first, "at": *len, "text": " The kettle clicks off." }),
+    );
+    let (second, _) = &actions[1];
+    run(
+        app,
+        "text.delete",
+        serde_json::json!({ "id": second, "from": 0, "to": 4 }),
+    );
+    if let Some(id) = speech {
+        run(
+            app,
+            "text.insert",
+            serde_json::json!({ "id": id, "at": 0, "text": "Listen. " }),
+        );
+    }
+}
+
 fn main() {
     let out = std::path::PathBuf::from(
         std::env::args()
@@ -192,6 +239,28 @@ fn main() {
         app.banners.clear();
         settle(&mut app);
         shot(&app, &out, &format!("{name}-changes"));
+        app.d.discard();
+
+        // Phase 5b (editor.md §18): a Blue set with an insertion, a
+        // deletion and a retype on the first page, and the start form.
+        let mut app = App::new(Boot {
+            file: Some(script.clone()),
+            dirs: Some(coldopen_app::files::Dirs::under(&home)),
+            theme: Some(theme),
+            every_entry: true,
+            ..Boot::default()
+        });
+        app.banners.clear();
+        revisions_demo(&mut app);
+        // The edits went straight to the dispatcher.
+        let _ = app.refresh();
+        let _ = app.update(Message::Tick);
+        settle(&mut app);
+        shot(&app, &out, &format!("{name}-revisions"));
+        let _ = app.update(Message::Action("app.revision_end".into()));
+        app.banners.clear();
+        let _ = app.update(Message::Action("app.revision_start".into()));
+        shot(&app, &out, &format!("{name}-revision-form"));
         app.d.discard();
 
         // Phase 4's screens (editor.md §13): a set-aside notice on the start
