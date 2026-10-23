@@ -18,11 +18,11 @@ Locked pages (A and B pages) and locked scene numbers are not in 5b.
 
 | Step | What | State |
 | --- | --- | --- |
-| 1 | Branch, and this file | done (branch rebased onto `main` once #16 is merged) |
+| 1 | Branch, and this file | done: #16 squash-merged as 67e43d9 (2026-10-23), the branch rebased onto it |
 | 2 | Specs before code: `revisions.md`, `diff.md` and `reports.md` (new); `changes.md`, `bundle.md`, `journal.md`, `commands.md`, `layout.md`, `editor.md`, `mcp.md`, `fdx.md` and `fountain.md`; the crate table in `CLAUDE.md` | done |
 | 3 | The revision model: marks, the revision table, the commands, marking in the dispatcher and on accept, change table v2, `semantics` 3; property tests | done: `crates/core/tests/revisions.rs` (13 tests, a property test among them); `revision.list`'s `pages` comes with layout (step 5) |
-| 4 | Files: bundle v2 and `revisions.json`, the journal header, the `revision_marks` loss and Save anyway, the `revisions` fuzz target | |
-| 5 | Layout and PDF: asterisks, revised-page headers, colored pages; page view and PDF goldens | |
+| 4 | Files: bundle v2 and `revisions.json`, the journal header, the `revision_marks` loss and Save anyway, the `revisions` fuzz target | done: bundle unit tests, file tests in `revisions.rs`, and the `revisions` check and fuzz target (eleven targets now) |
+| 5 | Layout and PDF: asterisks, revised-page headers, colored pages; page view and PDF goldens | done: `Layout::mark_revisions`; page view and colored-PDF tests in `revisions.rs`; existing goldens unchanged |
 | 6 | The app's revisions: start form, palette, inks, asterisks, the active set in the hint bar | |
 | 7 | Shared names and the three reports: core, CLI (text, JSON, CSV), MCP tools and resources, the report view | |
 | 8 | The title page editor: commands, op, the agent rule, the app sheet | |
@@ -80,3 +80,8 @@ The project's owner approved the plan without choosing on these, so they stand a
 18. **Unchanged text keeps its marks, even with no set active.** An untracked `block.set_text` rebuilds the runs, so the pass carries each unchanged character's mark across. It runs whenever the document's revision table is not the default.
 19. **An accept with no set active** marks with the newest set the accepted changes were made under.
 20. **The table's version.** The change table is written `v: 2` only when an entry carries `rev`, so tables and journal fingerprints from before are unchanged. `semantics` is 3.
+21. **Save anyway uses `revision.clear` with `sets: true`** (step 4), so taking the revision data out is journaled as an ordinary command, and replay never meets a step it doesn't know. Without `all`, `sets` is refused.
+22. **A version 2 bundle's `document.json`** is written through a borrowing struct with every field of `Document` but the revision table. A version 1 bundle still goes through `Document`'s own serialization, so its bytes can't drift.
+23. **Phase 5a's `changes_accepted` message** had a run of stray spaces in the middle, from a line continuation that lost its backslash. The message is now written once, in a helper the revision warning shares.
+24. **The asterisk sits 0.4 in from the paper's right edge** (step 5), 8.1 in on Letter, not at a page-format field. A field would have changed every page format's JSON, and a phase 5a build reading a version 1 bundle of an .fdx script would then fail on it.
+25. **Revision marks are a pass over finished pages**, not part of pagination (`Layout::mark_revisions`). Marks never move a line, so the incremental engine needs nothing new, and the pass runs again after any change. Dual dialogue gets one asterisk per row, and a right scene number in the way pushes it one cell past.

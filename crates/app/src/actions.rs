@@ -330,6 +330,11 @@ pub fn command_title(name: &str) -> &'static str {
         "changes.accept" => "Accept tracked changes by id, scene or all",
         "changes.reject" => "Reject tracked changes by id, scene or all",
         "changes.track" => "Choose which edits are tracked",
+        "revision.start" => "Start a revision set",
+        "revision.end" => "End the revision set",
+        "revision.list" => "List revision sets",
+        "revision.colors" => "Set the revision colors",
+        "revision.clear" => "Clear revision marks",
         _ => "Command",
     }
 }

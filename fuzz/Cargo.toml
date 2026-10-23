@@ -91,3 +91,10 @@ path = "fuzz_targets/changes.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "revisions"
+path = "fuzz_targets/revisions.rs"
+test = false
+doc = false
+bench = false

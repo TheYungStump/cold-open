@@ -114,6 +114,26 @@ pub const TOOLS: &[(&str, &str)] = &[
         "Choose which edits are tracked. Only the writer may; an agent gets writer_only.",
     ),
     (
+        "revision.list",
+        "The production revision sets, oldest first: color, label, date, whether each is active, and the blocks and pages its marks are on.",
+    ),
+    (
+        "revision.start",
+        "Start a production revision set. Only the writer may; an agent gets writer_only. While a set is active, this agent's edits are marked with it like anyone's.",
+    ),
+    (
+        "revision.end",
+        "End the active revision set. Only the writer may; an agent gets writer_only.",
+    ),
+    (
+        "revision.colors",
+        "Set the list of revision colors. Only the writer may; an agent gets writer_only.",
+    ),
+    (
+        "revision.clear",
+        "Remove revision marks, of one set or all. Only the writer may; an agent gets writer_only.",
+    ),
+    (
         "undo",
         "Undo this agent's newest step. Fails with not_your_step when the newest step is someone else's.",
     ),
@@ -168,6 +188,7 @@ fn read_only(command: &str) -> bool {
             | "text.complete"
             | "history.list"
             | "changes.list"
+            | "revision.list"
     )
 }
 
