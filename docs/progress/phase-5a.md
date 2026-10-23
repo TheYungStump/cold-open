@@ -91,7 +91,7 @@ Phase 5a is done: the `.coldopen` project bundle, track changes (F18.2), agents'
     - **The cause.** An action of two lines, each holding only a boneyard, was written with `!` on the first line. A lone `!` hands its hidden runs to the next line, so the two lines read back as one.
     - **The fix.** The writer now anchors that first line with an empty emphasis pair, as it already did every later one, whenever more lines follow (`write.rs`, `fountain.md` §9, 2026-10-22).
     - **Tests.** `a_first_action_line_of_hidden_runs_stays_a_line` fails without the fix. The property test now also makes actions and centered actions, and it failed without the fix too.
-  - **The 30-minute run** of `fountain_roundtrip` on the fix's branch, with both fixes: pending.
+  - **The 30-minute run** of `fountain_roundtrip` on the fix's branch, with both fixes: run 39890293108 passed, 1,118,862 inputs in 1,801 seconds with no failure (coverage 4,496, corpus 5,373 inputs). Before it, the Fountain property tests passed at 100,000 cases, and all 568 workspace tests passed with the corpus required.
 
 ### Decisions
 
