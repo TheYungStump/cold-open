@@ -81,6 +81,17 @@ Phase 5a is done: the `.coldopen` project bundle, track changes (F18.2), agents'
 - **Not tracked in 5a:** styles (`text.style`) and block attributes (`block.set_attrs`).
 - **Marks in .fdx files.** The clean room gives us no public source to write them from (`fdx.md`), so .fdx files hold the accepted text and a project is the way to keep changes. Phase 5's gate asks that tracked changes survive .fdx export. In 5a they don't survive it as marks: the export asks first, then writes them accepted, and a project keeps them.
 - **The journal header's restart could move to the save worker**, saving about 0.5 ms; the budget doesn't need it (decision 47).
+- **After the phase: the 2026-10-19 fuzz finding** (2026-10-22, before phase 5b).
+  - **The finding.** The weekly run 39260012138, on `cddbb1d`, failed `fountain_roundtrip` with "parser output is not in normal form". Its 43-byte input still failed on `main` (23eae79).
+  - **The input** minimises to `~\n~/**/\n~\n~`: a lyric of an empty line, a line holding only a boneyard, and two more empty lines.
+  - **The cause.** A hidden-only line joined the empty lyric line before it. That line then held only hidden runs itself, so normalising again joined it once more, and each pass lost an empty line. Speeches lost hold lines the same way. So the normal form changed what prints, not only what the check sees.
+  - **The fix** (`norm.rs`, `merge_hidden_only`, which the reader and the normal form share). Hidden-only lines join the nearest line with visible text, and never an empty line. In an element with no visible text, every hidden run goes to the first line. One pass is now final (`fountain.md` §5, 2026-10-22).
+  - **Tests.** `hidden_only_lines_never_eat_empty_lines` (the inputs, and the line counts they must keep), and the property test `hidden_only_lines_normalise_once` (normalising is idempotent, writes back as itself, and keeps every printed line). Both failed before the fix.
+  - **A second finding, from the first 30-minute run** (39876198784, after about eight minutes). It failed on `main` too: "unexpected losses: unexpressible", minimised to `*/**/*\r*/**/*`.
+    - **The cause.** An action of two lines, each holding only a boneyard, was written with `!` on the first line. A lone `!` hands its hidden runs to the next line, so the two lines read back as one.
+    - **The fix.** The writer now anchors that first line with an empty emphasis pair, as it already did every later one, whenever more lines follow (`write.rs`, `fountain.md` §9, 2026-10-22).
+    - **Tests.** `a_first_action_line_of_hidden_runs_stays_a_line` fails without the fix. The property test now also makes actions and centered actions, and it failed without the fix too.
+  - **The 30-minute run** of `fountain_roundtrip` on the fix's branch, with both fixes: run 39890293108 passed, 1,118,862 inputs in 1,801 seconds with no failure (coverage 4,496, corpus 5,373 inputs). Before it, the Fountain property tests passed at 100,000 cases, and all 568 workspace tests passed with the corpus required.
 
 ### Decisions
 

@@ -367,27 +367,48 @@ pub(crate) fn untangle_words(line: &[Run]) -> RLine {
     })
 }
 
-/// Joins hidden-only lines to the previous line (or the next, if first), as
-/// the reader does (spec §5).
+/// Joins hidden-only lines to the nearest earlier line with visible text,
+/// or the nearest later one if they come first, as the reader does (spec
+/// §5). Empty lines never take them: an empty line holding them would be
+/// hidden-only in turn, so another pass would join it again and lose an
+/// empty line each time (2026-10-22). With no visible text at all, every
+/// hidden run goes to the first line, and the other empty lines stay.
 pub(crate) fn merge_hidden_only(lines: Vec<RLine>) -> Vec<RLine> {
     if lines.iter().all(|l| !is_hidden_only(l)) || lines.iter().all(|l| is_hidden_only(l)) {
         return lines;
     }
+    let has_text = |l: &RLine| !visible(l).trim().is_empty();
+    if !lines.iter().any(has_text) {
+        let mut lines = lines.into_iter();
+        let mut out: Vec<RLine> = lines.next().into_iter().collect();
+        for l in lines {
+            if is_hidden_only(&l) {
+                out[0].extend(l.into_iter().filter(Run::is_hidden));
+            } else {
+                out.push(l);
+            }
+        }
+        return out;
+    }
     let mut out: Vec<RLine> = Vec::new();
     let mut prefix: RLine = Vec::new();
+    let mut last_text: Option<usize> = None;
     for l in lines {
         if is_hidden_only(&l) {
-            let hidden: Vec<Run> = l.into_iter().filter(Run::is_hidden).collect();
-            match out.last_mut() {
-                Some(prev) => prev.extend(hidden),
+            let hidden = l.into_iter().filter(Run::is_hidden);
+            match last_text {
+                Some(k) => out[k].extend(hidden),
                 None => prefix.extend(hidden),
             }
         } else {
             let mut l = l;
-            if !prefix.is_empty() {
-                let mut p = std::mem::take(&mut prefix);
-                p.append(&mut l);
-                l = p;
+            if has_text(&l) {
+                if !prefix.is_empty() {
+                    let mut p = std::mem::take(&mut prefix);
+                    p.append(&mut l);
+                    l = p;
+                }
+                last_text = Some(out.len());
             }
             out.push(l);
         }

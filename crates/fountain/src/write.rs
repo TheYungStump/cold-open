@@ -936,8 +936,10 @@ impl Writer<'_> {
                 s = self.inline(Some(i), l, None, &first_non_ws(l));
             }
             // A paragraph-start line gets `!` below; any other line holding
-            // only notes or boneyard needs an anchor to stay a line.
-            if !(k == 0 && ctx.para_start) {
+            // only notes or boneyard needs an anchor to stay a line. So does
+            // such a first line with more lines after it: a lone `!` hands
+            // its hidden runs to the next line (2026-10-22).
+            if k > 0 || !ctx.para_start || n > 1 {
                 s = anchor_hidden_only(l, s);
             }
             out.push(s);
