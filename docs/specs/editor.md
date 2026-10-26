@@ -495,6 +495,7 @@ Added 2026-10-22 (phase 5b; `docs/specs/reports.md`).
 - Each tab is a table with the report's fields as columns, and counts right-aligned. Up and Down choose a row, stopping at the ends; Enter goes to the row's scene (a character's first speech, a location's first scene) and closes the view; Esc closes it.
 - "Copy as CSV" (Mod+C in the view) puts the tab's CSV (`docs/specs/reports.md` §5) on the clipboard.
 - The reports are read when the view opens. It covers the page, so the writer changes nothing under it; an agent's edit shows the next time it opens. A long cell, such as a speaker's scenes, is cut with "…" to its column; the CSV copy keeps all of it.
+- **Resolution (2026-10-26, from the project owner's manual test):** the view takes the page area's place and fills the window, rather than floating over the dimmed page. A Close button stands beside the title, since a click outside no longer closes it. Each row is one line of text in the page's monospaced font, its columns padded and counts right-aligned. Only the rows in sight are built. Up and Down keep the selected row in sight. Why: scrolling took 244 ms a step on Big Fish with the CPU renderer, which repaints each changed region separately and fills a window-sized clip mask for each; a table of separate cells made a region per cell. As lines, it scrolls in 16 ms a step at 1920×1080, against 13 ms for the pages (the `reports` windowed benchmark, which CI's budgets job now reports).
 
 ## 21. Comparing drafts
 

@@ -137,6 +137,10 @@ pub enum Message {
     /// The report view's tab, and a row clicked (editor.md §20).
     ReportTab(usize),
     ReportRow(usize),
+    /// The report view's rows were scrolled.
+    ReportScrolled(scrollable::Viewport),
+    /// The report view's Close button.
+    ReportClose,
     /// The title page sheet's fields and buttons (editor.md §19).
     Title(title::TitleInput),
     /// The compare view and the import question (editor.md §21).
@@ -149,6 +153,9 @@ pub enum Message {
     },
     /// "Remove from recent" for this file.
     ForgetRecent(PathBuf),
+    /// A mouse button went down anywhere, whatever took the click: the
+    /// title page sheet then asks which of its fields has the keyboard.
+    PointerPressed,
     /// The writer's name, as typed in its question (editor.md §17.4).
     NameInput(String),
     NameSubmit,
@@ -1100,7 +1107,11 @@ impl App {
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
+            // The title page sheet shows the title page read-only: the page
+            // scrolls, and a click on it does nothing (editor.md §19).
+            Message::Page(_) if self.title_sheet.is_some() => Task::none(),
             Message::Page(ev) => self.page_event(ev),
+            Message::PointerPressed => self.title_pointer(),
             Message::GlobalKey(kp) => self.global_key(kp),
             Message::Tick => {
                 if self.last_input.elapsed() > Duration::from_millis(500) {
@@ -1229,9 +1240,14 @@ impl App {
                 Task::none()
             }
             Message::Revision(input) => self.revision_input(input),
-            Message::ReportTab(k) => {
-                self.reports_tab(k);
+            Message::ReportTab(k) => self.reports_tab(k),
+            Message::ReportScrolled(v) => {
+                self.reports_scrolled(v);
                 Task::none()
+            }
+            Message::ReportClose => {
+                self.reports = None;
+                self.after_change(false)
             }
             Message::ReportRow(i) => self.reports_go(i),
             Message::Title(input) => self.title_input(input),
@@ -2407,6 +2423,9 @@ pub fn unclaimed_key(
             }),
             iced::event::Status::Captured,
         ) => Some(Message::Escaped),
+        (iced::Event::Mouse(iced::mouse::Event::ButtonPressed(_)), _) => {
+            Some(Message::PointerPressed)
+        }
         (
             iced::Event::Keyboard(keyboard::Event::KeyPressed {
                 key,

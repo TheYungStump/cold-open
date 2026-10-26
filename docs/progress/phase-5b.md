@@ -114,6 +114,10 @@ The project's owner approved the plan without choosing on these, so they stand a
 48. **A phase 5a journal fixture** (step 12, `tests/fixtures/journal/phase5a.journal`). It was written by `coldopen serve --stdio` built from 67e43d9: tracked edits, an accept, a reject, two changes left pending, then untracked edits. It recovers in full with today's build. After the upgrade it goes on with revision marks (semantics 3), and survives a second crash with both. The header's host and path were scrubbed, as for phase 4.
 49. **The crash gate kills around revision sets** (step 12): a set started from the app's form, typing marked with saves every seven keys, the set ended and a second started, and an undo and a redo across a save. 21 kills, at random and around each start, end and redo, all recovered the marks and sets the app had acknowledged. The sets' start and end times are the clock's, so the gate compares whether a set ended, not when.
 50. **A property test assumed two random drafts always differ** (CI on d543160, minimum Rust). When they were equal, the import brought nothing in and the test's undo failed. The test now expects nothing to bring in for equal drafts; the code was right.
+51. **The active set marks against where it started** (the manual test, `revisions.md` §6.4). Kept per block in the revision table (`base`), through an op of its own, so undo takes it back with the edit. Starting, ending or clearing a set resets it.
+52. **The title page sheet doesn't shield the page.** Clicks on the page are ignored while the sheet is open, rather than closing it.
+53. **The sheet learns which field was clicked by asking for focus** after every mouse press, since iced's text fields don't report a click.
+54. **The report view's rows are lines, not cells**, for iced's CPU renderer (the manual test). A per-cell table repainted each cell's region separately: 244 ms a step on Big Fish. The `reports` windowed benchmark measures it, and CI reports it.
 
 ## Manual test (Windows CI build)
 
@@ -165,3 +169,21 @@ About 30 minutes. Every step works on **copies** of corpus files in a scratch fo
 - Anything that looked wrong or confusing, with a screenshot if you can.
 - Whether the revision inks, the asterisks and the compare view's marks are easy to read in your theme (Ctrl+K, "Theme: …" switches themes).
 - When you are done, you can delete `C:\ColdOpenTest`. It holds only copies.
+
+## Manual test results (2026-10-26)
+
+The project owner tested the Windows CI build of #17 and reported four things. Each is fixed:
+
+1. **A space deleted and typed again stayed revision-marked.** Each edit was compared only with the text just before it, so the gap's mark on its neighbour stayed after the space came back. Now the active set compares against each block as it found it, kept in the revision table (`revisions.md` §6.4): text put back as it was takes back the marks it had. Tests: `text_put_back_as_the_set_found_it_is_not_marked`, `a_later_set_puts_back_the_earlier_sets_marks`, and the marking property test at 1,000 cases.
+2. **The title page beside the sheet couldn't be scrolled, and a click on it closed the sheet.** The page area was shielded like the background of any dialog. Now the sheet leaves it to scroll, and a click on it does nothing (`the_title_page_beside_the_sheet_scrolls_and_ignores_clicks`).
+3. **.fdx title lines didn't show on the page when Tab left them**, only after Enter or an alignment change, and clicking into a line didn't make it the current row. Tab now redraws the page after sending the line. After each click the sheet asks which field has the keyboard, so the clicked row's alignment is the one highlighted (`tab_shows_the_line_and_a_click_chooses_the_row`).
+4. **The report view scrolled slowly.** It wasn't the test computer. A new windowed benchmark (`COLDOPEN_BENCH=reports`) measured 244 ms a step on Big Fish at 1920×1080. iced's CPU renderer repaints each changed region separately and fills a window-sized clip mask for each, and a table of separate cells made a region per cell. The report view now takes the page area's place, its rows are one line of text each in the page's monospaced font, and only the rows in sight are built. It scrolls in 16 ms a step, against 13 ms for the pages. Up and Down keep the selection in sight, and a Close button stands beside the title. CI's budgets job now reports the benchmark on all three OSes.
+
+### Retest
+
+With the Windows build from #17's latest CI run, and the scratch copies from the steps above:
+
+1. Start a revision set, delete a space between two words, and type it back. The line has no asterisk and no colored text.
+2. In a Fountain script, press Ctrl+Shift+T. Scroll the page beside the sheet down to the bottom of the title page, and click on it: the sheet stays open.
+3. In `Brick-&-Steel.fdx`, press Ctrl+Shift+T, change a line, and press Tab: the page shows the change at once. Click into another line's text: its alignment button is the highlighted one.
+4. In `Big-Fish.fountain`, press Ctrl+Shift+I and scroll the scenes with the wheel and with Up and Down: it should feel as smooth as scrolling the pages. Close it with the Close button.

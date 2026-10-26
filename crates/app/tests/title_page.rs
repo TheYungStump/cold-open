@@ -234,3 +234,72 @@ fn fdx_lines_are_edited_added_removed_and_saved_with_what_the_file_held() {
     assert!(saved.contains(r#"<Tabstop Position="6.00" Type="Left"/>"#));
     assert!(saved.contains(r#"<Text>Ada </Text><Text Style="Italic">Quill</Text>"#));
 }
+
+fn fdx_app(home: &Path) -> Headless {
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/fdx/title-page.fdx");
+    app(home, "t.fdx", &std::fs::read_to_string(fixture).unwrap())
+}
+
+/// The manual test of 2026-10-26: the title page beside the sheet scrolls,
+/// and a click on it neither closes the sheet nor moves the script's caret.
+#[test]
+fn the_title_page_beside_the_sheet_scrolls_and_ignores_clicks() {
+    use iced::{Point, mouse};
+    let home = tempfile::tempdir().unwrap();
+    let mut h = fdx_app(home.path());
+    open_sheet(&mut h);
+    let caret = h.app.editor.caret;
+    let (_, before) = h.frame(1.0);
+    let at = Point::new(300.0, 500.0);
+    h.cursor = mouse::Cursor::Available(at);
+    h.events(vec![
+        iced::Event::Mouse(mouse::Event::CursorMoved { position: at }),
+        iced::Event::Mouse(mouse::Event::WheelScrolled {
+            delta: mouse::ScrollDelta::Lines { x: 0.0, y: -6.0 },
+        }),
+    ]);
+    let (_, after) = h.frame(1.0);
+    assert!(before != after, "the page scrolled");
+    h.click(at);
+    assert!(
+        h.app.title_sheet.is_some(),
+        "a click on the page leaves the sheet open"
+    );
+    assert_eq!(h.app.editor.caret, caret);
+}
+
+/// Tab sends the line and the page shows it at once; clicking into a line
+/// makes it the current one, so its alignment is the one highlighted.
+#[test]
+fn tab_shows_the_line_and_a_click_chooses_the_row() {
+    use coldopen_app::app::iced_settings;
+    let home = tempfile::tempdir().unwrap();
+    let mut h = fdx_app(home.path());
+    open_sheet(&mut h);
+    tab(&mut h, false);
+    tab(&mut h, false);
+    h.type_text("THE LAST LAMP");
+    tab(&mut h, false);
+    let shown = format!("{:?}", h.app.d.cached_view().unwrap().layout().title);
+    assert!(
+        shown.contains("THE LAST LAMP"),
+        "the laid-out title page has the line"
+    );
+    // A click into the "Draft of 13 October" line's field.
+    let field = {
+        let mut sim = iced_test::Simulator::with_size(
+            iced_settings(),
+            iced::Size::new(1200.0, 800.0),
+            h.app.view(),
+        );
+        sim.find("Draft of 13 October").unwrap().bounds()
+    };
+    h.click(field.center());
+    let rows = h.app.title_sheet.as_ref().unwrap().line_rows();
+    let draft = rows
+        .iter()
+        .position(|r| r.0 == "Draft of 13 October")
+        .unwrap();
+    assert_eq!(h.app.title_sheet.as_ref().unwrap().current_line(), draft);
+}

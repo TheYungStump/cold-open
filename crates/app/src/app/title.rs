@@ -187,6 +187,11 @@ impl TitleSheet {
         }
     }
 
+    /// The row of the field that has the keyboard, in the lines form.
+    pub fn current_line(&self) -> usize {
+        self.current / 2
+    }
+
     /// How many fields Tab steps through.
     fn stops(&self) -> usize {
         match &self.form {
@@ -209,6 +214,8 @@ pub enum TitleInput {
     LineEnter(usize),
     /// A line's alignment button: the next alignment.
     LineAlign(usize),
+    /// The field at this Tab stop has the keyboard, after a click.
+    Focused(usize),
     Done,
 }
 
@@ -525,6 +532,22 @@ impl App {
                 });
                 self.title_commit();
             }
+            TitleInput::Focused(stop) => {
+                let Some(sheet) = self.title_sheet.as_ref() else {
+                    return Task::none();
+                };
+                if sheet.current == stop {
+                    return Task::none();
+                }
+                // Leaving a field that changed sends it (editor.md §19).
+                match &sheet.form {
+                    TitleForm::Keys { .. } => self.title_commit_except(Some(stop)),
+                    TitleForm::Lines(_) => self.title_line_edit(stop, |_| {}),
+                }
+                if let Some(sheet) = self.title_sheet.as_mut() {
+                    sheet.current = stop;
+                }
+            }
             TitleInput::Done => return self.title_close(),
         }
         self.after_change(false)
@@ -660,6 +683,23 @@ impl App {
         focus_field(at)
     }
 
+    /// After a click: which of the sheet's fields has the keyboard now, so
+    /// the row clicked into is the current one.
+    pub(super) fn title_pointer(&self) -> Task<Message> {
+        let Some(sheet) = &self.title_sheet else {
+            return Task::none();
+        };
+        Task::batch((0..sheet.stops()).map(|i| {
+            iced::widget::operation::is_focused(field_id(i)).map(move |on| {
+                if on {
+                    Message::Title(TitleInput::Focused(i))
+                } else {
+                    Message::Noop
+                }
+            })
+        }))
+    }
+
     /// Keys while the sheet is open, or `None` when it is not: Tab and
     /// Shift+Tab move between fields, Esc closes, Mod+Z and Mod+Shift+Z
     /// undo and redo, and in the lines form Mod+L, Mod+E and Mod+R align
@@ -686,7 +726,11 @@ impl App {
             } else {
                 (sheet.current + 1) % n
             };
-            return Some(focus_field(sheet.current));
+            let current = sheet.current;
+            return Some(Task::batch([
+                focus_field(current),
+                self.after_change(false),
+            ]));
         }
         if cmd && (ch == "z" || (ch == "y" && !crate::keymap::MAC)) {
             // Typing not sent yet is undone first, as the field shows it.

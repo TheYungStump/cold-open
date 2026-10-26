@@ -22,13 +22,19 @@ use std::time::Duration;
 impl App {
     pub fn view(&self) -> Element<'_, Message> {
         let pal = self.palette_colors();
-        let main = match (self.d.cached_view(), self.d.session()) {
-            (Some(view), Some(session)) => self.editor_view(pal, view, &session.doc),
+        let main = match (self.d.cached_view(), self.d.session(), &self.reports) {
+            // The report view takes the page area's place (editor.md §20).
+            // Drawn over the page instead, every row scrolled repainted the
+            // page beneath it: 244 ms a step on Big Fish (2026-10-26).
+            (_, _, Some(r)) => self.reports_view(pal, r),
+            (Some(view), Some(session), None) => self.editor_view(pal, view, &session.doc),
             _ => self.start_screen(pal),
         };
         // Behind the palette or a dialog, a click only closes it, and the
         // wheel scrolls nothing (editor.md §2).
-        let covered = self.palette.is_some() || self.modal();
+        // The title page sheet leaves the page to scroll (editor.md §19).
+        let covered = self.palette.is_some()
+            || (self.modal() && self.title_sheet.is_none() && self.reports.is_none());
         let main = shield(main, covered.then_some(Message::ClickAway), true);
         let mut layers = stack![main];
         if let Some(m) = self.dialog(pal) {
@@ -283,9 +289,8 @@ impl App {
             self.recovery_view(pal, r)
         } else if let Some(r) = &self.repair {
             self.repair_view(pal, r)
-        } else if let Some(r) = &self.reports {
-            width = 1000.0;
-            self.reports_view(pal, r)
+        } else if self.reports.is_some() {
+            return None;
         } else if let Some(s) = &self.recovered {
             width = 820.0;
             self.recovered_view(pal, s)

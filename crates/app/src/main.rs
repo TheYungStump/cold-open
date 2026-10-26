@@ -44,12 +44,13 @@ fn main() -> iced::Result {
         .run()
 }
 
-/// `COLDOPEN_BENCH=typing|scrolling` runs the self-driving benchmark,
+/// `COLDOPEN_BENCH=typing|scrolling|reports` runs the self-driving benchmark,
 /// `COLDOPEN_BENCH_FRAMES` frames long (120 by default).
 fn bench() -> Option<Bench> {
     let kind = match std::env::var("COLDOPEN_BENCH").ok()?.as_str() {
         "typing" => BenchKind::Typing,
         "scrolling" => BenchKind::Scrolling,
+        "reports" => BenchKind::Reports,
         _ => return None,
     };
     let frames = std::env::var("COLDOPEN_BENCH_FRAMES")

@@ -1,5 +1,6 @@
 """Measures the windowed app in CI: cold start, and the self-driving typing
-and scrolling benchmarks (docs/progress/phase-3.md, measurements).
+and scrolling benchmarks (docs/progress/phase-3.md, measurements), and
+since 2026-10-26 scrolling the report view (docs/progress/phase-5b.md).
 
     python3 .github/packaging/measure.py <app binary> <budgets binary> <out.json>
 
@@ -63,7 +64,7 @@ def main():
         script = os.path.join(work, "synthetic.fountain")
         subprocess.run([budgets, "--write-synthetic", script], check=True)
         for renderer in ["tiny-skia", "wgpu"]:
-            for kind in ["typing", "scrolling"]:
+            for kind in ["typing", "scrolling", "reports"]:
                 home = os.path.join(work, f"{renderer}-{kind}")
                 copy = os.path.join(work, f"{renderer}-{kind}.fountain")
                 with open(script, "rb") as a, open(copy, "wb") as b:

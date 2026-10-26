@@ -64,3 +64,43 @@ fn the_report_view_opens_switches_and_goes_to_a_scene() {
         "EXT. ROOF - NIGHT"
     );
 }
+
+/// On a long report, Down keeps the selected row in sight, and Up brings
+/// the rows back (the manual test of 2026-10-26).
+#[test]
+fn the_selection_stays_in_sight_on_a_long_report() {
+    let home = tempfile::tempdir().unwrap();
+    let p = home.path().join("long.fountain");
+    let text = coldopen_fountain::write(&coldopen_layout::synthetic::feature_script(1)).text;
+    std::fs::write(&p, text).unwrap();
+    let mut app = App::new(Boot {
+        file: Some(p),
+        dirs: Some(Dirs::under(home.path())),
+        theme: Some(Choice::Light),
+        ..Boot::default()
+    });
+    app.set_dialogs(Dialogs::scripted(|_| None));
+    let mut h = Headless::new(app, iced::Size::new(1200.0, 800.0)).expect("a headless renderer");
+    h.key(
+        Key::Character("i".into()),
+        command_modifier() | Modifiers::SHIFT,
+        Some("I"),
+    );
+    h.frame(1.0);
+    for _ in 0..80 {
+        h.named(Named::ArrowDown, Modifiers::empty());
+    }
+    h.frame(1.0);
+    let r = h.app.reports.as_ref().unwrap();
+    assert_eq!(r.selected, 80);
+    let (top, bottom) = (r.offset, r.offset + r.height);
+    assert!(top > 0, "the rows scrolled");
+    assert!(
+        80 * 22 >= top && 81 * 22 <= bottom,
+        "row 80 is in sight: {top}..{bottom}"
+    );
+    for _ in 0..80 {
+        h.named(Named::ArrowUp, Modifiers::empty());
+    }
+    assert_eq!(h.app.reports.as_ref().unwrap().offset, 0);
+}

@@ -1,6 +1,6 @@
 # Production revision sets
 
-- **Date:** 2026-10-22
+- **Date:** 2026-10-22, updated 2026-10-26 (§6.4, text put back)
 - **Status:** phase 5b, being implemented in `crates/screenplay` (marks in text runs), `crates/core` (the revision table, marking, the commands, files), `crates/layout` (asterisks, page headers, colored pages) and `crates/app`.
 - **Sources:**
   - `docs/spec.md`: "Revising" (colored revision sets with asterisks in the margin and revised-page headers) and "Output" (PDF export with revision colors).
@@ -172,6 +172,17 @@ Removed text leaves nothing to mark, so the gap marks what is next to it, and th
 - **Accepting a change** marks what it did: its inserted text, the gaps of its deletions, and block marks for its retypes, moves, splits and joins, as §6.1 says for the edit itself. The set is the one active when the change is accepted, or, with none active, the set the change recorded. With neither, nothing is marked.
 - **Resolution:** the set active at acceptance wins, because the accepted text first appears in that set's distributed pages. A change made during the Blue pass but accepted during the Pink one is a Pink revision. The recorded set covers a writer who ends the pass before reviewing its last changes.
 - **Rejecting** marks nothing: the text goes back to what was distributed.
+
+### 6.4 Text put back
+
+Added 2026-10-26, from the project owner's manual test of phase 5b: deleting a space and typing it again left the line marked, though it read as it did before the set.
+
+- **The active set marks against where it started.** The first time the active set marks a block, the block as it was then is kept in the revision table (`base`): its kind and printing attributes in the distributed draft, its text with the marks it had, and its block mark. Every later edit to that block, while the set stays active, is compared with that, not with the text just before the edit.
+- **So text put back loses the set's mark.** Characters that read as they did when the set started take back the marks they had then, earlier sets' included. A block back to its kind and attributes, with its text as it was, takes back its block mark. Only what still differs from the set's start stays marked. A gap still marks its neighbour (§6.2) while the gap is there.
+- **Undo** takes a block's starting point back with the edit that recorded it.
+- **Ending or starting a set** clears the starting points. **Clearing** the active set's marks (or all marks) clears them too, so the set starts afresh from the text as it then stands.
+- **Files:** the starting points are part of the revision table, so a project bundle (`revisions.json`) and the crash journal's header keep them, and a set still active after a reopen or a crash goes on marking against the same start.
+- **An accept** that marks with an ended set (§6.3, no set active) marks against the text just before it, as before: the starting points belong to the active set only.
 
 ## 7. Printing
 

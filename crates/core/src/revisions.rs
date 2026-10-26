@@ -61,6 +61,24 @@ pub struct Revisions {
     pub active: Option<RevisionId>,
     #[serde(default)]
     pub sets: Vec<RevisionSet>,
+    /// For each block the active set has marked, the block as it was
+    /// before the set first marked it. Marks are worked out against it, so
+    /// text put back as it was loses the set's mark (docs/specs/
+    /// revisions.md §6.4, 2026-10-26). Empty with no set active.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub base: std::collections::BTreeMap<crate::document::BlockId, BaseBlock>,
+}
+
+/// A block as the active set found it (§6.4): its kind and printing
+/// attributes in the distributed draft, its text with the marks it had,
+/// and its block mark.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BaseBlock {
+    pub kind: coldopen_screenplay::ElementKind,
+    pub element: coldopen_screenplay::Element,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rev: Option<RevisionId>,
 }
 
 /// The version of the table's JSON form.
@@ -73,6 +91,7 @@ impl Default for Revisions {
             colors: default_colors(),
             active: None,
             sets: Vec::new(),
+            base: std::collections::BTreeMap::new(),
         }
     }
 }

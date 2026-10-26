@@ -157,7 +157,7 @@ fn record(op: &Op, doc: &Document, t: &mut Touched) {
                 }
             }
         }
-        Op::Track { .. } | Op::Revisions { .. } | Op::TitlePage { .. } => {}
+        Op::Track { .. } | Op::Revisions { .. } | Op::RevBase { .. } | Op::TitlePage { .. } => {}
     }
 }
 
@@ -343,6 +343,11 @@ fn marking(doc: &Document, t: &Touched, rev: Option<RevisionId>) -> Vec<Op> {
     // place where something went.
     let mut gaps: Vec<usize> = Vec::new();
     let mut scenes: Vec<usize> = Vec::new();
+    // Block marks put back as the set found them (§6.4).
+    let mut restore: BTreeMap<usize, Option<RevisionId>> = BTreeMap::new();
+    // The active set marks against where each block was when it first
+    // marked it (§6.4); an accept marking with an ended set does not.
+    let active = rev.filter(|r| doc.revisions.active == Some(*r));
 
     for (i, b) in doc.blocks.iter().enumerate() {
         if t.added.contains(&b.id) {
@@ -361,9 +366,28 @@ fn marking(doc: &Document, t: &Touched, rev: Option<RevisionId>) -> Vec<Op> {
             (true, false) => gaps.push(i),
             (false, false) => {}
             (true, true) => {
-                if distributed_kind(old) != distributed_kind(b)
-                    || attributes(&old.element) != attributes(&b.element)
-                {
+                let base = active.map(|_| match doc.revisions.base.get(&b.id) {
+                    Some(base) => base.clone(),
+                    None => {
+                        let base = crate::revisions::BaseBlock {
+                            kind: distributed_kind(old),
+                            element: old.element.clone(),
+                            rev: old.rev,
+                        };
+                        ops.push(Op::RevBase {
+                            id: b.id,
+                            base: Some(Box::new(base.clone())),
+                        });
+                        base
+                    }
+                });
+                let (from_kind, from) = match &base {
+                    Some(base) => (base.kind, &base.element),
+                    None => (distributed_kind(old), &old.element),
+                };
+                let same_block =
+                    from_kind == distributed_kind(b) && attributes(from) == attributes(&b.element);
+                if !same_block {
                     whole.insert(i);
                 }
                 if old.marks.moved.len() > b.marks.moved.len() {
@@ -375,7 +399,7 @@ fn marking(doc: &Document, t: &Touched, rev: Option<RevisionId>) -> Vec<Op> {
                         gaps.push(k);
                     }
                 }
-                let (oc, nc) = (cells(&old.element.text), cells(&b.element.text));
+                let (oc, nc) = (cells(&from.text), cells(&b.element.text));
                 if oc != nc {
                     let (revs, lone) = revs_for(&oc, &nc, rev);
                     if lone {
@@ -385,6 +409,17 @@ fn marking(doc: &Document, t: &Touched, rev: Option<RevisionId>) -> Vec<Op> {
                     if revs != current {
                         texts.insert(i, with_revs(&b.element.text, &revs));
                     }
+                }
+                // Back as the set found it: the block mark it had then.
+                if let Some(base) = &base
+                    && same_block
+                    && oc
+                        .iter()
+                        .map(|c| (c.ch, c.style))
+                        .eq(nc.iter().map(|c| (c.ch, c.style)))
+                    && b.rev != base.rev
+                {
+                    restore.insert(i, base.rev);
                 }
             }
         }
@@ -431,13 +466,18 @@ fn marking(doc: &Document, t: &Touched, rev: Option<RevisionId>) -> Vec<Op> {
         ops.push(Op::Replace { index: i, element });
     }
     if let Some(rev) = rev {
-        for i in whole {
+        for &i in &whole {
             if doc.blocks[i].rev != Some(rev) {
                 ops.push(Op::Rev {
                     index: i,
                     rev: Some(rev),
                 });
             }
+        }
+    }
+    for (i, r) in restore {
+        if !whole.contains(&i) {
+            ops.push(Op::Rev { index: i, rev: r });
         }
     }
     ops

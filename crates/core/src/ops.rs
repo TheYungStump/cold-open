@@ -55,6 +55,13 @@ pub enum Op {
         title_page: TitlePage,
         title_lines: Vec<TitleLine>,
     },
+    /// Sets, or with `None` removes, the active set's starting point for
+    /// one block (docs/specs/revisions.md §6.4, 2026-10-26).
+    RevBase {
+        id: crate::document::BlockId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        base: Option<Box<crate::revisions::BaseBlock>>,
+    },
 }
 
 impl Op {
@@ -100,6 +107,16 @@ impl Op {
             Op::Rev { index, rev } if index < n => {
                 let old = std::mem::replace(&mut doc.blocks[index].rev, rev);
                 Op::Rev { index, rev: old }
+            }
+            Op::RevBase { id, base } => {
+                let before = match base {
+                    Some(b) => doc.revisions.base.insert(id, *b),
+                    None => doc.revisions.base.remove(&id),
+                };
+                Op::RevBase {
+                    id,
+                    base: before.map(Box::new),
+                }
             }
             Op::Revisions { revisions } => {
                 let old = std::mem::replace(&mut doc.revisions, *revisions);

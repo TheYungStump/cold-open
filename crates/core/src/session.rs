@@ -1887,6 +1887,7 @@ impl Session {
             .and_then(|()| revisions::parse_date(date).map(|_| ()))
             .map_err(CommandError::invalid_params)?;
         let mut next = table.clone();
+        next.base.clear();
         let set = RevisionSet {
             id: next.next_id(),
             color: color.clone(),
@@ -1919,6 +1920,7 @@ impl Session {
             ));
         };
         next.active = None;
+        next.base.clear();
         let Some(set) = next.sets.get_mut(i) else {
             return Err(CommandError::new(
                 "revision_not_active",
@@ -2028,6 +2030,16 @@ impl Session {
             ops.push(Op::Revisions {
                 revisions: Box::default(),
             });
+        } else if !self.doc.revisions.base.is_empty()
+            && self.doc.revisions.active.is_some_and(&which)
+        {
+            // The active set starts afresh from the text as it now stands
+            // (docs/specs/revisions.md §6.4).
+            let mut next = self.doc.revisions.clone();
+            next.base.clear();
+            ops.push(Op::Revisions {
+                revisions: Box::new(next),
+            });
         }
         Ok((Transaction(ops), json!({ "count": count })))
     }
@@ -2135,6 +2147,7 @@ fn op_names(op: &Op, c: ChangeId) -> bool {
         | Op::Track { .. }
         | Op::Rev { .. }
         | Op::Revisions { .. }
+        | Op::RevBase { .. }
         | Op::TitlePage { .. } => false,
     }
 }

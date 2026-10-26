@@ -776,3 +776,97 @@ fn colored_pages_are_an_option() {
         "the same options, the same bytes"
     );
 }
+
+/// Text put back as the set found it loses the set's mark (revisions.md
+/// §6.5, the 2026-10-26 manual test): a space deleted and typed again, a
+/// word changed and changed back, a block retyped and retyped back.
+#[test]
+fn text_put_back_as_the_set_found_it_is_not_marked() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, _) = open(dir.path());
+    ok(&mut d, "revision.start", json!({}));
+    // "Maya makes toast.": the space after "Maya" goes, and comes back.
+    ok(
+        &mut d,
+        "text.delete",
+        json!({"id": "b_2", "from": 4, "to": 5}),
+    );
+    assert_eq!(
+        shown(&mut d, "b_2", "r_1").0,
+        "MAYAMAKES toast.",
+        "the joined word is marked"
+    );
+    ok(
+        &mut d,
+        "text.insert",
+        json!({"id": "b_2", "at": 4, "text": " "}),
+    );
+    assert!(!any_marks(&mut d), "{:?}", blocks(&mut d));
+    // Two words changed, one changed back: only the other stays marked.
+    ok(
+        &mut d,
+        "block.set_text",
+        json!({"id": "b_6", "text": "Ana waters roses."}),
+    );
+    ok(
+        &mut d,
+        "block.set_text",
+        json!({"id": "b_6", "text": "Theo waters roses."}),
+    );
+    assert_eq!(shown(&mut d, "b_6", "r_1").0, "theo waters ROSES.");
+    // A retype, and back.
+    ok(
+        &mut d,
+        "block.set_type",
+        json!({"id": "b_4", "type": "action"}),
+    );
+    ok(
+        &mut d,
+        "block.set_type",
+        json!({"id": "b_4", "type": "dialogue"}),
+    );
+    assert_eq!(shown(&mut d, "b_4", "r_1").1, None);
+    // Undo takes the starting points back with the edits.
+    for _ in 0..6 {
+        ok(&mut d, "undo", json!({}));
+    }
+    assert!(!any_marks(&mut d));
+    let base = ok(&mut d, "doc.export", json!({"format": "json"}));
+    assert!(!base.to_string().contains("\"base\""), "{base}");
+}
+
+/// Under a later set, text put back to how that set found it keeps the
+/// earlier set's marks; ending a set clears its starting points.
+#[test]
+fn a_later_set_puts_back_the_earlier_sets_marks() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, _) = open(dir.path());
+    ok(&mut d, "revision.start", json!({}));
+    ok(
+        &mut d,
+        "block.set_text",
+        json!({"id": "b_2", "text": "Maya burns toast."}),
+    );
+    ok(&mut d, "revision.end", json!({}));
+    ok(&mut d, "revision.start", json!({}));
+    ok(
+        &mut d,
+        "block.set_text",
+        json!({"id": "b_2", "text": "Maya burns bread."}),
+    );
+    assert_eq!(shown(&mut d, "b_2", "r_2").0, "maya burns BREAD.");
+    ok(
+        &mut d,
+        "block.set_text",
+        json!({"id": "b_2", "text": "Maya burns toast."}),
+    );
+    assert_eq!(
+        shown(&mut d, "b_2", "r_1").0,
+        "maya BURNS toast.",
+        "r_1's mark is back"
+    );
+    assert_eq!(shown(&mut d, "b_2", "r_2").0, "maya burns toast.");
+    ok(&mut d, "revision.end", json!({}));
+    let table = ok(&mut d, "doc.export", json!({"format": "json"}));
+    assert!(!table.to_string().contains("\"base\""), "ended: {table}");
+}
