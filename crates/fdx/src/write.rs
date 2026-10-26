@@ -620,6 +620,7 @@ impl<'a> Gen<'a> {
                     }
                     if !doc.title_lines.is_empty()
                         && kept.title_lines.is_empty()
+                        && !kept.title_page_text
                         && !kept
                             .sections
                             .iter()
@@ -654,11 +655,15 @@ impl<'a> Gen<'a> {
             self.out
                 .push_str(&format!("{nl}{}</Content>", self.indent(1)));
         }
-        if !wrote_title && !doc.title_lines.is_empty() && kept.title_lines.is_empty() {
+        if !wrote_title
+            && !doc.title_lines.is_empty()
+            && kept.title_lines.is_empty()
+            && !kept.title_page_text
+        {
             self.title_page(doc.title_lines);
         }
         if !wrote_title
-            && !kept.title_lines.is_empty()
+            && (kept.title_page_text || !kept.title_lines.is_empty())
             && doc.title_lines != kept.title_lines.as_slice()
         {
             // The title page is kept as text and cannot be rewritten (§13.5).

@@ -140,3 +140,37 @@ fn an_edited_line_and_its_neighbours_keep_what_the_file_held() {
     let again = read(out.as_bytes()).unwrap();
     assert_eq!(again.title_lines, lines);
 }
+
+/// The `fdx_roundtrip` fuzz target's finding of 2026-10-26 (run
+/// 40294830086): a file whose title page is `<TitlePage/>`, with no
+/// `Content`, given title lines. The store keeps that title page as text,
+/// so the lines can't go into it; a second `TitlePage` after it was
+/// written, which a reader never reads. It is a `title_page_kept` loss.
+#[test]
+fn lines_for_a_title_page_kept_as_text_are_a_loss() {
+    let file = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<FinalDraft DocumentType=\"Script\" Version=\"4\">\n  <Content>\n    <Paragraph Type=\"Action\">\n      <Text>Rain.</Text>\n    </Paragraph>\n  </Content>\n  <TitlePage/>\n</FinalDraft>\n";
+    assert_eq!(fuzzing::title_edit(file.as_bytes(), &[2, 0]), Ok(()));
+    let doc = read(file.as_bytes()).unwrap();
+    let lines = vec![coldopen_screenplay::TitleLine {
+        text: RichText::plain("LOW TIDE"),
+        align: coldopen_screenplay::Align::Center,
+        left: doc.format.elements.action.left,
+        right: doc.format.elements.action.right,
+        space_before: coldopen_screenplay::Pt::ZERO,
+    }];
+    let written = coldopen_fdx::write(&Doc {
+        blocks: doc.blocks(),
+        format: &doc.format,
+        title_lines: &lines,
+        kept: Some(&doc.kept),
+        declare_utf8: false,
+    });
+    let codes: Vec<&str> = written.losses.iter().map(|l| l.code).collect();
+    assert_eq!(codes, ["title_page_kept"]);
+    assert_eq!(
+        written.text.matches("<TitlePage").count(),
+        1,
+        "{}",
+        written.text
+    );
+}

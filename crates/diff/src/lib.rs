@@ -858,8 +858,17 @@ fn gap(
         .collect();
     let pairs = greedy(ga.len(), gb.len(), |x, y| {
         let (e, f) = (&ea[ga[x]], &eb[gb[y]]);
+        // A page break pairs only with a page break: nothing else can
+        // become one without losing its text (2026-10-26).
+        if (e.kind == ElementKind::PageBreak) != (f.kind == ElementKind::PageBreak) {
+            return None;
+        }
         let s = if e.text.plain_text() == f.text.plain_text() {
             1.0
+        } else if wa[x].is_empty() && wb[y].is_empty() {
+            // No words on either side, and different text: nothing to
+            // say they are the same block.
+            0.0
         } else {
             block_similarity(&wa[x], &wb[y])
         };

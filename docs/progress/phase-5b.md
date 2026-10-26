@@ -118,6 +118,11 @@ The project's owner approved the plan without choosing on these, so they stand a
 52. **The title page sheet doesn't shield the page.** Clicks on the page are ignored while the sheet is open, rather than closing it.
 53. **The sheet learns which field was clicked by asking for focus** after every mouse press, since iced's text fields don't report a click.
 54. **The report view's rows are lines, not cells**, for iced's CPU renderer (the manual test). A per-cell table repainted each cell's region separately: 244 ms a step on Big Fish. The `reports` windowed benchmark measures it, and CI reports it.
+55. **Fuzzing, ten minutes a target** (run 40294830086, on 2d547d8): ten targets passed, and two found bugs.
+    - **`diff`:** a draft of one stray line against a page break. Importing it retyped the line into a page break, and a tracked retype keeps the old type and attributes but not text, so rejecting it gave back an empty line. This was a phase 5a bug, now reachable through `changes.import`. A tracked retype that would drop text is now refused (`changes.md` §5). In the diff, a page break pairs only with a page break, and blocks with no words pair only when their text is equal.
+    - **`fdx_roundtrip`:** a file whose first title page is `<TitlePage/>`, given title lines. The writer added a second `TitlePage`, which a reader never reads when the first comes before `Content`. The store now records that the first title page is kept as text, and such lines are a `title_page_kept` loss (`fdx.md` §13.5).
+
+    Both inputs are regression tests, and the workflow ran again on the fix.
 
 ## Manual test (Windows CI build)
 

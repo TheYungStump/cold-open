@@ -336,3 +336,45 @@ proptest! {
         prop_assert_eq!(coldopen_core::fuzzing::diff(&data), Ok(()));
     }
 }
+
+/// The `diff` fuzz target's finding of 2026-10-26 (run 40294830086): a
+/// draft of one stray line against a page break.
+#[test]
+fn fuzz_finding_a_page_break_against_one_line() {
+    let data = [0xb1, 0x5b, 0xc2, 0xc2, 0x3d, 0x3d, 0x3d];
+    assert_eq!(coldopen_core::fuzzing::diff(&data), Ok(()));
+}
+
+/// A tracked retype that would drop text is refused: its change could not
+/// give the text back on reject (found with the finding above).
+#[test]
+fn a_tracked_retype_that_drops_text_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("p.fountain");
+    fs::write(
+        &p,
+        "Hello there.
+",
+    )
+    .unwrap();
+    let mut d = open(&p);
+    let e = run(
+        &mut d,
+        &Author::writer(),
+        "block.set_type",
+        json!({"id": "b_1", "type": "page_break", "tracked": true}),
+    )
+    .unwrap_err();
+    assert_eq!(e.code, "invalid_attr");
+    // Untracked, undo gives it back as ever.
+    ok(
+        &mut d,
+        "block.set_type",
+        json!({"id": "b_1", "type": "page_break"}),
+    );
+    ok(&mut d, "undo", json!({}));
+    assert_eq!(
+        said(&mut d),
+        [("action".to_string(), "Hello there.".to_string())]
+    );
+}

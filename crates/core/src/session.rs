@@ -1285,6 +1285,15 @@ impl Session {
             // (docs/specs/changes.md §5.2); the author's own new block just
             // changes type.
             let own_block = marks.inserted.is_some_and(|c| self.own(ctx, c));
+            // A retype keeps the kind and attributes it changed, not text,
+            // so one that drops text (into a page break) could not be
+            // rejected (found by the `diff` fuzz target, 2026-10-26).
+            if !own_block && e.text.plain_text() != old.text.plain_text() {
+                return Err(CommandError::new(
+                    "invalid_attr",
+                    "this retype would drop the block's text, which a tracked change could not give back; delete the block and insert the new one, or make the change untracked",
+                ));
+            }
             if !own_block {
                 let c = ctx.change(&mut self.doc, None);
                 marks.retyped.push(Retyped {

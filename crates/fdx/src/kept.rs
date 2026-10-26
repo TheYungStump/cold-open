@@ -140,6 +140,11 @@ pub struct Kept {
     /// The title lines read from `TitlePage`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub title_lines: Vec<TitleLine>,
+    /// The file's first `TitlePage` is kept as text: it has no `Content`
+    /// to rewrite, or a repair inside it (§13.5). Lines are never written
+    /// as a second title page, which a reader would not read.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub title_page_text: bool,
 }
 
 impl Kept {
@@ -419,6 +424,7 @@ pub(crate) fn build(src: &Source<'_>) -> Kept {
         paragraphs: BTreeMap::new(),
         loose: Vec::new(),
         title_lines: src.title_lines.to_vec(),
+        title_page_text: false,
         style,
     };
 
@@ -467,11 +473,13 @@ pub(crate) fn build(src: &Source<'_>) -> Kept {
             Child::Element(n) if n.name == "TitlePage" && !title_done => {
                 title_done = true;
                 let lead = format!("{pending_text}{lead}");
-                kept.sections.push(if n.repaired {
+                let section = if n.repaired {
                     Section::Text(format!("{lead}{}", element_text(text, n)))
                 } else {
                     title_page(text, n, &lead)
-                });
+                };
+                kept.title_page_text = matches!(section, Section::Text(_));
+                kept.sections.push(section);
             }
             Child::Element(n) => {
                 let body = element_text(text, n);

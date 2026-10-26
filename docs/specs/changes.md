@@ -129,6 +129,7 @@ Here *the author* is the edit's author (`docs/specs/commands.md`, "Authors and u
 - **`block.set_type`.**
   - The author's own pending inserted block simply changes type.
   - Otherwise the block is marked `retyped`, with the type it had and the attributes the change clears. Every retype is kept as its own entry, oldest first, so rejecting undoes them in turn, even when the block is changed back to its first type.
+  - **Resolution (2026-10-26):** a retype that would drop the block's text, as one into a page break does, is refused with `invalid_attr`. The `retyped` mark keeps the type and attributes but not text, so rejecting it gave back the type and an empty block. Found by the `diff` fuzz target through `changes.import`. The writer can delete the block and insert the new one, or make the retype untracked, which undo takes back whole.
 - **`block.split`.**
   - At the end of the text, with nothing moving to the new block, the new block is an insertion, marked `inserted`. This is what Enter at the end of a line sends.
   - Anywhere else, the new block is marked `split`, and the text it takes keeps its marks.
