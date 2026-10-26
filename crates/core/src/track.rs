@@ -164,7 +164,8 @@ fn lay(rt: &RichText) -> Laid {
 /// own words marked inserted, the old words it drops kept as deletions
 /// (or dropped, where they were the author's own insertion), and the old
 /// text's pending deletions where they stood. Notes and boneyard come from
-/// the new text.
+/// the new text, except that the same notes and boneyard, in the same
+/// order, stay where they stood in the old text.
 pub fn set_text(
     old: &RichText,
     new: &RichText,
@@ -181,11 +182,32 @@ pub fn set_text(
     let nw: Vec<&[char]> = nt.iter().map(|&(a, b)| &nc[a..b]).collect();
 
     let mut out: Vec<Run> = Vec::new();
-    // Old pending deletions are put back before the old character they
-    // stood before; new notes before the new character they stand before.
-    let old_dels: Vec<&(usize, Run)> = o.loose.iter().filter(|(_, r)| !r.is_hidden()).collect();
+    // Notes and boneyard the new text leaves as they were stay where they
+    // stood among the old characters, deleted ones included, so rejecting
+    // the change gives them back in place; moving them is no tracked change
+    // (2026-10-26, found by a run of the `diff` fuzz check).
+    let hidden = |l: &Laid| -> Vec<Run> {
+        l.loose
+            .iter()
+            .filter(|(_, r)| r.is_hidden())
+            .map(|(_, r)| r.clone())
+            .collect()
+    };
+    let same_notes = hidden(&o) == hidden(&n);
+    // Old pending deletions (and unchanged notes) are put back before the
+    // old character they stood before; new notes before the new character
+    // they stand before.
+    let old_dels: Vec<&(usize, Run)> = o
+        .loose
+        .iter()
+        .filter(|(_, r)| !r.is_hidden() || same_notes)
+        .collect();
     let mut od = 0;
-    let mut nh = n.loose.iter().filter(|(_, r)| r.is_hidden()).peekable();
+    let mut nh = n
+        .loose
+        .iter()
+        .filter(|(_, r)| r.is_hidden() && !same_notes)
+        .peekable();
     let mut put_old = |out: &mut Vec<Run>, at: usize| {
         while od < old_dels.len() && old_dels[od].0 <= at {
             out.push(old_dels[od].1.clone());
@@ -248,6 +270,68 @@ pub fn set_text(
     }
     put_old(&mut out, usize::MAX);
     put_new(&mut out, usize::MAX);
+    RichText::new(out)
+}
+
+/// The text `changes.import` sends for a block it retexts: `new`'s printed
+/// text, with each character it shares with `old` (by the word rule
+/// [`set_text`] keeps them by) in the style it had in `old`, and `old`'s
+/// notes and boneyard where they stood. A tracked `set_text` takes styles,
+/// notes and boneyard from the new text, and no change records them, so
+/// rejecting it could not give the old ones back (docs/specs/changes.md
+/// §10). What this leaves out of `new` the import lists as skipped (found
+/// by the `diff` fuzz target and a local run of its check, 2026-10-26).
+pub fn import_text(old: &RichText, new: &RichText) -> RichText {
+    let o = lay(old);
+    let n = lay(new);
+    let oc: Vec<char> = o.chars.iter().map(|c| c.0).collect();
+    let nc: Vec<char> = n.chars.iter().map(|c| c.0).collect();
+    let ot = tokens(&oc);
+    let nt = tokens(&nc);
+    let ow: Vec<&[char]> = ot.iter().map(|&(a, b)| &oc[a..b]).collect();
+    let nw: Vec<&[char]> = nt.iter().map(|&(a, b)| &nc[a..b]).collect();
+    let mut styles: Vec<Style> = n.chars.iter().map(|c| c.1).collect();
+    // Where each old character went, when it was kept.
+    let mut to: Vec<Option<usize>> = vec![None; o.chars.len()];
+    for step in diff(&ow, &nw) {
+        if let Step::Equal(i, j) = step {
+            let (a, b) = ot[i];
+            let (c, _) = nt[j];
+            for k in 0..b - a {
+                styles[c + k] = o.chars[a + k].1;
+                to[a + k] = Some(c + k);
+            }
+        }
+    }
+    // Each old note or boneyard goes before the new character the next
+    // kept old character became, or at the end.
+    let mut hidden = o
+        .loose
+        .iter()
+        .filter(|(_, r)| r.is_hidden())
+        .map(|(at, r)| {
+            let q = (*at..o.chars.len())
+                .find_map(|k| to[k])
+                .unwrap_or(n.chars.len());
+            (q, r.clone())
+        })
+        .peekable();
+    let mut out: Vec<Run> = Vec::new();
+    let mut at = 0;
+    for r in new.runs() {
+        if let Run::Text { text, marks, .. } = r
+            && !marks.is_deleted()
+        {
+            for ch in text.chars() {
+                while let Some((_, run)) = hidden.next_if(|(q, _)| *q <= at) {
+                    out.push(run);
+                }
+                out.push(Run::marked(ch.to_string(), styles[at], *marks));
+                at += 1;
+            }
+        }
+    }
+    out.extend(hidden.map(|(_, r)| r));
     RichText::new(out)
 }
 
@@ -607,6 +691,9 @@ fn restore_retypes(
         }
         if r.from == ElementKind::Section && r.depth > 0 {
             e.depth = r.depth;
+        }
+        if !r.from.is_transparent() && r.space_before.is_some() {
+            e.space_before = r.space_before;
         }
         let mut marks = b.marks.clone();
         marks.retyped.retain(|x| x.change != c);

@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use coldopen_diff::{BlockOpKind, Draft, Edit, Title};
-use coldopen_screenplay::{Element, ElementKind, Run, TitleLine, TitlePage};
+use coldopen_screenplay::{Element, ElementKind, RichText, Run, TitleLine, TitlePage};
 use serde_json::{Value, json};
 
 use crate::command::BatchItem;
@@ -265,9 +265,19 @@ pub fn import_edits(
     let mut skipped: Vec<Value> = Vec::new();
     for s in &d.scenes {
         for op in &s.blocks {
-            if matches!(op.op, BlockOpKind::Restyled | BlockOpKind::Attributes) {
+            // A changed or retyped block keeps its attributes too, which
+            // are never tracked (found by a local run of the `diff` check,
+            // 2026-10-26).
+            let attributes = op.op == BlockOpKind::Changed
+                && match (&op.a, &op.b) {
+                    (Some(x), Some(y)) => {
+                        other_attributes(&pair.a.elements[x.at], &pair.b.elements[y.at])
+                    }
+                    _ => false,
+                };
+            if matches!(op.op, BlockOpKind::Restyled | BlockOpKind::Attributes) || attributes {
                 skipped.push(json!({
-                    "op": op.op,
+                    "op": if attributes { BlockOpKind::Attributes } else { op.op },
                     "id": op.a.as_ref().map(|r| r.id.clone()),
                 }));
             }
@@ -278,6 +288,7 @@ pub fn import_edits(
     }
     let (ea, eb) = (&pair.a, &pair.b);
     let id = |i: usize| json!(ea.ids[i]);
+    let mut restyled: Vec<Value> = Vec::new();
     let item = |command: &str, params: Value| BatchItem {
         command: command.into(),
         params,
@@ -295,10 +306,30 @@ pub fn import_edits(
                 "block.set_type",
                 json!({ "id": id(a), "type": eb.elements[b].kind, "tracked": true }),
             ),
-            Edit::Retext { a, b } => item(
-                "block.set_text",
-                json!({ "id": id(a), "runs": runs(&eb.elements[b], pair.transparent), "tracked": true }),
-            ),
+            Edit::Retext { a, b } => {
+                // Words both drafts have keep A's style, and A's notes and
+                // boneyard stay: neither can be tracked, so what differs is
+                // listed as skipped instead.
+                let want = RichText::new(runs(&eb.elements[b], pair.transparent));
+                let kept = crate::track::import_text(&ea.elements[a].text, &want);
+                let split = |t: &RichText, hidden: bool| -> Vec<Run> {
+                    t.runs()
+                        .iter()
+                        .filter(|r| r.is_hidden() == hidden)
+                        .cloned()
+                        .collect()
+                };
+                if split(&kept, false) != split(&want, false) {
+                    restyled.push(json!({ "op": "restyled", "id": ea.ids[a] }));
+                }
+                if split(&kept, true) != split(&want, true) {
+                    restyled.push(json!({ "op": "notes", "id": ea.ids[a] }));
+                }
+                item(
+                    "block.set_text",
+                    json!({ "id": id(a), "runs": kept.runs(), "tracked": true }),
+                )
+            }
             Edit::Insert { b, before } => {
                 let e = &eb.elements[b];
                 let mut p = json!({
@@ -315,11 +346,30 @@ pub fn import_edits(
                 if e.centered {
                     p["centered"] = json!(true);
                 }
+                // The blank lines above it too: without them, two speeches
+                // or lyrics in a row read back as one block.
+                if let Some(n) = e.space_before {
+                    p["space_before"] = json!(n);
+                }
+                if e.kind == ElementKind::Section {
+                    p["depth"] = json!(e.depth);
+                }
                 item("block.insert", with_before(p, before.map(id)))
             }
         })
         .collect();
+    skipped.extend(restyled);
     (items, skipped)
+}
+
+/// Whether `a`, given `b`'s kind, would print with other attributes than
+/// `b`: a scene number, dual dialogue, centering or a section's depth.
+fn other_attributes(a: &Element, b: &Element) -> bool {
+    let mut e = a.clone();
+    e.kind = b.kind;
+    e.clear_inapplicable();
+    (e.scene_number.as_ref(), e.dual, e.centered, e.depth)
+        != (b.scene_number.as_ref(), b.dual, b.centered, b.depth)
 }
 
 fn with_before(mut p: Value, before: Option<Value>) -> Value {

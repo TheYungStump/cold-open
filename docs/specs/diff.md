@@ -1,6 +1,6 @@
 # Script diff
 
-- **Date:** 2026-10-22, updated 2026-10-25 (as built in step 9: §3.3, §4)
+- **Date:** 2026-10-22, updated 2026-10-25 (as built in step 9: §3.3, §4) and 2026-10-26 (fuzzing: §2, §3.3, §3.5, §6)
 - **Status:** phase 5b, being implemented in `crates/diff` (package `coldopen-diff`, MIT OR Apache-2.0: the comparison) and `crates/core` (reading the drafts, the `diff` and `changes.import` commands, the marked PDF), with front ends in `crates/cli`, `crates/mcp` and `crates/app`.
 - **Sources:**
   - `docs/spec.md`: "Revising" (script diff between any two drafts) and "Reliability features" item 7 (scene by scene, moved scenes detected; a readable summary, JSON, or a PDF with changes marked; `coldopen diff draft2.fdx draft3.fdx`).
@@ -28,7 +28,7 @@ Each draft is read as `doc.open` reads it, without a session or a journal, then 
 4. **As it prints** (2026-10-25). Text is compared, and blocks found equal or similar, on what prints, while the result gives each draft's text as it is and `changes.import` brings in B's text as it is:
    - **Capitals.** An element whose kind the draft's page format prints in capitals is compared in capitals. One .fdx of the corpus stores headings and names in any case (`int.`, mixed-case names) and prints them in capitals through its element settings.
    - **Quotes.** Curly quotes and apostrophes compare as straight ones. Converters change them, and they never change what a script says.
-   - **Spaces.** A run of spaces, tabs or no-break spaces compares as one space.
+   - **Spaces.** A run of spaces, tabs or no-break spaces compares as one space. **Resolution (2026-10-26):** however runs split it: a style change or a note inside the run does not make it two (found by a local run of the `diff` check).
    - **CONT'D.** A CONT'D marker in a character's extensions (`(CONT'D)`, `(CONTD)`, any case) compares as absent. Layout prints the marker wherever a speaker continues (`docs/specs/layout.md`), so drafts differ only in whether they type it: in the corpus, one Big Fish .fountain types it a hundred times, and the .fdx of the same script never does.
 
    Why: the Big Fish variants (§7) differed in almost every block without these, and in nothing a reader would see.
@@ -62,7 +62,7 @@ Each draft's blocks are cut into **units**: one per scene heading, holding the h
 Within a pair of units:
 
 1. Blocks are aligned with the longest common subsequence on (kind, text). Aligned blocks whose styles or printing attributes differ are **restyled** or have **changed attributes**.
-2. **The gaps.** Between aligned blocks, the unaligned blocks of A and B are paired by similarity, at least 0.5, preferring the same kind. **Resolution (2026-10-25):** a block's similarity is the share of its words in common with the other's, in order: twice the length of their longest common run of words over the sum of their lengths (past the pair bound of step 3, the words they share in any order). §3.2's three-word sequences are too coarse for short blocks: one changed word in a four-word speech leaves only a third of its sequences in common, so the change showed as a speech deleted and another added. Scenes keep §3.2's measure, and pairs are still taken greedily as §3.2 says. A paired block whose text is equal and kind differs is **retyped**, and one whose text differs is **changed** (and **retyped** too when its kind differs). The rest are **added** or **deleted**.
+2. **The gaps.** Between aligned blocks, the unaligned blocks of A and B are paired by similarity, at least 0.5, preferring the same kind. **Resolution (2026-10-25):** a block's similarity is the share of its words in common with the other's, in order: twice the length of their longest common run of words over the sum of their lengths (past the pair bound of step 3, the words they share in any order). §3.2's three-word sequences are too coarse for short blocks: one changed word in a four-word speech leaves only a third of its sequences in common, so the change showed as a speech deleted and another added. Scenes keep §3.2's measure, and pairs are still taken greedily as §3.2 says. A paired block whose text is equal and kind differs is **retyped**, and one whose text differs is **changed** (and **retyped** too when its kind differs). The rest are **added** or **deleted**. **Resolution (2026-10-26):** pairs in a gap keep their order: a pair that would cross one already taken is not made, since a block cannot move within a scene, and crossed pairs showed blocks in A's order as B's. A page break pairs only with a page break, and a note or boneyard block only with a note or boneyard block, since nothing else can become one without losing its text or styles (`docs/specs/changes.md` §5.2). Found by the `diff` fuzz target and a local run of its check.
 3. **A bound.** When the two units have more than 1,000,000 pairs of blocks to compare, the alignment stops at their common start and end, and the middle is compared as one gap.
 
 ### 3.4 Words
@@ -71,7 +71,7 @@ A changed block's text is compared word by word, with the word rule of `docs/spe
 
 ### 3.5 The title page
 
-- **Fountain title keys** are compared key by key, matched by name ignoring case. Each is **added**, **deleted** or **changed**, with its values.
+- **Fountain title keys** are compared key by key, matched by name ignoring case. **Resolution (2026-10-26):** a key given more than once pairs by occurrence, the second with the second, so a draft with a repeated key is not different from itself. Each is **added**, **deleted** or **changed**, with its values.
 - **Positioned title lines** (.fdx) are compared as a list of lines, with the block rule of §3.3, on their text, alignment and space above.
 - A draft with keys compared with a draft with lines turns the lines into keys first, as a Fountain save does (`docs/specs/fountain.md` §11).
 
@@ -155,6 +155,11 @@ Decided with the project's owner, 2026-10-22: in phase 5b. A co-writer's .fdx dr
   | moved unit | `scene.move` |
 
 - **Not imported.** Restyled blocks, changed attributes and the title page cannot be tracked (`docs/specs/changes.md` §10), so they are left out and listed in the result's `skipped`, each with its block or key. The writer can apply them by hand.
+  - **Resolution (2026-10-26):** found by the `diff` fuzz target and a local run of its check.
+    - A retexted block keeps A's style on the words both drafts have, and A's notes and boneyard where they stood. A tracked `block.set_text` takes styles, notes and boneyard from the new text, and no change records them, so rejecting could not give them back. What differs is listed as `restyled` or `notes`.
+    - A changed block whose attributes differ too is listed as `attributes`, as an unchanged one is.
+    - An inserted block brings its blank lines above, and a section its depth. Blank lines on blocks A keeps are attributes, so they are not brought in: where they join or split paragraphs, the result can still differ from B there.
+    - A retyped block whose text prints differently in its new kind (a name typed in lowercase prints in capitals only as a character) is retexted too.
 - **One undo step**, labelled "Changes from <name>", and one change in the table, by that writer. Accepting all of it gives the open document B's text, apart from what was skipped. Rejecting all of it gives back the document as it was.
 - **The journal** records the edits it resolved, not the path, so replay never reads the draft again. **Resolution (2026-10-25):** the edits are run as a `batch` with that label, by a writer of that name, and the batch is what the journal records; `changes.import` itself is never journaled, so no entry can carry edits of its own.
 - **Pending changes.** A document with tracked changes waiting is refused with `change_pending` (2026-10-25): its current text and its accepted text differ, and edits planned on one would land wrongly on the other. Accept or reject them first.
@@ -173,4 +178,4 @@ Decided with the project's owner, 2026-10-22: in phase 5b. A co-writer's .fdx dr
   - importing B into A, then accepting all, gives B's comparison form; rejecting all gives A.
 - **The Big Fish variants** in `corpus/`: fountain.io's .fountain and .fdx, jumpcut's .fdx and screenplain's .fdx, each pair compared, with every reported difference explained in `docs/progress/phase-5b.md`.
 - **The budget** is measured on the synthetic 119-page script against an edited copy, and on the Big Fish variants, and asserted on Linux by the budgets job.
-- **Fuzzing.** The `diff` fuzz target parses two inputs as Fountain, compares them and checks that nothing panics, that each diffed with itself is empty, and that the counts match the lists.
+- **Fuzzing.** The `diff` fuzz target parses two inputs as Fountain, compares them and checks that nothing panics, that each diffed with itself is empty, and that the counts match the lists. It also brings B into A: the import must apply, accepting all of it must leave only what cannot be tracked (styles, attributes among them blank lines and centering, and the title page), and rejecting all of it must give A back. The property tests in `crates/core/tests/diff.rs` run the same check on random bytes and on drafts built from words.

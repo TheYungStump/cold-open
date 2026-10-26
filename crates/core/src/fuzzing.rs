@@ -361,8 +361,9 @@ pub fn revisions(data: &[u8]) -> Result<(), String> {
 /// - the counts match the lists, and swapping the drafts swaps added and
 ///   deleted scenes;
 /// - bringing B into A as tracked changes always applies; accepting all of
-///   it leaves only what cannot be tracked (restyles, attributes, the title
-///   page), and rejecting all of it gives A back.
+///   it leaves only what cannot be tracked (restyles, attributes, among
+///   them blank lines and centering, and the title page), and rejecting all
+///   of it gives A back.
 pub fn diff(data: &[u8]) -> Result<(), String> {
     use crate::format::FormatId;
     use crate::io::SourceStyle;
@@ -419,7 +420,19 @@ pub fn diff(data: &[u8]) -> Result<(), String> {
         |name: &str| Command::from_parts(name, json!({"all": true})).map_err(|e| e.to_string());
     s.execute(&all("changes.accept")?)
         .map_err(|e| format!("accepting the import failed: {e}"))?;
-    let left = result(&s.doc, &b);
+    // Blank lines and centering are attributes, never tracked, and they
+    // change text as it reads back: a block with no blank line above it
+    // joins the paragraph before it, and a centered line loses the spaces
+    // it starts with. So they are left out here.
+    let unspaced = |d: &Document| {
+        let mut d = d.clone();
+        for block in &mut d.blocks {
+            block.element.space_before = None;
+            block.element.centered = false;
+        }
+        d
+    };
+    let left = result(&unspaced(&s.doc), &unspaced(&b));
     for scene in left["scenes"].as_array().into_iter().flatten() {
         for block in scene["blocks"].as_array().into_iter().flatten() {
             if block["op"] != "restyled" && block["op"] != "attributes" {

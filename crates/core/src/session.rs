@@ -1286,12 +1286,13 @@ impl Session {
             // changes type.
             let own_block = marks.inserted.is_some_and(|c| self.own(ctx, c));
             // A retype keeps the kind and attributes it changed, not text,
-            // so one that drops text (into a page break) could not be
-            // rejected (found by the `diff` fuzz target, 2026-10-26).
-            if !own_block && e.text.plain_text() != old.text.plain_text() {
+            // so one that changes text (into a page break, or styles into a
+            // note) could not be rejected (found by the `diff` fuzz target,
+            // 2026-10-26).
+            if !own_block && e.text != old.text {
                 return Err(CommandError::new(
                     "invalid_attr",
-                    "this retype would drop the block's text, which a tracked change could not give back; delete the block and insert the new one, or make the change untracked",
+                    "this retype would drop the block's text or its styles, which a tracked change could not give back; delete the block and insert the new one, or make the change untracked",
                 ));
             }
             if !own_block {
@@ -1306,6 +1307,7 @@ impl Session {
                     dual: old.dual && !e.dual,
                     centered: old.centered && !e.centered,
                     depth: if e.depth == 0 { old.depth } else { 0 },
+                    space_before: old.space_before.filter(|_| e.space_before.is_none()),
                 });
             }
         }

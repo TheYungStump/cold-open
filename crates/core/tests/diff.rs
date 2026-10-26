@@ -243,8 +243,10 @@ const HEADINGS: [&str; 5] = [
     "INT. KITCHEN - MORNING",
     "EXT. STREET - DUSK",
 ];
-const WORDS: [&str; 10] = [
+const WORDS: [&str; 14] = [
     "rain", "the", "pumps", "stopped", "Maya", "listens", "wind", "rail", "kettle", "twice",
+    // Emphasis, so styles change under words both drafts share.
+    "*rain*", "**the**", "_pumps_", "*2*",
 ];
 
 /// A Fountain script of scenes with action and speeches.
@@ -351,12 +353,7 @@ fn fuzz_finding_a_page_break_against_one_line() {
 fn a_tracked_retype_that_drops_text_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("p.fountain");
-    fs::write(
-        &p,
-        "Hello there.
-",
-    )
-    .unwrap();
+    fs::write(&p, "Hello there.\n").unwrap();
     let mut d = open(&p);
     let e = run(
         &mut d,
@@ -377,4 +374,120 @@ fn a_tracked_retype_that_drops_text_is_refused() {
         said(&mut d),
         [("action".to_string(), "Hello there.".to_string())]
     );
+}
+
+/// The `diff` fuzz target's second finding (run 40310454075): "2" against
+/// a line with italics around a digit and an escape.
+#[test]
+fn fuzz_finding_italics_against_a_digit() {
+    let data = [0x32, 0x00, 0xe5, 0x2a, 0x2e, 0x32, 0x5c, 0x2d, 0x2a];
+    assert_eq!(coldopen_core::fuzzing::diff(&data), Ok(()));
+}
+
+/// What a local run of the `diff` check found after that (2026-10-26),
+/// drafts built from Fountain tokens: two drafts each, split at the zero.
+#[test]
+fn local_check_findings() {
+    let cases: [(&str, &[u8]); 10] = [
+        // Boneyard in a retexted line was dropped, so rejecting lost it.
+        (
+            "boneyard kept",
+            b"= syn --/*bone*/  .FORCED\0*.FORCED.>  -  ^  ===\n\n\\",
+        ),
+        // An unchanged boneyard moved to where the new text had it.
+        (
+            "boneyard in place",
+            b"(quietly)_/*bone*/**\0\n!!\\\n*^> (quietly)> ",
+        ),
+        // An inserted block lost the blank lines above it, and joined the
+        // block before it.
+        (
+            "inserted spacing",
+            b"_\t@maya\0~= syn.FORCED*  \n\n~ <===[[note]]",
+        ),
+        // A repeated title key paired every copy with the first.
+        (
+            "repeated key",
+            b"Title: X\nDraft: one\nDraft: two\n\nINT. LAB - NIGHT\n\0INT. LAB - NIGHT\n",
+        ),
+        // A note inside a run of spaces printed a second space.
+        (
+            "spaces around a note",
+            b"> INT. LAB - NIGHT\0(quietly)-INT. LAB - NIGHT  [[note]]  !!~^",
+        ),
+        // A retype into a synopsis cleared the blank lines above, and
+        // rejecting it did not put them back.
+        ("retyped spacing", b"  > \n-!!= syn  <!===#\0   = syn^\\"),
+        // A lowercase name prints in capitals as a character, and as
+        // typed once retyped to action.
+        (
+            "capitals on retype",
+            b"@maya\0MAYA  \n\nINT. LAB - NIGHTMAYA!!*~\tMAYA===",
+        ),
+        // Blank lines are never tracked, so the import cannot bring them.
+        ("spacing left", b"\n\n~\n2*.FORCED\\ !**\0 <===.> \n\n\n2"),
+        // Blocks in a gap paired across each other.
+        (
+            "crossed pairs",
+            b"[[note]]*-~MAYA\n!\t\0\t> !\n\nthe@maya^.\n",
+        ),
+        // Centering is never tracked, and a centered line loses the spaces
+        // it starts with.
+        ("centering left", b"> rain.FORCED^ <\0\train"),
+    ];
+    for (name, data) in cases {
+        assert_eq!(coldopen_core::fuzzing::diff(data), Ok(()), "{name}");
+    }
+}
+
+/// A changed line that is centered in one draft only lists its centering
+/// as skipped: attributes are never tracked.
+#[test]
+fn an_import_lists_the_attributes_of_changed_blocks() {
+    let dir = tempfile::tempdir().unwrap();
+    let (a, b) = (dir.path().join("a.fountain"), dir.path().join("b.fountain"));
+    fs::write(&a, "> Rain falls on the roof. <\n").unwrap();
+    fs::write(&b, "Rain falls on the road.\n").unwrap();
+    let mut d = open(&a);
+    let r = ok(&mut d, "changes.import", json!({"path": b}));
+    assert_eq!(r["skipped"], json!([{"op": "attributes", "id": "b_1"}]));
+}
+
+/// A tracked retype into a note would drop the line's styles, which its
+/// change could not give back, so it is refused like one that drops text.
+#[test]
+fn a_tracked_retype_that_drops_styles_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("p.fountain");
+    fs::write(&p, "Hello *there*.\n").unwrap();
+    let mut d = open(&p);
+    let e = run(
+        &mut d,
+        &Author::writer(),
+        "block.set_type",
+        json!({"id": "b_1", "type": "note", "tracked": true}),
+    )
+    .unwrap_err();
+    assert_eq!(e.code, "invalid_attr");
+}
+
+/// A tracked retype into a synopsis clears the blank lines above the block,
+/// and rejecting it puts them back.
+#[test]
+fn rejecting_a_retype_gives_the_blank_lines_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("p.fountain");
+    fs::write(&p, "Rain.\n\n\n\nHail.\n").unwrap();
+    let mut d = open(&p);
+    let before = ok(&mut d, "doc.get", json!({}));
+    let gap = |v: &Value| v["blocks"][1]["space_before"].clone();
+    assert_eq!(gap(&before), json!(3));
+    ok(
+        &mut d,
+        "block.set_type",
+        json!({"id": "b_2", "type": "synopsis", "tracked": true}),
+    );
+    assert_eq!(gap(&ok(&mut d, "doc.get", json!({}))), Value::Null);
+    ok(&mut d, "changes.reject", json!({"all": true}));
+    assert_eq!(gap(&ok(&mut d, "doc.get", json!({}))), json!(3));
 }

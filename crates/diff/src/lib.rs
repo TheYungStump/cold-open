@@ -273,13 +273,23 @@ fn fold_char(c: char) -> char {
 /// Text as compared: quotes folded, runs of spaces as one, and in
 /// capitals when it prints so.
 fn fold(text: &str, caps: bool) -> String {
+    fold_after(text, caps, &mut false)
+}
+
+/// [`fold`] for one run of a line, where `space` says whether what printed
+/// before it ended in a space, and is left saying so after it. A run of
+/// spaces is one however runs split it: a style or a note inside it does
+/// not print a second space (found by a local run of the `diff` check,
+/// 2026-10-26).
+fn fold_after(text: &str, caps: bool, space: &mut bool) -> String {
     let mut t = String::with_capacity(text.len());
     for c in text.chars().map(fold_char) {
-        let space = matches!(c, ' ' | '\t' | '\u{A0}');
-        if space && t.ends_with(' ') {
+        let is_space = matches!(c, ' ' | '\t' | '\u{A0}');
+        if is_space && *space {
             continue;
         }
-        t.push(if space { ' ' } else { c });
+        *space = is_space;
+        t.push(if is_space { ' ' } else { c });
     }
     if caps { t.to_uppercase() } else { t }
 }
@@ -316,13 +326,14 @@ fn printed(e: &Element, caps: &[ElementKind]) -> Element {
         e.text = RichText::new(vec![Run::styled(fold(&name, up), style)]);
         return e;
     }
+    let mut space = false;
     e.text = RichText::new(
         e.text
             .runs()
             .iter()
             .map(|r| match r {
                 Run::Text { text, style, marks } => Run::Text {
-                    text: fold(text, up),
+                    text: fold_after(text, up, &mut space),
                     style: *style,
                     marks: *marks,
                 },
@@ -404,8 +415,16 @@ fn block_similarity(a: &[String], b: &[String]) -> f64 {
 
 /// Pairs items of two lists greedily by score (§3.2): highest first, then
 /// the nearer positions, then A's position, then B's. `score` gives `None`
-/// for a pair that may not be made.
-fn greedy(n: usize, m: usize, score: impl Fn(usize, usize) -> Option<f64>) -> Vec<(usize, usize)> {
+/// for a pair that may not be made. With `ordered`, a pair that would cross
+/// one already made is not made: blocks in a gap pair in order, since a
+/// block cannot move within a scene (§3.3; found by a local run of the
+/// `diff` check, 2026-10-26).
+fn greedy(
+    n: usize,
+    m: usize,
+    ordered: bool,
+    score: impl Fn(usize, usize) -> Option<f64>,
+) -> Vec<(usize, usize)> {
     let mut candidates: Vec<(f64, usize, usize, usize)> = Vec::new();
     for i in 0..n {
         for j in 0..m {
@@ -423,7 +442,8 @@ fn greedy(n: usize, m: usize, score: impl Fn(usize, usize) -> Option<f64>) -> Ve
     let (mut used_a, mut used_b) = (vec![false; n], vec![false; m]);
     let mut out = Vec::new();
     for (_, _, i, j) in candidates {
-        if !used_a[i] && !used_b[j] {
+        let crosses = |&(x, y): &(usize, usize)| (x < i) != (y < j);
+        if !used_a[i] && !used_b[j] && !(ordered && out.iter().any(crosses)) {
             used_a[i] = true;
             used_b[j] = true;
             out.push((i, j));
@@ -599,7 +619,12 @@ pub fn compare(a: &Draft<'_>, b: &Draft<'_>, transparent: bool) -> Diff {
     }
     diff.title_page = compare_title(a.title, b.title);
     diff.summary.title_page = diff.title_page.len();
-    diff.edits = plan(&ea, &eb, &ua, &ub, &partner_of_b, &rows);
+    let retyped = |i: usize, kind: ElementKind| {
+        let mut e = oa[i].clone();
+        e.kind = kind;
+        printed(&e, a.caps)
+    };
+    diff.edits = plan(&ea, &eb, &retyped, &ua, &ub, &partner_of_b, &rows);
     diff
 }
 
@@ -607,9 +632,11 @@ pub fn compare(a: &Draft<'_>, b: &Draft<'_>, transparent: bool) -> Diff {
 /// last scene back, so each scene goes before one already in its place.
 /// Then each scene in B's order: deletions, new kinds and text, and new
 /// blocks before the next block A keeps, or before the next scene.
+/// `retyped` is how an A block prints once it has a new kind.
 fn plan(
     ea: &[Element],
     eb: &[Element],
+    retyped: &dyn Fn(usize, ElementKind) -> Element,
     ua: &[Unit],
     ub: &[Unit],
     partner_of_b: &BTreeMap<usize, (usize, bool)>,
@@ -656,7 +683,16 @@ fn plan(
                         .or_else(|| next_scene(j));
                     edits.push(Edit::Insert { b, before });
                 }
-                Row::Both(a, b, Some(BlockOpKind::Retyped)) => edits.push(Edit::Retype { a, b }),
+                Row::Both(a, b, Some(BlockOpKind::Retyped)) => {
+                    edits.push(Edit::Retype { a, b });
+                    // Text that prints the same in the old kind may not in
+                    // the new one: a lowercase name prints in capitals as a
+                    // character, and as typed in action (found by a local
+                    // run of the `diff` check, 2026-10-26).
+                    if retyped(a, eb[b].kind).text != eb[b].text {
+                        edits.push(Edit::Retext { a, b });
+                    }
+                }
                 Row::Both(a, b, Some(BlockOpKind::Changed)) => {
                     if ea[a].kind != eb[b].kind {
                         edits.push(Edit::Retype { a, b });
@@ -755,7 +791,7 @@ fn pair_units(ea: &[Element], ua: &[Unit], eb: &[Element], ub: &[Unit]) -> Vec<(
         .iter()
         .map(|&j| shingles(&text(eb, &ub[j])))
         .collect();
-    for (x, y) in greedy(rest_a.len(), rest_b.len(), |x, y| {
+    for (x, y) in greedy(rest_a.len(), rest_b.len(), false, |x, y| {
         let (i, j) = (rest_a[x], rest_b[y]);
         if (ua[i].index == 0) != (ub[j].index == 0) {
             return None;
@@ -856,11 +892,14 @@ fn gap(
         .iter()
         .map(|&j| word_list(&eb[j].text.plain_text()))
         .collect();
-    let pairs = greedy(ga.len(), gb.len(), |x, y| {
+    let pairs = greedy(ga.len(), gb.len(), true, |x, y| {
         let (e, f) = (&ea[ga[x]], &eb[gb[y]]);
-        // A page break pairs only with a page break: nothing else can
-        // become one without losing its text (2026-10-26).
-        if (e.kind == ElementKind::PageBreak) != (f.kind == ElementKind::PageBreak) {
+        // A page break pairs only with a page break, and a note or
+        // boneyard block only with one of those: nothing else can become
+        // one without losing its text or styles (2026-10-26).
+        if (e.kind == ElementKind::PageBreak) != (f.kind == ElementKind::PageBreak)
+            || e.kind.is_raw_text() != f.kind.is_raw_text()
+        {
             return None;
         }
         let s = if e.text.plain_text() == f.text.plain_text() {
@@ -994,9 +1033,27 @@ fn compare_keys(a: &TitlePage, b: &TitlePage) -> Vec<TitleOp> {
             .map(|v| fold(&v.plain_text(), false))
             .collect()
     };
+    // A key may be there more than once: its k-th time in A pairs with its
+    // k-th in B (found by the `diff` fuzz check, 2026-10-26).
+    fn nth<'f>(
+        fields: &'f [coldopen_screenplay::TitleField],
+        key: &str,
+        n: usize,
+    ) -> Option<&'f coldopen_screenplay::TitleField> {
+        fields
+            .iter()
+            .filter(|g| g.key.eq_ignore_ascii_case(key))
+            .nth(n)
+    }
+    let occurrence = |fields: &[coldopen_screenplay::TitleField], i: usize| {
+        fields[..i]
+            .iter()
+            .filter(|g| g.key.eq_ignore_ascii_case(&fields[i].key))
+            .count()
+    };
     let mut out = Vec::new();
-    for f in &b.fields {
-        match a.fields.iter().find(|g| g.key.eq_ignore_ascii_case(&f.key)) {
+    for (i, f) in b.fields.iter().enumerate() {
+        match nth(&a.fields, &f.key, occurrence(&b.fields, i)) {
             None => out.push(TitleOp {
                 op: TitleOpKind::Added,
                 key: Some(f.key.clone()),
@@ -1014,8 +1071,8 @@ fn compare_keys(a: &TitlePage, b: &TitlePage) -> Vec<TitleOp> {
             Some(_) => {}
         }
     }
-    for g in &a.fields {
-        if !b.fields.iter().any(|f| f.key.eq_ignore_ascii_case(&g.key)) {
+    for (i, g) in a.fields.iter().enumerate() {
+        if nth(&b.fields, &g.key, occurrence(&a.fields, i)).is_none() {
             out.push(TitleOp {
                 op: TitleOpKind::Deleted,
                 key: Some(g.key.clone()),

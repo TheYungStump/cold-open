@@ -257,6 +257,10 @@ pub struct Retyped {
     pub centered: bool,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub depth: u8,
+    /// The blank lines above the block, when the retype cleared them (a
+    /// note or synopsis has none of its own).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub space_before: Option<u8>,
 }
 
 /// Where a moved scene stood: before `before`, or at the end; and the last
@@ -516,6 +520,7 @@ mod tests {
                 dual: false,
                 centered: true,
                 depth: 0,
+                space_before: None,
             }],
             ..Default::default()
         };
