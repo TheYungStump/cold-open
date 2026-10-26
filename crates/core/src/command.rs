@@ -109,6 +109,10 @@ pub enum Command {
     TitleSet(TitleSet),
     #[serde(rename = "title.set_lines")]
     TitleSetLines(TitleSetLines),
+    #[serde(rename = "diff")]
+    Diff(DiffParams),
+    #[serde(rename = "changes.import")]
+    ChangesImport(ChangesImport),
 }
 
 /// How a command interacts with undo and the journal.
@@ -128,7 +132,7 @@ pub enum Class {
 
 impl Command {
     /// Every command name, in a stable order (for a command palette).
-    pub const NAMES: [&'static str; 48] = [
+    pub const NAMES: [&'static str; 50] = [
         "doc.new",
         "doc.open",
         "doc.save",
@@ -177,6 +181,8 @@ impl Command {
         "title.get",
         "title.set",
         "title.set_lines",
+        "diff",
+        "changes.import",
     ];
 
     pub fn name(&self) -> &'static str {
@@ -229,6 +235,8 @@ impl Command {
             Command::TitleGet(_) => "title.get",
             Command::TitleSet(_) => "title.set",
             Command::TitleSetLines(_) => "title.set_lines",
+            Command::Diff(_) => "diff",
+            Command::ChangesImport(_) => "changes.import",
         }
     }
 
@@ -255,9 +263,10 @@ impl Command {
             Command::ExportPdf(_) | Command::ExportFdx(_) | Command::ExportFountain(_) => {
                 Class::Output
             }
-            Command::FileRepair(_) | Command::RecoveredList(_) | Command::RecoveredDelete(_) => {
-                Class::File
-            }
+            Command::FileRepair(_)
+            | Command::RecoveredList(_)
+            | Command::RecoveredDelete(_)
+            | Command::Diff(_) => Class::File,
             Command::RecoveredRestore(_) => Class::Session,
             // Listed one by one so a new command cannot fall into a class
             // by accident.
@@ -282,7 +291,8 @@ impl Command {
             | Command::RevisionColors(_)
             | Command::RevisionClear(_)
             | Command::TitleSet(_)
-            | Command::TitleSetLines(_) => Class::Edit,
+            | Command::TitleSetLines(_)
+            | Command::ChangesImport(_) => Class::Edit,
         }
     }
 
@@ -393,6 +403,8 @@ impl Command {
             "revision.clear" => of::<RevisionClear>(),
             "title.set" => of::<TitleSet>(),
             "title.set_lines" => of::<TitleSetLines>(),
+            "diff" => of::<DiffParams>(),
+            "changes.import" => of::<ChangesImport>(),
             "doc.get" | "scene.list" | "undo" | "redo" | "doc.revert" | "history.list"
             | "revision.end" | "revision.list" | "report.scenes" | "report.characters"
             | "report.locations" | "title.get" => of::<Empty>(),
@@ -693,6 +705,35 @@ pub struct ExportPdf {
 
 fn is_marked(f: &PrintForm) -> bool {
     *f == PrintForm::Marked
+}
+
+/// Params for `diff` (docs/specs/diff.md §5).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct DiffParams {
+    /// The first draft's path; the open document when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub a: Option<String>,
+    /// The second draft's path.
+    pub b: String,
+    /// Also write B with the changes marked to this .pdf path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pdf: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub overwrite: bool,
+}
+
+/// Params for `changes.import` (docs/specs/diff.md §6).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct ChangesImport {
+    /// The draft to bring in.
+    pub path: String,
+    /// The name its changes carry; the draft's file name by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 /// One value of a title-page key: a plain string, or runs with styles.
@@ -1115,6 +1156,8 @@ mod tests {
                 "changes.accept" | "changes.reject" => json!({"all": true}),
                 "revision.colors" => json!({"colors": ["White"]}),
                 "title.set" => json!({"key": "Title"}),
+                "diff" => json!({"b": "b.fountain"}),
+                "changes.import" => json!({"path": "b.fountain"}),
                 "title.set_lines" => json!({"lines": []}),
                 _ => json!({}),
             };

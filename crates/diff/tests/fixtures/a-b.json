@@ -1,0 +1,207 @@
+{
+  "compared": {
+    "transparent": true
+  },
+  "summary": {
+    "scenes": {
+      "same": 1,
+      "changed": 2,
+      "moved": 1,
+      "added": 1,
+      "deleted": 1
+    },
+    "blocks": {
+      "changed": 2,
+      "added": 2,
+      "deleted": 2,
+      "retyped": 1,
+      "restyled": 1,
+      "attributes": 0
+    },
+    "title_page": 1
+  },
+  "title_page": [
+    {
+      "op": "changed",
+      "key": "Draft date",
+      "a": [
+        "October 1, 2026"
+      ],
+      "b": [
+        "October 22, 2026"
+      ]
+    }
+  ],
+  "scenes": [
+    {
+      "op": "changed",
+      "a": {
+        "index": 1,
+        "id": "b_1",
+        "heading": "INT. LAB - NIGHT"
+      },
+      "b": {
+        "index": 1,
+        "id": "b_1",
+        "heading": "INT. LAB - NIGHT"
+      },
+      "blocks": [
+        {
+          "op": "restyled",
+          "a": {
+            "id": "b_2",
+            "kind": "action"
+          },
+          "b": {
+            "id": "b_2",
+            "kind": "action"
+          }
+        },
+        {
+          "op": "retyped",
+          "a": {
+            "id": "b_5",
+            "kind": "transition"
+          },
+          "b": {
+            "id": "b_5",
+            "kind": "action"
+          }
+        }
+      ]
+    },
+    {
+      "op": "changed",
+      "a": {
+        "index": 4,
+        "id": "b_12",
+        "heading": "INT. KITCHEN - MORNING"
+      },
+      "b": {
+        "index": 3,
+        "id": "b_8",
+        "heading": "INT. KITCHEN - MORNING"
+      },
+      "blocks": [
+        {
+          "op": "changed",
+          "a": {
+            "id": "b_15",
+            "kind": "dialogue"
+          },
+          "b": {
+            "id": "b_11",
+            "kind": "dialogue"
+          },
+          "words": [
+            {
+              "op": "same",
+              "text": "I told you "
+            },
+            {
+              "op": "del",
+              "text": "twice"
+            },
+            {
+              "op": "ins",
+              "text": "already"
+            },
+            {
+              "op": "same",
+              "text": "."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "op": "deleted",
+      "a": {
+        "index": 5,
+        "id": "b_16",
+        "heading": "EXT. STREET - DUSK"
+      },
+      "blocks": [
+        {
+          "op": "deleted",
+          "a": {
+            "id": "b_16",
+            "kind": "scene_heading"
+          }
+        },
+        {
+          "op": "deleted",
+          "a": {
+            "id": "b_17",
+            "kind": "action"
+          }
+        }
+      ]
+    },
+    {
+      "op": "moved",
+      "a": {
+        "index": 2,
+        "id": "b_6",
+        "heading": "EXT. ROOF - NIGHT"
+      },
+      "b": {
+        "index": 4,
+        "id": "b_12",
+        "heading": "EXT. ROOF - NIGHT"
+      },
+      "after": 3,
+      "blocks": [
+        {
+          "op": "changed",
+          "a": {
+            "id": "b_7",
+            "kind": "action"
+          },
+          "b": {
+            "id": "b_13",
+            "kind": "action"
+          },
+          "words": [
+            {
+              "op": "same",
+              "text": "Wind tears at the antenna. Theo grips the "
+            },
+            {
+              "op": "ins",
+              "text": "cold "
+            },
+            {
+              "op": "same",
+              "text": "rail with both hands."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "op": "added",
+      "b": {
+        "index": 5,
+        "id": "b_16",
+        "heading": "INT. CAR - NIGHT"
+      },
+      "blocks": [
+        {
+          "op": "added",
+          "b": {
+            "id": "b_16",
+            "kind": "scene_heading"
+          }
+        },
+        {
+          "op": "added",
+          "b": {
+            "id": "b_17",
+            "kind": "action"
+          }
+        }
+      ]
+    }
+  ]
+}

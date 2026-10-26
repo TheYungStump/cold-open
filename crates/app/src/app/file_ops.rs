@@ -80,6 +80,9 @@ pub enum Prompt {
     RevisionColors(String),
     /// Clear which set's marks? 0 is every set.
     RevisionClear { choice: usize },
+    /// The name a draft's changes carry when it is brought in (editor.md
+    /// §21).
+    ImportName { path: PathBuf, name: String },
 }
 
 /// The writer's answer to a [`Prompt`].
@@ -838,6 +841,13 @@ impl App {
                 let target = with_extension(path.clone(), "pdf");
                 let asked = target == path;
                 self.export_to(target, asked)
+            }
+            Ask::Compare => self.compare_open(path),
+            Ask::ReviewDraft => self.import_ask(path),
+            Ask::DiffPdf(_) => {
+                let target = with_extension(path.clone(), "pdf");
+                let asked = target == path;
+                self.compare_pdf(target, asked)
             }
         }
     }

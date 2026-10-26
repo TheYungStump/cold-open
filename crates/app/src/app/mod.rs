@@ -19,6 +19,7 @@ use serde_json::{Value, json};
 mod agents;
 mod bench;
 mod changes;
+mod compare;
 mod copies;
 mod file_ops;
 mod reports;
@@ -30,6 +31,7 @@ mod view;
 pub use agents::Agent;
 pub use bench::{Bench, BenchKind};
 pub use changes::{ALL_AUTHORS, ChangeRow, ChangesPanel, NameThen};
+pub use compare::{CompareInput, CompareRow, CompareView};
 pub use copies::{CopyRow, RecoveredScreen, RepairReport};
 pub use file_ops::{After, ExportForm, Prompt, Recovery, Reply};
 pub use router::{Origin, Outcome, Request};
@@ -135,6 +137,8 @@ pub enum Message {
     ReportRow(usize),
     /// The title page sheet's fields and buttons (editor.md §19).
     Title(title::TitleInput),
+    /// The compare view and the import question (editor.md §21).
+    Compare(compare::CompareInput),
     /// The writer's name, as typed in its question (editor.md §17.4).
     NameInput(String),
     NameSubmit,
@@ -373,6 +377,8 @@ pub struct App {
     pub reports: Option<reports::ReportView>,
     /// The title page sheet (editor.md §19).
     pub title_sheet: Option<title::TitleSheet>,
+    /// The compare view (editor.md §21).
+    pub compare: Option<compare::CompareView>,
     pub export: Option<ExportForm>,
     pub sheet: Option<Sheet>,
     /// Scripts with unsaved work from an earlier session (editor.md §11).
@@ -494,6 +500,7 @@ impl App {
             recovered: None,
             reports: None,
             title_sheet: None,
+            compare: None,
             export: None,
             sheet: None,
             leftover: Vec::new(),
@@ -1215,6 +1222,7 @@ impl App {
             }
             Message::ReportRow(i) => self.reports_go(i),
             Message::Title(input) => self.title_input(input),
+            Message::Compare(input) => self.compare_input(input),
             Message::ExportColored => {
                 if let Some(f) = &mut self.export {
                     f.colored = !f.colored;
@@ -1293,6 +1301,10 @@ impl App {
                 }
                 if self.prompt.is_none() && self.title_sheet.is_some() {
                     return self.title_close();
+                }
+                if matches!(self.prompt, Some(Prompt::ImportName { .. })) {
+                    self.prompt = None;
+                    return Task::none();
                 }
                 if matches!(
                     self.prompt,
@@ -1530,6 +1542,7 @@ impl App {
             || self.sheet.is_some()
             || self.reports.is_some()
             || self.title_sheet.is_some()
+            || self.compare.is_some()
     }
 
     /// Keys for an open dialog (editor.md §11, §13): each button has a key,
@@ -1654,6 +1667,11 @@ impl App {
             return Task::none();
         }
         if let Some(t) = self.reports_key(kp, enter, esc) {
+            return t;
+        }
+        if self.prompt.is_none()
+            && let Some(t) = self.compare_key(kp, enter, esc)
+        {
             return t;
         }
         if self.prompt.is_none()
@@ -1981,6 +1999,8 @@ impl App {
                 scroll = false;
             }
             "app.title_page" => return self.title_open(),
+            "app.compare" => return self.ask(Ask::Compare),
+            "app.review_draft" => return self.ask(Ask::ReviewDraft),
             "app.about" => {
                 self.sheet = Some(Sheet::About);
                 scroll = false;

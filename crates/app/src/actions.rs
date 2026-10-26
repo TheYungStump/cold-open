@@ -297,6 +297,14 @@ pub const APP_ACTIONS: &[ActionInfo] = &[
         title: "Edit title page…",
     },
     ActionInfo {
+        name: "app.compare",
+        title: "Compare with…",
+    },
+    ActionInfo {
+        name: "app.review_draft",
+        title: "Review a draft as changes…",
+    },
+    ActionInfo {
         name: "app.revision_menu",
         title: "Revision commands…",
     },
@@ -369,6 +377,8 @@ pub fn command_title(name: &str) -> &'static str {
         "title.get" => "Show the title page as JSON",
         "title.set" => "Set a title-page key (params)",
         "title.set_lines" => "Set the title page's lines (params)",
+        "diff" => "Compare two drafts (params)",
+        "changes.import" => "Bring a draft in as changes (params)",
         _ => "Command",
     }
 }

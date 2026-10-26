@@ -93,6 +93,24 @@ enum Cmd {
         #[arg(long, value_enum, default_value_t = report::Form::Text)]
         format: report::Form,
     },
+    /// Compare two drafts, in any of the three formats, scene by scene
+    /// (docs/specs/diff.md). Prints a summary; exits 0 whether or not they
+    /// differ.
+    Diff {
+        /// The first draft.
+        a: PathBuf,
+        /// The second draft.
+        b: PathBuf,
+        /// Print the comparison as JSON.
+        #[arg(long)]
+        json: bool,
+        /// Also write the second draft with the changes marked to this PDF.
+        #[arg(long)]
+        pdf: Option<PathBuf>,
+        /// Replace the PDF if it exists.
+        #[arg(long)]
+        overwrite: bool,
+    },
     /// List the scenes in a script.
     Scenes {
         /// The script to read.
@@ -174,6 +192,13 @@ fn main() -> ExitCode {
         Cmd::Pages { file } => pages(&file),
         Cmd::Scenes { file, json } => scenes(&file, json),
         Cmd::Report { kind, file, format } => run_report(kind, &file, format),
+        Cmd::Diff {
+            a,
+            b,
+            json,
+            pdf,
+            overwrite,
+        } => run_diff(&a, &b, json, pdf.as_deref(), overwrite),
         Cmd::Licenses => licenses(),
         Cmd::Run {
             edits,
@@ -538,6 +563,35 @@ fn run_report(kind: report::Kind, file: &Path, form: report::Form) -> Result<Exi
         .filter_map(|s| Some((s["id"].as_str()?.to_string(), s["index"].as_u64()?)))
         .collect();
     let text = report::render(kind, form, &result, &index);
+    io::stdout()
+        .lock()
+        .write_all(text.as_bytes())
+        .map_err(|e| e.to_string())?;
+    Ok(ExitCode::SUCCESS)
+}
+
+fn run_diff(
+    a: &Path,
+    b: &Path,
+    as_json: bool,
+    pdf: Option<&Path>,
+    overwrite: bool,
+) -> Result<ExitCode, String> {
+    let mut d = reader();
+    let mut params = json!({ "a": path_str(a), "b": path_str(b), "overwrite": overwrite });
+    if let Some(p) = pdf {
+        params["pdf"] = json!(path_str(p));
+    }
+    let result = call(&mut d, "diff", params)?;
+    let text = if as_json {
+        let mut v = result.clone();
+        if let Value::Object(m) = &mut v {
+            m.remove("text");
+        }
+        format!("{v}\n")
+    } else {
+        result["text"].as_str().unwrap_or_default().to_string()
+    };
     io::stdout()
         .lock()
         .write_all(text.as_bytes())

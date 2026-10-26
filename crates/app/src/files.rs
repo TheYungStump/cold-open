@@ -208,6 +208,13 @@ pub enum Ask {
     RepairIn,
     /// Where to write the repaired copy of this file; the suggested name.
     RepairOut(PathBuf, String),
+    /// A draft to compare the script with (editor.md §21).
+    Compare,
+    /// A draft to bring in as tracked changes (editor.md §21).
+    ReviewDraft,
+    /// Where to write the compared draft with its changes marked; the
+    /// suggested name.
+    DiffPdf(String),
 }
 
 /// A dialog's answer, when it comes: a path, or `None` for Cancel.
@@ -293,6 +300,26 @@ impl Dialogs {
                         d.set_title("Repair an .fdx file")
                             .add_filter("FDX", FDX)
                             .pick_file()
+                            .await
+                    }
+                    Ask::Compare | Ask::ReviewDraft => {
+                        d.set_title(if matches!(ask, Ask::Compare) {
+                            "Compare with a draft"
+                        } else {
+                            "Review a draft as changes"
+                        })
+                        .add_filter(
+                            "Screenplays",
+                            &["fountain", "fdx", "coldopen", "spmd", "txt"],
+                        )
+                        .pick_file()
+                        .await
+                    }
+                    Ask::DiffPdf(name) => {
+                        d.set_title("Save the compared draft as a PDF")
+                            .set_file_name(name)
+                            .add_filter("PDF", &["pdf"])
+                            .save_file()
                             .await
                     }
                     Ask::RepairOut(_, name) => {

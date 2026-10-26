@@ -685,8 +685,11 @@ dependencies = [
  "coldopen-app",
  "coldopen-core",
  "coldopen-fonts",
+ "coldopen-fountain",
+ "coldopen-layout",
  "coldopen-link",
  "coldopen-mcp",
+ "coldopen-screenplay",
  "iced",
  "serde_json",
  "tempfile",
@@ -696,6 +699,7 @@ dependencies = [
 name = "coldopen-core"
 version = "0.1.0"
 dependencies = [
+ "coldopen-diff",
  "coldopen-fdx",
  "coldopen-fountain",
  "coldopen-layout",
@@ -710,6 +714,18 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "coldopen-diff"
+version = "0.1.0"
+dependencies = [
+ "coldopen-fountain",
+ "coldopen-layout",
+ "coldopen-screenplay",
+ "proptest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -234,6 +234,12 @@ impl App {
     /// The open dialog, if any: unsaved changes, a lossy save, recovered
     /// work, or PDF export (editor.md §11, §13).
     fn dialog(&self, pal: Palette) -> Option<Element<'_, Message>> {
+        // The compare view takes the whole window (editor.md §21).
+        if self.prompt.is_none()
+            && let Some(c) = &self.compare
+        {
+            return Some(self.compare_view(pal, c));
+        }
         // The title page sheet stands beside the page, which shows the
         // title page as it prints (editor.md §19).
         if self.prompt.is_none()
@@ -395,6 +401,7 @@ impl App {
                 .revision_prompt_view(pal, p)
                 .unwrap_or_else(|| column![].into()),
             Prompt::SettleAll { accept, count } => self.settle_all_view(pal, *accept, *count),
+            Prompt::ImportName { name, .. } => self.import_view(pal, name),
             Prompt::Foreign { path, host, at } => column![
                 title(pal, "Unsaved changes from somewhere else"),
                 body(

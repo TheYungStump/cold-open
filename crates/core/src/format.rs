@@ -409,7 +409,7 @@ pub fn adopt(doc: &mut Document, format: FormatId) {
 
 /// Title lines as Fountain title-page keys, by the rule of
 /// docs/specs/fountain.md §11.
-fn title_keys(lines: &[TitleLine]) -> TitlePage {
+pub(crate) fn title_keys(lines: &[TitleLine]) -> TitlePage {
     // Blocks of lines, split at empty lines and at space above.
     let mut blocks: Vec<(Align, Vec<RichText>)> = Vec::new();
     let mut open = false;

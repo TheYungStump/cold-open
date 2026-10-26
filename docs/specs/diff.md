@@ -1,6 +1,6 @@
 # Script diff
 
-- **Date:** 2026-10-22
+- **Date:** 2026-10-22, updated 2026-10-25 (as built in step 9: §3.3, §4)
 - **Status:** phase 5b, being implemented in `crates/diff` (package `coldopen-diff`, MIT OR Apache-2.0: the comparison) and `crates/core` (reading the drafts, the `diff` and `changes.import` commands, the marked PDF), with front ends in `crates/cli`, `crates/mcp` and `crates/app`.
 - **Sources:**
   - `docs/spec.md`: "Revising" (script diff between any two drafts) and "Reliability features" item 7 (scene by scene, moved scenes detected; a readable summary, JSON, or a PDF with changes marked; `coldopen diff draft2.fdx draft3.fdx`).
@@ -23,8 +23,15 @@ A script diff compares two drafts, in any of the three formats, and says what ch
 Each draft is read as `doc.open` reads it, without a session or a journal, then put in its **comparison form**:
 
 1. **Accepted.** A bundle's pending tracked changes are taken as accepted (`docs/specs/changes.md` §9), since that is the text another reader would see. Revision marks are left out.
-2. **As Fountain holds it, when either draft is Fountain.** Both scripts go through the Fountain writer and reader (`parse(write(s))`). A Shot becomes the scene heading Fountain writes it as, and General text becomes action, on both sides. Without this, a Fountain draft and an .fdx draft of the same script would differ in every Shot.
+2. **As Fountain holds it, when either draft is Fountain.** A Shot becomes the scene heading Fountain writes it as, and General text becomes action, on both sides. Without this, a Fountain draft and an .fdx draft of the same script would differ in every Shot. **Resolution (2026-10-25):** these kind changes are made directly, not by writing and reading the script, so each element still knows the block it came from; the normal form of step 3 does the rest of what a write and a read would.
 3. **In Fountain normal form** (`docs/specs/fountain.md` §10). This is finding F21's point: commands can leave text the normal form changes, and none of that should show as a change.
+4. **As it prints** (2026-10-25). Text is compared, and blocks found equal or similar, on what prints, while the result gives each draft's text as it is and `changes.import` brings in B's text as it is:
+   - **Capitals.** An element whose kind the draft's page format prints in capitals is compared in capitals. One .fdx of the corpus stores headings and names in any case (`int.`, mixed-case names) and prints them in capitals through its element settings.
+   - **Quotes.** Curly quotes and apostrophes compare as straight ones. Converters change them, and they never change what a script says.
+   - **Spaces.** A run of spaces, tabs or no-break spaces compares as one space.
+   - **CONT'D.** A CONT'D marker in a character's extensions (`(CONT'D)`, `(CONTD)`, any case) compares as absent. Layout prints the marker wherever a speaker continues (`docs/specs/layout.md`), so drafts differ only in whether they type it: in the corpus, one Big Fish .fountain types it a hundred times, and the .fdx of the same script never does.
+
+   Why: the Big Fish variants (§7) differed in almost every block without these, and in nothing a reader would see.
 
 **What is left out:**
 
@@ -37,6 +44,8 @@ Each draft is read as `doc.open` reads it, without a session or a journal, then 
 ### 3.1 Units
 
 Each draft's blocks are cut into **units**: one per scene heading, holding the heading and the blocks after it up to the next heading, plus an opening unit for the blocks before the first heading (when there are any). Sections and synopses, when compared, belong to the unit they fall in.
+
+**Resolution (2026-10-25):** only a heading with a setting (`docs/specs/reports.md`'s prefixes: INT., EXT., EST., INT./EXT. and the rest) starts a unit. A heading without one, a forced heading or a Shot as Fountain writes it, is a block of the unit before it. Converters disagree on what such a line is (one Big Fish .fdx has Shots where its .fountain has action), and a unit split there turned one retyped line into scenes added and deleted.
 
 **Resolution:** this differs from `scene.list`, where a section ends a scene, because a section moved with its scene should not split it in two.
 
@@ -53,7 +62,7 @@ Each draft's blocks are cut into **units**: one per scene heading, holding the h
 Within a pair of units:
 
 1. Blocks are aligned with the longest common subsequence on (kind, text). Aligned blocks whose styles or printing attributes differ are **restyled** or have **changed attributes**.
-2. **The gaps.** Between aligned blocks, the unaligned blocks of A and B are paired by the similarity of §3.2, at least 0.5, preferring the same kind. A paired block whose text is equal and kind differs is **retyped**, and one whose text differs is **changed** (and **retyped** too when its kind differs). The rest are **added** or **deleted**.
+2. **The gaps.** Between aligned blocks, the unaligned blocks of A and B are paired by similarity, at least 0.5, preferring the same kind. **Resolution (2026-10-25):** a block's similarity is the share of its words in common with the other's, in order: twice the length of their longest common run of words over the sum of their lengths (past the pair bound of step 3, the words they share in any order). §3.2's three-word sequences are too coarse for short blocks: one changed word in a four-word speech leaves only a third of its sequences in common, so the change showed as a speech deleted and another added. Scenes keep §3.2's measure, and pairs are still taken greedily as §3.2 says. A paired block whose text is equal and kind differs is **retyped**, and one whose text differs is **changed** (and **retyped** too when its kind differs). The rest are **added** or **deleted**.
 3. **A bound.** When the two units have more than 1,000,000 pairs of blocks to compare, the alignment stops at their common start and end, and the middle is compared as one gap.
 
 ### 3.4 Words
@@ -89,7 +98,7 @@ A changed block's text is compared word by word, with the word rule of `docs/spe
 
 - **`scenes`** lists every unit that is not `same`, in B's order. A deleted unit goes after the B partner of the nearest in-order unit before it in A, or first when there is none.
 - **`op`** is `changed`, `moved` (with `after`: the B index of the unit it now follows, or null at the start), `added` or `deleted`. A moved unit that was also edited is `moved`, with its `blocks`.
-- **`index`** counts units from 1, the opening unit as 0. `heading` is the heading's text, empty for the opening unit. `id` is the heading's block id in that draft, as its file numbers them.
+- **`index`** counts units from 1, the opening unit as 0. `heading` is the heading's text, empty for the opening unit. `id` is the id of the unit's first block in that draft, as its file numbers them: the heading's, or the opening's first block's.
 - **`blocks`** lists each block that is not the same, in B's order, with `op`: `changed`, `added`, `deleted`, `retyped`, `restyled` or `attributes`. A block has `a`, `b` or both, each with `id` and `kind`. `words` is given for `changed`, as runs of equal ops with their text joined.
 - **No differences** gives empty `scenes` and `title_page`, with every count but `same` at 0.
 
@@ -118,6 +127,8 @@ A PDF of B with the changes marked, laid out through the marked print form of `d
 
 The document printed is built only for the PDF. It is never saved or journaled, and its pages are not B's pages: struck text takes room.
 
+**Resolution (2026-10-25):** the PDF is A with B brought in as §6 brings a draft in, printed in the marked print form. The changes are one author's, named after B's file, so inserted text prints in that author's color and deleted text struck through in the same color, rather than in two colors; and a moved scene prints as `docs/specs/changes.md` §9 prints a tracked move, without a "Moved from" line. One way of marking a draft serves both, so the PDF shows exactly what "Review a draft as changes…" would.
+
 ## 5. Where it runs
 
 | Front end | How |
@@ -145,9 +156,11 @@ Decided with the project's owner, 2026-10-22: in phase 5b. A co-writer's .fdx dr
 
 - **Not imported.** Restyled blocks, changed attributes and the title page cannot be tracked (`docs/specs/changes.md` §10), so they are left out and listed in the result's `skipped`, each with its block or key. The writer can apply them by hand.
 - **One undo step**, labelled "Changes from <name>", and one change in the table, by that writer. Accepting all of it gives the open document B's text, apart from what was skipped. Rejecting all of it gives back the document as it was.
-- **The journal** records the edits it resolved, not the path, so replay never reads the draft again: the entry's params gain `edits`, the list of tracked edits applied. A request that gives `edits` itself fails with `invalid_params`.
+- **The journal** records the edits it resolved, not the path, so replay never reads the draft again. **Resolution (2026-10-25):** the edits are run as a `batch` with that label, by a writer of that name, and the batch is what the journal records; `changes.import` itself is never journaled, so no entry can carry edits of its own.
+- **Pending changes.** A document with tracked changes waiting is refused with `change_pending` (2026-10-25): its current text and its accepted text differ, and edits planned on one would land wrongly on the other. Accept or reject them first.
+- **Planning the edits.** They are planned on A's comparison form when each of its elements is one of its blocks, unchanged, as a script read from a file is; otherwise on A's blocks as they stand, so every edit names a real block, and the normalisation differences become edits too.
 - **Writer-only.** An agent gets `writer_only`: the edits carry a writer's name, which an agent may not claim.
-- **Result:** `{change, edits, skipped}`. With no differences, nothing changes and nothing is journaled.
+- **Result:** `{change, edits, skipped}`: the change's id, how many edits it holds, and what was skipped. With no differences, `change` is null, nothing changes and nothing is journaled.
 - **The app:** "Review a draft as changes…" (palette) asks for the draft and the name to show, prefilled from the file name, then opens the changes panel.
 
 ## 7. Testing

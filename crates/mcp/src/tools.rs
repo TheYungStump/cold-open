@@ -158,6 +158,14 @@ pub const TOOLS: &[(&str, &str)] = &[
         "Replace the title page's positioned lines. Refused with writer_only while this script tracks agents' edits.",
     ),
     (
+        "diff",
+        "Compare two drafts (.fountain, .fdx or .coldopen) scene by scene: moved, changed, added and deleted scenes, then blocks and words, with a readable summary in text. Without a, the open script is the first draft. With pdf, also writes the second draft with the changes marked.",
+    ),
+    (
+        "changes.import",
+        "Bring a draft into the open script as one writer's tracked changes. Writer-only: an agent gets writer_only.",
+    ),
+    (
         "undo",
         "Undo this agent's newest step. Fails with not_your_step when the newest step is someone else's.",
     ),

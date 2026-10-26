@@ -295,6 +295,24 @@ fn main() {
         shot(&app, &out, &format!("{name}-title-lines"));
         app.d.discard();
 
+        // Compare with… (editor.md §21), on the diff crate's two drafts.
+        let fixtures =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../diff/tests/fixtures");
+        let (a, b) = (home.join("draft-a.fountain"), home.join("draft-b.fountain"));
+        std::fs::copy(fixtures.join("a.fountain"), &a).unwrap();
+        std::fs::copy(fixtures.join("b.fountain"), &b).unwrap();
+        let mut app = App::new(Boot {
+            file: Some(a),
+            dirs: Some(coldopen_app::files::Dirs::under(&home)),
+            theme: Some(theme),
+            ..Boot::default()
+        });
+        settle(&mut app);
+        let _ = app.update(Message::Chosen(coldopen_app::files::Ask::Compare, Some(b)));
+        let _ = app.update(Message::Compare(coldopen_app::app::CompareInput::Row(3)));
+        shot(&app, &out, &format!("{name}-compare"));
+        app.d.discard();
+
         // Phase 4's screens (editor.md §13): a set-aside notice on the start
         // screen, Recovered versions, and the repair report.
         let mut app = App::new(Boot {

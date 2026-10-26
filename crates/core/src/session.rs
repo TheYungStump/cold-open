@@ -777,7 +777,10 @@ impl Session {
                     i,
                 )
             })?;
-            if cmd.class() != Class::Edit || matches!(cmd, Command::Batch(_)) {
+            // `changes.import` reads a file, so only the dispatcher runs it.
+            if cmd.class() != Class::Edit
+                || matches!(cmd, Command::Batch(_) | Command::ChangesImport(_))
+            {
                 return Err(at_index(
                     CommandError::invalid_params(format!(
                         "batch command {i} ({}) is not an edit; a batch holds edits only",

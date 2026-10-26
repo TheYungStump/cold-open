@@ -2,7 +2,7 @@ name: Fuzz
 
 # Not part of the phase gate. Every Monday, two minutes of each cargo-fuzz
 # target (2026-10-16, review finding F17.5: the repository is public, so
-# Actions minutes are free); by hand from the Actions tab, ten minutes each (eleven targets since 2026-10-22),
+# Actions minutes are free); by hand from the Actions tab, ten minutes each (twelve targets since 2026-10-25),
 # or one target for as long as asked (2026-10-17: a 30-minute run before a
 # fix merges).
 on:
@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: "Run only this target (empty runs all eleven)"
+        description: "Run only this target (empty runs all twelve)"
         required: false
         default: ""
       seconds:
@@ -34,7 +34,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [fountain_roundtrip, envelope, journal_replay, fdx_read, fdx_roundtrip, fdx_write, link_line, app_config, bundle_read, changes, revisions]
+        target: [fountain_roundtrip, envelope, journal_replay, fdx_read, fdx_roundtrip, fdx_write, link_line, app_config, bundle_read, changes, revisions, diff]
     # With a `target` input, the other targets' steps are skipped.
     env:
       RUN: ${{ inputs.target == '' || inputs.target == null || inputs.target == matrix.target }}

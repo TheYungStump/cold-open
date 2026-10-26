@@ -1,0 +1,7 @@
+a.fountain → b.fountain: 2 scenes changed, 1 moved, 1 added, 1 deleted; the title page changed.
+Title page: Draft date changed.
+Scene 1 INT. LAB - NIGHT: 1 action restyled, 1 action retyped.
+Scene 3 (was 4) INT. KITCHEN - MORNING: 1 speech changed.
+Was scene 5 EXT. STREET - DUSK: deleted.
+Scene 4 (was 2) EXT. ROOF - NIGHT: moved after scene 3; 1 action changed.
+Scene 5 INT. CAR - NIGHT: added.

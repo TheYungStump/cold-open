@@ -347,7 +347,8 @@ The track-changes commands (2026-10-18; `docs/specs/changes.md` §6 and §8):
 - **`changes.import`** (2026-10-22; `docs/specs/diff.md` §6)
   - Compares the open document's current text with the draft at `path`, and applies the differences as tracked edits by a writer named `name` (by default the draft's file name without its extension), as one undo step and one change.
   - Restyled blocks, changed attributes and the title page cannot be tracked, so they are listed in `skipped` and not applied.
-  - Journaled with the edits it resolved (`edits`), so replay never reads the draft. A request that gives `edits` fails with `invalid_params`.
+  - Journaled as the `batch` of tracked edits it resolved, by a writer of that name, so replay never reads the draft (2026-10-25). It may not be inside a `batch` itself.
+  - Refused with `change_pending` while the document has tracked changes waiting (2026-10-25).
   - Writer-only: an agent gets `writer_only`.
 
 The revision commands (2026-10-22; `docs/specs/revisions.md` §5):

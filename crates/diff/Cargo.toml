@@ -1,0 +1,22 @@
+[package]
+name = "coldopen-diff"
+description = "Script diff over screenplay types: scenes matched by content with moves, then blocks, then words."
+license = "MIT OR Apache-2.0"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+coldopen-screenplay.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+proptest.workspace = true
+coldopen-fountain.workspace = true
+coldopen-layout.workspace = true
+
+[lints]
+workspace = true

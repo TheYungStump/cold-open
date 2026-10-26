@@ -354,6 +354,95 @@ pub fn revisions(data: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// Reads arbitrary bytes as two Fountain drafts, split at the first zero
+/// byte (or in the middle), and compares them (docs/specs/diff.md §7). It
+/// must never panic, and:
+/// - each draft against itself is empty;
+/// - the counts match the lists, and swapping the drafts swaps added and
+///   deleted scenes;
+/// - bringing B into A as tracked changes always applies; accepting all of
+///   it leaves only what cannot be tracked (restyles, attributes, the title
+///   page), and rejecting all of it gives A back.
+pub fn diff(data: &[u8]) -> Result<(), String> {
+    use crate::format::FormatId;
+    use crate::io::SourceStyle;
+    use crate::session::{Exec, Session};
+
+    let cut = data.iter().position(|&b| b == 0).unwrap_or(data.len() / 2);
+    let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
+    let (ta, tb) = (text(&data[..cut]), text(data.get(cut + 1..).unwrap_or(&[])));
+    let doc = |t: &str| Document::from_script(coldopen_fountain::parse(t).script);
+    let (a, b) = (doc(&ta), doc(&tb));
+    fn named(d: &Document) -> crate::diff::Named<'_> {
+        crate::diff::Named {
+            doc: d,
+            format: FormatId::Fountain,
+            path: None,
+        }
+    }
+    let result = |x: &Document, y: &Document| crate::diff::result(&named(x), &named(y));
+    for d in [&a, &b] {
+        let r = result(d, d);
+        if r["scenes"] != json!([]) || r["title_page"] != json!([]) {
+            return Err("a draft against itself has differences".into());
+        }
+    }
+    let (ab, ba) = (result(&a, &b), result(&b, &a));
+    for r in [&ab, &ba] {
+        let count = |op: &str| {
+            r["scenes"]
+                .as_array()
+                .map_or(0, |s| s.iter().filter(|x| x["op"] == op).count() as u64)
+        };
+        for op in ["changed", "moved", "added", "deleted"] {
+            if r["summary"]["scenes"][op].as_u64() != Some(count(op)) {
+                return Err(format!("the {op} count does not match the list"));
+            }
+        }
+    }
+    if ab["summary"]["scenes"]["added"] != ba["summary"]["scenes"]["deleted"] {
+        return Err("swapping the drafts does not swap added and deleted".into());
+    }
+    // Bringing B in.
+    let (items, _) = crate::diff::import_edits(&a, FormatId::Fountain, &b, FormatId::Fountain);
+    if items.is_empty() {
+        return Ok(());
+    }
+    let mut s = Session::new(a.clone(), None, FormatId::Fountain, SourceStyle::default());
+    let batch = Command::Batch(crate::command::Batch {
+        commands: items,
+        label: None,
+    });
+    s.execute_with(&batch, &Exec::by(Author::named_writer("B")))
+        .map_err(|e| format!("the import did not apply: {e}"))?;
+    let all =
+        |name: &str| Command::from_parts(name, json!({"all": true})).map_err(|e| e.to_string());
+    s.execute(&all("changes.accept")?)
+        .map_err(|e| format!("accepting the import failed: {e}"))?;
+    let left = result(&s.doc, &b);
+    for scene in left["scenes"].as_array().into_iter().flatten() {
+        for block in scene["blocks"].as_array().into_iter().flatten() {
+            if block["op"] != "restyled" && block["op"] != "attributes" {
+                return Err(format!(
+                    "after accepting the import, a block is still {}",
+                    block["op"]
+                ));
+            }
+        }
+    }
+    s.execute(&Command::from_parts("undo", json!({})).map_err(|e| e.to_string())?)
+        .map_err(|e| format!("undoing the accept failed: {e}"))?;
+    s.execute(&all("changes.reject")?)
+        .map_err(|e| format!("rejecting the import failed: {e}"))?;
+    let elements = |d: &Document| -> Vec<coldopen_screenplay::Element> {
+        d.blocks.iter().map(|b| b.element.clone()).collect()
+    };
+    if elements(&s.doc) != elements(&a) {
+        return Err("rejecting the import does not give A back".into());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -457,6 +546,9 @@ mod tests {
         ];
         assert_eq!(revisions(&ops), Ok(()));
         assert_eq!(revisions(&[]), Ok(()));
+        assert_eq!(diff(b""), Ok(()));
+        let drafts = b"INT. LAB - NIGHT\n\nRain.\n\nEXT. ROOF - NIGHT\n\nWind.\n\0EXT. ROOF - NIGHT\n\nWind howls.\n\nINT. LAB - NIGHT\n\nRain.\n\nINT. CAR - DAY\n\nWipers.\n";
+        assert_eq!(diff(drafts), Ok(()));
     }
 
     #[test]
