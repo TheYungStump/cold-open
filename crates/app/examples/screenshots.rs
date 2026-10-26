@@ -15,8 +15,11 @@ fn shot(app: &App, out: &std::path::Path, name: &str) {
     let snap = sim.snapshot(&theme).unwrap();
     let path = out.join(format!("cold-open-{name}.png"));
     // iced_test adds the renderer's name to the file name, and only
-    // writes the file when it does not exist yet.
-    let _ = std::fs::remove_file(out.join(format!("cold-open-{name}-tiny-skia.png")));
+    // writes the file when it does not exist yet: the GPU's renderer, or
+    // tiny-skia without one.
+    for renderer in ["tiny-skia", "wgpu"] {
+        let _ = std::fs::remove_file(out.join(format!("cold-open-{name}-{renderer}.png")));
+    }
     snap.matches_image(&path).unwrap();
 }
 
@@ -33,7 +36,9 @@ fn shot_hovering(app: &App, out: &std::path::Path, name: &str, on: &str) {
     })]);
     let snap = sim.snapshot(&theme).unwrap();
     let path = out.join(format!("cold-open-{name}.png"));
-    let _ = std::fs::remove_file(out.join(format!("cold-open-{name}-tiny-skia.png")));
+    for renderer in ["tiny-skia", "wgpu"] {
+        let _ = std::fs::remove_file(out.join(format!("cold-open-{name}-{renderer}.png")));
+    }
     snap.matches_image(&path).unwrap();
 }
 
@@ -261,6 +266,33 @@ fn main() {
         app.banners.clear();
         let _ = app.update(Message::Action("app.revision_start".into()));
         shot(&app, &out, &format!("{name}-revision-form"));
+        let _ = app.update(Message::Escaped);
+        // The report view (editor.md §20), on the characters.
+        let _ = app.update(Message::Action("app.reports".into()));
+        let _ = app.update(Message::ReportTab(1));
+        shot(&app, &out, &format!("{name}-reports"));
+        app.reports = None;
+        // The title page sheet (editor.md §19), keys and then lines.
+        let _ = app.update(Message::Action("app.title_page".into()));
+        shot(&app, &out, &format!("{name}-title-keys"));
+        app.title_sheet = None;
+        app.d.discard();
+        let fdx = home.join("lighthouse.fdx");
+        std::fs::copy(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/fixtures/fdx/title-page.fdx"),
+            &fdx,
+        )
+        .unwrap();
+        let mut app = App::new(Boot {
+            file: Some(fdx),
+            dirs: Some(coldopen_app::files::Dirs::under(&home)),
+            theme: Some(theme),
+            ..Boot::default()
+        });
+        settle(&mut app);
+        let _ = app.update(Message::Action("app.title_page".into()));
+        shot(&app, &out, &format!("{name}-title-lines"));
         app.d.discard();
 
         // Phase 4's screens (editor.md §13): a set-aside notice on the start

@@ -476,13 +476,14 @@ Added 2026-10-22 (phase 5b). Sources: `docs/specs/revisions.md`, the phase 5b br
 
 ## 19. The title page editor
 
-Added 2026-10-22 (phase 5b; decided with the project's owner: edits are journaled and undoable, never tracked or marked).
+Added 2026-10-22 (phase 5b; decided with the project's owner: edits are journaled and undoable, never tracked or marked), and written out as built on 2026-10-25.
 
-- **Opening it.** "Edit title page…" (palette, and Mod+Shift+T) opens a sheet on the right of the page area, with the title page as it prints beside it. The page area scrolls to the title page.
-- **Keys** (a Fountain script, or any script whose title page is keys). One field per key, in the title page's order, each holding its values one per line: the usual keys Title, Credit, Author, Source, Draft date, Contact, Notes and Copyright are always shown, empty ones too, and the script's other keys after them. "Add a key…" adds one by name. Tab and Shift+Tab move between fields; leaving a field that changed sends `title.set` for that key, one undo step.
-- **Lines** (an .fdx script, or any whose title page is positioned lines). A list of the lines, each with its text, its alignment (Left, Center, Right, chosen with Mod+L, Mod+E and Mod+R) and its space above in lines. Enter adds a line after the current one, and Mod+Backspace removes it. Leaving a line that changed sends `title.set_lines` with the whole list, one undo step.
-- **Undo** works from the sheet and the page alike: the steps are labelled "Title page".
-- **Esc** closes the sheet, and the page area takes the keyboard back.
+- **Opening it.** "Edit title page…" (palette, and Mod+Shift+T) opens a sheet on the right of the window. The navigator steps aside, and the page area shows the title pages in place of the script, as they print and read-only, following each field the writer sends; a script with no title page shows one empty page. The first field has the keyboard, its text selected. A line break inside a positioned line shows in its field as ¶, and typing ¶ makes one.
+- **Keys** (a Fountain script, or any script whose title page is keys). One field per key, each holding its values one per line, Enter starting another. The usual keys Title, Credit, Author, Source, Draft date, Contact, Notes and Copyright come first and are always shown, empty ones too; the script's other keys follow in the title page's order. "Add a key…" adds one by name, checked as `title.set` checks keys. A key filled in for the first time goes after the nearest key above it in the sheet that the title page has. A field emptied removes its key. Values are trimmed, and empty lines dropped.
+- **Lines** (an .fdx script, or any whose title page is positioned lines). A row per line: its text, its alignment (a button that steps Left, Center, Right; Mod+L, Mod+E and Mod+R set it), and its space above in lines of the page format's height ("2" for 24 pt). Enter in a line's text adds an empty line after it, in its column and alignment; Mod+Shift+K removes the line. A title page with no lines offers "Add a line". **Resolution (2026-10-25):** Mod+Backspace was planned for removing a line, but a text field takes Backspace with every modifier, so the sheet could never see it.
+- **Sending.** Tab and Shift+Tab move between fields, wrapping, and select the text of the field they reach. A field that changed is sent when the writer leaves it: by Tab, by typing in another field, or by closing the sheet. Each sent key is one `title.set`; the lines are sent whole as one `title.set_lines`. Either is one undo step, labelled "Title page". Adding or removing a line, or changing an alignment, is sent at once. A line's text keeps its styles: the common start and end keep theirs, and new text takes the style before it, as typing does.
+- **Undo.** Mod+Z in the sheet first takes back typing not sent yet; with none, it undoes the last step, as on the page. Mod+Shift+Z (and Mod+Y off macOS) redoes. The sheet then shows the title page as it now is.
+- **Closing.** Esc, Done, or a click on the page sends what changed and closes the sheet, and the page area takes the keyboard back.
 - **An agent** editing the title page arrives as any other edit, while agent tracking is off. With it on, the agent's request is refused in core (`writer_only`).
 
 ## 20. Reports
@@ -492,7 +493,7 @@ Added 2026-10-22 (phase 5b; `docs/specs/reports.md`).
 - "Reports…" (palette, and Mod+Shift+I) opens a view in place of the page area, with three tabs: Scenes, Characters and Locations. Ctrl+Tab and Ctrl+Shift+Tab change tabs.
 - Each tab is a table with the report's fields as columns, and counts right-aligned. Up and Down choose a row, stopping at the ends; Enter goes to the row's scene (a character's first speech, a location's first scene) and closes the view; Esc closes it.
 - "Copy as CSV" (Mod+C in the view) puts the tab's CSV (`docs/specs/reports.md` §5) on the clipboard.
-- The view refreshes when the navigator does.
+- The reports are read when the view opens. It covers the page, so the writer changes nothing under it; an agent's edit shows the next time it opens. A long cell, such as a speaker's scenes, is cut with "…" to its column; the CSV copy keeps all of it.
 
 ## 21. Comparing drafts
 

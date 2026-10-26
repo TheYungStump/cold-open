@@ -214,6 +214,16 @@ fn writer_label(cmd: &Command) -> String {
         }
         .into(),
         Command::ChangesTrack(_) => "Track changes".into(),
+        Command::RevisionStart(_) => "Start revision".into(),
+        Command::RevisionEnd(_) => "End revision".into(),
+        Command::RevisionColors(_) => "Revision colors".into(),
+        Command::RevisionClear(p) => if p.sets {
+            "Clear revisions"
+        } else {
+            "Clear revision marks"
+        }
+        .into(),
+        Command::TitleSet(_) | Command::TitleSetLines(_) => "Title page".into(),
         other => other.name().into(),
     }
 }
@@ -415,6 +425,23 @@ impl Session {
                     .map_err(|e| CommandError::new("internal_error", e.to_string()))
             }
             Command::RevisionList(_) => Ok(self.revision_list()),
+            Command::ReportScenes(_) => {
+                let list = self.scene_list();
+                Ok(crate::report::scenes(&self.doc, list))
+            }
+            Command::ReportCharacters(_) => {
+                self.view();
+                let Some(view) = &self.view else {
+                    return Ok(json!({ "characters": [] }));
+                };
+                Ok(crate::report::characters(
+                    &self.doc,
+                    view.layout(),
+                    &view.map,
+                ))
+            }
+            Command::ReportLocations(_) => Ok(crate::report::locations(&self.doc)),
+            Command::TitleGet(_) => Ok(crate::title::get(&self.doc)),
             Command::ChangesList(p) => {
                 let only = match p.scene {
                     Some(s) => {
@@ -1152,6 +1179,12 @@ impl Session {
             Command::RevisionEnd(_) => self.plan_revision_end(&ex.by, t),
             Command::RevisionColors(p) => self.plan_revision_colors(p, &ex.by),
             Command::RevisionClear(p) => self.plan_revision_clear(p, &ex.by),
+            Command::TitleSet(p) => {
+                crate::title::plan_set(&self.doc, p, &ex.by, self.tracks(&ex.by))
+            }
+            Command::TitleSetLines(p) => {
+                crate::title::plan_set_lines(&self.doc, p, &ex.by, self.tracks(&ex.by))
+            }
             _ => Err(CommandError::new("invalid_request", "not an edit")),
         }
     }

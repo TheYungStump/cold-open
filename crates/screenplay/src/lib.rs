@@ -15,6 +15,7 @@
 mod edit;
 mod element;
 mod format;
+pub mod names;
 mod script;
 mod text;
 pub mod words;

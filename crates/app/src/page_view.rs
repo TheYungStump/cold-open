@@ -84,6 +84,9 @@ pub struct PageView<'a, Message> {
     pub view: &'a View,
     pub doc: &'a Document,
     pub draft: Option<&'a Draft>,
+    /// The title pages in place of the script, read-only, while the title
+    /// page sheet is open (editor.md §19).
+    pub title: bool,
     pub palette: Palette,
     pub zoom: f32,
     pub focused: bool,
@@ -116,7 +119,12 @@ impl<Message> PageView<'_, Message> {
     }
 
     fn pages(&self) -> Vec<&Page> {
-        self.view.layout().pages.iter().collect()
+        let layout = self.view.layout();
+        if self.title {
+            layout.title.iter().collect()
+        } else {
+            layout.pages.iter().collect()
+        }
     }
 
     fn page_size(&self) -> Size {
@@ -136,6 +144,7 @@ impl<Message> PageView<'_, Message> {
     fn page_count(&self) -> usize {
         match self.draft {
             Some(_) => 1,
+            None if self.title => self.view.layout().title.len().max(1),
             None => self.view.layout().pages.len().max(1),
         }
     }
@@ -545,7 +554,9 @@ impl<Message> widget::Widget<Message, iced::Theme, iced::Renderer> for PageView<
                 );
             }
             // Asterisks beside marked lines, and the revised page's header.
-            if let (None, Some(marks), Some(page)) = (self.draft, &revisions.marks, pages.get(p)) {
+            if let (None, false, Some(marks), Some(page)) =
+                (self.draft, self.title, &revisions.marks, pages.get(p))
+            {
                 let (_, extra) = coldopen_layout::revision_lines(page, format, marks);
                 for l in &extra {
                     let top = (l.y.0 - format.baseline.0) as f32 * k;

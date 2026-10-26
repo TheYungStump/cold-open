@@ -97,6 +97,18 @@ pub enum Command {
     RevisionColors(RevisionColors),
     #[serde(rename = "revision.clear")]
     RevisionClear(RevisionClear),
+    #[serde(rename = "report.scenes")]
+    ReportScenes(Empty),
+    #[serde(rename = "report.characters")]
+    ReportCharacters(Empty),
+    #[serde(rename = "report.locations")]
+    ReportLocations(Empty),
+    #[serde(rename = "title.get")]
+    TitleGet(Empty),
+    #[serde(rename = "title.set")]
+    TitleSet(TitleSet),
+    #[serde(rename = "title.set_lines")]
+    TitleSetLines(TitleSetLines),
 }
 
 /// How a command interacts with undo and the journal.
@@ -116,7 +128,7 @@ pub enum Class {
 
 impl Command {
     /// Every command name, in a stable order (for a command palette).
-    pub const NAMES: [&'static str; 42] = [
+    pub const NAMES: [&'static str; 48] = [
         "doc.new",
         "doc.open",
         "doc.save",
@@ -159,6 +171,12 @@ impl Command {
         "revision.list",
         "revision.colors",
         "revision.clear",
+        "report.scenes",
+        "report.characters",
+        "report.locations",
+        "title.get",
+        "title.set",
+        "title.set_lines",
     ];
 
     pub fn name(&self) -> &'static str {
@@ -205,6 +223,12 @@ impl Command {
             Command::RevisionList(_) => "revision.list",
             Command::RevisionColors(_) => "revision.colors",
             Command::RevisionClear(_) => "revision.clear",
+            Command::ReportScenes(_) => "report.scenes",
+            Command::ReportCharacters(_) => "report.characters",
+            Command::ReportLocations(_) => "report.locations",
+            Command::TitleGet(_) => "title.get",
+            Command::TitleSet(_) => "title.set",
+            Command::TitleSetLines(_) => "title.set_lines",
         }
     }
 
@@ -222,7 +246,11 @@ impl Command {
             | Command::TextComplete(_)
             | Command::HistoryList(_)
             | Command::ChangesList(_)
-            | Command::RevisionList(_) => Class::Query,
+            | Command::RevisionList(_)
+            | Command::ReportScenes(_)
+            | Command::ReportCharacters(_)
+            | Command::ReportLocations(_)
+            | Command::TitleGet(_) => Class::Query,
             Command::Undo(_) | Command::Redo(_) => Class::History,
             Command::ExportPdf(_) | Command::ExportFdx(_) | Command::ExportFountain(_) => {
                 Class::Output
@@ -252,7 +280,9 @@ impl Command {
             | Command::RevisionStart(_)
             | Command::RevisionEnd(_)
             | Command::RevisionColors(_)
-            | Command::RevisionClear(_) => Class::Edit,
+            | Command::RevisionClear(_)
+            | Command::TitleSet(_)
+            | Command::TitleSetLines(_) => Class::Edit,
         }
     }
 
@@ -361,8 +391,11 @@ impl Command {
             "revision.start" => of::<RevisionStart>(),
             "revision.colors" => of::<RevisionColors>(),
             "revision.clear" => of::<RevisionClear>(),
+            "title.set" => of::<TitleSet>(),
+            "title.set_lines" => of::<TitleSetLines>(),
             "doc.get" | "scene.list" | "undo" | "redo" | "doc.revert" | "history.list"
-            | "revision.end" | "revision.list" => of::<Empty>(),
+            | "revision.end" | "revision.list" | "report.scenes" | "report.characters"
+            | "report.locations" | "title.get" => of::<Empty>(),
             _ => return None,
         })
     }
@@ -660,6 +693,69 @@ pub struct ExportPdf {
 
 fn is_marked(f: &PrintForm) -> bool {
     *f == PrintForm::Marked
+}
+
+/// One value of a title-page key: a plain string, or runs with styles.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(untagged)]
+pub enum TitleValue {
+    Text(String),
+    Runs(Vec<Run>),
+}
+
+/// Params for `title.set`: one Fountain title-page key and its values
+/// (docs/specs/commands.md, "The title page commands").
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct TitleSet {
+    /// The key, such as "Title" or "Draft date"; matched ignoring case.
+    pub key: String,
+    /// One value per line; none removes the key.
+    #[serde(default)]
+    pub values: Vec<TitleValue>,
+    /// Where a new key goes, 0-based; the end by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<usize>,
+}
+
+/// Where a title line sits in its column.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum TitleAlign {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
+/// One positioned title line (docs/specs/fdx.md §7): its text or runs,
+/// alignment, the column's left and right edges in points from the paper's
+/// left edge, and the space above it in points.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct TitleLineParam {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runs: Option<Vec<Run>>,
+    #[serde(default)]
+    pub align: TitleAlign,
+    pub left: f64,
+    pub right: f64,
+    #[serde(default)]
+    pub space_before: f64,
+}
+
+/// Params for `title.set_lines`: the whole list of lines.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct TitleSetLines {
+    pub lines: Vec<TitleLineParam>,
 }
 
 /// The paper revised pages print on (docs/specs/revisions.md §7.3).
@@ -1018,6 +1114,8 @@ mod tests {
                 "text.find" => json!({"find": "x"}),
                 "changes.accept" | "changes.reject" => json!({"all": true}),
                 "revision.colors" => json!({"colors": ["White"]}),
+                "title.set" => json!({"key": "Title"}),
+                "title.set_lines" => json!({"lines": []}),
                 _ => json!({}),
             };
             let cmd = Command::from_parts(name, params).unwrap();

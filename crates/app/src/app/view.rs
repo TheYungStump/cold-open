@@ -46,23 +46,31 @@ impl App {
         view: &'a coldopen_core::View,
         doc: &'a coldopen_core::Document,
     ) -> Element<'a, Message> {
+        // While the title page sheet is open, the page area shows the
+        // title page as it prints, and nothing of the script's caret.
+        let title = self.title_sheet.is_some();
         let page = PageView {
             view,
             doc,
-            draft: if self.editor.draft {
+            draft: if self.editor.draft && !title {
                 self.editor.draft_index.draft.as_ref()
             } else {
                 None
             },
+            title,
             palette: pal,
             zoom: self.shown_zoom(),
             focused: self.focus == Focus::Page && self.palette.is_none() && !self.modal(),
-            caret: self.caret_spot,
+            caret: if title { None } else { self.caret_spot },
             caret_on: self.caret_on,
             preedit: self.editor.preedit.as_ref().map(|p| p.text.as_str()),
-            completion: self.editor.completion.as_ref(),
-            selection: self.sel_range,
-            matches: &self.match_ranges,
+            completion: if title {
+                None
+            } else {
+                self.editor.completion.as_ref()
+            },
+            selection: if title { None } else { self.sel_range },
+            matches: if title { &[] } else { &self.match_ranges },
             marked: &self.marked_elems,
             coverage: &*self.fonts,
             on_event: Box::new(Message::Page),
@@ -79,11 +87,15 @@ impl App {
             (self.find.is_some() || self.editor.completion.is_some()).then_some(Message::ClickAway);
         let away_pages = self.find.is_some().then_some(Message::ClickAway);
         let mut body = row![];
-        if self.settings.navigator && !self.focus_mode {
+        if self.settings.navigator && !self.focus_mode && !title {
             body = body.push(shield(self.navigator(pal), away.clone(), false));
         }
         body = body.push(shield(pages, away_pages, false));
-        if self.settings.changes_panel && !self.focus_mode {
+        if title {
+            // The title page sheet stands here, over the page area's
+            // right side, so the page centers in what is left.
+            body = body.push(iced::widget::space().width(Length::Fixed(super::title::WIDTH)));
+        } else if self.settings.changes_panel && !self.focus_mode {
             body = body.push(shield(self.changes_panel(pal), away.clone(), false));
         }
         let mut main = column![];
@@ -222,6 +234,15 @@ impl App {
     /// The open dialog, if any: unsaved changes, a lossy save, recovered
     /// work, or PDF export (editor.md §11, §13).
     fn dialog(&self, pal: Palette) -> Option<Element<'_, Message>> {
+        // The title page sheet stands beside the page, which shows the
+        // title page as it prints (editor.md §19).
+        if self.prompt.is_none()
+            && self.recovery.is_none()
+            && self.repair.is_none()
+            && let Some(t) = &self.title_sheet
+        {
+            return Some(self.title_view(pal, t));
+        }
         let mut width = 520.0;
         let content = if let Some(p) = &self.prompt {
             self.prompt_view(pal, p)
@@ -229,6 +250,9 @@ impl App {
             self.recovery_view(pal, r)
         } else if let Some(r) = &self.repair {
             self.repair_view(pal, r)
+        } else if let Some(r) = &self.reports {
+            width = 1000.0;
+            self.reports_view(pal, r)
         } else if let Some(s) = &self.recovered {
             width = 820.0;
             self.recovered_view(pal, s)

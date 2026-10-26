@@ -289,6 +289,14 @@ pub const APP_ACTIONS: &[ActionInfo] = &[
         title: "Change my name for changes…",
     },
     ActionInfo {
+        name: "app.reports",
+        title: "Reports…",
+    },
+    ActionInfo {
+        name: "app.title_page",
+        title: "Edit title page…",
+    },
+    ActionInfo {
         name: "app.revision_menu",
         title: "Revision commands…",
     },
@@ -355,6 +363,12 @@ pub fn command_title(name: &str) -> &'static str {
         "revision.list" => "List revision sets",
         "revision.colors" => "Set the revision colors",
         "revision.clear" => "Clear revision marks",
+        "report.scenes" => "Report: scenes",
+        "report.characters" => "Report: characters",
+        "report.locations" => "Report: locations",
+        "title.get" => "Show the title page as JSON",
+        "title.set" => "Set a title-page key (params)",
+        "title.set_lines" => "Set the title page's lines (params)",
         _ => "Command",
     }
 }

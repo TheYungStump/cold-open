@@ -200,6 +200,8 @@ pub fn defaults() -> Vec<(&'static str, &'static str)> {
         ("F7", "changes.next"),
         ("Shift+F7", "changes.previous"),
         ("Mod+Shift+R", "view.changes"),
+        ("Mod+Shift+I", "app.reports"),
+        ("Mod+Shift+T", "app.title_page"),
     ];
     if MAC {
         v.push(("Mod+Alt+F", "edit.replace"));

@@ -602,6 +602,22 @@ fn through_coldopen_mcp_agent_edits_arrive_as_tracked_changes() {
             .contains("gate-agent"),
         "{res}"
     );
+    // The reports and the revision sets are resources too (2026-10-22).
+    for uri in [
+        "coldopen://report/scenes",
+        "coldopen://report/characters",
+        "coldopen://report/locations",
+        "coldopen://doc/revisions",
+    ] {
+        let res = mcp.request(&mut h, "resources/read", json!({"uri": uri}));
+        let text = res["result"]["contents"][0]["text"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{uri}: {res}"));
+        assert!(
+            serde_json::from_str::<serde_json::Value>(text).is_ok(),
+            "{uri}: {text}"
+        );
+    }
     // The agent cannot accept, nor opt out.
     let r = mcp.tool(&mut h, "changes_accept", json!({"all": true}));
     assert_eq!(r["structuredContent"]["code"], "writer_only", "{r}");

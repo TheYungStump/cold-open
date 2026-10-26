@@ -21,8 +21,10 @@ mod bench;
 mod changes;
 mod copies;
 mod file_ops;
+mod reports;
 mod revisions;
 mod router;
+mod title;
 mod view;
 
 pub use agents::Agent;
@@ -128,6 +130,11 @@ pub enum Message {
     Revision(revisions::RevisionInput),
     /// The export form's "Colored pages" (editor.md §18).
     ExportColored,
+    /// The report view's tab, and a row clicked (editor.md §20).
+    ReportTab(usize),
+    ReportRow(usize),
+    /// The title page sheet's fields and buttons (editor.md §19).
+    Title(title::TitleInput),
     /// The writer's name, as typed in its question (editor.md §17.4).
     NameInput(String),
     NameSubmit,
@@ -362,6 +369,10 @@ pub struct App {
     pub repair: Option<RepairReport>,
     /// The Recovered versions screen.
     pub recovered: Option<RecoveredScreen>,
+    /// The report view (editor.md §20).
+    pub reports: Option<reports::ReportView>,
+    /// The title page sheet (editor.md §19).
+    pub title_sheet: Option<title::TitleSheet>,
     pub export: Option<ExportForm>,
     pub sheet: Option<Sheet>,
     /// Scripts with unsaved work from an earlier session (editor.md §11).
@@ -481,6 +492,8 @@ impl App {
             recovery: None,
             repair: None,
             recovered: None,
+            reports: None,
+            title_sheet: None,
             export: None,
             sheet: None,
             leftover: Vec::new(),
@@ -1196,6 +1209,12 @@ impl App {
                 Task::none()
             }
             Message::Revision(input) => self.revision_input(input),
+            Message::ReportTab(k) => {
+                self.reports_tab(k);
+                Task::none()
+            }
+            Message::ReportRow(i) => self.reports_go(i),
+            Message::Title(input) => self.title_input(input),
             Message::ExportColored => {
                 if let Some(f) = &mut self.export {
                     f.colored = !f.colored;
@@ -1272,6 +1291,9 @@ impl App {
                 if matches!(self.prompt, Some(Prompt::AuthorName { .. })) {
                     return self.name_done(false);
                 }
+                if self.prompt.is_none() && self.title_sheet.is_some() {
+                    return self.title_close();
+                }
                 if matches!(
                     self.prompt,
                     Some(
@@ -1314,6 +1336,9 @@ impl App {
             if self.prompt.is_none() && self.recovery.is_none() {
                 self.export = None;
                 self.sheet = None;
+                if self.title_sheet.is_some() {
+                    return self.title_close();
+                }
             }
             return Task::none();
         }
@@ -1503,6 +1528,8 @@ impl App {
             || self.recovered.is_some()
             || self.export.is_some()
             || self.sheet.is_some()
+            || self.reports.is_some()
+            || self.title_sheet.is_some()
     }
 
     /// Keys for an open dialog (editor.md §11, §13): each button has a key,
@@ -1625,6 +1652,14 @@ impl App {
                 _ => {}
             }
             return Task::none();
+        }
+        if let Some(t) = self.reports_key(kp, enter, esc) {
+            return t;
+        }
+        if self.prompt.is_none()
+            && let Some(t) = self.title_key(kp, esc)
+        {
+            return t;
         }
         if let Some(sheet) = self.sheet {
             if esc || enter {
@@ -1941,6 +1976,11 @@ impl App {
                 self.sheet = Some(Sheet::History);
                 scroll = false;
             }
+            "app.reports" => {
+                self.reports_open();
+                scroll = false;
+            }
+            "app.title_page" => return self.title_open(),
             "app.about" => {
                 self.sheet = Some(Sheet::About);
                 scroll = false;

@@ -134,6 +134,30 @@ pub const TOOLS: &[(&str, &str)] = &[
         "Remove revision marks, of one set or all. Only the writer may; an agent gets writer_only.",
     ),
     (
+        "report.scenes",
+        "Every scene: heading, setting (int, ext, int_ext, est), location, time, page, length in eighths, words, and the characters who speak.",
+    ),
+    (
+        "report.characters",
+        "Every speaker, most words first: speeches, printed dialogue lines, words, scenes, extensions and first page.",
+    ),
+    (
+        "report.locations",
+        "Every location by name, split by setting and time of day, with its scenes.",
+    ),
+    (
+        "title.get",
+        "The title page: its form (keys, lines or none), its Fountain keys with their values, and its positioned lines.",
+    ),
+    (
+        "title.set",
+        "Set one title-page key's values (none removes the key). Refused with writer_only while this script tracks agents' edits.",
+    ),
+    (
+        "title.set_lines",
+        "Replace the title page's positioned lines. Refused with writer_only while this script tracks agents' edits.",
+    ),
+    (
         "undo",
         "Undo this agent's newest step. Fails with not_your_step when the newest step is someone else's.",
     ),
@@ -189,6 +213,10 @@ fn read_only(command: &str) -> bool {
             | "history.list"
             | "changes.list"
             | "revision.list"
+            | "report.scenes"
+            | "report.characters"
+            | "report.locations"
+            | "title.get"
     )
 }
 

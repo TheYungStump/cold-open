@@ -11,6 +11,8 @@ use clap::{Parser, Subcommand, ValueEnum};
 use coldopen_core::{Dispatcher, Options};
 use serde_json::{Value, json};
 
+mod report;
+
 #[derive(Parser)]
 #[command(
     name = "coldopen",
@@ -78,6 +80,18 @@ enum Cmd {
     Pages {
         /// The script to read.
         file: PathBuf,
+    },
+    /// Print a report: scenes, characters or locations
+    /// (docs/specs/reports.md).
+    Report {
+        /// Which report.
+        #[arg(value_enum)]
+        kind: report::Kind,
+        /// The script to read.
+        file: PathBuf,
+        /// Text for people, the command's JSON, or CSV (RFC 4180).
+        #[arg(long, value_enum, default_value_t = report::Form::Text)]
+        format: report::Form,
     },
     /// List the scenes in a script.
     Scenes {
@@ -159,6 +173,7 @@ fn main() -> ExitCode {
         } => repair(&input, &output, json, report.as_deref()),
         Cmd::Pages { file } => pages(&file),
         Cmd::Scenes { file, json } => scenes(&file, json),
+        Cmd::Report { kind, file, format } => run_report(kind, &file, format),
         Cmd::Licenses => licenses(),
         Cmd::Run {
             edits,
@@ -507,6 +522,26 @@ fn scenes(file: &Path, as_json: bool) -> Result<ExitCode, String> {
         );
         writeln!(out, "{line}").map_err(|e| e.to_string())?;
     }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn run_report(kind: report::Kind, file: &Path, form: report::Form) -> Result<ExitCode, String> {
+    let mut d = reader();
+    let opened = call(&mut d, "doc.open", json!({ "path": path_str(file) }))?;
+    print_warnings(&opened);
+    let result = call(&mut d, kind.command(), json!({}))?;
+    // Scenes by their number in the script, for people and spreadsheets.
+    let index = call(&mut d, "scene.list", json!({}))?["scenes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|s| Some((s["id"].as_str()?.to_string(), s["index"].as_u64()?)))
+        .collect();
+    let text = report::render(kind, form, &result, &index);
+    io::stdout()
+        .lock()
+        .write_all(text.as_bytes())
+        .map_err(|e| e.to_string())?;
     Ok(ExitCode::SUCCESS)
 }
 

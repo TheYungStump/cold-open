@@ -7,11 +7,12 @@
 use std::collections::BTreeMap;
 
 use coldopen_screenplay::{
-    Align, Element, ElementFormat, ElementKind, PageFormat, Pt, Run, Style, TitleLine,
+    Align, Element, ElementFormat, ElementKind, PageFormat, Pt, RichText, Run, Style, TitleLine,
 };
 
 use crate::kept::{Kept, KeptParagraph, Section, XmlStyle};
-use crate::values::type_of_kind;
+use crate::settings::Spec;
+use crate::values::{FdxAlign, type_of_kind};
 use crate::xml::{Child, Node};
 
 /// One block of the document being written.
@@ -133,13 +134,7 @@ struct Carry<'k> {
 
 impl<'k> Carry<'k> {
     fn of(kept: &'k KeptParagraph) -> Option<Carry<'k>> {
-        let text = format!("<FinalDraft>{}</FinalDraft>", kept.text);
-        let mut report = crate::report::Report::default();
-        let tree = crate::xml::parse(&text, &mut report).ok()?;
-        let para = tree.root.children.into_iter().find_map(|c| match c {
-            Child::Element(n) if n.name == "Paragraph" => Some(n),
-            _ => None,
-        })?;
+        let (text, para) = parse_paragraph(&kept.text)?;
         let mut read_broke = false;
         let mut read = None;
         let mut read_spacing = None;
@@ -334,29 +329,11 @@ impl<'a> Gen<'a> {
         push_attrs(&mut self.out, &attrs);
         self.out.push('>');
         let runs = match run_attrs {
-            Some(c) => carried_runs(c, e),
-            None => plain_runs(e),
+            Some(c) => carried_runs(&c.para, &e.text),
+            None => plain_runs(&e.text),
         };
-        let inner = format!("{}{}", self.nl(), self.indent(depth + 1));
-        let mut k = 0;
-        for (r, (text, style, extra)) in runs.iter().enumerate() {
-            while k < children.len() && children[k].0 <= r {
-                self.out.push_str(&inner);
-                self.out.push_str(&children[k].1);
-                k += 1;
-            }
-            self.out.push_str(&inner);
-            self.run(text, *style, extra, b.id);
-        }
-        for (_, child) in &children[k..] {
-            self.out.push_str(&inner);
-            self.out.push_str(child);
-        }
+        self.runs_and_end(&runs, &children, depth, b.id);
         self.hidden_losses(b);
-        self.out.push_str(self.nl());
-        let close = self.indent(depth);
-        self.out.push_str(&close);
-        self.out.push_str("</Paragraph>");
     }
 
     /// The space above a block: its override, or its blank lines (§16.2).
@@ -657,17 +634,15 @@ impl<'a> Gen<'a> {
                     content,
                     tail,
                 } => {
-                    wrote_title = true;
                     self.out.push_str(head);
-                    if doc.title_lines == kept.title_lines.as_slice() {
+                    // Only the first title page is read (§7); a store from
+                    // before 2026-10-25 may name a later one too.
+                    if wrote_title || doc.title_lines == kept.title_lines.as_slice() {
                         self.out.push_str(content);
                     } else {
-                        let lead = content.find('<').map_or_else(
-                            || format!("{nl}{}", self.indent(2)),
-                            |k| content[..k].to_string(),
-                        );
-                        self.title_content(&lead, doc.title_lines);
+                        self.title_edited(content, &kept.title_lines, doc.title_lines);
                     }
+                    wrote_title = true;
                     self.out.push_str(tail);
                 }
             }
@@ -681,6 +656,17 @@ impl<'a> Gen<'a> {
         }
         if !wrote_title && !doc.title_lines.is_empty() && kept.title_lines.is_empty() {
             self.title_page(doc.title_lines);
+        }
+        if !wrote_title
+            && !kept.title_lines.is_empty()
+            && doc.title_lines != kept.title_lines.as_slice()
+        {
+            // The title page is kept as text and cannot be rewritten (§13.5).
+            self.losses.push(Loss {
+                block: None,
+                code: "title_page_kept",
+                message: "this file's title page can only be written back as it was, so the edits to it are not saved".into(),
+            });
         }
         let inner = std::mem::replace(&mut self.out, outer);
         if kept.root_self_closing && inner.is_empty() {
@@ -712,34 +698,116 @@ impl<'a> Gen<'a> {
         let nl = self.nl().to_string();
         self.out.push_str(lead);
         self.out.push_str("<Content>");
+        let line_lead = format!("{nl}{}", self.indent(3));
         for line in lines {
-            let attrs = vec![
-                ("Alignment".to_string(), align_name(line.align).to_string()),
-                ("LeftIndent".to_string(), inches(line.left)),
-                ("RightIndent".to_string(), inches(line.right)),
-                ("SpaceBefore".to_string(), line.space_before.to_string()),
-            ];
-            self.out
-                .push_str(&format!("{nl}{}<Paragraph", self.indent(3)));
-            push_attrs(&mut self.out, &attrs);
-            self.out.push('>');
-            let mut any = false;
-            for r in line.text.runs() {
-                if let Run::Text { text, style, .. } = r {
-                    any = true;
-                    self.out.push_str(&format!("{nl}{}", self.indent(4)));
-                    self.run(text, *style, &[], 0);
-                }
-            }
-            if !any {
-                self.out
-                    .push_str(&format!("{nl}{}<Text></Text>", self.indent(4)));
-            }
-            self.out
-                .push_str(&format!("{nl}{}</Paragraph>", self.indent(3)));
+            self.title_line(&line_lead, line, None);
         }
         self.out
             .push_str(&format!("{nl}{}</Content>", self.indent(2)));
+    }
+
+    /// A kept title page's `Content` once its lines have changed (§13.5):
+    /// lines as they were read are written as the file has them, edited
+    /// lines carry what their paragraphs held, and everything else in
+    /// `Content` stays after the paragraph it followed.
+    fn title_edited(&mut self, content: &str, read: &[TitleLine], lines: &[TitleLine]) {
+        let parts = crate::kept::title_parts(content).filter(|p| p.paragraphs.len() == read.len());
+        let pairs = parts
+            .as_ref()
+            .and_then(|_| coldopen_screenplay::words::common(read, lines));
+        let (Some(parts), Some(pairs)) = (parts, pairs) else {
+            let nl = self.nl();
+            let lead = content.find('<').map_or_else(
+                || format!("{nl}{}", self.indent(2)),
+                |k| content[..k].to_string(),
+            );
+            self.title_content(&lead, lines);
+            return;
+        };
+        let lead = format!("{}{}", self.nl(), self.indent(3));
+        self.out.push_str(&parts.open);
+        self.out.push_str(&parts.after[0]);
+        let (mut r, mut l) = (0, 0);
+        let end = std::iter::once((read.len(), lines.len()));
+        for (pr, pl) in pairs.into_iter().chain(end) {
+            // Between two equal lines, lines paired in order are edits.
+            while r < pr && l < pl {
+                self.title_line(&lead, &lines[l], Some((&parts.paragraphs[r], &read[r])));
+                self.out.push_str(&parts.after[r + 1]);
+                (r, l) = (r + 1, l + 1);
+            }
+            while r < pr {
+                self.out.push_str(&parts.after[r + 1]);
+                r += 1;
+            }
+            while l < pl {
+                self.title_line(&lead, &lines[l], None);
+                l += 1;
+            }
+            if pr < read.len() {
+                self.out.push_str(&parts.paragraphs[pr]);
+                self.out.push_str(&parts.after[pr + 1]);
+                (r, l) = (pr + 1, pl + 1);
+            }
+        }
+        self.out.push_str(&parts.close);
+    }
+
+    /// One title line (§14.3). An edited line is given the paragraph it
+    /// replaces, as the file has it, and the line read from it, and carries
+    /// what that paragraph held (§13.5).
+    fn title_line(&mut self, lead: &str, line: &TitleLine, replaces: Option<(&str, &TitleLine)>) {
+        let mut attrs: Vec<(String, String)> = vec![
+            ("Alignment".into(), align_name(line.align).into()),
+            ("LeftIndent".into(), inches(line.left)),
+            ("RightIndent".into(), inches(line.right)),
+            ("SpaceBefore".into(), line.space_before.to_string()),
+        ];
+        let mut children: Vec<(usize, String)> = Vec::new();
+        let carry = replaces.and_then(|(source, read)| Some((parse_paragraph(source)?, read)));
+        if let Some(((text, para), read)) = &carry {
+            carry_title(para, text, read, line, &mut attrs, &mut children);
+        }
+        attrs.sort_by(|a, b| a.0.cmp(&b.0));
+        self.out.push_str(lead);
+        self.out.push_str("<Paragraph");
+        push_attrs(&mut self.out, &attrs);
+        self.out.push('>');
+        let runs = match &carry {
+            Some(((_, para), _)) => carried_runs(para, &line.text),
+            None => plain_runs(&line.text),
+        };
+        self.runs_and_end(&runs, &children, 3, 0);
+    }
+
+    /// A paragraph's runs at `depth`, with the children it carries in their
+    /// places among them, and its end tag.
+    fn runs_and_end(
+        &mut self,
+        runs: &[RunOut],
+        children: &[(usize, String)],
+        depth: usize,
+        block: u64,
+    ) {
+        let inner = format!("{}{}", self.nl(), self.indent(depth + 1));
+        let mut k = 0;
+        for (r, (text, style, extra)) in runs.iter().enumerate() {
+            while k < children.len() && children[k].0 <= r {
+                self.out.push_str(&inner);
+                self.out.push_str(&children[k].1);
+                k += 1;
+            }
+            self.out.push_str(&inner);
+            self.run(text, *style, extra, block);
+        }
+        for (_, child) in &children[k..] {
+            self.out.push_str(&inner);
+            self.out.push_str(child);
+        }
+        self.out.push_str(self.nl());
+        let close = self.indent(depth);
+        self.out.push_str(&close);
+        self.out.push_str("</Paragraph>");
     }
 
     /// A whole file for a document with no store (§14.6).
@@ -967,10 +1035,91 @@ fn unchanged(kp: &KeptParagraph, blocks: &[Blk<'_>]) -> bool {
             .all(|(k, b)| k.id == b.id && k.element == *b.element && k.spacing == b.spacing)
 }
 
-/// The runs of an element: text, style and no other attributes.
-fn plain_runs(e: &Element) -> Vec<RunOut> {
+/// A paragraph of the file, parsed: the text it was parsed from (the
+/// paragraph inside a root element) and its node.
+fn parse_paragraph(source: &str) -> Option<(String, Node)> {
+    let text = format!("<FinalDraft>{source}</FinalDraft>");
+    let mut report = crate::report::Report::default();
+    let tree = crate::xml::parse(&text, &mut report).ok()?;
+    let para = tree.root.children.into_iter().find_map(|c| match c {
+        Child::Element(n) if n.name == "Paragraph" => Some(n),
+        _ => None,
+    })?;
+    Some((text, para))
+}
+
+/// What an edited title line carries from the paragraph it replaces
+/// (§13.5): the paragraph's other attributes, each of the four §14.3
+/// writes as the file spelled it while the line keeps the value read, and
+/// its children other than `Text`.
+fn carry_title(
+    para: &Node,
+    text: &str,
+    read: &TitleLine,
+    line: &TitleLine,
+    attrs: &mut Vec<(String, String)>,
+    children: &mut Vec<(usize, String)>,
+) {
+    const MODELLED: [&str; 4] = ["Alignment", "LeftIndent", "RightIndent", "SpaceBefore"];
+    let spec = Spec::parse(para, "", None, &mut crate::report::Report::default());
+    // `same`: the line keeps the value read. `taken`: the reader took the
+    // file's value as written, not clamped or replaced.
+    let mut as_read = |name: &str, same: bool, taken: bool| {
+        if !same {
+            return;
+        }
+        match para.attr(name) {
+            None => attrs.retain(|(k, _)| k != name),
+            Some(v) if taken => {
+                if let Some(a) = attrs.iter_mut().find(|(k, _)| k == name) {
+                    a.1 = v.to_string();
+                }
+            }
+            Some(_) => {}
+        }
+    };
+    as_read(
+        "Alignment",
+        line.align == read.align,
+        spec.align.map(FdxAlign::to_align) == Some(read.align),
+    );
+    as_read(
+        "LeftIndent",
+        line.left == read.left,
+        spec.left == Some(read.left),
+    );
+    as_read(
+        "RightIndent",
+        line.right == read.right,
+        spec.right == Some(read.right),
+    );
+    as_read(
+        "SpaceBefore",
+        line.space_before == read.space_before,
+        spec.space_before == Some(read.space_before),
+    );
+    for (k, v) in &para.attrs {
+        if !MODELLED.contains(&k.as_str()) {
+            attrs.push((k.clone(), v.clone()));
+        }
+    }
+    let mut runs_before = 0usize;
+    for ch in &para.children {
+        let Child::Element(n) = ch else {
+            continue;
+        };
+        if n.name == "Text" {
+            runs_before += 1;
+        } else {
+            children.push((runs_before, crate::kept::element_text(text, n)));
+        }
+    }
+}
+
+/// The runs of a text: text, style and no other attributes.
+fn plain_runs(text: &RichText) -> Vec<RunOut> {
     let mut out = Vec::new();
-    for r in e.text.runs() {
+    for r in text.runs() {
         if let Run::Text { text, style, .. } = r {
             out.push((text.clone(), *style, Vec::new()));
         }
@@ -983,14 +1132,14 @@ fn plain_runs(e: &Element) -> Vec<RunOut> {
 
 /// The runs of an edited element with the kept runs' other attributes
 /// carried per character (§14.4).
-fn carried_runs(c: &Carry<'_>, e: &Element) -> Vec<RunOut> {
+fn carried_runs(para: &Node, e: &RichText) -> Vec<RunOut> {
     // The old printed text, one attribute set per character.
     let mut old_chars: Vec<char> = Vec::new();
     let mut old_attrs: Vec<usize> = Vec::new();
     let mut sets: Vec<Vec<(String, String)>> = Vec::new();
     // Each distinct attribute set once, found in O(log n).
     let mut index: BTreeMap<Vec<(String, String)>, usize> = BTreeMap::new();
-    for t in c.para.children_named("Text") {
+    for t in para.children_named("Text") {
         let caps = t
             .attr("Style")
             .is_some_and(|s| crate::values::style_tokens(s).all_caps);
@@ -1018,7 +1167,6 @@ fn carried_runs(c: &Carry<'_>, e: &Element) -> Vec<RunOut> {
         return plain_runs(e);
     }
     let new: Vec<(char, Style)> = e
-        .text
         .runs()
         .iter()
         .flat_map(|r| match r {
