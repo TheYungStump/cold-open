@@ -304,7 +304,12 @@ proptest! {
         let want_b = said(&mut want_b);
         let mut d = open(&a);
         let want_a = said(&mut d);
-        ok(&mut d, "changes.import", json!({"path": b}));
+        let r = ok(&mut d, "changes.import", json!({"path": b}));
+        if r["change"].is_null() {
+            // Nothing to bring in: the drafts say the same.
+            prop_assert_eq!(&want_a, &want_b);
+            return Ok(());
+        }
         ok(&mut d, "changes.accept", json!({"all": true}));
         prop_assert_eq!(said(&mut d), want_b);
         ok(&mut d, "undo", json!({}));

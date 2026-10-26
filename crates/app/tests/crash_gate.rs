@@ -9,7 +9,9 @@
 //! converts the script to .fdx (docs/specs/editor.md §14). Since phase 5a
 //! they land during tracked typing, accepting and rejecting, undo and redo,
 //! and saves of a Cold Open project, and what comes back must have every
-//! tracked change, marks and all (docs/specs/changes.md, bundle.md).
+//! tracked change, marks and all (docs/specs/changes.md, bundle.md). Since
+//! phase 5b they land while revision sets mark the typing, around starting
+//! and ending sets, and during saves of a marked project.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -642,5 +644,87 @@ fn killing_the_app_during_tracked_edits_to_a_fountain_script_loses_no_change() {
         &|dir, _| vec![dir.join("lighthouse.fountain")],
         &kill_points(lines.len(), 8),
         &marked_of,
+    );
+}
+
+/// The blocks with their marks, and the revision table: what must come back
+/// when the script holds revision sets (docs/specs/revisions.md). When a set
+/// started and ended is the clock's, which differs between runs; that it
+/// ended is kept.
+fn revised_of(app: &App) -> String {
+    let doc = &app.d.session().unwrap().doc;
+    let mut table = serde_json::to_value(&doc.revisions).unwrap();
+    for set in table["sets"].as_array_mut().into_iter().flatten() {
+        set["started"] = serde_json::json!(true);
+        if let Some(ended) = set.get_mut("ended") {
+            *ended = serde_json::json!(true);
+        }
+    }
+    serde_json::to_string_pretty(&(&doc.blocks, table)).unwrap()
+}
+
+/// The lighthouse scene as a Cold Open project, no revision set yet.
+fn plain_bundle_start(dir: &Path) -> PathBuf {
+    let fountain = dir.join("start.fountain");
+    std::fs::write(&fountain, START).unwrap();
+    let bundle = dir.join("lighthouse.coldopen");
+    let mut d = coldopen_core::Dispatcher::new(coldopen_core::Options::default());
+    for (c, p) in [
+        ("doc.open", serde_json::json!({ "path": fountain })),
+        ("doc.save", serde_json::json!({ "path": bundle })),
+        ("doc.close", serde_json::json!({})),
+    ] {
+        d.execute(coldopen_core::Command::from_parts(c, p).unwrap())
+            .unwrap();
+    }
+    std::fs::remove_file(&fountain).unwrap();
+    bundle
+}
+
+/// Phase 5b: a revision set started from the app's form, the keys typed and
+/// marked with saves every seven, the set ended, a second set started, an
+/// undo and a redo across a save. Kills land during marking, around
+/// starting and ending sets, and during saves of a marked project; what
+/// comes back must hold every mark and set the app had acknowledged.
+#[test]
+fn killing_the_app_around_revision_marking_and_saves_loses_no_mark() {
+    let mut lines: Vec<String> = vec!["action app.revision_start".into(), "key enter".into()];
+    let typed = keys_with_saves(7);
+    let half = typed.len() / 2;
+    lines.extend(typed[..half].iter().cloned());
+    lines.extend(
+        [
+            "action app.revision_end",
+            "mod s",
+            "action app.revision_start",
+            "key enter",
+        ]
+        .map(String::from),
+    );
+    lines.extend(typed[half..].iter().cloned());
+    lines.extend(["mod s", "mod z", "modshift z", "mod s"].map(String::from));
+    // A check on the check: the states compared hold marks of two sets.
+    let home = tempfile::tempdir().unwrap();
+    let mut h = headless(home.path(), Some(plain_bundle_start(home.path())));
+    for line in &lines {
+        replay_line(&mut h, line);
+    }
+    let end = revised_of(&h.app);
+    assert!(end.contains("\"r_1\"") && end.contains("\"r_2\""), "{end}");
+    h.app.d.discard();
+
+    let mut points = kill_points(lines.len(), 10);
+    for (k, l) in lines.iter().enumerate() {
+        if l.starts_with("action") || l == "modshift z" {
+            points.extend([k, k + 1, k + 2]);
+        }
+    }
+    points.retain(|&p| p >= 1 && p <= lines.len());
+    kill_and_compare(
+        &|_| lines.clone(),
+        &plain_bundle_start,
+        &|dir, _| vec![dir.join("lighthouse.coldopen")],
+        &points,
+        &revised_of,
     );
 }

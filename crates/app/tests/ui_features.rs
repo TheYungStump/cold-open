@@ -252,6 +252,9 @@ fn palette_rows_with_long_paths_stay_one_line() {
         .join("Writing")
         .join("Feature drafts for the spring fellowship")
         .join("Second act rewrites after the table read");
+    // There, so the palette offers to open it (a missing one says so).
+    std::fs::create_dir_all(&deep).unwrap();
+    std::fs::write(deep.join("low-tide.fdx"), "").unwrap();
     h.app.settings.recent = vec![deep.join("low-tide.fdx")];
     h.run(vec![
         Message::Action("app.palette".into()),

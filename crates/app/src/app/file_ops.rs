@@ -83,6 +83,9 @@ pub enum Prompt {
     /// The name a draft's changes carry when it is brought in (editor.md
     /// §21).
     ImportName { path: PathBuf, name: String },
+    /// A recent file can't be found: remove it from the list? (editor.md
+    /// §11)
+    MissingRecent(PathBuf),
 }
 
 /// The writer's answer to a [`Prompt`].
@@ -271,6 +274,11 @@ impl App {
     /// Leaves the script for `after`, asking first when it has unsaved
     /// changes.
     pub(super) fn leave(&mut self, after: After) -> Task<Message> {
+        if let After::OpenPath(p) = &after
+            && let Some(t) = self.missing_recent(&p.clone())
+        {
+            return t;
+        }
         if self.dirty() {
             self.prompt = Some(Prompt::Unsaved(after));
             return Task::none();
@@ -303,7 +311,8 @@ impl App {
                 self.close_links();
                 self.d.shutdown();
                 self.editor = self.fresh_editor(&Document::default());
-                self.after_change(false)
+                // The start screen lists the recent files (editor.md §11).
+                Task::batch([self.after_change(false), self.check_recent()])
             }
             After::Quit => {
                 self.close_links();

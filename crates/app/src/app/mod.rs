@@ -22,6 +22,7 @@ mod changes;
 mod compare;
 mod copies;
 mod file_ops;
+mod recent;
 mod reports;
 mod revisions;
 mod router;
@@ -34,6 +35,7 @@ pub use changes::{ALL_AUTHORS, ChangeRow, ChangesPanel, NameThen};
 pub use compare::{CompareInput, CompareRow, CompareView};
 pub use copies::{CopyRow, RecoveredScreen, RepairReport};
 pub use file_ops::{After, ExportForm, Prompt, Recovery, Reply};
+pub use recent::gone as recent_gone;
 pub use router::{Origin, Outcome, Request};
 pub use view::eighths;
 
@@ -139,6 +141,14 @@ pub enum Message {
     Title(title::TitleInput),
     /// The compare view and the import question (editor.md §21).
     Compare(compare::CompareInput),
+    /// The worker's answer about the recent files: those it checked, and
+    /// those that are gone (editor.md §11).
+    RecentChecked {
+        checked: Vec<PathBuf>,
+        missing: Vec<PathBuf>,
+    },
+    /// "Remove from recent" for this file.
+    ForgetRecent(PathBuf),
     /// The writer's name, as typed in its question (editor.md §17.4).
     NameInput(String),
     NameSubmit,
@@ -379,6 +389,8 @@ pub struct App {
     pub title_sheet: Option<title::TitleSheet>,
     /// The compare view (editor.md §21).
     pub compare: Option<compare::CompareView>,
+    /// Recent files found to be gone, as last checked (editor.md §11).
+    pub missing: std::collections::BTreeSet<PathBuf>,
     pub export: Option<ExportForm>,
     pub sheet: Option<Sheet>,
     /// Scripts with unsaved work from an earlier session (editor.md §11).
@@ -501,6 +513,7 @@ impl App {
             reports: None,
             title_sheet: None,
             compare: None,
+            missing: std::collections::BTreeSet::new(),
             export: None,
             sheet: None,
             leftover: Vec::new(),
@@ -1223,6 +1236,17 @@ impl App {
             Message::ReportRow(i) => self.reports_go(i),
             Message::Title(input) => self.title_input(input),
             Message::Compare(input) => self.compare_input(input),
+            Message::RecentChecked { checked, missing } => {
+                self.recent_checked(checked, missing);
+                Task::none()
+            }
+            Message::ForgetRecent(p) => {
+                if matches!(&self.prompt, Some(Prompt::MissingRecent(m)) if *m == p) {
+                    self.prompt = None;
+                }
+                self.forget_recent(&p);
+                Task::none()
+            }
             Message::ExportColored => {
                 if let Some(f) = &mut self.export {
                     f.colored = !f.colored;
@@ -1302,7 +1326,10 @@ impl App {
                 if self.prompt.is_none() && self.title_sheet.is_some() {
                     return self.title_close();
                 }
-                if matches!(self.prompt, Some(Prompt::ImportName { .. })) {
+                if matches!(
+                    self.prompt,
+                    Some(Prompt::ImportName { .. } | Prompt::MissingRecent(_))
+                ) {
                     self.prompt = None;
                     return Task::none();
                 }
@@ -1614,6 +1641,17 @@ impl App {
                 Task::none()
             };
         }
+        if let Some(Prompt::MissingRecent(p)) = &self.prompt {
+            // R or Enter removes it; K or Esc keeps it in the list.
+            let p = p.clone();
+            if enter || ch == "r" {
+                self.prompt = None;
+                self.forget_recent(&p);
+            } else if esc || ch == "k" {
+                self.prompt = None;
+            }
+            return Task::none();
+        }
         if matches!(self.prompt, Some(Prompt::DeleteCopy(_))) {
             return if enter || ch == "d" {
                 self.reply(Reply::Save)
@@ -1919,7 +1957,7 @@ impl App {
             "app.palette" => {
                 self.palette = Some(PaletteState::default());
                 self.focus = Focus::Palette;
-                return iced::widget::operation::focus(PALETTE);
+                return Task::batch([iced::widget::operation::focus(PALETTE), self.check_recent()]);
             }
             // The hint bar's revision badge: the palette, showing the
             // revision commands (editor.md §18).
@@ -1971,6 +2009,12 @@ impl App {
                 let i: usize = n["recent:".len()..].parse().unwrap_or(usize::MAX);
                 if let Some(p) = self.settings.recent.get(i).cloned() {
                     return self.leave(After::OpenPath(p));
+                }
+            }
+            n if n.starts_with("forget:") => {
+                let i: usize = n["forget:".len()..].parse().unwrap_or(usize::MAX);
+                if let Some(p) = self.settings.recent.get(i).cloned() {
+                    self.forget_recent(&p);
                 }
             }
             "undo" => self.editor.undo(&mut self.d, false),
@@ -2252,7 +2296,12 @@ impl App {
             });
         }
         for (i, p) in self.settings.recent.iter().enumerate() {
-            all.push(file(format!("recent:{i}"), "Open recent", p));
+            if self.missing.contains(p) {
+                all.push(file(format!("recent:{i}"), "Missing", p));
+                all.push(file(format!("forget:{i}"), "Remove from recent", p));
+            } else {
+                all.push(file(format!("recent:{i}"), "Open recent", p));
+            }
         }
         let mut scored: Vec<(i32, usize, PaletteItem)> = all
             .into_iter()

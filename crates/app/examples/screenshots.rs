@@ -326,6 +326,13 @@ fn main() {
         app.editor.insert_text(&mut app.d, "x");
         let _ = app.update(Message::Action("app.close".into()));
         let _ = app.update(Message::Reply(Reply::DontSave));
+        // A recent file on a drive that isn't connected (editor.md §11).
+        let unplugged = std::path::PathBuf::from("Z:/Writing/low-tide (old draft).fountain");
+        app.settings.recent.push(unplugged.clone());
+        let _ = app.update(Message::RecentChecked {
+            checked: vec![unplugged.clone()],
+            missing: vec![unplugged],
+        });
         shot(&app, &out, &format!("{name}-set-aside"));
         let _ = app.update(Message::Action("app.recovered".into()));
         shot(&app, &out, &format!("{name}-recovered"));

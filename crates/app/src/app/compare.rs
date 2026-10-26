@@ -295,10 +295,13 @@ impl App {
         }
         let side = container(
             column![
-                text(format!("Changed scenes · {}", c.rows.len()))
-                    .font(fonts::UI)
-                    .size(12)
-                    .color(pal.text_quiet),
+                container(
+                    text(format!("Changed scenes · {}", c.rows.len()))
+                        .font(fonts::UI)
+                        .size(12)
+                        .color(pal.text_quiet),
+                )
+                .padding([0, 12]),
                 scrollable(list).height(Fill),
             ]
             .spacing(8)
@@ -367,7 +370,7 @@ impl App {
         let bottom = container(hint(
             pal,
             format!(
-                "Up and Down: choose a scene  ·  Enter: go to it  ·  {m}+Shift+E: save as PDF  ·  Esc: close. Inserted text is underlined in color; deleted text is struck through."
+                "Up and Down: choose a scene  ·  Enter: go to it  ·  {m}+Shift+E: save as PDF  ·  Esc: close. New text is in color, deleted text struck through; restyles show in the list only."
             ),
         ))
         .padding([6, 14])

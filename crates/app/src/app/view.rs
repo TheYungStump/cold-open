@@ -159,11 +159,38 @@ impl App {
                 .color(pal.text_quiet),
             );
             for p in &self.settings.recent {
+                if !self.missing.contains(p) {
+                    col = col.push(
+                        button(text(file_name(p)).font(fonts::UI).size(13))
+                            .on_press(Message::OpenPath(p.clone()))
+                            .style(button::text)
+                            .padding([2, 8]),
+                    );
+                    continue;
+                }
+                // Gone, but kept: it may come back (editor.md §11).
                 col = col.push(
-                    button(text(file_name(p)).font(fonts::UI).size(13))
+                    row![
+                        button(
+                            text(file_name(p))
+                                .font(fonts::UI)
+                                .size(13)
+                                .color(pal.text_quiet),
+                        )
                         .on_press(Message::OpenPath(p.clone()))
                         .style(button::text)
                         .padding([2, 8]),
+                        text("Missing")
+                            .font(fonts::UI)
+                            .size(11)
+                            .color(pal.text_quiet),
+                        button(text("Remove from recent").font(fonts::UI).size(11))
+                            .on_press(Message::ForgetRecent(p.clone()))
+                            .style(button::secondary)
+                            .padding([1, 8]),
+                    ]
+                    .spacing(8)
+                    .align_y(Center),
                 );
             }
         }
@@ -402,6 +429,24 @@ impl App {
                 .unwrap_or_else(|| column![].into()),
             Prompt::SettleAll { accept, count } => self.settle_all_view(pal, *accept, *count),
             Prompt::ImportName { name, .. } => self.import_view(pal, name),
+            Prompt::MissingRecent(p) => column![
+                title(pal, format!("Can't find {}", file_name(p))),
+                body(
+                    pal,
+                    format!(
+                        "It was in {}. It may be on a drive that isn't connected, or in a folder that hasn't synced yet. Remove it from recent files?",
+                        p.parent().map_or_else(String::new, |d| d.display().to_string())
+                    ),
+                ),
+                row![
+                    dialog_button("Remove from recent", Message::ForgetRecent(p.clone()), true),
+                    dialog_button("Keep it", Message::Escaped, false),
+                ]
+                .spacing(8),
+                hint(pal, "Enter or R: remove  ·  K or Esc: keep it"),
+            ]
+            .spacing(12)
+            .into(),
             Prompt::Foreign { path, host, at } => column![
                 title(pal, "Unsaved changes from somewhere else"),
                 body(
