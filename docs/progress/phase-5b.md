@@ -114,3 +114,54 @@ The project's owner approved the plan without choosing on these, so they stand a
 48. **A phase 5a journal fixture** (step 12, `tests/fixtures/journal/phase5a.journal`). It was written by `coldopen serve --stdio` built from 67e43d9: tracked edits, an accept, a reject, two changes left pending, then untracked edits. It recovers in full with today's build. After the upgrade it goes on with revision marks (semantics 3), and survives a second crash with both. The header's host and path were scrubbed, as for phase 4.
 49. **The crash gate kills around revision sets** (step 12): a set started from the app's form, typing marked with saves every seven keys, the set ended and a second started, and an undo and a redo across a save. 21 kills, at random and around each start, end and redo, all recovered the marks and sets the app had acknowledged. The sets' start and end times are the clock's, so the gate compares whether a set ended, not when.
 50. **A property test assumed two random drafts always differ** (CI on d543160, minimum Rust). When they were equal, the import brought nothing in and the test's undo failed. The test now expects nothing to bring in for equal drafts; the code was right.
+
+## Manual test (Windows CI build)
+
+About 30 minutes. Every step works on **copies** of corpus files in a scratch folder, never on the files in `corpus/` (CLAUDE.md, Test data), and the build is unzipped outside the repo. Keys are the Windows ones.
+
+**Set up**
+
+1. On [TheYungStump/cold-open#17](https://github.com/TheYungStump/cold-open/pull/17), open the latest CI run, then Summary, then Artifacts. Download `cold-open-windows-x86_64` and unzip it to `C:\ColdOpenTest\app`. Windows may warn that the build is unsigned; TESTING.txt in the archive explains.
+2. Make `C:\ColdOpenTest\scripts`. Copy (don't move) these three files into it from the repo's `corpus\fountain-io\` folder: `Big-Fish.fountain`, `Big-Fish.fdx` and `Brick-&-Steel.fdx`.
+
+**Revision sets**
+
+3. Start `Cold Open.exe` and open the scratch copy of `Big-Fish.fountain`. Press Ctrl+K and run "Start revision…". The form offers Blue, the label "Blue Rev." and today's date. Press Enter.
+4. The hint bar shows "Blue Rev." with the date. Change a word in a speech: the new word shows in the set's ink, and an asterisk appears in the right margin beside that line. Delete a word elsewhere: that line gets an asterisk too.
+5. Press Ctrl+Shift+E and export a PDF to the scratch folder. Open it: each revised page has "Blue Rev." and the date at the top, and asterisks beside the changed lines, on white paper. Export again with Ctrl+4 ("Colored pages") under another name: the revised pages are now blue.
+6. Run "End revision", then "Start revision…" again: it offers Pink. Press Enter and change another line: it shows in the second set's ink.
+7. Press Ctrl+S. A question says Fountain can't hold revision marks, with "Save as Cold Open project…" as the default. Press Enter and save `Big-Fish.coldopen` in the scratch folder.
+8. Make one more change and don't save. End Cold Open from Task Manager (End task). Start it, open `Big-Fish.coldopen`, and choose Keep: the change is back, with every mark and both sets.
+9. Run "Clear revision marks…", choose one set with Up and Down, and press Enter: its marks go. Ctrl+Z brings them back.
+
+**The title page**
+
+10. Still in the project, press Ctrl+Shift+T. A sheet opens on the right, and the page area shows the title page beside it. Type a date into Draft date and press Tab: the page shows it at once. Press Esc, then Ctrl+Z: the date goes, as one step.
+11. Open the scratch copy of `Brick-&-Steel.fdx` and press Ctrl+Shift+T: this time each title line has a row. Tab to a line's text and change it, then press Ctrl+R: it moves to the right. Press Enter for a new line, type something, then Ctrl+Shift+K removes it again. Press Esc and Ctrl+S, close the script, and open it again: the changed line is still there.
+
+**Reports**
+
+12. Open `Big-Fish.coldopen` and press Ctrl+Shift+I. The Scenes tab lists every scene. Ctrl+Tab shows the characters, most words first, and the locations. Choose a row with Down and press Enter: the view closes and the caret is in that scene. Open it again, press Ctrl+C, and paste into Notepad or Excel: the table comes out as CSV.
+
+**Comparing drafts**
+
+13. Open the scratch copy of `Big-Fish.fountain` and save a copy as `Big-Fish-v2.fountain` (Ctrl+Shift+S). In the copy, click a scene in the navigator and press Alt+Down twice to move it, then change a line of dialogue and delete an action line. Save it.
+14. Open `Big-Fish.fountain` again, press Ctrl+K and run "Compare with…", and choose `Big-Fish-v2.fountain`. A view lists the changed scenes, the move among them. Up and Down choose a row, and Enter scrolls the pages to it: the changed line is marked, and the deleted line struck through. Ctrl+Shift+E saves the marked draft as a PDF. Esc closes the view; the script itself is unchanged.
+15. Run "Review a draft as changes…" and choose `Big-Fish-v2.fountain`. Type a name such as "Sam" and press Enter. The changes panel opens with Sam's changes; F7 steps through them. Run "Accept all changes": the script now reads as v2. Ctrl+Z takes it all back.
+
+**Recent files that are gone**
+
+16. Close the script (Ctrl+W). In Explorer, rename `Big-Fish-v2.fountain` to anything else. The start screen shows it dimmed, with "Missing" and "Remove from recent". Click its name: a question says it can't be found; press K to keep it. Rename it back and press Ctrl+K: the palette lists it as "Open recent" again.
+17. Rename it once more, press Ctrl+K, type "remove", and choose "Remove from recent: Big-Fish-v2.fountain". It is gone from the list, and stays gone after Cold Open restarts.
+
+**The command line**
+
+18. In PowerShell, in `C:\ColdOpenTest`, run each of these. The first prints a summary of the two drafts, and the second the characters as CSV.
+    - `.\app\coldopen.exe diff scripts\Big-Fish.fountain scripts\Big-Fish-v2.fountain`
+    - `.\app\coldopen.exe report characters scripts\Big-Fish.fountain --format csv`
+
+**Tell me**
+
+- Anything that looked wrong or confusing, with a screenshot if you can.
+- Whether the revision inks, the asterisks and the compare view's marks are easy to read in your theme (Ctrl+K, "Theme: …" switches themes).
+- When you are done, you can delete `C:\ColdOpenTest`. It holds only copies.
