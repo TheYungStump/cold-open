@@ -899,6 +899,41 @@ fn a_split_that_cannot_join_back_stays_pending() {
     assert!(changes(&mut d).is_empty());
 }
 
+/// P1 (found by the property test below, 2026-10-28): one agent deletes a
+/// word, another deletes the whole block, and the first withdraws its
+/// deletion. The word is now nobody's pending deletion, inside a deleted
+/// block. Accepting the block's deletion may not take it: the block stays,
+/// held, and the accepted form keeps it too.
+#[test]
+fn accepting_a_block_deletion_keeps_words_no_deletion_marks() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = open_text(dir.path(), "INT. SHED - NIGHT\n\nA lamp flickers.\n");
+    let b = Author::agent("agent-b", None);
+    let word = ok(
+        &mut d,
+        &agent(),
+        "text.delete",
+        json!({"id": "b_2", "from": 0, "to": 1}),
+    )["change"]
+        .clone();
+    let block = ok(&mut d, &b, "block.delete", json!({"id": "b_2"}))["change"].clone();
+    ok(&mut d, &agent(), "changes.reject", json!({"id": word}));
+    let form = serde_json::to_value(&d.session().unwrap().doc.accepted().blocks).unwrap();
+    assert_eq!(form[1]["text"], "A", "{form}");
+    let e = err(&mut d, &writer(), "changes.accept", json!({"id": block}));
+    assert_eq!(e.code, "change_conflict", "{e}");
+    let r = ok(&mut d, &writer(), "changes.accept", json!({"all": true}));
+    assert_eq!(r["skipped"], json!([block]), "{r}");
+    assert_eq!(block_text(&mut d, "b_2"), "A");
+    // Rejecting the deletion settles it.
+    ok(&mut d, &writer(), "changes.reject", json!({"id": block}));
+    assert_eq!(texts(&mut d), ["INT. SHED - NIGHT", "A lamp flickers."]);
+}
+
+fn block_text(d: &mut Dispatcher, id: &str) -> String {
+    block(d, id)["text"].as_str().unwrap_or("").to_string()
+}
+
 // ---- Properties ----------------------------------------------------------
 
 /// One edit, by one of three authors, described by positions.
@@ -1148,6 +1183,16 @@ proptest! {
     #[test]
     fn fuzz_changes_check(data in proptest::collection::vec(any::<u8>(), 0..160)) {
         prop_assert_eq!(coldopen_core::fuzzing::changes(&data), Ok(()));
+    }
+
+    /// Settling never removes text that is not part of what it settles
+    /// (docs/specs/changes.md §6, the reviews of phases 4–5b): random
+    /// tracked and untracked edits by three authors, then one more settle.
+    #[test]
+    fn settling_never_removes_text_outside_the_change(
+        data in proptest::collection::vec(any::<u8>(), 0..200)
+    ) {
+        prop_assert_eq!(coldopen_core::fuzzing::settle_keeps(&data), Ok(()));
     }
 
     /// The `bundle_read` fuzz target's check, on stable: arbitrary bytes,

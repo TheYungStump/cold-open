@@ -489,8 +489,8 @@ fn settle_holding(
         Settle::Accept => {
             // 2. Deleted blocks go, then joined blocks join the block kept
             // before them, as the accepted form joins them.
-            remove_where(&mut work, &mut ops, &|b| {
-                b.marks.deleted.is_some_and(|c| settles(c, b.id))
+            remove_deleted(&mut work, &mut ops, &mut more, &|b| {
+                b.marks.deleted.filter(|&c| settles(c, b.id))
             });
             join_where(&mut work, &mut ops, &mut more, &|b| {
                 b.marks.joined.filter(|&c| settles(c, b.id))
@@ -566,13 +566,34 @@ fn apply(work: &mut Document, op: Op, ops: &mut Vec<Op>) {
     let _ = op.apply(work);
 }
 
-/// Removes every block `which` picks, from the last to the first.
-fn remove_where(work: &mut Document, ops: &mut Vec<Op>, which: &dyn Fn(&Block) -> bool) {
+/// Removes every block whose deletion `which` names, from the last to the
+/// first. The deletions are already out of its text, so a block that still
+/// holds text holds text that is not part of the change, as when an earlier
+/// deletion inside it was rejected: that block stays, and is held.
+fn remove_deleted(
+    work: &mut Document,
+    ops: &mut Vec<Op>,
+    held: &mut BTreeSet<(ChangeId, BlockId)>,
+    which: &dyn Fn(&Block) -> Option<ChangeId>,
+) {
     for index in (0..work.blocks.len()).rev() {
-        if which(&work.blocks[index]) {
+        let b = &work.blocks[index];
+        let Some(c) = which(b) else {
+            continue;
+        };
+        if printed(&b.element.text) {
+            held.insert((c, b.id));
+        } else {
             apply(work, Op::Remove { index }, ops);
         }
     }
+}
+
+/// Whether text holds anything that prints: a text run, marked or not.
+pub fn printed(text: &RichText) -> bool {
+    text.runs()
+        .iter()
+        .any(|r| matches!(r, Run::Text { text, .. } if !text.is_empty()))
 }
 
 /// Removes the blocks change `c` inserted, from the last to the first. Its
@@ -593,13 +614,7 @@ fn remove_inserted(
         if b.marks.inserted != Some(c) || !here(b.id) {
             continue;
         }
-        let printed = b
-            .element
-            .text
-            .runs()
-            .iter()
-            .any(|r| matches!(r, Run::Text { text, .. } if !text.is_empty()));
-        if printed {
+        if printed(&b.element.text) {
             held.insert((c, b.id));
         } else {
             apply(work, Op::Remove { index }, ops);

@@ -377,10 +377,13 @@ impl Document {
             ..self.clone()
         };
         for b in &self.blocks {
-            if b.marks.deleted.is_some() {
+            let text = b.element.text.settle(Settle::Accept, &|_| true);
+            // A deleted block goes, unless text not part of any deletion is
+            // left in it, which accepting never removes
+            // (docs/specs/changes.md §6).
+            if b.marks.deleted.is_some() && !crate::track::printed(&text) {
                 continue;
             }
-            let text = b.element.text.settle(Settle::Accept, &|_| true);
             if b.marks.joined.is_some()
                 && let Some(prev) = out.blocks.last_mut()
                 && let Some(e) = joined(&prev.element, &text)
@@ -549,7 +552,13 @@ mod tests {
                         Run::marked("falls", Style::PLAIN, del),
                     ]),
                 ),
-                Element::new(ElementKind::Action, "Gone."),
+                // A tracked delete marks a block's text as well as the
+                // block; a deleted block holding unmarked text stays in the
+                // accepted form (docs/specs/changes.md §6).
+                Element::new(
+                    ElementKind::Action,
+                    RichText::new(vec![Run::marked("Gone.", Style::PLAIN, del)]),
+                ),
                 Element::new(ElementKind::Action, " again."),
             ],
         });
