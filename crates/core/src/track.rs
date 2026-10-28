@@ -492,9 +492,9 @@ fn settle_holding(
             remove_where(&mut work, &mut ops, &|b| {
                 b.marks.deleted.is_some_and(|c| settles(c, b.id))
             });
-            skipped.extend(join_where(&mut work, &mut ops, &|b| {
-                b.marks.joined.is_some_and(|c| settles(c, b.id))
-            }));
+            join_where(&mut work, &mut ops, &mut more, &|b| {
+                b.marks.joined.filter(|&c| settles(c, b.id))
+            });
         }
         Settle::Reject => {
             // 2. Structure is put back change by change, newest first, as
@@ -523,9 +523,9 @@ fn settle_holding(
                     skipped.insert(c);
                 }
                 remove_inserted(&mut work, &mut ops, &mut more, c, &here);
-                skipped.extend(join_where(&mut work, &mut ops, &|b| {
-                    b.marks.split == Some(c) && here(b.id)
-                }));
+                join_where(&mut work, &mut ops, &mut more, &|b| {
+                    b.marks.split.filter(|&x| x == c && here(b.id))
+                });
                 restore_retypes(&mut work, &mut ops, &mut more, c, &here);
             }
         }
@@ -607,24 +607,25 @@ fn remove_inserted(
     }
 }
 
-/// Joins every block `which` picks to the block before it, from the first
-/// to the last, so a run of joined blocks gathers into the block before it
-/// as the accepted form gathers them. A block with nothing before it, whose
-/// join would break a model rule (the block before it has since become a
-/// note, say), or whose block before it waits to be deleted, stays as it
-/// is: its join mark goes, and its change is returned as skipped.
+/// Joins every block `which` picks, for the change it names, to the block
+/// before it, from the first to the last, so a run of joined blocks gathers
+/// into the block before it as the accepted form gathers them. A block with
+/// nothing before it, whose join would break a model rule (the block before
+/// it has since become a note, say), or whose block before it waits to be
+/// deleted, stays as it is, and is held with its mark pending
+/// (docs/specs/changes.md §6).
 fn join_where(
     work: &mut Document,
     ops: &mut Vec<Op>,
-    which: &dyn Fn(&Block) -> bool,
-) -> Vec<ChangeId> {
-    let mut skipped = Vec::new();
+    held: &mut BTreeSet<(ChangeId, BlockId)>,
+    which: &dyn Fn(&Block) -> Option<ChangeId>,
+) {
     let mut index = 0;
     while index < work.blocks.len() {
-        if !which(&work.blocks[index]) {
+        let Some(c) = which(&work.blocks[index]) else {
             index += 1;
             continue;
-        }
+        };
         // A block waiting to be deleted would take the joined text with it
         // when its deletion is accepted (docs/specs/changes.md §6).
         let merged = index
@@ -644,14 +645,10 @@ fn join_where(
             );
             apply(work, Op::Remove { index }, ops);
         } else {
-            let mut marks = work.blocks[index].marks.clone();
-            skipped.extend(marks.joined.take());
-            skipped.extend(marks.split.take());
-            apply(work, Op::Mark { index, marks }, ops);
+            held.insert((c, work.blocks[index].id));
             index += 1;
         }
     }
-    skipped
 }
 
 /// Moves the scenes change `c` moved back to where they stood. Returns

@@ -860,6 +860,45 @@ fn a_join_onto_a_block_waiting_to_be_deleted_waits_for_it() {
     );
 }
 
+/// AR4: a split whose join back has become impossible stays pending when
+/// settled by `all` or `scene`, listed only in `skipped`, so the writer
+/// can still accept it.
+#[test]
+fn a_split_that_cannot_join_back_stays_pending() {
+    let mut d = Dispatcher::new(Options {
+        journal: false,
+        fsync: false,
+    });
+    ok(&mut d, &writer(), "doc.new", json!({}));
+    ok(
+        &mut d,
+        &writer(),
+        "block.insert",
+        json!({"type": "action", "text": "First sentence. Second sentence."}),
+    );
+    track_writer(&mut d);
+    ok(
+        &mut d,
+        &writer(),
+        "block.split",
+        json!({"id": "b_1", "at": 16}),
+    );
+    ok(&mut d, &writer(), "changes.track", json!({"writer": false}));
+    ok(
+        &mut d,
+        &writer(),
+        "block.set_type",
+        json!({"id": "b_1", "type": "page_break"}),
+    );
+    let before = blocks(&mut d);
+    let r = ok(&mut d, &writer(), "changes.reject", json!({"all": true}));
+    assert_eq!(r, json!({"changes": [], "count": 0, "skipped": ["c_1"]}));
+    assert_eq!(blocks(&mut d), before);
+    assert_eq!(changes(&mut d).len(), 1);
+    ok(&mut d, &writer(), "changes.accept", json!({"id": "c_1"}));
+    assert!(changes(&mut d).is_empty());
+}
+
 // ---- Properties ----------------------------------------------------------
 
 /// One edit, by one of three authors, described by positions.
@@ -1011,17 +1050,24 @@ proptest! {
 
         // Accepting every change leaves the current text, with no marks,
         // exactly as the accepted form has it: joined blocks are joined
-        // (where they still can be), and deleted blocks go.
+        // (where they still can be), and deleted blocks go. A join that no
+        // longer can be stays pending, listed in `skipped` (2026-10-28), and
+        // the accepted form keeps its blocks apart as it is.
         let n = changes(&mut d).len();
         let form = serde_json::to_value(&d.session().unwrap().doc.accepted().blocks).unwrap();
         let r = run(&mut d, &writer(), "changes.accept", json!({"all": true}));
+        let skipped = match &r {
+            Ok(r) => r["skipped"].as_array().unwrap().clone(),
+            Err(_) => Vec::new(),
+        };
         if n > 0 {
             prop_assert!(r.is_ok());
         }
-        let accepted = blocks(&mut d);
-        prop_assert_eq!(&Value::Array(accepted.clone()), &form);
-        prop_assert!(changes(&mut d).is_empty());
-        prop_assert!(!accepted.iter().any(|b| b.get("change").is_some()));
+        let left: Vec<Value> = changes(&mut d).iter().map(|c| c["id"].clone()).collect();
+        prop_assert!(left.iter().all(|c| skipped.contains(c)), "{:?} not in {:?}", left, skipped);
+        let accepted = serde_json::to_value(&d.session().unwrap().doc.accepted().blocks).unwrap();
+        prop_assert_eq!(&accepted, &form);
+        let accepted = accepted.as_array().unwrap().clone();
         let expected: Vec<Value> = current
             .iter()
             .zip(&marked)
@@ -1036,8 +1082,9 @@ proptest! {
         let current_text: String = current.iter().map(|b| b["text"].as_str().unwrap_or("").to_string()).collect();
         prop_assert_eq!(joined_text, current_text);
 
-        // Undo gives every mark back.
-        if n > 0 {
+        // Undo gives every mark back. An accept that settled nothing (every
+        // change held) made no step to undo.
+        if r.as_ref().is_ok_and(|r| r["count"] != 0) {
             ok(&mut d, &writer(), "undo", json!({}));
         }
         prop_assert_eq!(blocks(&mut d), marked.clone());

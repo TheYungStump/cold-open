@@ -186,7 +186,7 @@ Writers are never refused for whose marks an edit touches: the writer may edit a
   - **Rejecting** then puts structure back change by change, newest first, as undo would: for each change, its moves are undone, its inserted blocks removed, its splits joined back and its retypes restored. A later change that reshaped a scene is therefore undone before an earlier move of that scene.
   - The same document and request always give the same result.
 - **A move whose place is gone.** When the block a moved scene stood before no longer exists, or no longer starts a scene or section, the move cannot be undone. Rejecting it by `id` fails with `change_conflict` and changes nothing; by `scene` or `all`, the other changes settle and the move stays pending, listed in the result's `skipped`.
-- **A join that is no longer possible** (2026-10-18). A join is checked when it is proposed, as an untracked join is, but the block before can change afterwards: it may become a note, which cannot hold styled text. Accepting such a join, or rejecting a split whose join back is no longer possible, keeps both blocks as they are. By `id` it fails with `change_conflict`; by `scene` or `all` the mark comes off and the change is listed in `skipped`. The accepted form (§9) keeps the blocks apart the same way. Found by the `changes` fuzz check.
+- **A join that is no longer possible** (2026-10-18). A join is checked when it is proposed, as an untracked join is, but the block before can change afterwards: it may become a note, which cannot hold styled text. Accepting such a join, or rejecting a split whose join back is no longer possible, keeps both blocks as they are. By `id` it fails with `change_conflict`; by `scene` or `all` the mark stays pending and the change is listed in `skipped`, so it can still be settled the other way. The accepted form (§9) keeps the blocks apart the same way. Found by the `changes` fuzz check. (2026-10-28, journal semantics 4: before, the mark came off, and a change whose only mark it was was listed in both `changes` and `skipped`, review finding AR4. `changes` lists only changes of which something was settled.)
 - **Undo.** Settling is an edit: one undo step, journaled, and undo gives every mark back.
 
 **Who may settle what** (decided with the project's owner, 2026-10-18):
@@ -254,7 +254,7 @@ A document with pending changes has two print forms:
 ## 11. Testing
 
 - **Property tests** (`crates/core/tests/changes.rs`). Starting from a document with no marks, random tracked edits by random authors, then:
-  - accepting all leaves each block's text equal to its current text before, with no marks;
+  - accepting all leaves each block's text equal to its current text before, with no marks but those of the changes it lists as `skipped` (2026-10-28);
   - rejecting all gives back the document before the tracked edits, apart from ids handed out;
   - undo gives every mark back.
 - **Fuzzing.** The `changes` fuzz target runs random edits, settles and undos on random documents and checks the model rules and that settling never panics (`fuzz/fuzz_targets/changes.rs`).

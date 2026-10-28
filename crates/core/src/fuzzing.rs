@@ -290,8 +290,9 @@ fn run_edits(d: &mut Dispatcher, data: &[u8], revisions: bool) -> Result<(), Str
 /// edits by a writer and two agents, settling by id, scene and all, and
 /// undo and redo (docs/specs/changes.md). It must never panic; after every
 /// step the document keeps the model rules and every mark names a change
-/// the table has; accepting every change leaves no mark, and undoing that
-/// gives the marks back.
+/// the table has; accepting every change leaves no mark but those of the
+/// changes it lists as skipped (2026-10-28), the accepted form is what it
+/// was, and undoing that gives the marks back.
 pub fn changes(data: &[u8]) -> Result<(), String> {
     let mut d = script_session();
     run_edits(&mut d, data, false)?;
@@ -306,13 +307,21 @@ pub fn changes(data: &[u8]) -> Result<(), String> {
         if accepted["ok"] != true {
             return Err(format!("accepting every change failed: {accepted}"));
         }
-        if s.doc.has_changes() {
-            return Err("accepting every change left marks".into());
+        let skipped = &accepted["result"]["skipped"];
+        if s.doc
+            .pending()
+            .iter()
+            .any(|c| !skipped.as_array().is_some_and(|k| k.contains(&json!(c))))
+        {
+            return Err("accepting every change left marks it did not list as skipped".into());
         }
-        if s.doc.blocks != before.accepted().blocks {
+        if s.doc.accepted().blocks != before.accepted().blocks {
             return Err("accepting every change is not the accepted form".into());
         }
-        d.handle(&json!({ "command": "undo" }));
+        // An accept that settled nothing (every change held) made no step.
+        if accepted["result"]["count"] != 0 {
+            d.handle(&json!({ "command": "undo" }));
+        }
         if d.session().map(|s| &s.doc.blocks) != Some(&before.blocks) {
             return Err("undoing an accept does not give the marks back".into());
         }
