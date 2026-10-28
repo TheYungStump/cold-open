@@ -14,6 +14,13 @@ use crate::document::{Block, BlockId, Document};
 use crate::ops::Op;
 use crate::track::{Selection, Settled};
 
+/// Whether a tracked split makes the new block an insertion rather than a
+/// split: before semantics 4, any split of the author's own pending
+/// inserted block did, so rejecting that split deleted the text it took.
+pub fn split_is_insertion(empty: bool, own_block: bool) -> bool {
+    empty || own_block
+}
+
 /// Plans accepting or rejecting the selected changes. The document is not
 /// changed: the operations are worked out on a copy.
 pub fn settle(doc: &Document, how: Settle, sel: &Selection) -> Settled {

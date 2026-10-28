@@ -1181,7 +1181,7 @@ impl Session {
             Command::TextInsert(p) => self.plan_text_insert(p, ctx),
             Command::TextDelete(p) => self.plan_text_delete(p, ctx),
             Command::TextStyle(p) => self.plan_text_style(p),
-            Command::BlockSplit(p) => self.plan_split(p, ctx),
+            Command::BlockSplit(p) => self.plan_split(p, ctx, ex.rules()),
             Command::BlockJoin(p) => self.plan_join(p, ctx),
             Command::ChangesAccept(p) => self.plan_settle(Settle::Accept, p, ex),
             Command::ChangesReject(p) => self.plan_settle(Settle::Reject, p, ex),
@@ -1693,6 +1693,7 @@ impl Session {
         &mut self,
         p: &BlockSplit,
         ctx: Option<&mut TrackCtx>,
+        rules: u32,
     ) -> Result<(Transaction, Value), CommandError> {
         let index = self.index(p.id)?;
         self.refuse_pending(index)?;
@@ -1712,14 +1713,22 @@ impl Session {
         let id = self.doc.allocate_id().ok_or_else(ids_used_up)?;
         let mut block = Block::new(id, second);
         if let Some(ctx) = ctx {
-            let own_block = self.doc.blocks[index]
-                .marks
-                .inserted
-                .is_some_and(|c| self.own(ctx, c));
+            let inserted = self.doc.blocks[index].marks.inserted;
+            let own_block = inserted.is_some_and(|c| self.own(ctx, c));
             let c = ctx.change(&mut self.doc, None);
+            let empty = block.element.text.is_empty();
             // Nothing moves to the new block: it is a new block, as Enter at
-            // the end of a line makes (docs/specs/changes.md §5.2).
-            if block.element.text.is_empty() || own_block {
+            // the end of a line makes. Nor is a split of a block this very
+            // change inserted (in one batch): rejecting the change removes
+            // both. A later split of one's own new block that moves text is
+            // a split, so rejecting it joins the text back
+            // (docs/specs/changes.md §5.2, semantics 4).
+            let new_block = if rules >= 4 {
+                empty || (own_block && inserted == Some(c))
+            } else {
+                crate::legacy::split_is_insertion(empty, own_block)
+            };
+            if new_block {
                 block.marks.inserted = Some(c);
             } else {
                 block.marks.split = Some(c);

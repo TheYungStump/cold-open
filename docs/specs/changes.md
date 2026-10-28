@@ -135,7 +135,8 @@ Here *the author* is the edit's author (`docs/specs/commands.md`, "Authors and u
 - **`block.split`.**
   - At the end of the text, with nothing moving to the new block, the new block is an insertion, marked `inserted`. This is what Enter at the end of a line sends.
   - Anywhere else, the new block is marked `split`, and the text it takes keeps its marks.
-  - A split of the author's own pending inserted block makes another inserted block.
+  - A split of the author's own pending inserted block, made in the change that inserted it (as in one `batch`), makes another inserted block: rejecting the change removes both.
+  - **(2026-10-28, journal semantics 4)** A later split of the author's own pending inserted block that moves text is marked `split`, like any other, so rejecting it joins the text back. Before, it made another inserted block, and rejecting the split deleted the text it had taken, which was the first change's (review finding AR1).
 - **`block.join`.**
   - The author's own pending inserted block, whose only mark is that insertion, is joined outright, its text keeping its marks.
   - Any other block is marked `joined` and stays a block of its own. The result's `id` and `at` name the end of the block before it, where an editor puts the caret.

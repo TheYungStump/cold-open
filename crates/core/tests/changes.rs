@@ -745,6 +745,48 @@ fn rejecting_a_block_keeps_untracked_words_typed_into_it() {
     );
 }
 
+/// AR1 (part 1): a later split of one's own inserted block is a split, not
+/// a second insertion, so rejecting it joins the second half back instead
+/// of deleting it.
+#[test]
+fn rejecting_a_split_of_ones_own_block_joins_it_back() {
+    let mut d = Dispatcher::new(Options {
+        journal: false,
+        fsync: false,
+    });
+    ok(&mut d, &writer(), "doc.new", json!({}));
+    track_writer(&mut d);
+    ok(
+        &mut d,
+        &writer(),
+        "block.insert",
+        json!({"type": "action", "text": "First sentence. Second sentence."}),
+    );
+    let r = ok(
+        &mut d,
+        &writer(),
+        "block.split",
+        json!({"id": "b_1", "at": 16}),
+    );
+    assert_eq!(r["change"], "c_2", "{r}");
+    assert_eq!(block(&mut d, "b_2")["change"], json!({"split": "c_2"}));
+    ok(&mut d, &writer(), "changes.reject", json!({"id": "c_2"}));
+    assert_eq!(texts(&mut d), ["First sentence. Second sentence."]);
+    assert_eq!(block(&mut d, "b_1")["change"], json!({"inserted": "c_1"}));
+    // A split at the end moves nothing: that is a new block, as before.
+    let r = ok(
+        &mut d,
+        &writer(),
+        "block.split",
+        json!({"id": "b_1", "at": 32}),
+    );
+    let new = r["id"].as_str().unwrap().to_string();
+    assert_eq!(
+        block(&mut d, &new)["change"],
+        json!({"inserted": r["change"]})
+    );
+}
+
 // ---- Properties ----------------------------------------------------------
 
 /// One edit, by one of three authors, described by positions.
