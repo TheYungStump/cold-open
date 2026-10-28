@@ -1,6 +1,6 @@
 # Track changes
 
-- **Date:** 2026-10-18, updated 2026-10-26 (§5.1, §5.2: what fuzzing the import found)
+- **Date:** 2026-10-18, updated 2026-10-26 (§5.1, §5.2: what fuzzing the import found) and 2026-10-28 (§5.2, §6: the fixes of the reviews of phases 4–5b, journal semantics 4)
 - **Status:** implemented in phase 5a, in `crates/screenplay` (marks in text runs), `crates/core` (block marks, the change table, tracked edits, settling), `crates/layout` (marked pages) and `crates/app`. Phase 5b (2026-10-22) adds the revision set an entry was made under (§3) and `changes.import` (`docs/specs/diff.md` §6).
 - **Sources:**
   - `docs/spec.md`: "Revising", "Reliability features" item 6 (track changes), "Agents edit in the open", and the pain point it answers (added text colored, deleted text not tracked).
@@ -168,13 +168,15 @@ Writers are never refused for whose marks an edit touches: the writer may edit a
 | --- | --- | --- |
 | `ins` | The mark comes off. | The text is removed. |
 | `del` | The text is removed. | The mark comes off. |
-| `inserted` | The mark comes off. | The block is removed. |
+| `inserted` | The mark comes off. | The block is removed, unless it holds text that is not part of the change (below). |
 | `deleted` | The block is removed. | The mark comes off (its text's `del` marks of that change come off too). |
 | `retyped` | The mark comes off. | The block gets its type and kept attributes back. |
 | `split` | The mark comes off. | The block is joined back to the block before it. |
 | `joined` | The block is joined to the block before it. | The mark comes off. |
 | `moved` | The mark comes off. | The scene moves back before `before`, or to the end when it is null. |
 
+- **Never what isn't part of the change** (2026-10-28, from the reviews of phases 4–5b; journal semantics 4). Accepting or rejecting a change never removes text or blocks that are not part of it. A mark that cannot settle cleanly is left as it is. By `id`, the settle fails with `change_conflict` and changes nothing. By `scene` or `all`, the change's marks in that block stay pending, everything else settles, and the change is listed in the result's `skipped`, not in `changes`. Journals of semantics 1 to 3 replay with the rules before this (`docs/specs/journal.md`).
+  - **An inserted block holding other text.** Rejecting an insertion takes the change's text out of its block, then removes the block only when no printed text is left in it. Text typed into it untracked, or another change's insertion, keeps the block, with the change's marks in it pending: the writer can accept it, or delete that text and reject it again. Before, the block went with the other text in it, so an agent's reject of its own block could take the writer's words (review findings GR1, GP1, AR1). **Resolution:** notes and boneyard inside the block carry no marks (§10), so they cannot be told from the change's own; they go with the block.
 - **By scene** settles the marks inside that scene's blocks only. A change that also has marks elsewhere stays pending there.
 - **Order.** Text marks are settled first; their order does not matter.
   - **Accepting** then removes deleted blocks, from the last to the first, and only then joins joined blocks, from the first to the last, each to the block kept before it, as the accepted form does (§9).
@@ -189,7 +191,7 @@ Writers are never refused for whose marks an edit touches: the writer may edit a
 | Author | Accept | Reject |
 | --- | --- | --- |
 | Writer | any change | any change |
-| Agent | nothing (`writer_only`) | only its own changes. By `id`, another author's change fails with `not_your_change`. By `scene` or `all`, only its own are settled. A reject that would remove text or a block holding another author's work (another author's insertion inside the agent's inserted block, say) fails with `not_your_change`. |
+| Agent | nothing (`writer_only`) | only its own changes. By `id`, another author's change fails with `not_your_change`. By `scene` or `all`, only its own are settled. A reject that would remove or change another author's mark fails with `not_your_change`. A block holding text that is not part of the change is never removed at all, for anyone (above). |
 
 These rules are enforced in core by author, as the rules for `allow_lossy` and `overwrite` are, so they hold over the app's agent link and inside `coldopen mcp` alike.
 

@@ -657,6 +657,94 @@ fn a_journal_from_before_phase_5a_replays_untracked() {
     d.discard();
 }
 
+// ---- Settling never removes what isn't part of the change ---------------
+//
+// The reviews of phases 4–5b (2026-10-28): GR1, GP1, AR1, GR3, GR4, AR4.
+
+/// Opens `text` as a Fountain script of its own.
+fn open_text(dir: &Path, text: &str) -> Dispatcher {
+    let p = dir.join("t.fountain");
+    fs::write(&p, text).unwrap();
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &writer(), "doc.open", json!({"path": p}));
+    d
+}
+
+/// GR1, GP1: the writer types into an agent's proposed block, untracked as
+/// writer tracking is by default. The agent's reject of its own insertion
+/// may not take the writer's words with it: by id it fails with
+/// `change_conflict` and changes nothing; by `all` the block stays pending.
+#[test]
+fn an_agents_reject_keeps_the_writers_words_in_its_block() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = open_text(dir.path(), "INT. ROOM - DAY\n\nShe waits.\n");
+    let r = ok(
+        &mut d,
+        &agent(),
+        "block.insert",
+        json!({"after": "b_2", "type": "action", "text": "She waits."}),
+    );
+    let (id, c) = (r["id"].clone(), r["change"].clone());
+    ok(
+        &mut d,
+        &writer(),
+        "text.insert",
+        json!({"id": id, "at": 10, "text": " by the door"}),
+    );
+    let before = blocks(&mut d);
+    let e = err(&mut d, &agent(), "changes.reject", json!({"id": c}));
+    assert_eq!(e.code, "change_conflict", "{e}");
+    assert_eq!(blocks(&mut d), before);
+    let r = ok(&mut d, &agent(), "changes.reject", json!({"all": true}));
+    assert_eq!(r, json!({"changes": [], "count": 0, "skipped": [c]}));
+    assert_eq!(blocks(&mut d), before);
+    assert_eq!(
+        block(&mut d, id.as_str().unwrap())["text"],
+        "She waits. by the door"
+    );
+    // The writer can still take the proposal, words and all.
+    ok(&mut d, &writer(), "changes.accept", json!({"id": c}));
+    assert_eq!(
+        texts(&mut d),
+        ["INT. ROOM - DAY", "She waits.", "She waits. by the door"]
+    );
+}
+
+/// AR1 (part 2): the same with the writer's own tracked block and their
+/// untracked words in it. Rejecting it settles nothing in that block.
+#[test]
+fn rejecting_a_block_keeps_untracked_words_typed_into_it() {
+    let mut d = Dispatcher::new(Options {
+        journal: false,
+        fsync: false,
+    });
+    ok(&mut d, &writer(), "doc.new", json!({}));
+    track_writer(&mut d);
+    ok(
+        &mut d,
+        &writer(),
+        "block.insert",
+        json!({"type": "action", "text": "First sentence."}),
+    );
+    ok(&mut d, &writer(), "changes.track", json!({"writer": false}));
+    ok(
+        &mut d,
+        &writer(),
+        "text.insert",
+        json!({"id": "b_1", "at": 15, "text": " Untracked writer sentence."}),
+    );
+    let before = blocks(&mut d);
+    let e = err(&mut d, &writer(), "changes.reject", json!({"id": "c_1"}));
+    assert_eq!(e.code, "change_conflict", "{e}");
+    let r = ok(&mut d, &writer(), "changes.reject", json!({"all": true}));
+    assert_eq!(r["skipped"], json!(["c_1"]), "{r}");
+    assert_eq!(blocks(&mut d), before);
+    assert_eq!(
+        before[0]["text"],
+        "First sentence. Untracked writer sentence."
+    );
+}
+
 // ---- Properties ----------------------------------------------------------
 
 /// One edit, by one of three authors, described by positions.

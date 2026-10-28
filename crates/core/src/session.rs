@@ -1183,8 +1183,8 @@ impl Session {
             Command::TextStyle(p) => self.plan_text_style(p),
             Command::BlockSplit(p) => self.plan_split(p, ctx),
             Command::BlockJoin(p) => self.plan_join(p, ctx),
-            Command::ChangesAccept(p) => self.plan_settle(Settle::Accept, p, &ex.by),
-            Command::ChangesReject(p) => self.plan_settle(Settle::Reject, p, &ex.by),
+            Command::ChangesAccept(p) => self.plan_settle(Settle::Accept, p, ex),
+            Command::ChangesReject(p) => self.plan_settle(Settle::Reject, p, ex),
             Command::ChangesTrack(p) => self.plan_track(p, &ex.by),
             Command::RevisionStart(p) => self.plan_revision_start(p, &ex.by, t),
             Command::RevisionEnd(_) => self.plan_revision_end(&ex.by, t),
@@ -1777,8 +1777,9 @@ impl Session {
         &mut self,
         how: Settle,
         p: &ChangesSettle,
-        by: &Author,
+        ex: &Exec,
     ) -> Result<(Transaction, Value), CommandError> {
+        let by = &ex.by;
         if how == Settle::Accept && !by.is_writer() {
             return Err(CommandError::new(
                 "writer_only",
@@ -1832,14 +1833,20 @@ impl Session {
             (changes, blocks)
         };
         let sel = track::Selection { changes, blocks };
-        let out = track::settle(&self.doc, how, &sel);
+        // Journals of semantics 1 to 3 replay with the rules they were made
+        // under (docs/specs/journal.md, "Header").
+        let out = if ex.rules() >= 4 {
+            track::settle(&self.doc, how, &sel)
+        } else {
+            crate::legacy::settle(&self.doc, how, &sel)
+        };
         if let Some(id) = p.id
             && out.skipped.contains(&id)
         {
             return Err(CommandError::new(
                 "change_conflict",
                 format!(
-                    "{id} cannot be carried out as it stands: a scene it moved has lost its old place, or blocks it would join no longer can be; settle it the other way, or edit the script yourself"
+                    "{id} cannot be carried out as it stands: a scene it moved has lost its old place, blocks it would join no longer can be, or a block it would remove holds text that is not part of it; settle it the other way, or edit the script yourself"
                 ),
             )
             .with_details(json!({ "id": id })));

@@ -407,43 +407,69 @@ pub struct Settled {
 
 /// Plans accepting or rejecting the selected changes. The document is not
 /// changed: the operations are worked out on a copy.
+///
+/// Settling never removes text or blocks that are not part of the change
+/// (docs/specs/changes.md §6; journal semantics 4). A change's marks in a
+/// block that cannot settle cleanly are held: the settle is planned again
+/// with them left as they are, until nothing more is held, and the change
+/// is listed as skipped.
 pub fn settle(doc: &Document, how: Settle, sel: &Selection) -> Settled {
+    let mut held: BTreeSet<(ChangeId, BlockId)> = BTreeSet::new();
+    loop {
+        let (out, more) = settle_holding(doc, how, sel, &held);
+        // Each pass holds at least one more pair, of which there are
+        // finitely many, so this ends.
+        if more.is_empty() {
+            return out;
+        }
+        held.extend(more);
+    }
+}
+
+/// One pass of [`settle`]: the plan with the `held` marks left as they
+/// are, and the marks found that cannot settle cleanly and are not held
+/// yet.
+fn settle_holding(
+    doc: &Document,
+    how: Settle,
+    sel: &Selection,
+    held: &BTreeSet<(ChangeId, BlockId)>,
+) -> (Settled, BTreeSet<(ChangeId, BlockId)>) {
     let mut work = doc.clone();
     let mut ops = Vec::new();
-    let picked = |c: ChangeId| sel.changes.contains(&c);
     let in_scope = |id: BlockId| sel.blocks.as_ref().is_none_or(|s| s.contains(&id));
-    let mut settled: BTreeSet<ChangeId> = BTreeSet::new();
-    let mut skipped = Vec::new();
+    // Whether change `c`'s marks in block `id` are settled.
+    let settles = |c: ChangeId, id: BlockId| {
+        sel.changes.contains(&c) && in_scope(id) && !held.contains(&(c, id))
+    };
+    let mut more = BTreeSet::new();
+    let mut skipped: BTreeSet<ChangeId> = held.iter().map(|&(c, _)| c).collect();
 
     // 1. Text marks, and block marks that only come off, in any order.
     for index in 0..work.blocks.len() {
         let b = &work.blocks[index];
-        if !in_scope(b.id) {
+        let id = b.id;
+        if !in_scope(id) {
             continue;
         }
-        for c in b.change_ids() {
-            if picked(c) {
-                settled.insert(c);
-            }
-        }
-        let text = b.element.text.settle(how, &picked);
+        let text = b.element.text.settle(how, &|c| settles(c, id));
         if text != b.element.text {
             let mut e = b.element.clone();
             e.text = text;
             apply(&mut work, Op::Replace { index, element: e }, &mut ops);
         }
         let mut m = work.blocks[index].marks.clone();
-        let off = |c: &Option<ChangeId>| c.is_some_and(picked);
+        let off = |c: &Option<ChangeId>| c.is_some_and(|c| settles(c, id));
         match how {
             Settle::Accept => {
                 if off(&m.inserted) {
                     m.inserted = None;
                 }
-                m.retyped.retain(|r| !picked(r.change));
+                m.retyped.retain(|r| !settles(r.change, id));
                 if off(&m.split) {
                     m.split = None;
                 }
-                m.moved.retain(|r| !picked(r.change));
+                m.moved.retain(|r| !settles(r.change, id));
             }
             Settle::Reject => {
                 if off(&m.deleted) {
@@ -464,10 +490,10 @@ pub fn settle(doc: &Document, how: Settle, sel: &Selection) -> Settled {
             // 2. Deleted blocks go, then joined blocks join the block kept
             // before them, as the accepted form joins them.
             remove_where(&mut work, &mut ops, &|b| {
-                in_scope(b.id) && b.marks.deleted.is_some_and(picked)
+                b.marks.deleted.is_some_and(|c| settles(c, b.id))
             });
             skipped.extend(join_where(&mut work, &mut ops, &|b| {
-                in_scope(b.id) && b.marks.joined.is_some_and(picked)
+                b.marks.joined.is_some_and(|c| settles(c, b.id))
             }));
         }
         Settle::Reject => {
@@ -478,7 +504,6 @@ pub fn settle(doc: &Document, how: Settle, sel: &Selection) -> Settled {
             let mut structural: Vec<ChangeId> = work
                 .blocks
                 .iter()
-                .filter(|b| in_scope(b.id))
                 .flat_map(|b| {
                     let m = &b.marks;
                     [m.inserted, m.split]
@@ -486,37 +511,53 @@ pub fn settle(doc: &Document, how: Settle, sel: &Selection) -> Settled {
                         .flatten()
                         .chain(m.moved.iter().map(|x| x.change))
                         .chain(m.retyped.iter().map(|x| x.change))
+                        .filter(|&c| settles(c, b.id))
                         .collect::<Vec<_>>()
                 })
-                .filter(|&c| picked(c))
                 .collect();
             structural.sort_unstable_by(|a, b| b.cmp(a));
             structural.dedup();
             for c in structural {
-                if !undo_moves(&mut work, &mut ops, c, &in_scope) {
-                    skipped.push(c);
+                let here = |id: BlockId| settles(c, id);
+                if !undo_moves(&mut work, &mut ops, c, &here) {
+                    skipped.insert(c);
                 }
-                remove_where(&mut work, &mut ops, &|b| {
-                    in_scope(b.id) && b.marks.inserted == Some(c)
-                });
+                remove_inserted(&mut work, &mut ops, &mut more, c, &here);
                 skipped.extend(join_where(&mut work, &mut ops, &|b| {
-                    in_scope(b.id) && b.marks.split == Some(c)
+                    b.marks.split == Some(c) && here(b.id)
                 }));
-                restore_retypes(&mut work, &mut ops, c, &in_scope);
+                restore_retypes(&mut work, &mut ops, c, &here);
             }
         }
     }
 
-    let skipped_set: BTreeSet<ChangeId> = skipped.iter().copied().collect();
-    let settled = settled
-        .into_iter()
-        .filter(|c| !skipped_set.contains(c) || has_other_marks(doc, *c))
+    // A change is settled when this took any of its marks away.
+    let (was, now) = (mark_counts(doc), mark_counts(&work));
+    let settled = was
+        .iter()
+        .filter(|&(c, n)| sel.changes.contains(c) && now.get(c).copied().unwrap_or(0) < *n)
+        .map(|(&c, _)| c)
         .collect();
-    Settled {
-        ops,
-        settled,
-        skipped,
+    let more: BTreeSet<_> = more.difference(held).copied().collect();
+    (
+        Settled {
+            ops,
+            settled,
+            skipped: skipped.into_iter().collect(),
+        },
+        more,
+    )
+}
+
+/// How many marks each change has: its runs in text and its block marks.
+fn mark_counts(doc: &Document) -> BTreeMap<ChangeId, usize> {
+    let mut out = BTreeMap::new();
+    for b in &doc.blocks {
+        for c in b.change_ids() {
+            *out.entry(c).or_insert(0) += 1;
+        }
     }
+    out
 }
 
 /// Applies an operation to the working copy and keeps it.
@@ -529,6 +570,38 @@ fn apply(work: &mut Document, op: Op, ops: &mut Vec<Op>) {
 fn remove_where(work: &mut Document, ops: &mut Vec<Op>, which: &dyn Fn(&Block) -> bool) {
     for index in (0..work.blocks.len()).rev() {
         if which(&work.blocks[index]) {
+            apply(work, Op::Remove { index }, ops);
+        }
+    }
+}
+
+/// Removes the blocks change `c` inserted, from the last to the first. Its
+/// text in them is already out, so a block that still holds text holds
+/// someone's work that is not part of the change: untracked text, or
+/// another change's insertion. That block stays, and is held. Notes and
+/// boneyard carry no marks, so they cannot be told from the change's own;
+/// they go with the block.
+fn remove_inserted(
+    work: &mut Document,
+    ops: &mut Vec<Op>,
+    held: &mut BTreeSet<(ChangeId, BlockId)>,
+    c: ChangeId,
+    here: &dyn Fn(BlockId) -> bool,
+) {
+    for index in (0..work.blocks.len()).rev() {
+        let b = &work.blocks[index];
+        if b.marks.inserted != Some(c) || !here(b.id) {
+            continue;
+        }
+        let printed = b
+            .element
+            .text
+            .runs()
+            .iter()
+            .any(|r| matches!(r, Run::Text { text, .. } if !text.is_empty()));
+        if printed {
+            held.insert((c, b.id));
+        } else {
             apply(work, Op::Remove { index }, ops);
         }
     }
@@ -702,21 +775,6 @@ fn restore_retypes(
         }
         apply(work, Op::Mark { index, marks }, ops);
     }
-}
-
-/// Whether change `c` marks anything besides a move.
-fn has_other_marks(doc: &Document, c: ChangeId) -> bool {
-    doc.blocks.iter().any(|b| {
-        crate::changes::text_ids(&b.element.text).any(|x| x == c)
-            || [
-                b.marks.inserted,
-                b.marks.deleted,
-                b.marks.split,
-                b.marks.joined,
-            ]
-            .contains(&Some(c))
-            || b.marks.retyped.iter().any(|r| r.change == c)
-    })
 }
 
 // ---- Listing ---------------------------------------------------------------

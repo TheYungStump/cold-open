@@ -25,6 +25,7 @@ pub mod format;
 pub mod fuzzing;
 pub mod io;
 pub mod journal;
+mod legacy;
 pub mod ops;
 pub mod recovered;
 pub mod replace;
