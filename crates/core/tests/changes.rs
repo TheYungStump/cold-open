@@ -826,6 +826,40 @@ fn rejecting_a_retype_never_empties_text_typed_since() {
     assert!(changes(&mut d).is_empty());
 }
 
+/// GR3: a join accepted while the block before it waits to be deleted would
+/// put the joined text into a block that then goes. It is a conflict until
+/// the deletion is settled; then the join lands on the block kept before.
+#[test]
+fn a_join_onto_a_block_waiting_to_be_deleted_waits_for_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = open_text(
+        dir.path(),
+        "INT. KITCHEN - DAY\n\ndisappear\n\nINT. BEDROOM - DAY\n\nA lamp.\n",
+    );
+    let join = ok(&mut d, &agent(), "block.join", json!({"id": "b_3"}))["change"].clone();
+    let del = ok(&mut d, &agent(), "block.delete", json!({"id": "b_2"}))["change"].clone();
+    let before = blocks(&mut d);
+    let e = err(&mut d, &writer(), "changes.accept", json!({"id": join}));
+    assert_eq!(e.code, "change_conflict", "{e}");
+    assert_eq!(blocks(&mut d), before);
+    ok(&mut d, &writer(), "changes.accept", json!({"id": del}));
+    ok(&mut d, &writer(), "changes.accept", json!({"id": join}));
+    assert_eq!(
+        texts(&mut d),
+        ["INT. KITCHEN - DAYINT. BEDROOM - DAY", "A lamp."]
+    );
+    // Accepting both at once removes the deletion first, as before.
+    ok(&mut d, &writer(), "undo", json!({}));
+    ok(&mut d, &writer(), "undo", json!({}));
+    assert_eq!(blocks(&mut d), before);
+    let r = ok(&mut d, &writer(), "changes.accept", json!({"all": true}));
+    assert_eq!(r["skipped"], json!([]), "{r}");
+    assert_eq!(
+        texts(&mut d),
+        ["INT. KITCHEN - DAYINT. BEDROOM - DAY", "A lamp."]
+    );
+}
+
 // ---- Properties ----------------------------------------------------------
 
 /// One edit, by one of three authors, described by positions.

@@ -609,10 +609,10 @@ fn remove_inserted(
 
 /// Joins every block `which` picks to the block before it, from the first
 /// to the last, so a run of joined blocks gathers into the block before it
-/// as the accepted form gathers them. A block with nothing before it, or
-/// whose join would break a model rule (the block before it has since
-/// become a note, say), stays as it is: its join mark goes, and its change
-/// is returned as skipped.
+/// as the accepted form gathers them. A block with nothing before it, whose
+/// join would break a model rule (the block before it has since become a
+/// note, say), or whose block before it waits to be deleted, stays as it
+/// is: its join mark goes, and its change is returned as skipped.
 fn join_where(
     work: &mut Document,
     ops: &mut Vec<Op>,
@@ -625,9 +625,14 @@ fn join_where(
             index += 1;
             continue;
         }
-        let merged = index.checked_sub(1).and_then(|p| {
-            crate::changes::joined(&work.blocks[p].element, &work.blocks[index].element.text)
-        });
+        // A block waiting to be deleted would take the joined text with it
+        // when its deletion is accepted (docs/specs/changes.md §6).
+        let merged = index
+            .checked_sub(1)
+            .filter(|&p| work.blocks[p].marks.deleted.is_none())
+            .and_then(|p| {
+                crate::changes::joined(&work.blocks[p].element, &work.blocks[index].element.text)
+            });
         if let Some(prev) = merged {
             apply(
                 work,
