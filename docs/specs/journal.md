@@ -116,7 +116,7 @@ A save also ends any typing group, so typing never joins a step across a journal
 **What replay compares** (2026-10-16). A replayed result must reproduce only what later entries depend on:
 
 - every id the recorded result names as `id`, at the top level or in a batch's `results` (later entries address blocks by these ids);
-- (2026-10-18) every change id it names as `change`, in the same places (later entries settle changes by these ids);
+- (2026-10-18) every change id it names as `change`, in the same places (later entries settle changes by these ids). Until 2026-10-28 the code compared only the ids, so a journal whose changes came out numbered differently replayed without a word (review finding AR11);
 - for `undo` and `redo`, the command name of the step reversed (`undone`, `redone`), and the step itself where the entry names it.
 
 **Replaying semantics 1** (2026-10-18). Journals written before phase 5a have no `tracked` in their entries. Their edits were never tracked, so replay reads an absent `tracked` as false in a journal whose header says `semantics` 1, whatever the document's switches say. The fixtures of phases 1–4 (`tests/fixtures/journal/`) therefore replay exactly as before. After such a journal is recovered, new entries are appended to it with `tracked` written, which replays the same way. In a semantics 2 journal, an edit entry without `tracked` stops replay, like any entry that cannot be trusted.

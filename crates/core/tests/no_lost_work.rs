@@ -1269,3 +1269,54 @@ fn gp9_revert_renumbers_move_anchors_and_revision_starts() {
     );
     d.discard();
 }
+
+/// AR11 (part 1): replay compares the change ids a result names, at the
+/// top and in a batch's results, as journal.md ("What replay compares")
+/// says: later entries settle changes by those ids. A journal whose entry
+/// names another change than replay makes diverges there.
+#[test]
+fn ar11_replay_compares_change_ids() {
+    for batch in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("s.fountain");
+        fs::write(&p, SCRIPT).unwrap();
+        let w = Author::writer();
+        let mut d = Dispatcher::new(Options::default());
+        ok(&mut d, &w, "doc.open", json!({"path": p}));
+        let insert = json!({"type": "action", "text": "Rain again.", "tracked": true});
+        if batch {
+            ok(
+                &mut d,
+                &w,
+                "batch",
+                json!({"commands": [{"command": "block.insert", "params": insert}]}),
+            );
+        } else {
+            ok(&mut d, &w, "block.insert", insert);
+        }
+        drop(d); // a crash
+        let jpath = journal::path_for(&p);
+        let lines = fs::read_to_string(&jpath).unwrap();
+        assert_eq!(lines.matches("\"c_1\"").count(), if batch { 2 } else { 1 });
+        // Name another change in the entry's own result only.
+        let edited = if batch {
+            lines.replacen(
+                "\"results\":[{\"change\":\"c_1\"",
+                "\"results\":[{\"change\":\"c_7\"",
+                1,
+            )
+        } else {
+            lines.replacen("\"change\":\"c_1\"", "\"change\":\"c_7\"", 1)
+        };
+        assert_ne!(edited, lines);
+        fs::write(&jpath, edited).unwrap();
+        let mut d = Dispatcher::new(Options::default());
+        let r = ok(&mut d, &w, "doc.open", json!({"path": p}));
+        assert_eq!(
+            r["warnings"][0]["code"], "journal_partial",
+            "batch {batch}: {r}"
+        );
+        assert!(!asides(dir.path(), "diverged").is_empty(), "batch {batch}");
+        d.discard();
+    }
+}

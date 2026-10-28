@@ -2453,7 +2453,9 @@ fn refuse_while_saving(session: &Session) -> Result<(), CommandError> {
 /// asked for.
 fn reproduces(recorded: &Value, replayed: &Value) -> bool {
     let same = |r: &Value, q: &Value, key: &str| r.get(key).is_none_or(|v| q.get(key) == Some(v));
-    if !["id", "undone", "redone"]
+    // Later entries address blocks by the ids results name, and settle
+    // changes by the change ids (2026-10-28, review finding AR11).
+    if !["id", "change", "undone", "redone"]
         .iter()
         .all(|k| same(recorded, replayed, k))
     {
@@ -2465,7 +2467,11 @@ fn reproduces(recorded: &Value, replayed: &Value) -> bool {
             .get("results")
             .and_then(Value::as_array)
             .is_some_and(|qs| {
-                rs.len() == qs.len() && rs.iter().zip(qs).all(|(r, q)| same(r, q, "id"))
+                rs.len() == qs.len()
+                    && rs
+                        .iter()
+                        .zip(qs)
+                        .all(|(r, q)| same(r, q, "id") && same(r, q, "change"))
             }),
     }
 }
@@ -2677,6 +2683,16 @@ mod tests {
             json!({"results": [{"id": "b_6"}]})
         ));
         assert!(!r(json!({"results": [{}]}), json!({"results": []})));
+        // Change ids, at the top and in a batch's results (2026-10-28).
+        assert!(r(json!({"change": "c_2"}), json!({"change": "c_2"})));
+        assert!(!r(json!({"change": "c_2"}), json!({"change": "c_3"})));
+        assert!(!r(json!({"change": "c_2"}), json!({})));
+        assert!(!r(
+            json!({"results": [{"change": "c_2"}]}),
+            json!({"results": [{"change": "c_3"}]})
+        ));
+        // An older entry that names none asks for none.
+        assert!(r(json!({}), json!({"change": "c_1"})));
     }
 
     /// Review finding F10, through the dispatcher: a journal that a failed
