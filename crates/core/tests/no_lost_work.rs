@@ -1164,3 +1164,37 @@ fn gp5_a_never_saved_project_or_fdx_recovers_its_journal() {
         d.discard();
     }
 }
+
+/// GR12: turning tracking on is an edit, journaled, which a Fountain or
+/// .fdx file has nowhere to keep. A crash before the next save recovers
+/// it; before, the journal was started again from the file and the switch
+/// was gone, with no copy kept.
+#[test]
+fn gr12_a_tracking_switch_is_recovered_after_a_crash() {
+    for name in ["s.fountain", "s.fdx"] {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(name);
+        let w = Author::writer();
+        let mut d = Dispatcher::new(Options::default());
+        ok(&mut d, &w, "doc.new", json!({"path": p}));
+        ok(
+            &mut d,
+            &w,
+            "block.insert",
+            json!({"type": "action", "text": "Go."}),
+        );
+        ok(&mut d, &w, "doc.save", json!({}));
+        ok(&mut d, &w, "changes.track", json!({"writer": true}));
+        drop(d); // a crash, before any text edit
+
+        let mut d = Dispatcher::new(Options::default());
+        let r = ok(&mut d, &w, "doc.open", json!({"path": p}));
+        assert_eq!(r["recovered"]["commands"], 1, "{name}: {r}");
+        assert_eq!(
+            ok(&mut d, &w, "changes.track", json!({})),
+            json!({"writer": true, "agents": true}),
+            "{name}"
+        );
+        d.discard();
+    }
+}

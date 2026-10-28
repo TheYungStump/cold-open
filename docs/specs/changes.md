@@ -94,6 +94,7 @@ The document has two switches, kept with it in a bundle and in the crash journal
 
 - `changes.track` changes them (§8). It is an edit: undoable and journaled. Only the writer may send it.
 - **Resolution:** a Fountain or .fdx file has nowhere to keep the switches, so it opens with the defaults. Saving it is not a loss: the switches change nothing that prints, and the brief's rule is about the script's content.
+- **Until the next save** (2026-10-28, review finding GR12), a switch changed in a Fountain or .fdx script is unsaved work like any edit: a crash before that save recovers it from the journal. Before, recovery found the replayed document written out byte for byte equal to the file, opened the file, and started the journal again, so the switch was gone with no copy kept.
 
 ## 5. Tracked edits
 

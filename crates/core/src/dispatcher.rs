@@ -946,10 +946,16 @@ impl Dispatcher {
         // is lossless and gives the same bytes. A lossy write can match the
         // file's text while the document differs, so it always recovers.
         // It is written in the format the header names, so recovery compares
-        // like with like.
+        // like with like. A Fountain or .fdx file cannot hold the tracking
+        // switches, so a document that has them otherwise than such a file
+        // opens with is not in it either: a switch is a journaled edit, and
+        // writing it out loses nothing that prints (2026-10-28, review
+        // finding GR12).
         let in_file = |doc: &Document| {
             let written = read.header.format.get().write(doc, style);
-            !written.is_lossy() && written.bytes == disk_bytes
+            !written.is_lossy()
+                && written.bytes == disk_bytes
+                && (read.header.format == FormatId::Bundle || doc.tracking.is_default())
         };
         let external_change = elsewhere
             || if missing {
