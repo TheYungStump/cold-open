@@ -752,7 +752,13 @@ impl Session {
                 };
                 Ok(cmd.with_tracked(tracked))
             }
-            Some(Some(false)) if !ex.by.is_writer() && self.tracks(&ex.by) => {
+            // A live agent may not opt out. A journal entry is a record of
+            // an edit that was allowed when it was made, under a switch
+            // (`coldopen mcp --untracked`) that is not document state, so
+            // replay takes it as it stands (docs/specs/changes.md §7).
+            Some(Some(false))
+                if !ex.by.is_writer() && ex.semantics.is_none() && self.tracks(&ex.by) =>
+            {
                 Err(CommandError::new(
                     "writer_only",
                     "an agent's edits are tracked changes in this script; only the writer can turn that off (tracked: false)",
@@ -1190,12 +1196,20 @@ impl Session {
             Command::RevisionEnd(_) => self.plan_revision_end(&ex.by, t),
             Command::RevisionColors(p) => self.plan_revision_colors(p, &ex.by),
             Command::RevisionClear(p) => self.plan_revision_clear(p, &ex.by),
-            Command::TitleSet(p) => {
-                crate::title::plan_set(&self.doc, p, &ex.by, self.tracks(&ex.by))
-            }
-            Command::TitleSetLines(p) => {
-                crate::title::plan_set_lines(&self.doc, p, &ex.by, self.tracks(&ex.by))
-            }
+            // As for `tracked: false` above: the refusal guards a live agent;
+            // a journaled title edit was allowed when it was made.
+            Command::TitleSet(p) => crate::title::plan_set(
+                &self.doc,
+                p,
+                &ex.by,
+                ex.semantics.is_none() && self.tracks(&ex.by),
+            ),
+            Command::TitleSetLines(p) => crate::title::plan_set_lines(
+                &self.doc,
+                p,
+                &ex.by,
+                ex.semantics.is_none() && self.tracks(&ex.by),
+            ),
             _ => Err(CommandError::new("invalid_request", "not an edit")),
         }
     }

@@ -2,7 +2,9 @@
 //! overwritten unless it is copied aside first, and nothing is written
 //! before the checks that could refuse it (docs/specs/journal.md). Each
 //! test reproduces a finding from the review of phases 1–3, named in its
-//! title (docs/progress/review-fixes.md).
+//! title (docs/progress/review-fixes.md), or (2026-10-28, the section at
+//! the end) from the reviews of phases 4–5b
+//! (docs/progress/review-fixes-4-5b.md).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -948,5 +950,90 @@ fn f16_a_journal_with_newer_semantics_is_set_aside() {
         "{r}"
     );
     assert_eq!(asides(dir.path(), "corrupt").len(), 1);
+    d.discard();
+}
+
+// ---- The reviews of phases 4–5b (2026-10-28) ------------------------------
+
+fn untracked_agent() -> Author {
+    Author::agent("claude", None)
+}
+
+/// CL1, GP6: `coldopen mcp --untracked` records an agent's edits untracked.
+/// That switch is the session's, not the script's, so the app that
+/// recovers the journal does not have it; recovery takes each entry as it
+/// was recorded, and every edit comes back.
+#[test]
+fn cl1_untracked_agent_edits_recover_without_the_switch() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("s.fountain");
+    fs::write(&p, "INT. LAB - NIGHT\n\nRain falls.\n").unwrap();
+    let a = untracked_agent();
+    let mut d = Dispatcher::new(Options::default());
+    d.set_agent_tracking(Some(false));
+    ok(&mut d, &a, "doc.open", json!({"path": p}));
+    ok(
+        &mut d,
+        &a,
+        "block.insert",
+        json!({"type": "action", "text": "Thunder."}),
+    );
+    ok(
+        &mut d,
+        &a,
+        "text.insert",
+        json!({"id": "b_2", "at": 11, "text": " Hard."}),
+    );
+    ok(
+        &mut d,
+        &a,
+        "title.set",
+        json!({"key": "Title", "values": ["Storm"]}),
+    );
+    let before = ok(&mut d, &a, "doc.get", json!({}));
+    drop(d); // a crash
+
+    let mut app = Dispatcher::new(Options::default());
+    let r = ok(&mut app, &Author::writer(), "doc.open", json!({"path": p}));
+    assert_eq!(r["warnings"], json!([]), "{r}");
+    assert_eq!(r["recovered"]["commands"], 3, "{r}");
+    let after = ok(&mut app, &Author::writer(), "doc.get", json!({}));
+    assert_eq!(after["blocks"], before["blocks"]);
+    assert_eq!(after["title_page"], before["title_page"]);
+    assert!(asides(dir.path(), "corrupt").is_empty());
+    app.discard();
+
+    // A live agent still cannot opt out where agents are tracked.
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &a, "doc.open", json!({"path": p}));
+    let e = err(
+        &mut d,
+        &a,
+        "block.insert",
+        json!({"type": "action", "text": "x", "tracked": false}),
+    );
+    assert_eq!(e.code, "writer_only");
+    d.discard();
+}
+
+/// AR12 (part 1): reverting keeps `--untracked`, which belongs to the
+/// session, not to the file read again.
+#[test]
+fn ar12_revert_keeps_the_untracked_switch() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("s.fountain");
+    fs::write(&p, SCRIPT).unwrap();
+    let a = untracked_agent();
+    let mut d = Dispatcher::new(Options::default());
+    d.set_agent_tracking(Some(false));
+    ok(&mut d, &a, "doc.open", json!({"path": p}));
+    ok(&mut d, &Author::writer(), "doc.revert", json!({}));
+    let r = ok(
+        &mut d,
+        &a,
+        "block.insert",
+        json!({"type": "action", "text": "Thunder."}),
+    );
+    assert!(r.get("change").is_none(), "tracked after a revert: {r}");
     d.discard();
 }

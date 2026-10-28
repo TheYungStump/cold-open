@@ -1929,6 +1929,8 @@ impl Dispatcher {
         let mut fresh = Session::new(doc, Some(path.clone()), format, style);
         fresh.damaged = repaired.is_some();
         fresh.clock = clock;
+        // `coldopen mcp --untracked` holds for the session, revert or not.
+        fresh.agent_tracking = session.agent_tracking;
         fresh.journal = session.journal.take();
         fresh.rev = session.rev + 1;
         fresh.disk = Some(Fingerprint::of(&bytes));
