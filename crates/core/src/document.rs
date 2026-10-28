@@ -232,8 +232,12 @@ impl Document {
     }
 
     /// Numbers the blocks again from `first`, for a document read back into
-    /// a session that has already handed out ids below it. `None` if the
-    /// ids would run out.
+    /// a session that has already handed out ids below it, and every
+    /// reference to a block id with them: spacing, the .fdx store, pending
+    /// moves' places and the active revision set's starting points
+    /// (2026-10-28, review finding GP9). An id no block has keeps its
+    /// number, which is never handed out again. `None` if the ids would
+    /// run out.
     pub fn renumbered_from(mut self, first: u64) -> Option<Document> {
         let mut next = first;
         let mut spacing = BTreeMap::new();
@@ -248,10 +252,21 @@ impl Document {
             next = next.checked_add(1)?;
         }
         self.spacing = spacing;
+        let map = |old: u64| ids.get(&old).copied().unwrap_or(old);
+        let block = |old: BlockId| BlockId(map(old.0));
         if let Some(kept) = self.fdx.take() {
-            let map = |old: u64| ids.get(&old).copied().unwrap_or(old);
             self.fdx = Some(Box::new(kept.renumbered(&map)));
         }
+        for b in &mut self.blocks {
+            for m in &mut b.marks.moved {
+                m.before = m.before.map(block);
+                m.last = block(m.last);
+            }
+        }
+        self.revisions.base = std::mem::take(&mut self.revisions.base)
+            .into_iter()
+            .map(|(id, base)| (block(id), base))
+            .collect();
         self.next_id = next.max(first);
         (self.next_id < u64::MAX).then_some(self)
     }

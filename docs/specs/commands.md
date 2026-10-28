@@ -168,7 +168,7 @@ Notes on each command:
   - With `discard`, unsaved changes are kept in a copy of the journal, which a `journal_discarded` warning names (2026-10-16; `docs/specs/journal.md`, "Closing").
   - An agent's `discard` fails with `not_your_step` when the document holds a writer's recovered work (2026-10-16; `docs/specs/mcp.md` §6). The same holds for an agent's `doc.revert`, and for its `doc.open` with `recover: "discard"`.
 - **`doc.revert`** (2026-10-15)
-  - Throws away unsaved changes and the undo history, and reads the document's file again. The blocks read get fresh ids ("Ids" above).
+  - Throws away unsaved changes and the undo history, and reads the document's file again. The blocks read get fresh ids ("Ids" above), and so does everything in the document that names a block: paragraph spacing, the .fdx store, a pending move's place (`before`, `last`) and the active revision set's starting points (2026-10-28, review finding GP9).
   - The journal is never deleted by a revert: if the document has unsaved changes or the journal holds entries, it is copied aside to `<journal>.discarded-<ms>` first, then started again from the file. (2026-10-16: "unsaved changes" covers a recovered journal header with no entries, `docs/specs/journal.md` recovery step 4.)
   - Fails with `no_path` for an untitled document, and with `io_error` if the file cannot be read; the open document is unchanged in both cases.
   - The desktop app's recovery dialog uses it for Discard.

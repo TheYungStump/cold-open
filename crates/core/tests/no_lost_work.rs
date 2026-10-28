@@ -1198,3 +1198,74 @@ fn gr12_a_tracking_switch_is_recovered_after_a_crash() {
         d.discard();
     }
 }
+
+/// GP9: a project read again by `doc.revert` gets fresh block ids. Every
+/// reference to a block id moves with them: a pending move's place and the
+/// active revision set's starting points, as well as spacing and the .fdx
+/// store. Before, rejecting the move failed with `change_conflict`, and
+/// text put back kept its revision mark.
+#[test]
+fn gp9_revert_renumbers_move_anchors_and_revision_starts() {
+    let dir = tempfile::tempdir().unwrap();
+    let w = Author::writer();
+
+    let path = dir.path().join("moves.coldopen");
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &w, "doc.new", json!({"path": path}));
+    for h in ["INT. A - DAY", "INT. B - DAY", "INT. C - DAY"] {
+        ok(
+            &mut d,
+            &w,
+            "block.insert",
+            json!({"type": "scene_heading", "text": h}),
+        );
+    }
+    let moved = ok(
+        &mut d,
+        &w,
+        "scene.move",
+        json!({"id": "b_1", "tracked": true}),
+    );
+    ok(&mut d, &w, "doc.save", json!({}));
+    ok(&mut d, &w, "doc.revert", json!({}));
+    ok(&mut d, &w, "changes.reject", json!({"id": moved["change"]}));
+    let heads: Vec<Value> = ok(&mut d, &w, "doc.get", json!({}))["blocks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["text"].clone())
+        .collect();
+    assert_eq!(heads, ["INT. A - DAY", "INT. B - DAY", "INT. C - DAY"]);
+    d.discard();
+
+    let path = dir.path().join("base.coldopen");
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &w, "doc.new", json!({"path": path}));
+    ok(
+        &mut d,
+        &w,
+        "block.insert",
+        json!({"type": "action", "text": "The light dims."}),
+    );
+    ok(&mut d, &w, "revision.start", json!({"color": "Blue"}));
+    ok(
+        &mut d,
+        &w,
+        "block.set_text",
+        json!({"id": "b_1", "text": "The light brightens."}),
+    );
+    ok(&mut d, &w, "doc.save", json!({}));
+    ok(&mut d, &w, "doc.revert", json!({}));
+    let id = ok(&mut d, &w, "doc.get", json!({}))["blocks"][0]["id"].clone();
+    ok(
+        &mut d,
+        &w,
+        "block.set_text",
+        json!({"id": id, "text": "The light dims."}),
+    );
+    assert!(
+        !d.session().unwrap().doc.blocks[0].has_revisions(),
+        "text put back after a revert keeps its revision mark"
+    );
+    d.discard();
+}
