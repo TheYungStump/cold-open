@@ -1087,3 +1087,44 @@ fn cl2_a_copy_that_replays_in_part_says_so() {
     assert!(text(&mut d).contains(UNSAVED));
     d.discard();
 }
+
+/// GP4: a restored copy is the writer's unsaved work in its journal's
+/// header. After a crash in which only an agent edited it, the agent still
+/// may not set it aside.
+#[test]
+fn gp4_a_restored_copy_stays_the_writers_after_agent_edits() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source.fountain");
+    let restored = dir.path().join("restored.fountain");
+    let w = Author::writer();
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &w, "doc.new", json!({"path": source}));
+    ok(
+        &mut d,
+        &w,
+        "block.insert",
+        json!({"type": "action", "text": "The writer's ending."}),
+    );
+    let close = ok(&mut d, &w, "doc.close", json!({"discard": true}));
+    let copy = close["warnings"][0]["details"]["copy"].clone();
+    ok(
+        &mut d,
+        &w,
+        "recovered.restore",
+        json!({"copy": copy, "path": restored}),
+    );
+    ok(
+        &mut d,
+        &agent(),
+        "block.insert",
+        json!({"type": "action", "text": "An agent's note."}),
+    );
+    drop(d); // a crash
+
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &agent(), "doc.open", json!({"path": restored}));
+    let e = err(&mut d, &agent(), "doc.close", json!({"discard": true}));
+    assert_eq!(e.code, "not_your_step", "{e}");
+    assert!(text(&mut d).contains("The writer's ending."));
+    d.discard();
+}

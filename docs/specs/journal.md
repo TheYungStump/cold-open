@@ -275,6 +275,7 @@ Added 2026-10-16 (phase 4). Set-aside copies hold work a writer may want back, s
 **Restore.** `recovered.restore` opens the copy's document as a new, unsaved script journaled at a path the caller gives (the app uses `Unsaved/`). The new journal's header holds that document with `unsaved: true` and no `disk`, so:
 
 - a crash before the first save recovers it, as a never-saved document is recovered ("A file that does not exist");
+- (2026-10-28) its document counts as the writer's work when it is recovered, whoever made the entries after it, so an agent cannot set it aside (`docs/specs/mcp.md` §6). Before, a restored copy that then took only an agent's edits was the agent's to discard (review finding GP4);
 - the app's start-up scan offers it as leftover work, as it does a journal with entries;
 - a save as anything writes a new file. Nothing is ever written over the copy, the script it came from, or that script's journal.
 

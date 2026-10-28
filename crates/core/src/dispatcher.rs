@@ -952,8 +952,10 @@ impl Dispatcher {
             !in_file(&replay.doc)
         };
         // Work in the header alone has no author; it is treated as the
-        // writer's, which is the cautious choice.
-        writer |= commands == 0;
+        // writer's, which is the cautious choice. So is a header that is
+        // itself unsaved work, a restored copy, whoever made the entries
+        // after it (2026-10-28, review finding GP4).
+        writer |= commands == 0 || read.header.unsaved;
         replay.journal = None;
         // A journal this computer took over at this path is its own.
         let (host, at) = match &adopted {
