@@ -1,0 +1,13 @@
+{
+  "comment": "Counted by hand from hall.fountain. ORATOR's speech is 60 lines of six words, each short enough to print on one line, so it breaks across a page; the (MORE) and continued name are layout's, not counted.",
+  "scenes": [
+    {"index": 1, "setting": "int", "location": "HALL", "time": "DAY", "characters": ["ORATOR", "GUEST"]}
+  ],
+  "characters": [
+    {"name": "ORATOR", "speeches": 1, "lines": 60, "words": 360, "scenes": [1], "extensions": []},
+    {"name": "GUEST", "speeches": 1, "lines": 1, "words": 1, "scenes": [1], "extensions": ["O.S."]}
+  ],
+  "locations": [
+    {"location": "HALL", "settings": [{"setting": "int", "scenes": [1], "times": [{"time": "DAY", "scenes": [1]}]}]}
+  ]
+}

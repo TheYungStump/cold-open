@@ -1,0 +1,12 @@
+{"journal":"coldopen","v":1,"app":"0.1.0","doc":{"title_page":{"fields":[{"key":"Title","values":[{"text":"The Keeper's Log"}]},{"key":"Author","values":[{"text":"Cold Open tests"}]}]},"blocks":[{"id":"b_1","type":"scene_heading","text":"INT. LIGHTHOUSE - NIGHT"},{"id":"b_2","type":"action","text":"The lamp turns. Rain against the glass."},{"id":"b_3","type":"character","text":"MARA"},{"id":"b_4","type":"parenthetical","text":"(to herself)"},{"id":"b_5","type":"dialogue","text":"Three ships tonight."},{"id":"b_6","type":"scene_heading","text":"EXT. CLIFF PATH - DAWN"},{"id":"b_7","type":"action","text":"Gulls wheel over the rocks."},{"id":"b_8","type":"character","text":"TOMAS"},{"id":"b_9","type":"dialogue","text":"She kept the light on."}],"next_id":10},"disk":{"len":237,"fnv64":"8290f0868d70dc09"},"semantics":2,"host":"fixture-host","path":"/fixtures/lighthouse.fountain"}
+{"seq":1,"t":1793004217026,"command":"changes.track","params":{"writer":true},"result":{"agents":true,"writer":true}}
+{"seq":2,"t":1793004217028,"command":"text.insert","params":{"at":14,"id":"b_2","style":{},"text":" slowly","tracked":true},"result":{"change":"c_1"}}
+{"seq":3,"t":1793004217032,"command":"block.set_text","params":{"id":"b_7","text":"Gulls wheel over the black rocks.","tracked":true},"result":{"change":"c_2"}}
+{"seq":4,"t":1793004217036,"command":"block.insert","params":{"after":"b_9","text":"The door bangs.","tracked":true,"type":"action"},"result":{"change":"c_3","id":"b_10"}}
+{"seq":5,"t":1793004217041,"command":"block.delete","params":{"id":"b_4","tracked":true},"result":{"change":"c_4"}}
+{"seq":6,"t":1793004217043,"command":"changes.accept","params":{"id":"c_1"},"result":{"changes":["c_1"],"count":1,"skipped":[]}}
+{"seq":7,"t":1793004217045,"command":"changes.reject","params":{"id":"c_4"},"result":{"changes":["c_4"],"count":1,"skipped":[]}}
+{"seq":8,"t":1793004217047,"command":"changes.track","params":{"writer":false},"result":{"agents":true,"writer":false}}
+{"seq":9,"t":1793004217049,"command":"text.insert","params":{"at":0,"id":"b_9","style":{},"text":"Softly. ","tracked":false},"result":{}}
+{"seq":10,"t":1793004217052,"command":"undo","params":{},"result":{"label":"Typing","undone":"text.insert"},"step":9}
+{"seq":11,"t":1793004217056,"command":"redo","params":{},"result":{"label":"Typing","redone":"text.insert"},"step":9}

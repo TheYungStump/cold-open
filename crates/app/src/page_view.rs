@@ -84,6 +84,9 @@ pub struct PageView<'a, Message> {
     pub view: &'a View,
     pub doc: &'a Document,
     pub draft: Option<&'a Draft>,
+    /// The title pages in place of the script, read-only, while the title
+    /// page sheet is open (editor.md §19).
+    pub title: bool,
     pub palette: Palette,
     pub zoom: f32,
     pub focused: bool,
@@ -116,7 +119,12 @@ impl<Message> PageView<'_, Message> {
     }
 
     fn pages(&self) -> Vec<&Page> {
-        self.view.layout().pages.iter().collect()
+        let layout = self.view.layout();
+        if self.title {
+            layout.title.iter().collect()
+        } else {
+            layout.pages.iter().collect()
+        }
     }
 
     fn page_size(&self) -> Size {
@@ -136,6 +144,7 @@ impl<Message> PageView<'_, Message> {
     fn page_count(&self) -> usize {
         match self.draft {
             Some(_) => 1,
+            None if self.title => self.view.layout().title.len().max(1),
             None => self.view.layout().pages.len().max(1),
         }
     }
@@ -418,6 +427,9 @@ impl<Message> widget::Widget<Message, iced::Theme, iced::Renderer> for PageView<
 
         // Tracked changes' authors, by slot (editor.md §17.1).
         let slots = self.doc.change_slots();
+        // Production revision marks: each set's ink in this theme, and what
+        // layout marks on each page in view (editor.md §18).
+        let revisions = RevisionPaint::new(self.doc, self.view, &pal);
         let pages: Vec<&Page> = self.pages();
         for p in 0..self.page_count() {
             let o = self.page_origin(bounds.width, p);
@@ -538,8 +550,30 @@ impl<Message> widget::Widget<Message, iced::Theme, iced::Renderer> for PageView<
                     at(l.x, top),
                     (pitch, lh, font_px),
                     color,
-                    &slots,
+                    (&slots, &revisions.inks),
                 );
+            }
+            // Asterisks beside marked lines, and the revised page's header.
+            if let (None, false, Some(marks), Some(page)) =
+                (self.draft, self.title, &revisions.marks, pages.get(p))
+            {
+                let (_, extra) = coldopen_layout::revision_lines(page, format, marks);
+                for l in &extra {
+                    let top = (l.y.0 - format.baseline.0) as f32 * k;
+                    let color = match l.kind {
+                        LineKind::RevisionHeader => pal.ink_quiet,
+                        _ => pal.ink,
+                    };
+                    self.draw_line(
+                        renderer,
+                        state,
+                        l,
+                        at(l.x, top),
+                        (pitch, lh, font_px),
+                        color,
+                        (&slots, &revisions.inks),
+                    );
+                }
             }
         }
 
@@ -652,12 +686,16 @@ impl<Message> PageView<'_, Message> {
         origin: Point,
         (pitch, lh, font_px): (f32, f32, f32),
         color: Color,
-        slots: &BTreeMap<u64, u8>,
+        (slots, inks): (&BTreeMap<u64, u8>, &BTreeMap<u64, Color>),
     ) {
         let pal = self.palette;
+        // A tracked change's author color wins over a revision's ink.
         let ink = |look: Look| match look.change {
             Some(c) => change_color(&pal, slots, c),
-            None => color,
+            None => look
+                .rev
+                .and_then(|r| inks.get(&r).copied())
+                .unwrap_or(color),
         };
         let mut run = String::new();
         let mut run_cell = 0i32;
@@ -842,6 +880,36 @@ impl<'a, Message: 'a> From<PageView<'a, Message>> for Element<'a, Message> {
 
 /// Block ids to normal-form element indices, for marks.
 /// The screen color of a tracked change's author (editor.md §17.1).
+/// What the page view needs to paint revision marks: each set's ink, and
+/// the marks layout prints (editor.md §18). Empty for a script without
+/// revision data, which paints exactly as before.
+#[derive(Default)]
+struct RevisionPaint {
+    marks: Option<coldopen_layout::RevisionMarks>,
+    inks: BTreeMap<u64, Color>,
+}
+
+impl RevisionPaint {
+    fn new(doc: &Document, view: &View, pal: &Palette) -> RevisionPaint {
+        if !doc.has_revision_data() {
+            return RevisionPaint::default();
+        }
+        let inks = doc
+            .revisions
+            .sets
+            .iter()
+            .filter_map(|s| {
+                let (r, g, b) = coldopen_core::revisions::shades(&s.color).inks[pal.shade.min(2)]?;
+                Some((s.id.0, Color::from_rgb8(r, g, b)))
+            })
+            .collect();
+        RevisionPaint {
+            marks: Some(doc.revision_marks(&view.map)),
+            inks,
+        }
+    }
+}
+
 pub fn change_color(pal: &Palette, slots: &BTreeMap<u64, u8>, change: u64) -> Color {
     let slot = slots.get(&change).copied().unwrap_or(0);
     pal.changes[usize::from(slot) % pal.changes.len()]

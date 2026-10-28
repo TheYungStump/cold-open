@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::author::Author;
 use crate::document::{Block, BlockId, Document};
 use crate::io::Fingerprint;
+use crate::revisions::RevisionId;
 
 pub use coldopen_screenplay::ChangeId;
 
@@ -83,6 +84,11 @@ pub struct Change {
     pub by: ChangeBy,
     /// Milliseconds since the Unix epoch.
     pub t: u64,
+    /// The revision set active when the change was made (2026-10-22,
+    /// docs/specs/changes.md §3). Left out when there was none, so older
+    /// entries, and their fingerprints, are as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rev: Option<RevisionId>,
 }
 
 /// The change table: entries `c_1`, `c_2`, … with no gaps. Append-only:
@@ -98,8 +104,10 @@ pub struct ChangesFile {
     pub changes: Vec<Change>,
 }
 
-/// The version of the table's JSON form.
-pub const CHANGES_V: u32 = 1;
+/// The newest version of the table's JSON form: 2 since phase 5b, for a
+/// table whose entries carry a revision set. A table without one is still
+/// written as version 1.
+pub const CHANGES_V: u32 = 2;
 
 impl Changes {
     pub fn len(&self) -> usize {
@@ -120,9 +128,9 @@ impl Changes {
     }
 
     /// Adds an entry and returns its id.
-    pub fn push(&mut self, by: ChangeBy, t: u64) -> ChangeId {
+    pub fn push(&mut self, by: ChangeBy, t: u64, rev: Option<RevisionId>) -> ChangeId {
         let id = ChangeId(self.0.len() as u64 + 1);
-        self.0.push(Change { id, by, t });
+        self.0.push(Change { id, by, t, rev });
         id
     }
 
@@ -148,16 +156,21 @@ impl Changes {
         Ok(Changes(entries))
     }
 
-    /// The JSON form, `{"v": 1, "changes": [...]}`.
+    /// The JSON form, `{"v": 1, "changes": [...]}`, or `"v": 2` when an
+    /// entry carries a revision set.
     pub fn to_file(&self) -> ChangesFile {
         ChangesFile {
-            v: CHANGES_V,
+            v: if self.0.iter().any(|c| c.rev.is_some()) {
+                2
+            } else {
+                1
+            },
             changes: self.0.clone(),
         }
     }
 
     pub fn from_file(f: ChangesFile) -> Result<Changes, String> {
-        if f.v != CHANGES_V {
+        if f.v == 0 || f.v > CHANGES_V {
             return Err(format!(
                 "the change table is version {}; this version reads {CHANGES_V}",
                 f.v
@@ -184,7 +197,7 @@ impl Changes {
     /// unknown author and time 0 (docs/specs/bundle.md §7).
     pub fn fill_to(&mut self, id: ChangeId) {
         while (self.0.len() as u64) < id.0 {
-            self.push(ChangeBy::unknown(), 0);
+            self.push(ChangeBy::unknown(), 0, None);
         }
     }
 }
@@ -244,6 +257,10 @@ pub struct Retyped {
     pub centered: bool,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub depth: u8,
+    /// The blank lines above the block, when the retype cleared them (a
+    /// note or synopsis has none of its own).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub space_before: Option<u8>,
 }
 
 /// Where a moved scene stood: before `before`, or at the end; and the last
@@ -467,8 +484,8 @@ mod tests {
     #[test]
     fn the_table_is_numbered_from_one() {
         let mut t = Changes::default();
-        let a = t.push(ChangeBy::of(&Author::writer()), 5);
-        let b = t.push(ChangeBy::of(&Author::agent("claude", None)), 6);
+        let a = t.push(ChangeBy::of(&Author::writer()), 5, None);
+        let b = t.push(ChangeBy::of(&Author::agent("claude", None)), 6, None);
         assert_eq!((a, b), (ChangeId(1), ChangeId(2)));
         assert_eq!(t.get(ChangeId(2)).unwrap().by.display(), "claude");
         assert_eq!(t.get(ChangeId(1)).unwrap().by.display(), "Writer");
@@ -486,7 +503,7 @@ mod tests {
         assert!(Changes::from_entries(gap).is_err());
         // The fingerprint of a prefix stays the same as the table grows.
         let fp = t.fingerprint(2).unwrap();
-        t.push(ChangeBy::unknown(), 7);
+        t.push(ChangeBy::unknown(), 7, None);
         assert_eq!(t.fingerprint(2), Some(fp));
         assert_ne!(t.fingerprint(3), Some(fp));
         assert!(t.fingerprint(4).is_none());
@@ -503,6 +520,7 @@ mod tests {
                 dual: false,
                 centered: true,
                 depth: 0,
+                space_before: None,
             }],
             ..Default::default()
         };

@@ -29,7 +29,7 @@ may undo only your own steps. Your edits are tracked changes the writer reviews:
 is its current text, with pending deletions left out, and changes_list shows what is waiting. You may \
 withdraw your own changes with changes_reject; accepting is the writer's.";
 
-const URIS: [(&str, &str, &str, &str); 5] = [
+const URIS: [(&str, &str, &str, &str); 9] = [
     (
         "coldopen://doc/fountain",
         "Script as Fountain",
@@ -59,6 +59,30 @@ const URIS: [(&str, &str, &str, &str); 5] = [
         "Tracked changes",
         "application/json",
         "The pending tracked changes: who made each, when, and what it inserts and deletes.",
+    ),
+    (
+        "coldopen://doc/revisions",
+        "Revision sets",
+        "application/json",
+        "The production revision sets: color, label, date, which is active, and the blocks and pages each marks.",
+    ),
+    (
+        "coldopen://report/scenes",
+        "Scenes report",
+        "application/json",
+        "Every scene: heading, setting, location, time, page, length, words and the characters who speak.",
+    ),
+    (
+        "coldopen://report/characters",
+        "Characters report",
+        "application/json",
+        "Every speaker, most words first: speeches, printed dialogue lines, words, scenes and first page.",
+    ),
+    (
+        "coldopen://report/locations",
+        "Locations report",
+        "application/json",
+        "Every location by name, split by setting and time of day, with its scenes.",
     ),
 ];
 
@@ -144,6 +168,21 @@ impl ColdOpen {
                 let r = result(self.call("changes.list", json!({}), client, tool).await)?;
                 Ok((pretty(&r), "application/json"))
             }
+            "coldopen://doc/revisions" => {
+                let r = result(self.call("revision.list", json!({}), client, tool).await)?;
+                Ok((pretty(&r), "application/json"))
+            }
+            "coldopen://report/scenes"
+            | "coldopen://report/characters"
+            | "coldopen://report/locations" => {
+                let command = match uri {
+                    "coldopen://report/scenes" => "report.scenes",
+                    "coldopen://report/characters" => "report.characters",
+                    _ => "report.locations",
+                };
+                let r = result(self.call(command, json!({}), client, tool).await)?;
+                Ok((pretty(&r), "application/json"))
+            }
             _ => {
                 let id = uri
                     .strip_prefix("coldopen://scene/")
@@ -192,7 +231,9 @@ fn client_name(ctx: &RequestContext<RoleServer>) -> String {
 }
 
 fn is_ours(uri: &str) -> bool {
-    uri.starts_with("coldopen://doc/") || uri.starts_with("coldopen://scene/")
+    uri.starts_with("coldopen://doc/")
+        || uri.starts_with("coldopen://scene/")
+        || uri.starts_with("coldopen://report/")
 }
 
 #[allow(deprecated)]

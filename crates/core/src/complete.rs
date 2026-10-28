@@ -113,28 +113,21 @@ fn by_use_then_builtin(builtin: &[&str], tally: &Tally) -> Vec<(String, usize)> 
     list.into_iter().map(|(v, c, _, _)| (v, c)).collect()
 }
 
-/// The text of a character's extension, inside its first brackets.
+/// The text of a character's extension, inside its first brackets
+/// (docs/specs/reports.md §2).
 fn extension_of(text: &str) -> Option<String> {
-    let open = text.find('(')?;
-    let rest = &text[open + 1..];
-    let close = rest.find(')').unwrap_or(rest.len());
-    Some(upper(rest[..close].trim()))
+    coldopen_screenplay::names::speaker(text)?
+        .extensions
+        .into_iter()
+        .next()
 }
 
-/// A scene heading's location and time: the text after the first space, up
-/// to and after the last " - ".
+/// A scene heading's location and time, read as the reports read them
+/// (docs/specs/reports.md §3), in capitals.
 fn location_and_time(text: &str) -> (Option<String>, Option<String>) {
-    let Some(sp) = text.find(' ') else {
-        return (None, None);
-    };
-    let rest = &text[sp + 1..];
-    match rest.rfind(" - ") {
-        Some(d) => (
-            Some(upper(rest[..d].trim())),
-            Some(upper(rest[d + 3..].trim())),
-        ),
-        None => (Some(upper(rest.trim())), None),
-    }
+    let h = coldopen_screenplay::names::heading(text);
+    let location = (!h.location.is_empty()).then(|| upper(&h.location));
+    (location, h.time.as_deref().map(upper))
 }
 
 fn char_index(s: &str, byte: usize) -> usize {

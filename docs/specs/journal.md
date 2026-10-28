@@ -1,6 +1,6 @@
 # Crash journal and atomic saves
 
-- **Date:** 2026-10-13, updated 2026-10-15, 2026-10-16 and 2026-10-18
+- **Date:** 2026-10-13, updated 2026-10-15, 2026-10-16, 2026-10-18 and 2026-10-22 (phase 5b: `semantics` 3 and the revision table in the header)
 - **Status:** implemented in `crates/core` (phases 1, 3 and 4, and the review fixes of 2026-10-16). Phase 5a (2026-10-18: `semantics` 2 and the `tracked` param, `doc_id`, the change data and how the header names it, bundles) is being implemented.
 - **Sources:** `docs/spec.md` (Reliability features, File formats), `CLAUDE.md` (Reliability), the phase 3 brief and its approved decisions (2026-10-15), the reviews of phases 1–3 (2026-10-15, listed in `docs/progress/review-fixes.md`; section "F18" there for the decisions at the end), the phase 4 brief and its decisions (2026-10-16, `docs/progress/phase-4.md`), the phase 5a brief and its decisions (2026-10-18, `docs/progress/phase-5a.md`), `docs/specs/changes.md`, `docs/specs/bundle.md`. No external material.
 
@@ -22,7 +22,7 @@
 | --- | --- |
 | `doc` | A full snapshot of the base document, with ids and `next_id`. This makes the journal self-contained: recovery works even if the script file was changed, damaged or deleted. |
 | `disk` | The length and FNV-1a 64-bit hash of the script file as last saved, or null if it has never been saved. It is used only to notice changes made by other programs. |
-| `semantics` | (2026-10-16) What replaying the entries means. It goes up whenever a command's replay changes meaning, because results alone cannot show that ("What replay compares"). Absent means 1. A journal with a higher number than this version knows is treated like an unreadable header: kept aside, never replayed. **2** since phase 5a (2026-10-18): edits can be tracked changes, and every edit entry says whether it is ("Entries"). |
+| `semantics` | (2026-10-16) What replaying the entries means. It goes up whenever a command's replay changes meaning, because results alone cannot show that ("What replay compares"). Absent means 1. A journal with a higher number than this version knows is treated like an unreadable header: kept aside, never replayed. **2** since phase 5a (2026-10-18): edits can be tracked changes, and every edit entry says whether it is ("Entries"). **3** since phase 5b (2026-10-22): while a revision set is active, edits and `changes.accept` mark what they change (`docs/specs/revisions.md` §6). The active set is in the header's document and is changed only by journaled commands, so replay marks what the edits marked. Journals of semantics 1 and 2 have no revision sets, so they replay exactly as before. |
 | `doc_id` | (2026-10-18, phase 5a) For a bundle, the document's identity (`docs/specs/bundle.md` §8). Absent for other formats. |
 | `changes`, `changes_ref` | (2026-10-18, phase 5a) The document's change table ("The change data"). For a bundle, `changes_ref` names it; for other formats, `changes` holds it. Both are absent when the table is empty. |
 | `host`, `path` | (2026-10-16) The computer's name and the script's canonical path when the header was written. Absent in older journals. |
@@ -41,6 +41,8 @@
 All four are left out when absent, so a Fountain journal is byte for byte what it was. Builds from before phase 4 cannot read a header that holds them: they keep such a journal aside as unreadable (recovery step 1), and never replay or lose it.
 
 Since phase 5a (2026-10-18) the blocks carry their tracked-change marks (`docs/specs/changes.md` §2), and `doc` may hold `tracking`, the tracking switches (absent means the defaults). The change table is not in `doc`; it is the header's `changes` or `changes_ref`.
+
+Since phase 5b (2026-10-22) the blocks may carry revision marks (`rev`), and `doc` may hold `revisions`, the revision table (`docs/specs/revisions.md` §3), absent when it is the default. It holds one entry per distributed draft and a list of color names, so it is copied into every header, for a bundle too, rather than named by fingerprint as the change table is. A header holding it is always `semantics` 3, which earlier builds keep aside unread.
 
 The header holds one copy of the store, written at each save, as it already held one copy of the blocks. The store holds only the kept parts of the file (`docs/specs/fdx.md` §13.2): about a tenth of Big Fish's paragraphs, and its settings. `crates/fdx/tests/roundtrip.rs` reports its size for every corpus file.
 
@@ -256,7 +258,7 @@ Added 2026-10-16 (phase 4). Journals and set-aside copies start with a dot, whic
 
 Added 2026-10-16 (phase 4). Set-aside copies hold work a writer may want back, so they are never deleted silently, and writers never need to know where they are.
 
-**What is listed.** For a script, every file in its folder named after its journal plus `.discarded-<ms>`, `.corrupt-<ms>`, `.diverged-<ms>` or (2026-10-21) `.marked-<ms>`, and every damaged original, `.<name>.coldopen-original-<ms>`. A `.marked` copy is the journal as it stood just before a save to Fountain or .fdx accepted the script's pending changes (`docs/specs/commands.md`, `doc.save`), so it replays to the version with them marked. The time is the `<ms>` in the name, so copying a folder keeps it. `recovered.list` (`docs/specs/commands.md`) lists them, newest first. The desktop app shows them for the open script, the recent scripts and the untitled scripts in `Unsaved/` (`docs/specs/editor.md`).
+**What is listed.** For a script, every file in its folder named after its journal plus `.discarded-<ms>`, `.corrupt-<ms>`, `.diverged-<ms>` or (2026-10-21) `.marked-<ms>`, and every damaged original, `.<name>.coldopen-original-<ms>`. A `.marked` copy is the journal as it stood just before a save to Fountain or .fdx accepted the script's pending changes (`docs/specs/commands.md`, `doc.save`), or (2026-10-22) took out its revision marks, so it replays to the version with them marked. The time is the `<ms>` in the name, so copying a folder keeps it. `recovered.list` (`docs/specs/commands.md`) lists them, newest first. The desktop app shows them for the open script, the recent scripts and the untitled scripts in `Unsaved/` (`docs/specs/editor.md`).
 
 **Preview.** A journal copy is replayed exactly as recovery would replay it (steps 1 and 2 of "Recovery on open"), without touching the disk, and the document it reaches is shown. A damaged original is read as its script would be. A copy whose header cannot be read is listed as unreadable: it can be deleted, not restored.
 

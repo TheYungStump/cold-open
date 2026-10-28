@@ -9,6 +9,7 @@ use coldopen_screenplay::{
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::changes::{BlockMarks, Changes, Tracking};
+use crate::revisions::{RevisionId, Revisions};
 
 /// A block's stable id. Opaque to clients; written as `b_<n>`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -59,13 +60,15 @@ impl<'de> Deserialize<'de> for BlockId {
     }
 }
 
-/// One element of the document with its id, and its structural tracked
-/// changes (docs/specs/changes.md §2.2).
+/// One element of the document with its id, its structural tracked
+/// changes (docs/specs/changes.md §2.2), and the revision set that last
+/// changed the whole block (docs/specs/revisions.md §4.2).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Block {
     pub id: BlockId,
     pub element: Element,
     pub marks: BlockMarks,
+    pub rev: Option<RevisionId>,
 }
 
 impl Block {
@@ -75,6 +78,7 @@ impl Block {
             id,
             element,
             marks: BlockMarks::default(),
+            rev: None,
         }
     }
 }
@@ -86,6 +90,8 @@ struct BlockOut<'a> {
     element: ElementRepr,
     #[serde(skip_serializing_if = "BlockMarks::is_empty")]
     change: &'a BlockMarks,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rev: Option<RevisionId>,
 }
 
 impl Serialize for Block {
@@ -94,6 +100,7 @@ impl Serialize for Block {
             id: self.id,
             element: ElementRepr::from_element(&self.element),
             change: &self.marks,
+            rev: self.rev,
         }
         .serialize(s)
     }
@@ -111,9 +118,18 @@ impl<'de> Deserialize<'de> for Block {
             Some(v) => serde_json::from_value(v).map_err(D::Error::custom)?,
             None => BlockMarks::default(),
         };
+        let rev: Option<RevisionId> = match map.remove("rev") {
+            Some(v) => Some(serde_json::from_value(v).map_err(D::Error::custom)?),
+            None => None,
+        };
         let element: Element =
             serde_json::from_value(serde_json::Value::Object(map)).map_err(D::Error::custom)?;
-        Ok(Block { id, element, marks })
+        Ok(Block {
+            id,
+            element,
+            marks,
+            rev,
+        })
     }
 }
 
@@ -151,6 +167,11 @@ pub struct Document {
     /// defaults.
     #[serde(default, skip_serializing_if = "Tracking::is_default")]
     pub tracking: Tracking,
+    /// The revision table (docs/specs/revisions.md §3); absent when it is
+    /// the default. A bundle keeps it in `revisions.json` instead
+    /// (docs/specs/bundle.md §5.1).
+    #[serde(default, skip_serializing_if = "Revisions::is_default")]
+    pub revisions: Revisions,
     /// The change table. Not part of the document's JSON: a journal header
     /// holds or names it, and a bundle keeps it in `changes.json`
     /// (docs/specs/journal.md, "The change data").
@@ -271,6 +292,14 @@ impl Document {
             }
             if b.element.text.runs().iter().any(|r| r.marks().show) {
                 return Err(format!("block {} holds a print-only mark", b.id));
+            }
+            // Every revision mark names a set the table has
+            // (docs/specs/revisions.md §3).
+            if let Some(r) = b.rev_ids().find(|&r| self.revisions.get(r).is_none()) {
+                return Err(format!(
+                    "block {} names {r}, which the revision table does not have",
+                    b.id
+                ));
             }
             if b.marks.moved.iter().any(|m| {
                 m.before.is_some_and(|id| id.0 >= self.next_id) || m.last.0 >= self.next_id
@@ -430,7 +459,7 @@ mod tests {
         let mut d = doc(&[ElementKind::Action]);
         d.blocks[0].marks.deleted = Some(ChangeId(1));
         assert!(d.check().is_err());
-        d.changes.push(ChangeBy::unknown(), 0);
+        d.changes.push(ChangeBy::unknown(), 0, None);
         assert!(d.check().is_ok());
     }
 

@@ -22,6 +22,10 @@ clap.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+# The diff budget's drafts: the synthetic script, written as Fountain.
+coldopen-layout.workspace = true
+coldopen-fountain.workspace = true
+coldopen-screenplay.workspace = true
 # The agent gate runs the desktop app headless in the test process.
 coldopen-app.workspace = true
 iced.workspace = true

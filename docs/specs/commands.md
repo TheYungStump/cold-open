@@ -1,7 +1,7 @@
 # Command schema, version 1
 
 - **Date:** 2026-10-13, updated 2026-10-15, 2026-10-16 and 2026-10-18
-- **Status:** implemented in `crates/core` (phase 1; `export.pdf`, the `pages` export and scene pages added in phase 2, 2026-10-13; phase 3's keystroke editing, undo grouping, authors, `batch`, find, completion, history and `doc.revert`, 2026-10-15; phase 4's .fdx support, `export.fdx`, `export.fountain`, `file.repair` and the `recovered.*` commands, 2026-10-16). Phase 5a (2026-10-18) adds bundles, tracked changes (the `tracked` param, `changes.list`, `changes.accept`, `changes.reject`, `changes.track`), `export.pdf`'s `changes`, and loss classes; they are being implemented.
+- **Status:** implemented in `crates/core` (phase 1; `export.pdf`, the `pages` export and scene pages added in phase 2, 2026-10-13; phase 3's keystroke editing, undo grouping, authors, `batch`, find, completion, history and `doc.revert`, 2026-10-15; phase 4's .fdx support, `export.fdx`, `export.fountain`, `file.repair` and the `recovered.*` commands, 2026-10-16). Phase 5a (2026-10-18) added bundles, tracked changes (the `tracked` param, `changes.list`, `changes.accept`, `changes.reject`, `changes.track`), `export.pdf`'s `changes`, and loss classes. Phase 5b (2026-10-22) adds revision sets (`revision.*`), the title page commands (`title.*`), the reports (`report.*`), `diff` and `changes.import`, and `export.pdf`'s `revision_pages`; they are being implemented.
 - **Sources:** `docs/spec.md` (Command interface, File formats), `CLAUDE.md` (Commands), the phase 3 brief (2026-10-15), the reviews of phases 1–3 (2026-10-15, listed in `docs/progress/review-fixes.md`), the phase 4 brief and its decisions (2026-10-16, `docs/progress/phase-4.md`), the phase 5a brief and its decisions (2026-10-18, `docs/progress/phase-5a.md`), `docs/specs/fdx.md`, `docs/specs/bundle.md`, `docs/specs/changes.md`. No external material.
 
 Every action in Cold Open is a command. The desktop app, the CLI, JSON over stdio and the MCP server all send the same commands to one dispatcher.
@@ -54,6 +54,7 @@ A block is its id plus the element fields from the screenplay model:
 - **`text`** is always the printed text as a plain string, with `\n` for line breaks. With tracked changes it is the **current text**: pending deletions are left out (2026-10-18, `docs/specs/changes.md` §2.1).
 - **`runs`** appears only when the text has styles, hidden runs or tracked-change marks. It is a list of `{"text", "bold"?, "italic"?, "underline"?, "ins"?, "del"?}`, `{"note"}` or `{"boneyard"}`. Inputs may give `text` (a literal plain string) or `runs`. `ins` and `del` name a pending change (2026-10-18). Marks are only ever made by tracked edits, so in input a run with `del` is left out and an `ins` is ignored: runs read from `doc.get` can be sent back as they are, and stand for the current text.
 - **`change`** (2026-10-18) appears only on a block with pending structural marks (`inserted`, `deleted`, `retyped`, `split`, `joined`, `moved`; `docs/specs/changes.md` §2.2). It is read-only: commands that take a block's fields do not accept it.
+- **Revision marks** (2026-10-22). A text run may also carry `"rev": "r_2"`, and a block `"rev": "r_2"` beside `change` (`docs/specs/revisions.md` §4). Both are read-only, like `change`: a run's `rev` in input is ignored, as `ins` is, and commands that take a block's fields do not accept the block's.
 - **Optional attributes** appear only when set:
 
   | Attribute | Applies to | Value |
@@ -158,6 +159,7 @@ Notes on each command:
     3. The save goes ahead with the accepted document, so its result lists no `tracked_changes` loss.
 
     A `changes_accepted` warning says so: `details` gives `count`, the changes accepted, and `copy`, the copy's path (left out when the session keeps no journal). Undo brings the marks back, unsaved. Should the save then fail, as with `file_changed`, the acceptance stays; undo takes it back. A save as a bundle keeps every mark, so it accepts nothing.
+  - **Saving revision marks away** (2026-10-22). The same holds for revision data (`revision_marks`, `docs/specs/revisions.md` §9). After step 2, the revision table and every revision mark are reset to the default, as one more undoable step by the writer ("Clear revisions"). A `revisions_cleared` warning gives `sets` and `blocks`, and the copy of step 1, which is made once for both.
   - Saving in place over a file that another program changed since this session last read or wrote it fails with `file_changed` (2026-10-16; `docs/specs/journal.md`, "Saving"). `overwrite: true` replaces it anyway. Only a writer may pass `overwrite`; from an agent it fails with `writer_only`.
   - While a save off the UI thread is being written, `doc.save` fails with `save_in_progress` (2026-10-16; `docs/specs/journal.md`, "One save at a time"). Try again when it has finished.
 - **`doc.close`**
@@ -192,6 +194,11 @@ Opening or creating a document while another is open first closes the open one. 
 | `history.list` | — | `{undo: [{command, label, by}], redo: [...]}` |
 | `changes.list` | `scene?` | `{changes: [{id, by, t, kinds, blocks, scene, inserted, deleted}]}` |
 | `recovered.list` | `path?` | `{copies: [{copy, script, kind, at, unread, readable}]}` |
+| `revision.list` | — | `{active, colors, sets: [{id, color, label, date, started, ended, blocks, pages}]}` (2026-10-22) |
+| `title.get` | — | `{form, keys, lines}` (2026-10-22) |
+| `report.scenes` | — | `{scenes: [...]}` (2026-10-22, `docs/specs/reports.md` §4.1) |
+| `report.characters` | — | `{characters: [...]}` (2026-10-22, §4.2 there) |
+| `report.locations` | — | `{locations: [...]}` (2026-10-22, §4.3 there) |
 
 `rev` (2026-10-15) counts the edits, undos and redos applied since the document was opened, created or reverted. It never goes down while the document stays open, so a client can tell whether anything changed since it last looked.
 
@@ -214,7 +221,7 @@ Added 2026-10-18 (phase 5a). Every save, export and `doc.export` lists what the 
 
 | `class` | Meaning | Refuses a save without `allow_lossy` |
 | --- | --- | --- |
-| `lost` | The format cannot hold it, so it is changed or left out: a Shot in Fountain, a note in .fdx, pending tracked changes in either (`tracked_changes`, `docs/specs/changes.md` §9). | yes |
+| `lost` | The format cannot hold it, so it is changed or left out: a Shot in Fountain, a note in .fdx, pending tracked changes in either (`tracked_changes`, `docs/specs/changes.md` §9), and (2026-10-22) revision sets and marks in either (`revision_marks`, `docs/specs/revisions.md` §9). | yes |
 | `normalized` | Written in the format's normal form, which prints the same and reads back differently (`docs/specs/fountain.md` §10, finding F21): a trailing space, two dialogue blocks written as one. | no |
 
 Clients that do not know `class` can treat every loss as before. A `normalized` loss is never asked about in the desktop app.
@@ -258,6 +265,13 @@ For `scene.list`:
 | `changes.accept` | `id`, `scene` or `all` | `{changes, count, skipped}` |
 | `changes.reject` | `id`, `scene` or `all` | `{changes, count, skipped}` |
 | `changes.track` | `writer?`, `agents?` | `{writer, agents}` |
+| `changes.import` | `path`, `name?` | `{change, edits, skipped}` (2026-10-22) |
+| `revision.start` | `color?`, `label?`, `date?` | `{set}` (2026-10-22) |
+| `revision.end` | — | `{set}` (2026-10-22) |
+| `revision.colors` | `colors` | `{colors}` (2026-10-22) |
+| `revision.clear` | `set` or `all` | `{count}` (2026-10-22) |
+| `title.set` | `key`, `values`, `at?` | `{}` (2026-10-22) |
+| `title.set_lines` | `lines` | `{}` (2026-10-22) |
 
 **Tracked edits** (2026-10-18). `block.insert`, `block.set_type`, `block.set_text`, `block.delete`, `block.split`, `block.join`, `text.insert`, `text.delete`, `text.replace` and `scene.move` also take `tracked?`, a boolean. When it is absent, the document's tracking switches decide, for the command's author; the value used is journaled. A tracked edit records a change and names it in its result as `change`: `{"id": "b_9", "change": "c_4"}`, `{"change": "c_4"}` where the result is otherwise `{}`, and in a `batch`'s result and in each of its `results`. What each edit does when tracked, and which edits are refused (`change_pending`, `not_your_change`), is in `docs/specs/changes.md` §5. An agent's `tracked: false` while its edits are tracked fails with `writer_only`.
 
@@ -330,13 +344,38 @@ The track-changes commands (2026-10-18; `docs/specs/changes.md` §6 and §8):
   - Turns tracking of the writer's edits (`writer`) or of every agent's edits (`agents`) on or off for this document. Switches not given stay as they are. The result gives both as they now are.
   - An edit: one undo step ("Track changes"), journaled, and the document is unsaved after it. A bundle keeps the switches; Fountain and .fdx files open with the defaults (writer off, agents on).
   - Writer-only: an agent gets `writer_only`.
+- **`changes.import`** (2026-10-22; `docs/specs/diff.md` §6)
+  - Compares the open document's current text with the draft at `path`, and applies the differences as tracked edits by a writer named `name` (by default the draft's file name without its extension), as one undo step and one change.
+  - Restyled blocks, changed attributes and the title page cannot be tracked, so they are listed in `skipped` and not applied.
+  - Journaled as the `batch` of tracked edits it resolved, by a writer of that name, so replay never reads the draft (2026-10-25). It may not be inside a `batch` itself.
+  - Refused with `change_pending` while the document has tracked changes waiting (2026-10-25).
+  - Writer-only: an agent gets `writer_only`.
+
+The revision commands (2026-10-22; `docs/specs/revisions.md` §5):
+
+- **`revision.start`** adds a set and makes it active. Without `color` it takes the next color in the document's list, without `label` "<color> Rev.", and without `date` today's date in UTC (`YYYY-MM-DD`). The values used are journaled. It fails with `revision_active` while a set is active (`details.active`), and with `invalid_params` for a date that is not a real calendar date from 1900 to 9999, or a color or label that breaks the naming rules.
+- **`revision.end`** ends the active set: `revision_not_active` when there is none.
+- **`revision.colors`** replaces the document's list of color names (1 to 64 names, each 1 to 32 characters, no line breaks, no two the same ignoring case).
+- **`revision.clear`** removes the marks of one set (`set`) or of every set (`all: true`); the sets stay. An unknown set fails with `revision_not_found`.
+- **While a set is active**, every edit that changes what prints marks what it changed, and accepting a tracked change marks what it did (`docs/specs/revisions.md` §6). The marks are part of the edit's undo step.
+- All four are one undo step each and journaled. They are writer-only: an agent gets `writer_only`. `revision.list` is a query anyone may send.
+
+The title page commands (2026-10-22, decided with the project's owner):
+
+- **`title.set`** sets one Fountain title-page key: `key` (1 to 64 characters, as `docs/specs/fountain.md` §4 allows a key to be written), and `values`, each a plain string or a list of runs, as a block's text is given. Each value is one line of text with no space at either end, since Fountain trims values when it reads them (`docs/specs/fountain.md` §4); an empty value, or one with a line break or space at an end, fails with `invalid_params` (2026-10-25). An empty `values` removes the key. A key not yet there is added at `at` (a 0-based position) or at the end. Keys match ignoring case, so `title.set` with `"title"` changes `Title`.
+- **`title.set_lines`** replaces the positioned title lines (`docs/specs/fdx.md` §7): each `{text or runs, align, left, right, space_before}`, with `align` `left`, `center` or `right`, `left` and `right` in points from the paper's left edge, forming a column of at least one cell on the page, and `space_before` in points from 0 to the page body's height (`invalid_attr` otherwise). An empty list removes the title page.
+- **The form.** A document holds its title page as lines when it has any, and as keys otherwise (`title.get`'s `form`: `"keys"` or `"lines"`). `title.set` on a document with lines, or `title.set_lines` on one with keys, fails with `title_form`, naming the form it has. Converting between them is a Save as (`doc.save`).
+- **Never tracked and never revision-marked.** Each is one undo step ("Title page"), journaled.
+- **Agents.** While the document's `tracking.agents` switch is on, an agent's `title.set` or `title.set_lines` fails with `writer_only`, so every agent edit stays reviewable. With it off, an agent may send them like the writer. Enforced in core by author.
+
+The reports (2026-10-22): `report.scenes`, `report.characters` and `report.locations` are queries with no params, defined in `docs/specs/reports.md` §4.
 
 
 ### Output
 
 | Command | Params | Result |
 | --- | --- | --- |
-| `export.pdf` | `path`, `watermark?`, `scene_numbers?`, `title_page?`, `changes?`, `overwrite?` | `{path, pages, bytes, warnings}` |
+| `export.pdf` | `path`, `watermark?`, `scene_numbers?`, `title_page?`, `changes?`, `revision_pages?`, `overwrite?` | `{path, pages, bytes, warnings}` |
 | `export.fdx` | `path`, `allow_lossy?`, `overwrite?` | `{path, format, bytes, losses}` |
 | `export.fountain` | `path`, `allow_lossy?`, `overwrite?` | `{path, format, bytes, losses}` |
 
@@ -345,6 +384,7 @@ The track-changes commands (2026-10-18; `docs/specs/changes.md` §6 and §8):
   - `path` must end in `.pdf`, otherwise `unsupported_format`. It may never be the open document or its crash journal (`would_overwrite_document`). A file already there is replaced only with `overwrite: true`, otherwise `already_exists` (2026-10-16). Only a writer may pass `overwrite` (`writer_only`). The CLI's `export` subcommand passes it, since its output is named on the command line, as `convert` replaces its output.
   - `watermark` is text printed diagonally under every page. `scene_numbers` (default false) prints scene numbers beside headings. `title_page` (default true) includes the title page when the script has one.
   - `changes` (2026-10-18) is `"marked"` (the default) or `"accepted"`. Marked prints pending tracked changes as the editor shows them: deletions struck through, insertions in their author's color. Accepted prints the script as accepting every change would leave it (`docs/specs/changes.md` §9). A script with no pending changes prints the same either way.
+  - `revision_pages` (2026-10-22) is `"white"` (the default, decided with the project's owner) or `"colored"`: each body page with a revision header filled with its set's paper color (`docs/specs/revisions.md` §7.3). Asterisks and revision headers print either way.
   - `pages` counts the PDF's pages, title page included. It is never 0: a document with nothing to print gives one blank page, with the watermark if one is given (2026-10-14).
   - `warnings` lists `{code, message, chars?, id?}`: characters the bundled font cannot print, in the script or the watermark (`missing_glyph`, `missing_mark`), and layout diagnostics such as `dual_too_tall`, with the block `id` when there is one.
   - It is not undoable, not journaled, and leaves `dirty` as it was. Journal replay never runs it.
@@ -360,6 +400,13 @@ The track-changes commands (2026-10-18; `docs/specs/changes.md` §6 and §8):
 | --- | --- | --- |
 | `file.repair` | `path`, `out`, `overwrite?` | `{out, bytes, repaired, issues}` |
 | `recovered.delete` | `copy` | `{}` |
+| `diff` | `a?`, `b`, `pdf?`, `overwrite?` | `{v, a, b, compared, summary, title_page, scenes, text, pdf?}` (2026-10-22) |
+
+- **`diff`** (2026-10-22; `docs/specs/diff.md`)
+  - Compares two drafts, each a `.fountain`, `.fdx` or `.coldopen` path. Without `a`, the open document, as it stands, is the first draft.
+  - The result is the JSON of `docs/specs/diff.md` §4.1, plus `text`, the readable summary.
+  - With `pdf`, it also writes B with the changes marked, as `export.pdf` writes a file: it must end in `.pdf`, may not be either draft, the open document or its journal, and replaces a file only with `overwrite`, which only a writer may pass.
+  - It needs no open document unless `a` is left out, and never changes the open one.
 
 - **`file.repair`** (2026-10-16)
   - Reads the .fdx file at `path`, repairing what it can (`docs/specs/fdx.md` §17), and writes the result to `out`, atomically. `path` is never written.
@@ -408,7 +455,7 @@ Undo is unlimited. A new edit clears the redo history.
 | `would_overwrite_document` | An output command was asked to write over the open document or its journal. |
 | `save_in_progress` | Another save of the document is being written; nothing changed. Retryable. |
 | `file_changed` | Another program changed the file since the document last read or wrote it; nothing was saved. `overwrite` replaces it. |
-| `writer_only` | An agent passed a choice only the writer may make (`overwrite`, `allow_lossy`, or since 2026-10-18 `tracked: false` while its edits are tracked), or sent a command only the writer may send (`recovered.restore`, `recovered.delete`, `changes.accept`, `changes.track`). |
+| `writer_only` | An agent passed a choice only the writer may make (`overwrite`, `allow_lossy`, or since 2026-10-18 `tracked: false` while its edits are tracked), or sent a command only the writer may send (`recovered.restore`, `recovered.delete`, `changes.accept`, `changes.track`; since 2026-10-22 `changes.import`, `revision.start`, `revision.end`, `revision.colors`, `revision.clear`, and `title.set` or `title.set_lines` while its edits are tracked). |
 | `would_overwrite_input` | `file.repair` was asked to write over the file it reads (2026-10-16). |
 | `copy_unreadable` | `recovered.restore` was given a copy whose header cannot be read (2026-10-16). |
 | `invalid_range` | An offset is past the end of the block's text, or `from` is after `to`. |
@@ -418,4 +465,8 @@ Undo is unlimited. A new edit clears the redo history.
 | `change_pending` | (2026-10-18) The block is a pending deletion; settle its change first (`details`: `id`, `change`). |
 | `change_conflict` | (2026-10-18) A change cannot be carried out as it stands: a moved scene cannot be moved back, because the block it stood before is gone, or blocks it would join can no longer be joined. |
 | `not_your_change` | (2026-10-18) An agent tried to reject another author's change, or an edit would remove or change another author's mark (`docs/specs/changes.md` §5.4, §6). |
+| `revision_active` | (2026-10-22) `revision.start` while a set is active; `details.active` names it. |
+| `revision_not_active` | (2026-10-22) `revision.end` with no active set. |
+| `revision_not_found` | (2026-10-22) No revision set with that id. |
+| `title_form` | (2026-10-22) `title.set` on a document whose title page is positioned lines, or `title.set_lines` on one whose title page is keys; `details.form` names the form it has. |
 | `internal_error` | Something that should never happen, such as damaged bundled fonts. |

@@ -115,6 +115,10 @@ pub enum LineKind {
     SceneNumber,
     /// A title-page line.
     Title,
+    /// The asterisk beside a line a revision set changed (§18).
+    RevisionMark,
+    /// A revised page's header: the newest set's label and date (§18).
+    RevisionHeader,
 }
 
 /// One cluster of a placed line.
@@ -178,6 +182,9 @@ pub struct Page {
     /// Where the page starts and where the next one starts.
     pub start: Cursor,
     pub next: Cursor,
+    /// The newest revision set marking a line here, once
+    /// [`crate::Layout::mark_revisions`] has run (§18).
+    pub revision: Option<u64>,
 }
 
 /// Placement of part of an element on a page.

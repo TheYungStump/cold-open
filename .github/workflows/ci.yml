@@ -94,6 +94,15 @@ jobs:
         env:
           COLDOPEN_PERF: "1"
         run: cargo test --release --locked -p coldopen-layout --test perf -- --nocapture
+      # docs/specs/diff.md §1 (decided 2026-10-22).
+      - name: Two 120-page scripts diffed in memory under 100 ms
+        env:
+          COLDOPEN_PERF: "1"
+        run: cargo test --release --locked -p coldopen-diff --test perf -- --nocapture
+      - name: coldopen diff end to end under 500 ms
+        env:
+          COLDOPEN_PERF: "1"
+        run: cargo test --release --locked -p coldopen-cli --test diff_budget -- --nocapture
 
   refpdf:
     name: PDF goldens read back

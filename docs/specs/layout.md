@@ -1,7 +1,7 @@
 # Layout and pagination
 
 - **Date:** 2026-10-13
-- **Status:** implemented in `crates/layout` (phase 2; §15 in phase 3; phase 4, 2026-10-16, lays .fdx documents out with their own format and overrides as they are edited, §4.8, §15.2). Phase 5a (2026-10-18) adds tracked-change marks (§17), being implemented.
+- **Status:** implemented in `crates/layout` (phase 2; §15 in phase 3; phase 4, 2026-10-16, lays .fdx documents out with their own format and overrides as they are edited, §4.8, §15.2). Phase 5a (2026-10-18) added tracked-change marks (§17). Phase 5b (2026-10-22) adds production revision marks (§18), being implemented.
 - **Sources:**
   - `docs/spec.md`, "Formatting and pagination rules": the page defaults table and the seven page-break rules. That section summarizes two public format guides, Highland's "Standard Screenplay Format" and the NFI screenplay-format page. Neither guide could be fetched from this build environment, so this document relies only on the spec's summary of them.
   - `docs/specs/fountain.md`: the element model, `space_before`, transparent elements, and dual dialogue.
@@ -486,7 +486,9 @@ The editor also marks where each body page starts, using the spans of §10.
 ## 16. Not yet supported
 
 - Scene "CONTINUED" headers and footers. The format can hold them, the .fdx reader reports them, and they don't print.
-- Production revision marks and colors (phase 5b), and locked or A-pages.
+- Locked pages and A-pages. (2026-10-22: production revision marks and colors are §18.)
+- Fallback fonts, right-to-left text and complex scripts.
+- Selectable templates (A4, television).
 
 ## 17. Tracked changes
 
@@ -509,5 +511,18 @@ Layout knows nothing about authors or changes. Core hands it one of the document
 - A cell with a `mark` is drawn in its author's color. Slots are taken in turn from this list, starting again after the last: `#0072B2`, `#D55E00`, `#009E73`, `#CC79A7`, `#3C3C99`, `#8F5A00`. The first four are Okabe–Ito colors; the last two are darker blends of its blue and orange, since its lighter colors are too faint for text on white.
 - A struck cell gets a filled rectangle at the face's strikeout position and thickness (from the font's `OS/2` table; 0.3 em and 0.05 em when the face has none), covering its cells, in the same color, drawn with the text, as underline is.
 - Bytes stay deterministic: the colors are fixed numbers, and the drawing order follows the cells.
-- Fallback fonts, right-to-left text and complex scripts.
-- Selectable templates (A4, television).
+
+## 18. Production revision marks
+
+Added 2026-10-22 (phase 5b). Sources: `docs/specs/revisions.md` and the sources it lists. Status: being implemented.
+
+Layout knows no sets, colors or dates. Core hands it the marks and, for each set number, the header text it prints.
+
+- **Nothing about measuring.** A revision mark is not text. It changes no cells, wraps or page breaks, so a script prints on the same pages with or without marks.
+- **Each cell's `Look`** gains `rev`, the set number of its run's `rev` mark. An element with a block mark gives the set number to all its lines.
+- **A marked line** is a line holding a cell with `rev`, or a line of an element with a block mark, as `docs/specs/revisions.md` §7.1 defines it. The line records its newest set (the highest number). Inserted lines, (MORE) and continued names are never marked. In dual dialogue, a marked line in either column marks the row.
+- **The asterisk.** A marked line gets a `*` 0.4 in from the paper's right edge, on its baseline: at 8.1 in on US Letter, clear of a right scene number at 7.6 in. When a scene number printed on the right of that line reaches it anyway, the asterisk goes in the first cell after the number. **Resolution:** it is a fixed distance, not a page-format field, so a format read before phase 5b, or a bundle of version 1, is unchanged.
+- **The header.** A body page with a marked line has a revision header: the newest set's text among its lines, right-aligned on the header line to end three cells before the page number's first cell, or at `page_numbers.right` when the page number does not print.
+- **How core asks for it.** `Layout::mark_revisions` takes each whole-element mark by element index and each set's header text by set number (`RevisionMarks`), adds the asterisk and header lines to the body pages, and records each page's newest set (`Page::revision`). It takes off any marks it added before, so it runs again after any change. Pagination never sees it.
+- **The page view** (§11) shows the asterisks and the header text as the page prints them, so the goldens cover both.
+- **In the PDF**, the asterisk and the header are ordinary text in the regular face. With `revision_pages: "colored"`, a page with a revision header is first filled edge to edge with that set's paper color, given by core, under the watermark and the text. Revision marks never change the color of the text.

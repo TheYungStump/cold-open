@@ -73,7 +73,59 @@ impl schemars::JsonSchema for ChangeId {
     }
 }
 
-/// The tracked-change marks of a text run (docs/specs/changes.md §2.1).
+/// A production revision set's id, written `r_<n>`
+/// (docs/specs/revisions.md §3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct RevisionId(pub u64);
+
+impl fmt::Display for RevisionId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "r_{}", self.0)
+    }
+}
+
+impl RevisionId {
+    pub fn parse(s: &str) -> Option<RevisionId> {
+        let n = s.strip_prefix("r_")?;
+        if n.is_empty() || !n.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        n.parse().ok().filter(|&n| n > 0).map(RevisionId)
+    }
+}
+
+impl Serialize for RevisionId {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_str(self)
+    }
+}
+
+impl<'de> Deserialize<'de> for RevisionId {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<RevisionId, D::Error> {
+        let s = String::deserialize(d)?;
+        RevisionId::parse(&s)
+            .ok_or_else(|| serde::de::Error::custom(format!("\"{s}\" is not a revision set id")))
+    }
+}
+
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for RevisionId {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "RevisionId".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "description": "A production revision set's id, such as \"r_2\".",
+            "type": "string",
+            "pattern": "^r_[1-9][0-9]*$"
+        })
+    }
+}
+
+/// The marks of a text run: tracked changes (docs/specs/changes.md §2.1)
+/// and the production revision set that last changed it
+/// (docs/specs/revisions.md §4.1).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Marks {
     /// The run is a pending insertion by this change.
@@ -85,6 +137,9 @@ pub struct Marks {
     /// Print forms only: the deletion prints, struck through, so it counts
     /// as printed text. Never stored or read from JSON.
     pub show: bool,
+    /// The newest revision set that changed this text. Not a tracked
+    /// change: it never takes offsets or prints differently.
+    pub rev: Option<RevisionId>,
 }
 
 impl Marks {
@@ -92,10 +147,17 @@ impl Marks {
         ins: None,
         del: None,
         show: false,
+        rev: None,
     };
 
+    /// No tracked-change marks (a revision mark may still be there).
     pub fn is_none(&self) -> bool {
         self.ins.is_none() && self.del.is_none()
+    }
+
+    /// No marks at all, tracked or revision.
+    pub fn is_clear(&self) -> bool {
+        self.is_none() && self.rev.is_none()
     }
 
     /// Whether the run is left out of the current text.
@@ -235,7 +297,7 @@ impl RichText {
     /// `text` alone describes it fully.
     pub fn is_simple(&self) -> bool {
         self.runs.iter().all(|r| match r {
-            Run::Text { style, marks, .. } => style.is_plain() && marks.is_none(),
+            Run::Text { style, marks, .. } => style.is_plain() && marks.is_clear(),
             _ => false,
         })
     }
@@ -268,6 +330,31 @@ impl RichText {
     /// Whether any run carries a tracked-change mark.
     pub fn has_marks(&self) -> bool {
         self.runs.iter().any(|r| !r.marks().is_none())
+    }
+
+    /// Whether any run carries a revision mark.
+    pub fn has_revisions(&self) -> bool {
+        self.runs.iter().any(|r| r.marks().rev.is_some())
+    }
+
+    /// The text with its revision marks taken off.
+    pub fn without_revisions(&self) -> RichText {
+        RichText::new(
+            self.runs
+                .iter()
+                .map(|r| match r {
+                    Run::Text { text, style, marks } => Run::marked(
+                        text.clone(),
+                        *style,
+                        Marks {
+                            rev: None,
+                            ..*marks
+                        },
+                    ),
+                    hidden => hidden.clone(),
+                })
+                .collect(),
+        )
     }
 
     pub fn has_hidden(&self) -> bool {
@@ -316,6 +403,8 @@ struct RunRepr {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     del: Option<ChangeId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    rev: Option<RevisionId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     note: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     boneyard: Option<String>,
@@ -331,6 +420,7 @@ impl Serialize for Run {
                 underline: style.underline,
                 ins: marks.ins,
                 del: marks.del,
+                rev: marks.rev,
                 note: None,
                 boneyard: None,
             },
@@ -341,6 +431,7 @@ impl Serialize for Run {
                 underline: false,
                 ins: None,
                 del: None,
+                rev: None,
                 note: Some(n.clone()),
                 boneyard: None,
             },
@@ -351,6 +442,7 @@ impl Serialize for Run {
                 underline: false,
                 ins: None,
                 del: None,
+                rev: None,
                 note: None,
                 boneyard: Some(b.clone()),
             },
@@ -367,7 +459,7 @@ impl schemars::JsonSchema for Run {
 
     fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
         schemars::json_schema!({
-            "description": "A run of text with its style, or a hidden note or boneyard run. Exactly one of text, note and boneyard. ins and del name a pending tracked change; in input a del run is left out and ins is ignored.",
+            "description": "A run of text with its style, or a hidden note or boneyard run. Exactly one of text, note and boneyard. ins and del name a pending tracked change; in input a del run is left out and ins is ignored. rev names the revision set that last changed the text; in input it is ignored.",
             "type": "object",
             "properties": {
                 "text": {"type": "string"},
@@ -376,6 +468,7 @@ impl schemars::JsonSchema for Run {
                 "underline": {"type": "boolean"},
                 "ins": {"type": "string", "pattern": "^c_[1-9][0-9]*$"},
                 "del": {"type": "string", "pattern": "^c_[1-9][0-9]*$"},
+                "rev": {"type": "string", "pattern": "^r_[1-9][0-9]*$"},
                 "note": {"type": "string"},
                 "boneyard": {"type": "string"}
             },
@@ -397,14 +490,15 @@ impl<'de> Deserialize<'de> for Run {
             ins: r.ins,
             del: r.del,
             show: false,
+            rev: r.rev,
         };
         match (r.text, r.note, r.boneyard) {
             (Some(text), None, None) => Ok(Run::Text { text, style, marks }),
             (None, Some(_), None) | (None, None, Some(_)) if !style.is_plain() => Err(
                 D::Error::custom("bold, italic and underline apply only to text runs"),
             ),
-            (None, Some(_), None) | (None, None, Some(_)) if !marks.is_none() => {
-                Err(D::Error::custom("ins and del apply only to text runs"))
+            (None, Some(_), None) | (None, None, Some(_)) if !marks.is_clear() => {
+                Err(D::Error::custom("ins, del and rev apply only to text runs"))
             }
             (None, Some(n), None) => Ok(Run::Note(n)),
             (None, None, Some(b)) => Ok(Run::Boneyard(b)),

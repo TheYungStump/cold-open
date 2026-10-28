@@ -15,6 +15,7 @@ schema = ["dep:schemars", "coldopen-screenplay/schema"]
 [dependencies]
 coldopen-screenplay.workspace = true
 coldopen-fountain.workspace = true
+coldopen-diff.workspace = true
 coldopen-layout.workspace = true
 coldopen-fdx.workspace = true
 serde.workspace = true

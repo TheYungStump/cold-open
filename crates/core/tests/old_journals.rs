@@ -3,7 +3,9 @@
 //! made are in `tests/fixtures/journal/README.md`. Since phase 5a they are
 //! journals of semantics 1, replayed with no edit tracked
 //! (docs/specs/journal.md), and a recovered one goes on with entries of
-//! semantics 2.
+//! semantics 2. Since phase 5b a journal of semantics 2, written by the
+//! phase 5a build with tracked changes in it, replays with no revision
+//! marking and goes on with entries of semantics 3.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -23,12 +25,13 @@ fn ok(d: &mut Dispatcher, command: &str, params: Value) -> Value {
 }
 
 /// The phases whose builds wrote a fixture journal, each with its script.
-const PHASES: [(&str, &str); 5] = [
+const PHASES: [(&str, &str); 6] = [
     ("phase1", "lighthouse.fountain"),
     ("phase2", "lighthouse.fountain"),
     ("phase3", "lighthouse.fountain"),
     ("phase4", "lighthouse.fountain"),
     ("phase4-fdx", "lighthouse.fdx"),
+    ("phase5a", "lighthouse.fountain"),
 ];
 
 fn script_of(phase: &str) -> &'static str {
@@ -204,4 +207,58 @@ fn an_old_journal_goes_on_with_tracked_edits_and_recovers_again() {
         }
         d.discard();
     }
+}
+
+/// The phase 5a journal, with tracked changes pending in it, recovers on
+/// this computer after the upgrade; a revision set then marks new edits
+/// (semantics 3) on top, and after a second crash everything comes back:
+/// the old pending changes, the new marks and the set.
+#[test]
+fn a_phase_5a_journal_goes_on_with_revision_marks_and_recovers_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("lighthouse.fountain");
+    fs::copy(fixture("lighthouse.fountain"), &script).unwrap();
+    fs::copy(fixture("phase5a.journal"), journal::path_for(&script)).unwrap();
+    restamp(&script);
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, "doc.open", json!({"path": script}));
+    assert_eq!(
+        r["recovered"]["commands"].as_u64(),
+        Some(entries("phase5a") as u64),
+        "{r}"
+    );
+    let pending = ok(&mut d, "changes.list", json!({}))["changes"].clone();
+    assert_eq!(
+        pending.as_array().unwrap().len(),
+        2,
+        "the 5a build left two pending: {pending}"
+    );
+    // Nothing the 5a entries did is marked.
+    assert_eq!(ok(&mut d, "revision.list", json!({}))["sets"], json!([]));
+    ok(&mut d, "revision.start", json!({"date": "2026-10-26"}));
+    ok(
+        &mut d,
+        "text.insert",
+        json!({"id": "b_2", "at": 0, "text": "Far off, "}),
+    );
+    ok(
+        &mut d,
+        "block.set_text",
+        json!({"id": "b_5", "text": "Four ships tonight."}),
+    );
+    let before = ok(&mut d, "doc.get", json!({}))["blocks"].clone();
+    let sets = ok(&mut d, "revision.list", json!({}));
+    assert!(
+        before.to_string().contains("\"rev\""),
+        "the new edits are marked"
+    );
+    drop(d); // a second crash
+
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, "doc.open", json!({"path": script}));
+    assert_eq!(r["warnings"], json!([]), "{r}");
+    assert_eq!(ok(&mut d, "doc.get", json!({}))["blocks"], before);
+    assert_eq!(ok(&mut d, "changes.list", json!({}))["changes"], pending);
+    assert_eq!(ok(&mut d, "revision.list", json!({})), sets);
+    d.discard();
 }

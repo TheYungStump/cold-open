@@ -140,6 +140,11 @@ pub struct Kept {
     /// The title lines read from `TitlePage`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub title_lines: Vec<TitleLine>,
+    /// The file's first `TitlePage` is kept as text: it has no `Content`
+    /// to rewrite, or a repair inside it (§13.5). Lines are never written
+    /// as a second title page, which a reader would not read.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub title_page_text: bool,
 }
 
 impl Kept {
@@ -419,11 +424,14 @@ pub(crate) fn build(src: &Source<'_>) -> Kept {
         paragraphs: BTreeMap::new(),
         loose: Vec::new(),
         title_lines: src.title_lines.to_vec(),
+        title_page_text: false,
         style,
     };
 
     let mut prev = root.open_end;
     let mut content_done = false;
+    // Only the first title page is read (§7), so only it is rewritten.
+    let mut title_done = false;
     let mut pending_text = String::new();
     for c in &root.children {
         let span = child_span(c);
@@ -462,8 +470,15 @@ pub(crate) fn build(src: &Source<'_>) -> Kept {
                     content_parts(src, n, &mut kept);
                 }
             }
-            Child::Element(n) if n.name == "TitlePage" && !n.repaired => {
-                let section = title_page(text, n, &format!("{pending_text}{lead}"));
+            Child::Element(n) if n.name == "TitlePage" && !title_done => {
+                title_done = true;
+                let lead = format!("{pending_text}{lead}");
+                let section = if n.repaired {
+                    Section::Text(format!("{lead}{}", element_text(text, n)))
+                } else {
+                    title_page(text, n, &lead)
+                };
+                kept.title_page_text = matches!(section, Section::Text(_));
                 kept.sections.push(section);
             }
             Child::Element(n) => {
@@ -546,6 +561,65 @@ fn title_page(text: &str, n: &Node, lead: &str) -> Section {
         prev = span.end;
     }
     Section::Text(format!("{lead}{}", text.get(n.span.clone()).unwrap_or("")))
+}
+
+/// A kept title page's `Content`, cut into its paragraphs so that edited
+/// title lines can be written one by one (§13.5).
+pub(crate) struct TitleParts {
+    /// The whitespace before `Content`, and its start tag.
+    pub(crate) open: String,
+    /// Each paragraph as the file has it, with the whitespace before it.
+    pub(crate) paragraphs: Vec<String>,
+    /// What is in `Content` and not a paragraph: `after[0]` before the
+    /// first paragraph, and `after[i + 1]` after paragraph `i`.
+    pub(crate) after: Vec<String>,
+    /// The whitespace before `</Content>`, and the end tag.
+    pub(crate) close: String,
+}
+
+/// `Section::TitlePage`'s `content` as its parts, or `None` when it is not
+/// one closed `Content` element.
+pub(crate) fn title_parts(content: &str) -> Option<TitleParts> {
+    const ROOT: &str = "<FinalDraft>";
+    let text = format!("{ROOT}{content}</FinalDraft>");
+    let mut report = crate::report::Report::default();
+    let tree = crate::xml::parse(&text, &mut report).ok()?;
+    let c = tree.root.child("Content")?;
+    if c.self_closing || !c.closed || c.repaired {
+        return None;
+    }
+    let mut parts = TitleParts {
+        open: text.get(ROOT.len()..c.open_end)?.to_string(),
+        paragraphs: Vec::new(),
+        after: vec![String::new()],
+        close: String::new(),
+    };
+    let mut prev = c.open_end;
+    let mut pending = String::new();
+    for ch in &c.children {
+        let span = child_span(ch);
+        pending.push_str(text.get(prev..span.start)?);
+        let raw = text.get(span.clone())?;
+        prev = span.end;
+        match ch {
+            Child::Element(p) if p.name == "Paragraph" => {
+                parts.paragraphs.push(format!("{pending}{raw}"));
+                parts.after.push(String::new());
+            }
+            Child::Text { .. } if whitespace(raw) => {
+                pending.push_str(raw);
+                continue;
+            }
+            _ => {
+                let last = parts.after.last_mut()?;
+                last.push_str(&pending);
+                last.push_str(raw);
+            }
+        }
+        pending.clear();
+    }
+    parts.close = format!("{pending}{}", text.get(prev..c.span.end)?);
+    Some(parts)
 }
 
 /// `Content`: its end, its loose children, the trailing paragraphs and the

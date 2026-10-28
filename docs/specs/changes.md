@@ -1,7 +1,7 @@
 # Track changes
 
-- **Date:** 2026-10-18
-- **Status:** phase 5a, being implemented in `crates/screenplay` (marks in text runs), `crates/core` (block marks, the change table, tracked edits, settling), `crates/layout` (marked pages) and `crates/app`.
+- **Date:** 2026-10-18, updated 2026-10-26 (§5.1, §5.2: what fuzzing the import found)
+- **Status:** implemented in phase 5a, in `crates/screenplay` (marks in text runs), `crates/core` (block marks, the change table, tracked edits, settling), `crates/layout` (marked pages) and `crates/app`. Phase 5b (2026-10-22) adds the revision set an entry was made under (§3) and `changes.import` (`docs/specs/diff.md` §6).
 - **Sources:**
   - `docs/spec.md`: "Revising", "Reliability features" item 6 (track changes), "Agents edit in the open", and the pain point it answers (added text colored, deleted text not tracked).
   - The review of phases 1–3 (2026-10-15), finding F18.2, as written up in `docs/progress/review-fixes.md` ("F18") and `docs/specs/journal.md` ("Decisions for phase 5").
@@ -53,7 +53,7 @@ A block can carry one mark of each of these kinds (any number of `retyped` and `
 | --- | --- | --- |
 | `inserted` | `{"inserted": "c_5"}` | The block is a pending insertion. |
 | `deleted` | `{"deleted": "c_6"}` | The block is a pending deletion. It stays in the document, its text all marked `del`, until the change is settled. |
-| `retyped` | `{"retyped": [{"change": "c_7", "from": "action", "scene_number": "4"}]}` | The block's type was changed from `from`, once for each entry, oldest first. The attributes a retype cleared (`scene_number`, `dual`, `centered`, `depth`) are kept in its entry, so rejecting it gives them back. |
+| `retyped` | `{"retyped": [{"change": "c_7", "from": "action", "scene_number": "4"}]}` | The block's type was changed from `from`, once for each entry, oldest first. The attributes a retype cleared (`scene_number`, `dual`, `centered`, `depth`, `space_before`) are kept in its entry, so rejecting it gives them back. |
 | `split` | `{"split": "c_8"}` | The block was split off the end of the block before it. |
 | `joined` | `{"joined": "c_9"}` | The block is to be joined to the block before it. It stays a block of its own until the change is accepted. |
 | `moved` | `{"moved": [{"change": "c_10", "before": "b_40", "last": "b_33"}]}` | On a scene heading: the scene was moved, once for each entry. Before the move it stood before `b_40`, or at the end when `before` is null, and the move took the blocks up to `last`. |
@@ -81,6 +81,7 @@ The document holds one entry per change, in the order they were made:
 
 - **Append-only.** An entry is never removed or rewritten while the document lives, in memory or in a bundle (`docs/specs/bundle.md`). Accepting, rejecting or undoing a change removes its marks, not its entry. A change whose marks are all gone is **settled**, and `changes.list` leaves it out. This keeps every undo and redo, including the steps a journal carries across a save, pointing at an entry that exists, and it lets the journal name the table by its length and fingerprint (`docs/specs/journal.md`, "The change data").
 - **Room for phase 5b.** Each entry will be able to carry the revision set it belongs to. That comes with a new `v` for the table, so a 5a build never misreads a 5b table.
+- **The revision set** (2026-10-22, phase 5b; `docs/specs/revisions.md` §6.3). An entry made while a revision set is active carries it as `rev`: `{"id": "c_7", "by": {...}, "t": 1761140000000, "rev": "r_2"}`. Accepting the change marks its text with the set active then, or, with none, with this one. A table with any `rev` is written as `{"v": 2, ...}`; one without is written as `v: 1`, byte for byte as before. Readers take both. A phase 5a build reads only `v: 1`, and never meets a `v: 2` table: the bundle holding one is `meta.json` version 2, which it refuses (`docs/specs/bundle.md` §3), and a journal header holding one has `semantics` 3, which it keeps aside unread (`docs/specs/journal.md`).
 
 ## 4. The tracking switches
 
@@ -115,6 +116,7 @@ Here *the author* is the edit's author (`docs/specs/commands.md`, "Authors and u
   - words only in the old text are deleted as `text.delete` deletes, and placed where they stood, before any new words at the same place;
   - pending deletions already in the block stay where they were;
   - notes and boneyard are taken from the new text as given.
+  - **Resolution (2026-10-26):** when the new text has the same notes and boneyard as the old, in the same order, they stay where they stood in the old text, as pending deletions do. Taken from the new text, an unchanged note could move to where the new text had it, and rejecting the edit could not move it back. Found by a local run of the `diff` check, through `changes.import`.
 
   The comparison finds the common start and end, then the longest common sequence of words in between. When the two texts between those have more than 1,000,000 pairs of words to compare, it stops there: the old middle is deleted and the new middle inserted, as one deletion and one insertion. The result depends only on the two texts.
 - **`text.style` is not tracked** (§10). It restyles the current text, marked or not.
@@ -128,6 +130,8 @@ Here *the author* is the edit's author (`docs/specs/commands.md`, "Authors and u
 - **`block.set_type`.**
   - The author's own pending inserted block simply changes type.
   - Otherwise the block is marked `retyped`, with the type it had and the attributes the change clears. Every retype is kept as its own entry, oldest first, so rejecting undoes them in turn, even when the block is changed back to its first type.
+  - **Resolution (2026-10-26):** a retype that would drop the block's text, as one into a page break does, is refused with `invalid_attr`. The `retyped` mark keeps the type and attributes but not text, so rejecting it gave back the type and an empty block. Found by the `diff` fuzz target through `changes.import`. The writer can delete the block and insert the new one, or make the retype untracked, which undo takes back whole.
+  - **Resolution (2026-10-26, later):** the same holds for styles, which a retype into a note or boneyard block drops, so that retype is refused too when the text has any. The blank lines above a block, which a retype into a note, synopsis or section clears, are kept in the mark as `space_before`, and rejecting puts them back. Both were found by a local run of the `diff` check.
 - **`block.split`.**
   - At the end of the text, with nothing moving to the new block, the new block is an insertion, marked `inserted`. This is what Enter at the end of a line sends.
   - Anywhere else, the new block is marked `split`, and the text it takes keeps its marks.
@@ -238,9 +242,9 @@ A document with pending changes has two print forms:
 
 ## 10. Not tracked in phase 5a
 
-- Styles (`text.style`) and block attributes (`block.set_attrs`): they change how text looks, not what it says.
+- Styles (`text.style`) and block attributes (`block.set_attrs`): they change how text looks, not what it says. (2026-10-22: they still get production revision marks while a set is active, `docs/specs/revisions.md` §6.1.)
 - Notes and boneyard inside a line: they never print, and a run of them carries no marks. Note and boneyard blocks are tracked like any other block, so their text can carry marks.
-- The title page, the page format and paragraph spacing: no command changes them yet.
+- The title page, the page format and paragraph spacing: no command changes them yet. (2026-10-22, phase 5b: `title.set` and `title.set_lines` change the title page. They are never tracked, decided with the project's owner, `docs/specs/commands.md`.)
 
 ## 11. Testing
 

@@ -1,6 +1,6 @@
 # .fdx: how Cold Open reads and writes it
 
-- **Date:** 2026-10-13, updated 2026-10-14, 2026-10-16 (phase 4: the writer, passthrough, round trip and repair, §12 to §17), 2026-10-17 (the corpus downloads, and how the markup style is read, §13.1) and 2026-10-18 (phase 5a: tracked changes are written as their accepted form, §15)
+- **Date:** 2026-10-13, updated 2026-10-14, 2026-10-16 (phase 4: the writer, passthrough, round trip and repair, §12 to §17), 2026-10-17 (the corpus downloads, and how the markup style is read, §13.1), 2026-10-18 (phase 5a: tracked changes are written as their accepted form, §15), 2026-10-22 (phase 5b: revision marks are a loss, §15) and 2026-10-25 (phase 5b: edited title lines keep what the file held, §13.5)
 - **Status:** the phase 2 reader is implemented in `crates/fdx` (package `coldopen-fdx`). Phase 4 (2026-10-16) adds the writer, the passthrough store, resyncing after syntax errors and the repair report; they are being implemented.
 - **Sources:**
   - Seven publicly shared .fdx files from the MIT-licensed repository <https://github.com/SimonGZ/jumpcut>, path `tests/fixtures/corpus/public/<name>/source/source.fdx`, downloaded 2026-10-13. They are kept in the gitignored `corpus/` folder and identified by the first 12 hex digits of their sha256:
@@ -470,7 +470,17 @@ A loose child is anchored to the last block of the paragraph group before it in 
 ### 13.5 Settings, the title page and the header
 
 - **Settings sections** (`ElementSettings`, `PageLayout`, `MoresAndContinueds`, `SceneNumberOptions`, `HeaderAndFooter`) are written back as kept. No phase 4 command changes the page format, and values the model rejects stay as the file has them (§9). A command that edits the page format (a later phase) will rewrite only the attributes whose value it changed.
-- **The title page** is written back as kept while the document's title lines equal the lines read from it. Otherwise its `Content` is generated from the title lines (§14.3), and the rest of the `TitlePage` section (its `HeaderAndFooter` and `TextState`) is kept.
+- **The title page** is written back as kept while the document's title lines equal the lines read from it. Otherwise its `Content` is written line by line, and the rest of the `TitlePage` section (its `HeaderAndFooter` and `TextState`) is kept.
+  - **Resolution (2026-10-25, phase 5b's title page editor):** the document's lines are aligned with the lines read, by the longest common subsequence of equal lines (`coldopen_screenplay::words::common`). Between two aligned pairs, the lines of the document and the lines read are paired in order.
+    - A line equal to the line read is written as its paragraph in the file, with the whitespace before it.
+    - A line paired with one read is that line edited. It is generated (§14.3), carrying from the paragraph it replaces, as §14.4 does for the script: attributes other than the four §14.3 writes, in their source spelling; each of those four as the file spelled it (or left out, if the file left it out) while the line's value equals the value read and the reader took it as written, and the line's value otherwise; children other than `Text` (`Tabstops`), in the same position relative to the runs; and run attributes other than `Style`, per character.
+    - Any other line of the document is generated (§14.3). A line read and no longer in the document is left out.
+    - Anything else in `Content` (comments, unknown elements, text) stays after the paragraph it followed, where that paragraph was, even when that paragraph is left out.
+    - A title page whose `Content` cannot be cut into the paragraphs that were read, or whose lines have more than `MAX_PAIRS` pairs to compare, is generated whole, as before.
+    - Only the first `TitlePage` is read (§7), so only it is rewritten. A later one is written back as kept. Before this resolution the writer rewrote every `TitlePage` from the document's lines once they changed.
+
+    Why: before the title page editor, nothing edited title lines, so generating the whole `Content` again lost nothing anyone could reach. With the editor, changing one line would drop what the reader keeps from all the others: tab stops, first-line indents, `Full` alignment, spellings of values and run attributes.
+  - **A title page kept as text** (a section with a structural repair, §13.1, with something other than whitespace before its `Content`, or with no `Content` at all, such as `<TitlePage/>`) cannot be rewritten. While the document's title lines differ from the lines read, the save reports a `title_page_kept` loss, so they are not dropped without a question (2026-10-25). **Resolution (2026-10-26):** this holds for new lines too. Lines given to a file whose title page has no `Content` were written as a second `TitlePage`, which a reader never reads, when the first came before `Content`. Found by the `fdx_roundtrip` fuzz target.
 - **A section kept as a tree** (a `fixed` issue inside it) is written with the file's newline and indent, one element per line, attributes in their source order and quoted with `"`, text escaped as §14.2 says, and empty elements as `<X/>`.
 
 ### 13.6 Where the store lives
@@ -578,6 +588,7 @@ Writing .fdx lists these losses, each with the block it concerns. A save refuses
 | `inline_note` | a note inside text | the text without it |
 | `inline_boneyard` | boneyard inside text | the text without it |
 | `title_page_keys` | Fountain title-page keys | the lines, without their key names (§14.3) |
+| `title_page_kept` | edits to a title page the store keeps as text (§13.5) | the title page as the file had it |
 | `dual_unpaired` | a dual flag layout would not pair | an ordinary speech |
 | `invalid_xml_char` | characters XML cannot hold | the text without them |
 | `spacing_out_of_range` | space above a paragraph (an override, or blank lines) outside 0 to the page body's height, which the reader would not accept (§6.4) | the paragraph without it |
@@ -586,6 +597,8 @@ Writing .fdx lists these losses, each with the block it concerns. A save refuses
 **Decision (2026-10-16, with the project's owner).** No public .fdx sample shows how anchored script notes are stored, so the clean room gives nothing to write notes from. Notes, boneyard, sections and synopses are therefore losses, as a Shot is for Fountain. If a public sample with anchored script notes turns up, notes will be mapped to it.
 
 A save also reports `reencoded` when the file was read as Windows-1252 or with bytes replaced, and is about to be written as UTF-8 (`docs/specs/journal.md`, "Encoding").
+
+**Production revisions** (2026-10-22, phase 5b; `docs/specs/revisions.md` §9). A document with revision sets or revision marks is written without them, and the save reports a `revision_marks` loss for the document, as for tracked changes. A file's own `Revisions` section (Brick & Steel has one) is passed through untouched, as every section is (§13). It is never read into the document's revision table, and never written from it. **Decision (2026-10-22, the phase 5b brief):** no public sample shows how revision-marked runs are stored, so marks are not written into .fdx.
 
 **Tracked changes** (2026-10-18, phase 5a; `docs/specs/changes.md` §9). A document with pending tracked changes is written from its accepted form, the script as accepting every change would leave it, and the save reports a `tracked_changes` loss for the document, as a Fountain save does (`docs/specs/fountain.md` §12). Edited paragraphs are then generated as §14.4 says. **Decision (2026-10-18, with the project's owner):** no public .fdx sample shows how marked runs are stored. Some runs carry a `RevisionID` (§6.2), but nothing in the corpus shows what it refers to, or how deleted text would be kept (§11). So the clean room gives us nothing to write tracked changes from, and they are not mapped. If a public file with revision-marked runs turns up, mapping them becomes its own task.
 
@@ -621,4 +634,4 @@ The property tests generate documents, write them, read them back and compare wi
 
 ## 18. Not yet
 
-Act breaks and other custom types as model elements; revision sets, marks and colors; script notes (§15); header and footer content and geometry beyond the page number (§5.3); scene numbering options; locked pages; A4 and other page sizes as templates.
+Act breaks and other custom types as model elements; reading or writing revision sets, marks and colors in .fdx (2026-10-22: Cold Open keeps them in projects, §15); script notes (§15); header and footer content and geometry beyond the page number (§5.3); scene numbering options; locked pages; A4 and other page sizes as templates.

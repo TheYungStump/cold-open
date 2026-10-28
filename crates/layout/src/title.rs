@@ -140,6 +140,7 @@ fn finish(p: Placer<'_>) -> Vec<Page> {
                 diagnostics,
                 start: Cursor::START,
                 next: Cursor::START,
+                revision: None,
             }
         })
         .collect()

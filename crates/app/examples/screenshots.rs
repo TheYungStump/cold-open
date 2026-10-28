@@ -15,8 +15,11 @@ fn shot(app: &App, out: &std::path::Path, name: &str) {
     let snap = sim.snapshot(&theme).unwrap();
     let path = out.join(format!("cold-open-{name}.png"));
     // iced_test adds the renderer's name to the file name, and only
-    // writes the file when it does not exist yet.
-    let _ = std::fs::remove_file(out.join(format!("cold-open-{name}-tiny-skia.png")));
+    // writes the file when it does not exist yet: the GPU's renderer, or
+    // tiny-skia without one.
+    for renderer in ["tiny-skia", "wgpu"] {
+        let _ = std::fs::remove_file(out.join(format!("cold-open-{name}-{renderer}.png")));
+    }
     snap.matches_image(&path).unwrap();
 }
 
@@ -33,7 +36,9 @@ fn shot_hovering(app: &App, out: &std::path::Path, name: &str, on: &str) {
     })]);
     let snap = sim.snapshot(&theme).unwrap();
     let path = out.join(format!("cold-open-{name}.png"));
-    let _ = std::fs::remove_file(out.join(format!("cold-open-{name}-tiny-skia.png")));
+    for renderer in ["tiny-skia", "wgpu"] {
+        let _ = std::fs::remove_file(out.join(format!("cold-open-{name}-{renderer}.png")));
+    }
     snap.matches_image(&path).unwrap();
 }
 
@@ -93,6 +98,53 @@ fn tracked_demo(app: &mut App) {
         serde_json::json!({ "id": second, "at": *len, "text": " Somewhere a gull answers." }),
         &agent,
     );
+}
+
+/// A Blue revision set on the first page: words added to the first
+/// action, the start of the second taken out, and a speech retyped.
+fn revisions_demo(app: &mut App) {
+    use coldopen_core::Command;
+    let run = |app: &mut App, name: &str, params: serde_json::Value| {
+        let cmd = Command::from_parts(name, params).unwrap();
+        app.d.execute(cmd).unwrap();
+    };
+    run(
+        app,
+        "revision.start",
+        serde_json::json!({ "date": "2026-10-22" }),
+    );
+    let doc = &app.d.session().unwrap().doc;
+    let actions: Vec<(coldopen_core::BlockId, usize)> = doc
+        .blocks
+        .iter()
+        .filter(|b| b.element.kind == coldopen_screenplay::ElementKind::Action)
+        .take(2)
+        .map(|b| (b.id, b.element.text.char_len()))
+        .collect();
+    let speech = doc
+        .blocks
+        .iter()
+        .find(|b| b.element.kind == coldopen_screenplay::ElementKind::Dialogue)
+        .map(|b| b.id);
+    let (first, len) = &actions[0];
+    run(
+        app,
+        "text.insert",
+        serde_json::json!({ "id": first, "at": *len, "text": " The kettle clicks off." }),
+    );
+    let (second, _) = &actions[1];
+    run(
+        app,
+        "text.delete",
+        serde_json::json!({ "id": second, "from": 0, "to": 4 }),
+    );
+    if let Some(id) = speech {
+        run(
+            app,
+            "text.insert",
+            serde_json::json!({ "id": id, "at": 0, "text": "Listen. " }),
+        );
+    }
 }
 
 fn main() {
@@ -194,6 +246,73 @@ fn main() {
         shot(&app, &out, &format!("{name}-changes"));
         app.d.discard();
 
+        // Phase 5b (editor.md §18): a Blue set with an insertion, a
+        // deletion and a retype on the first page, and the start form.
+        let mut app = App::new(Boot {
+            file: Some(script.clone()),
+            dirs: Some(coldopen_app::files::Dirs::under(&home)),
+            theme: Some(theme),
+            every_entry: true,
+            ..Boot::default()
+        });
+        app.banners.clear();
+        revisions_demo(&mut app);
+        // The edits went straight to the dispatcher.
+        let _ = app.refresh();
+        let _ = app.update(Message::Tick);
+        settle(&mut app);
+        shot(&app, &out, &format!("{name}-revisions"));
+        let _ = app.update(Message::Action("app.revision_end".into()));
+        app.banners.clear();
+        let _ = app.update(Message::Action("app.revision_start".into()));
+        shot(&app, &out, &format!("{name}-revision-form"));
+        let _ = app.update(Message::Escaped);
+        // The report view (editor.md §20), on the characters.
+        let _ = app.update(Message::Action("app.reports".into()));
+        let _ = app.update(Message::ReportTab(1));
+        shot(&app, &out, &format!("{name}-reports"));
+        app.reports = None;
+        // The title page sheet (editor.md §19), keys and then lines.
+        let _ = app.update(Message::Action("app.title_page".into()));
+        shot(&app, &out, &format!("{name}-title-keys"));
+        app.title_sheet = None;
+        app.d.discard();
+        let fdx = home.join("lighthouse.fdx");
+        std::fs::copy(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/fixtures/fdx/title-page.fdx"),
+            &fdx,
+        )
+        .unwrap();
+        let mut app = App::new(Boot {
+            file: Some(fdx),
+            dirs: Some(coldopen_app::files::Dirs::under(&home)),
+            theme: Some(theme),
+            ..Boot::default()
+        });
+        settle(&mut app);
+        let _ = app.update(Message::Action("app.title_page".into()));
+        shot(&app, &out, &format!("{name}-title-lines"));
+        app.d.discard();
+
+        // Compare with… (editor.md §21), on the diff crate's two drafts.
+        let fixtures =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../diff/tests/fixtures");
+        let (a, b) = (home.join("draft-a.fountain"), home.join("draft-b.fountain"));
+        std::fs::copy(fixtures.join("a.fountain"), &a).unwrap();
+        std::fs::copy(fixtures.join("b.fountain"), &b).unwrap();
+        let mut app = App::new(Boot {
+            file: Some(a),
+            dirs: Some(coldopen_app::files::Dirs::under(&home)),
+            theme: Some(theme),
+            ..Boot::default()
+        });
+        settle(&mut app);
+        let _ = app.update(Message::Chosen(coldopen_app::files::Ask::Compare, Some(b)));
+        let _ = app.update(Message::Compare(coldopen_app::app::CompareInput::Row(3)));
+        shot(&app, &out, &format!("{name}-compare"));
+        app.d.discard();
+
         // Phase 4's screens (editor.md §13): a set-aside notice on the start
         // screen, Recovered versions, and the repair report.
         let mut app = App::new(Boot {
@@ -207,6 +326,13 @@ fn main() {
         app.editor.insert_text(&mut app.d, "x");
         let _ = app.update(Message::Action("app.close".into()));
         let _ = app.update(Message::Reply(Reply::DontSave));
+        // A recent file on a drive that isn't connected (editor.md §11).
+        let unplugged = std::path::PathBuf::from("Z:/Writing/low-tide (old draft).fountain");
+        app.settings.recent.push(unplugged.clone());
+        let _ = app.update(Message::RecentChecked {
+            checked: vec![unplugged.clone()],
+            missing: vec![unplugged],
+        });
         shot(&app, &out, &format!("{name}-set-aside"));
         let _ = app.update(Message::Action("app.recovered".into()));
         shot(&app, &out, &format!("{name}-recovered"));

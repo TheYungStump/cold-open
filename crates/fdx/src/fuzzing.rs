@@ -364,6 +364,124 @@ fn check(doc: &FdxDoc) -> Result<(), String> {
     Ok(())
 }
 
+/// Reads `data`, edits its title lines as `ops` chooses (two bytes per
+/// edit: which edit, and where), and writes it back with its store
+/// (docs/specs/fdx.md §13.5). What was written must read with nothing to
+/// repair as the same script with the edited lines, and every line the
+/// edits left alone must be written as a paragraph of the file that reads
+/// as that line.
+pub fn title_edit(data: &[u8], ops: &[u8]) -> Result<(), String> {
+    use coldopen_screenplay::{Align, TitleLine};
+
+    let Ok(doc) = crate::read(data) else {
+        return Ok(());
+    };
+    let title = |kept: &crate::Kept| {
+        kept.sections.iter().find_map(|s| match s {
+            crate::Section::TitlePage { content, .. } => crate::kept::title_parts(content),
+            _ => None,
+        })
+    };
+    let parts = title(&doc.kept).filter(|p| p.paragraphs.len() == doc.title_lines.len());
+    let mut lines = doc.title_lines.clone();
+    // Which line of the file each line is, while no edit has touched it.
+    let mut origin: Vec<Option<usize>> = (0..lines.len()).map(Some).collect();
+    let (left, right) = (
+        doc.format.elements.action.left,
+        doc.format.elements.action.right,
+    );
+    for (n, op) in ops.chunks(2).enumerate() {
+        let (what, at) = (op[0] % 4, usize::from(*op.get(1).unwrap_or(&0)));
+        if lines.is_empty() && what != 2 {
+            continue;
+        }
+        let i = at % lines.len().max(1);
+        match what {
+            0 => {
+                lines[i].text = RichText::plain(format!("Edited {n}"));
+                origin[i] = None;
+            }
+            1 => {
+                lines.remove(i);
+                origin.remove(i);
+            }
+            2 => {
+                let i = at % (lines.len() + 1);
+                let line = TitleLine {
+                    text: RichText::plain(format!("New {n}")),
+                    align: Align::Center,
+                    left,
+                    right,
+                    space_before: Pt::ZERO,
+                };
+                lines.insert(i, line);
+                origin.insert(i, None);
+            }
+            _ => {
+                lines[i].align = [Align::Left, Align::Center, Align::Right][at % 3];
+                lines[i].space_before = Pt::points(i32::from(op[0] % 48));
+                origin[i] = None;
+            }
+        }
+    }
+    let written = crate::write(&Doc {
+        blocks: doc.blocks(),
+        format: &doc.format,
+        title_lines: &lines,
+        kept: Some(&doc.kept),
+        declare_utf8: matches!(
+            doc.encoding.encoding,
+            crate::Encoding::Windows1252 | crate::Encoding::Lossy
+        ),
+    });
+    if parts.is_none() && written.losses.iter().any(|l| l.code == "title_page_kept") {
+        return Ok(());
+    }
+    if let Some(l) = written.losses.first() {
+        return Err(format!("editing title lines reports a loss: {}", l.code));
+    }
+    let again = crate::read(written.text.as_bytes())
+        .map_err(|e| format!("what was written cannot be read: {e}"))?;
+    if let Some(i) = again.report.iter().find(|i| i.is_repair()) {
+        return Err(format!("what was written needs repair: {}", i.code));
+    }
+    if again.script != doc.script || again.format != doc.format {
+        return Err("editing title lines changed the script".into());
+    }
+    if again.title_lines != lines {
+        return Err("what was written does not read as the edited title lines".into());
+    }
+    // An edit that made a line equal to one of the file's may pair it with
+    // that line in place of one left alone, which is still right.
+    let Some(parts) = parts else {
+        return Ok(());
+    };
+    let made_equal = lines
+        .iter()
+        .zip(&origin)
+        .any(|(l, o)| o.is_none() && doc.title_lines.contains(l));
+    if made_equal {
+        return Ok(());
+    }
+    let out = title(&again.kept).ok_or("what was written has no title page to cut")?;
+    for (j, (line, o)) in lines.iter().zip(&origin).enumerate() {
+        if o.is_none() {
+            continue;
+        }
+        let verbatim = doc
+            .title_lines
+            .iter()
+            .zip(&parts.paragraphs)
+            .any(|(read, p)| read == line && out.paragraphs.get(j) == Some(p));
+        if !verbatim {
+            return Err(format!(
+                "title line {j}, which no edit touched, is not written as the file had it"
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

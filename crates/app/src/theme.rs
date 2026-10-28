@@ -20,6 +20,9 @@ pub enum Choice {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Palette {
     pub high_contrast: bool,
+    /// Which ink a revision color takes in this theme: 0 light, 1 dark, 2
+    /// high contrast (docs/specs/revisions.md §2.3).
+    pub shade: usize,
     /// Behind the pages.
     pub desk: Color,
     pub page: Color,
@@ -62,6 +65,7 @@ const fn rgba(hex: u32, a: f32) -> Color {
 impl Palette {
     pub const LIGHT: Palette = Palette {
         high_contrast: false,
+        shade: 0,
         desk: rgb(0xECEAE4),
         page: rgb(0xFFFFFF),
         page_edge: rgb(0xD3D1C7),
@@ -95,6 +99,7 @@ impl Palette {
 
     pub const DARK: Palette = Palette {
         high_contrast: false,
+        shade: 1,
         desk: rgb(0x1C1C1E),
         page: rgb(0x2A2A2D),
         page_edge: rgb(0x444441),
@@ -128,6 +133,7 @@ impl Palette {
 
     pub const HIGH_CONTRAST: Palette = Palette {
         high_contrast: true,
+        shade: 2,
         desk: rgb(0x000000),
         page: rgb(0x000000),
         page_edge: rgb(0xFFFFFF),

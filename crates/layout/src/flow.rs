@@ -276,16 +276,16 @@ pub(crate) struct FlowInput<'a> {
 
 /// The name as compared for same-speaker continueds: capitals, without an
 /// extension in brackets.
+/// The key that compares speakers (docs/specs/reports.md §2).
 fn speaker_key(e: &Element) -> String {
-    e.character_name().unwrap_or_default().to_uppercase()
+    coldopen_screenplay::names::speaker(&e.text.plain_text())
+        .map(|s| s.key)
+        .unwrap_or_default()
 }
 
 /// True when `name` already carries the continued marker (layout.md §7.5).
 pub(crate) fn has_contd_marker(name: &str, contd: &str) -> bool {
-    let norm = |s: &str| s.to_uppercase().replace('\u{2019}', "'");
-    let n = norm(name);
-    let marker = norm(contd);
-    n.contains(&marker) || n.contains("CONT'D") || n.contains("CONTD")
+    coldopen_screenplay::names::has_contd_marker(name, contd)
 }
 
 /// Measures an element: its printed cells, sentence starts and lines.

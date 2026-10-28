@@ -15,8 +15,10 @@
 mod edit;
 mod element;
 mod format;
+pub mod names;
 mod script;
 mod text;
+pub mod words;
 
 pub use edit::{MarkedSpan, RangeError, Settle, StyleChange};
 pub use element::{Element, ElementKind, ElementRepr};
@@ -25,4 +27,4 @@ pub use format::{
     PageFormat, PageNumbers, Pt, SceneContinueds, SplitMode, TitleLine,
 };
 pub use script::{Script, TitleField, TitlePage};
-pub use text::{ChangeId, Marks, RichText, Run, Style, TextRepr};
+pub use text::{ChangeId, Marks, RevisionId, RichText, Run, Style, TextRepr};

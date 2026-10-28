@@ -26,6 +26,7 @@ Front ends never mutate the document directly. If something can be done in the G
 | `crates/app` | GPL-3.0-or-later | 3 | iced desktop app with a custom page-view editor widget. |
 | `crates/mcp` | GPL-3.0-or-later | 3 | MCP server built on `rmcp`, run as `coldopen mcp`. |
 | `crates/link` | GPL-3.0-or-later | 3 | The private agent link between the app and `coldopen mcp`: session files, handshake, same-user socket or pipe. Keeps rmcp and tokio out of the app. |
+| `crates/diff` | MIT OR Apache-2.0 | 5 | Script diff over `screenplay` types: scene matching with moves, block and word comparison (`docs/specs/diff.md`). |
 
 The MIT/Apache crates must never depend on GPL crates.
 

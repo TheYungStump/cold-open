@@ -1,7 +1,7 @@
 # The Cold Open project bundle (`.coldopen`)
 
-- **Date:** 2026-10-18
-- **Status:** phase 5a, being implemented in `crates/core` (`bundle.rs`, behind the `Format` seam).
+- **Date:** 2026-10-18, updated 2026-10-22 (phase 5b: version 2, `revisions.json`)
+- **Status:** implemented in phase 5a, in `crates/core` (`bundle.rs`, behind the `Format` seam). Version 2 (2026-10-22) is being implemented.
 - **Sources:**
   - `docs/spec.md`, "File formats": a project bundle holds everything Fountain cannot, as an open format documented in the repository.
   - `docs/specs/journal.md`, "Decisions for phase 5" (F18.3, F18.4, written 2026-10-16), and the phase 5a brief and its decisions (2026-10-18, `docs/progress/phase-5a.md`).
@@ -28,6 +28,7 @@ A bundle is a zip archive (APPNOTE.TXT) holding these entries, each at most once
 | `meta.json` | What the file is (§3). |
 | `document.json` | The document (§4). |
 | `changes.json` | The change table (§5). |
+| `revisions.json` | (2026-10-22, version 2 only) The revision table (§5.1). |
 | `script.fountain` | A readable copy of the script (§6). |
 
 **Rules for writers.**
@@ -61,7 +62,9 @@ The same document therefore always gives the same bytes. **Resolution:** a newer
 | Field | Meaning |
 | --- | --- |
 | `format` | Always `"coldopen-bundle"`. |
-| `v` | The bundle format's version, 1. A bundle with a higher `v` was made by a newer Cold Open; it is refused with `unsupported_format` rather than read in part and saved over. |
+| `v` | The bundle format's version, 1 or 2. A bundle with a higher `v` was made by a newer Cold Open; it is refused with `unsupported_format` rather than read in part and saved over. |
+
+**Version 2** (2026-10-22, phase 5b). A bundle whose revision table is not the default (`docs/specs/revisions.md` §3) is written as version 2. It holds `revisions.json`, and its `document.json` may hold revision marks (`rev` in text runs and on blocks). Every other bundle is still written as version 1, byte for byte as before. **Resolution:** a phase 5a build reading a version 2 bundle as version 1 would find fields it does not know in `document.json`, fall back to `script.fountain` (§7), and lose every mark on its next save. The higher `v` makes it refuse the file instead. Version 2 readers take both versions.
 | `app` | The version of the app that wrote the file. Informational. |
 | `doc_id` | The document's identity, apart from its path (§8). |
 
@@ -72,7 +75,7 @@ The document, exactly as the crash journal's header holds it (`docs/specs/journa
 | Field | Meaning |
 | --- | --- |
 | `title_page` | Fountain title-page keys. |
-| `blocks` | The blocks in order, each with its `id`, as in `docs/specs/commands.md` ("Blocks in JSON"), with their marks (`runs` with `ins` and `del`, and `change` on the block; `docs/specs/changes.md` §2). |
+| `blocks` | The blocks in order, each with its `id`, as in `docs/specs/commands.md` ("Blocks in JSON"), with their marks (`runs` with `ins` and `del`, and `change` on the block; `docs/specs/changes.md` §2). In a version 2 bundle (2026-10-22), runs and blocks may also carry `rev` (`docs/specs/revisions.md` §4). |
 | `next_id` | The next block id to hand out. Ids are never reused, so ids survive a save and reopen. |
 | `page_format`, `title_lines`, `spacing`, `fdx` | As in the journal header: the page and element settings, positioned title lines, paragraph spacing by block id, and the .fdx passthrough store. Each is absent when empty. |
 | `tracking` | The tracking switches, `{"writer": bool, "agents": bool}` (`docs/specs/changes.md` §4). Absent means the defaults. |
@@ -92,6 +95,21 @@ The change table, as `docs/specs/changes.md` §3 defines it:
 - The ids run `c_1`, `c_2`, … with no gaps.
 - The table is append-only for the life of the file: a change that has been accepted, rejected or undone keeps its entry.
 - A bundle with no changes has `{"v": 1, "changes": []}`.
+- (2026-10-22) A table whose entries carry a revision set (`rev`) is `{"v": 2, ...}` (`docs/specs/changes.md` §3). It occurs only in a version 2 bundle.
+
+### 5.1 `revisions.json`
+
+Added 2026-10-22 (phase 5b). The revision table, as `docs/specs/revisions.md` §3 defines it:
+
+```json
+{"v": 1, "colors": ["White", "Blue", "Pink"], "active": "r_1", "sets": [
+  {"id": "r_1", "color": "Blue", "label": "Blue Rev.", "date": "2026-10-22", "started": 1761130000000}
+]}
+```
+
+- The ids run `r_1`, `r_2`, … with no gaps, and the table is append-only for the life of the file.
+- Every `rev` mark in `document.json` must name a set here; `active` must name one, when it is present.
+- The entry is written only in a version 2 bundle.
 
 ## 6. `script.fountain`
 
@@ -111,6 +129,7 @@ Cold Open's reader recovers what it can and reports the rest in `doc.open`'s `re
 | `document.json` missing, unreadable, or failing the checks of §4 | `script.fountain` read as a Fountain file. Ids are numbered from `b_1`, and changes and switches are lost. | `bundle_document` (dropped) |
 | Both of those, or `script.fountain` missing too | Nothing: `unsupported_format`. | |
 | `changes.json` missing or unreadable, or missing entries a mark names | The document with its marks. Each change the table lacks gets the author `{"kind": "writer", "name": "Unknown"}` and time 0, so the writer can still accept or reject it. | `bundle_changes` (fixed) |
+| (2026-10-22) In a version 2 bundle, `revisions.json` missing or unreadable, or missing sets a mark names | The document with its revision marks. Each set the table lacks gets the color "Unknown", the label "Unknown Rev.", the date 1900-01-01 and time 0, and no set is active. The default colors are used. | `bundle_revisions` (fixed) |
 | An entry that fails its CRC or size check | As if that entry were missing. | |
 | A duplicate or unknown entry | It is ignored. | `bundle_entries` (kept) |
 
@@ -130,4 +149,4 @@ The journal stays a separate file next to the bundle, `.<name>.coldopen.coldopen
 ## 10. What is not in a bundle
 
 - The undo history and the crash journal. Undo is unlimited while a script is open, as for other formats, and starts again when it is reopened.
-- Revision sets, notes anchored to text and other phase 5b data. They will come with new entries, or new fields under a new `v`.
+- Notes anchored to text. (2026-10-22: revision sets and their marks are in version 2 bundles, §3 and §5.1.)

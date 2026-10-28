@@ -19,16 +19,23 @@ use serde_json::{Value, json};
 mod agents;
 mod bench;
 mod changes;
+mod compare;
 mod copies;
 mod file_ops;
+mod recent;
+mod reports;
+mod revisions;
 mod router;
+mod title;
 mod view;
 
 pub use agents::Agent;
 pub use bench::{Bench, BenchKind};
 pub use changes::{ALL_AUTHORS, ChangeRow, ChangesPanel, NameThen};
+pub use compare::{CompareInput, CompareRow, CompareView};
 pub use copies::{CopyRow, RecoveredScreen, RepairReport};
 pub use file_ops::{After, ExportForm, Prompt, Recovery, Reply};
+pub use recent::gone as recent_gone;
 pub use router::{Origin, Outcome, Request};
 pub use view::eighths;
 
@@ -123,6 +130,32 @@ pub enum Message {
     RecoveredRestore,
     RecoveredDelete,
     RecoveredClose,
+    /// Typing and Enter in the revision questions (editor.md §18).
+    Revision(revisions::RevisionInput),
+    /// The export form's "Colored pages" (editor.md §18).
+    ExportColored,
+    /// The report view's tab, and a row clicked (editor.md §20).
+    ReportTab(usize),
+    ReportRow(usize),
+    /// The report view's rows were scrolled.
+    ReportScrolled(scrollable::Viewport),
+    /// The report view's Close button.
+    ReportClose,
+    /// The title page sheet's fields and buttons (editor.md §19).
+    Title(title::TitleInput),
+    /// The compare view and the import question (editor.md §21).
+    Compare(compare::CompareInput),
+    /// The worker's answer about the recent files: those it checked, and
+    /// those that are gone (editor.md §11).
+    RecentChecked {
+        checked: Vec<PathBuf>,
+        missing: Vec<PathBuf>,
+    },
+    /// "Remove from recent" for this file.
+    ForgetRecent(PathBuf),
+    /// A mouse button went down anywhere, whatever took the click: the
+    /// title page sheet then asks which of its fields has the keyboard.
+    PointerPressed,
     /// The writer's name, as typed in its question (editor.md §17.4).
     NameInput(String),
     NameSubmit,
@@ -158,6 +191,19 @@ impl Banner {
     /// A save to a format that cannot hold tracked changes accepted them
     /// (editor.md §17.5); `kept` when the version with them marked was set
     /// aside.
+    /// Saving to Fountain or .fdx took the revision marks out
+    /// (editor.md §18).
+    pub fn revisions_cleared(kept: bool) -> Banner {
+        Banner {
+            text: if kept {
+                "Saving took the revision sets and marks out. The version with them is in Recovered versions.".into()
+            } else {
+                "Saving took the revision sets and marks out.".into()
+            },
+            recovered: kept,
+        }
+    }
+
     pub fn accepted(count: u64, kept: bool) -> Banner {
         let (changes, them) = if count == 1 {
             ("the pending change".to_string(), "it")
@@ -229,6 +275,8 @@ pub struct NavRow {
     pub deleted: bool,
     /// The scene's first pending change, for the dot in its color.
     pub change: Option<ChangeId>,
+    /// The scene holds revision marks (editor.md §18).
+    pub revised: bool,
 }
 
 #[derive(Debug, Default)]
@@ -342,6 +390,14 @@ pub struct App {
     pub repair: Option<RepairReport>,
     /// The Recovered versions screen.
     pub recovered: Option<RecoveredScreen>,
+    /// The report view (editor.md §20).
+    pub reports: Option<reports::ReportView>,
+    /// The title page sheet (editor.md §19).
+    pub title_sheet: Option<title::TitleSheet>,
+    /// The compare view (editor.md §21).
+    pub compare: Option<compare::CompareView>,
+    /// Recent files found to be gone, as last checked (editor.md §11).
+    pub missing: std::collections::BTreeSet<PathBuf>,
     pub export: Option<ExportForm>,
     pub sheet: Option<Sheet>,
     /// Scripts with unsaved work from an earlier session (editor.md §11).
@@ -461,6 +517,10 @@ impl App {
             recovery: None,
             repair: None,
             recovered: None,
+            reports: None,
+            title_sheet: None,
+            compare: None,
+            missing: std::collections::BTreeSet::new(),
             export: None,
             sheet: None,
             leftover: Vec::new(),
@@ -693,6 +753,14 @@ impl App {
     /// Everything that follows a change: refresh the layout, keep the
     /// caret inside the document, recompute what the view draws, and
     /// scroll the caret into sight.
+    /// Shows edits made straight through the dispatcher, as the app's own
+    /// edits are shown: the page, the caret and, at the next tick, the
+    /// navigator. For examples and tests that drive `d` directly.
+    #[doc(hidden)]
+    pub fn refresh(&mut self) -> Task<Message> {
+        self.after_change(false)
+    }
+
     fn after_change(&mut self, scroll: bool) -> Task<Message> {
         self.d.view();
         self.sync_link();
@@ -816,6 +884,7 @@ impl App {
                     eighths: 0,
                     deleted: b.marks.deleted.is_some(),
                     change: None,
+                    revised: false,
                 }),
                 ElementKind::SceneHeading => {
                     if let Some(s) = si.next() {
@@ -831,6 +900,7 @@ impl App {
                             eighths: s["eighths"].as_u64().unwrap_or(0),
                             deleted: b.marks.deleted.is_some(),
                             change: None,
+                            revised: false,
                         });
                     }
                 }
@@ -842,6 +912,11 @@ impl App {
                 && last.change.is_none()
             {
                 last.change = b.change_ids().next();
+            }
+            if let Some(last) = rows.last_mut()
+                && !last.section
+            {
+                last.revised |= b.has_revisions();
             }
         }
         self.nav = rows;
@@ -1032,7 +1107,11 @@ impl App {
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
+            // The title page sheet shows the title page read-only: the page
+            // scrolls, and a click on it does nothing (editor.md §19).
+            Message::Page(_) if self.title_sheet.is_some() => Task::none(),
             Message::Page(ev) => self.page_event(ev),
+            Message::PointerPressed => self.title_pointer(),
             Message::GlobalKey(kp) => self.global_key(kp),
             Message::Tick => {
                 if self.last_input.elapsed() > Duration::from_millis(500) {
@@ -1160,6 +1239,36 @@ impl App {
                 self.recovered = None;
                 Task::none()
             }
+            Message::Revision(input) => self.revision_input(input),
+            Message::ReportTab(k) => self.reports_tab(k),
+            Message::ReportScrolled(v) => {
+                self.reports_scrolled(v);
+                Task::none()
+            }
+            Message::ReportClose => {
+                self.reports = None;
+                self.after_change(false)
+            }
+            Message::ReportRow(i) => self.reports_go(i),
+            Message::Title(input) => self.title_input(input),
+            Message::Compare(input) => self.compare_input(input),
+            Message::RecentChecked { checked, missing } => {
+                self.recent_checked(checked, missing);
+                Task::none()
+            }
+            Message::ForgetRecent(p) => {
+                if matches!(&self.prompt, Some(Prompt::MissingRecent(m)) if *m == p) {
+                    self.prompt = None;
+                }
+                self.forget_recent(&p);
+                Task::none()
+            }
+            Message::ExportColored => {
+                if let Some(f) = &mut self.export {
+                    f.colored = !f.colored;
+                }
+                Task::none()
+            }
             Message::NameInput(t) => {
                 if let Some(Prompt::AuthorName { name, .. }) = &mut self.prompt {
                     *name = t;
@@ -1230,6 +1339,28 @@ impl App {
                 if matches!(self.prompt, Some(Prompt::AuthorName { .. })) {
                     return self.name_done(false);
                 }
+                if self.prompt.is_none() && self.title_sheet.is_some() {
+                    return self.title_close();
+                }
+                if matches!(
+                    self.prompt,
+                    Some(Prompt::ImportName { .. } | Prompt::MissingRecent(_))
+                ) {
+                    self.prompt = None;
+                    return Task::none();
+                }
+                if matches!(
+                    self.prompt,
+                    Some(
+                        Prompt::RevisionStart(_)
+                            | Prompt::RevisionEndFirst { .. }
+                            | Prompt::RevisionColors(_)
+                            | Prompt::RevisionClear { .. }
+                    )
+                ) {
+                    self.prompt = None;
+                    return Task::none();
+                }
                 if self.palette.is_some() {
                     self.palette = None;
                     self.focus = Focus::Page;
@@ -1260,6 +1391,9 @@ impl App {
             if self.prompt.is_none() && self.recovery.is_none() {
                 self.export = None;
                 self.sheet = None;
+                if self.title_sheet.is_some() {
+                    return self.title_close();
+                }
             }
             return Task::none();
         }
@@ -1449,6 +1583,9 @@ impl App {
             || self.recovered.is_some()
             || self.export.is_some()
             || self.sheet.is_some()
+            || self.reports.is_some()
+            || self.title_sheet.is_some()
+            || self.compare.is_some()
     }
 
     /// Keys for an open dialog (editor.md §11, §13): each button has a key,
@@ -1461,6 +1598,9 @@ impl App {
         let cmd = kp.modifiers.command();
         let enter = matches!(kp.key.as_ref(), Key::Named(Named::Enter));
         let esc = matches!(kp.key.as_ref(), Key::Named(Named::Escape));
+        if let Some(t) = self.revision_key(kp, enter, esc) {
+            return t;
+        }
         if matches!(self.prompt, Some(Prompt::Foreign { .. })) {
             return if enter || ch == "r" {
                 self.reply(Reply::Recover)
@@ -1500,10 +1640,11 @@ impl App {
         if let Some(Prompt::Lossy {
             export: false,
             tracked,
+            revisions,
             ..
         }) = &self.prompt
         {
-            let tracked = *tracked > 0;
+            let tracked = *tracked > 0 || *revisions;
             return if ch == "p" || (enter && tracked) {
                 self.reply(Reply::SaveAsProject)
             } else if enter || ch == "s" {
@@ -1515,6 +1656,17 @@ impl App {
             } else {
                 Task::none()
             };
+        }
+        if let Some(Prompt::MissingRecent(p)) = &self.prompt {
+            // R or Enter removes it; K or Esc keeps it in the list.
+            let p = p.clone();
+            if enter || ch == "r" {
+                self.prompt = None;
+                self.forget_recent(&p);
+            } else if esc || ch == "k" {
+                self.prompt = None;
+            }
+            return Task::none();
         }
         if matches!(self.prompt, Some(Prompt::DeleteCopy(_))) {
             return if enter || ch == "d" {
@@ -1568,6 +1720,19 @@ impl App {
             }
             return Task::none();
         }
+        if let Some(t) = self.reports_key(kp, enter, esc) {
+            return t;
+        }
+        if self.prompt.is_none()
+            && let Some(t) = self.compare_key(kp, enter, esc)
+        {
+            return t;
+        }
+        if self.prompt.is_none()
+            && let Some(t) = self.title_key(kp, esc)
+        {
+            return t;
+        }
         if let Some(sheet) = self.sheet {
             if esc || enter {
                 self.sheet = None;
@@ -1590,6 +1755,8 @@ impl App {
                 return self.update(Message::ExportTitle);
             } else if cmd && ch == "3" {
                 return self.update(Message::ExportChanges);
+            } else if cmd && ch == "4" {
+                return self.update(Message::ExportColored);
             }
         }
         Task::none()
@@ -1806,7 +1973,20 @@ impl App {
             "app.palette" => {
                 self.palette = Some(PaletteState::default());
                 self.focus = Focus::Palette;
-                return iced::widget::operation::focus(PALETTE);
+                return Task::batch([iced::widget::operation::focus(PALETTE), self.check_recent()]);
+            }
+            // The hint bar's revision badge: the palette, showing the
+            // revision commands (editor.md §18).
+            "app.revision_menu" => {
+                self.palette = Some(PaletteState {
+                    query: "revision".into(),
+                    ..PaletteState::default()
+                });
+                self.focus = Focus::Palette;
+                return Task::batch([
+                    iced::widget::operation::focus(PALETTE),
+                    iced::widget::operation::move_cursor_to_end(PALETTE),
+                ]);
             }
             "app.new" => return self.leave(After::New),
             "app.open" => return self.leave(After::Open),
@@ -1847,6 +2027,12 @@ impl App {
                     return self.leave(After::OpenPath(p));
                 }
             }
+            n if n.starts_with("forget:") => {
+                let i: usize = n["forget:".len()..].parse().unwrap_or(usize::MAX);
+                if let Some(p) = self.settings.recent.get(i).cloned() {
+                    self.forget_recent(&p);
+                }
+            }
             "undo" => self.editor.undo(&mut self.d, false),
             "redo" => self.editor.undo(&mut self.d, true),
             "app.undo_agent" => {
@@ -1868,6 +2054,13 @@ impl App {
                 self.sheet = Some(Sheet::History);
                 scroll = false;
             }
+            "app.reports" => {
+                self.reports_open();
+                scroll = false;
+            }
+            "app.title_page" => return self.title_open(),
+            "app.compare" => return self.ask(Ask::Compare),
+            "app.review_draft" => return self.ask(Ask::ReviewDraft),
             "app.about" => {
                 self.sheet = Some(Sheet::About);
                 scroll = false;
@@ -1889,6 +2082,13 @@ impl App {
                 }
             }
             "app.author_name" => return self.ask_name(NameThen::Nothing),
+            "app.revision_start" => return self.revision_start_ask(),
+            "app.revision_end" => self.revision_end(),
+            "app.revision_colors" => return self.revision_colors_ask(),
+            "app.revision_clear" => {
+                self.revision_clear_ask();
+                scroll = false;
+            }
             "changes.accept_here" => self.settle_here(true),
             "changes.reject_here" => self.settle_here(false),
             "changes.accept_scene" => self.settle_scene(true),
@@ -2112,7 +2312,12 @@ impl App {
             });
         }
         for (i, p) in self.settings.recent.iter().enumerate() {
-            all.push(file(format!("recent:{i}"), "Open recent", p));
+            if self.missing.contains(p) {
+                all.push(file(format!("recent:{i}"), "Missing", p));
+                all.push(file(format!("forget:{i}"), "Remove from recent", p));
+            } else {
+                all.push(file(format!("recent:{i}"), "Open recent", p));
+            }
         }
         let mut scored: Vec<(i32, usize, PaletteItem)> = all
             .into_iter()
@@ -2218,6 +2423,9 @@ pub fn unclaimed_key(
             }),
             iced::event::Status::Captured,
         ) => Some(Message::Escaped),
+        (iced::Event::Mouse(iced::mouse::Event::ButtonPressed(_)), _) => {
+            Some(Message::PointerPressed)
+        }
         (
             iced::Event::Keyboard(keyboard::Event::KeyPressed {
                 key,

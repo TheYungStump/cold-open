@@ -1,0 +1,73 @@
+[
+ {
+  "id": "b_1",
+  "text": "INT. LIGHTHOUSE - NIGHT",
+  "type": "scene_heading"
+ },
+ {
+  "id": "b_2",
+  "text": "The lamp turns slowly. Rain against the glass.",
+  "type": "action"
+ },
+ {
+  "id": "b_3",
+  "text": "MARA",
+  "type": "character"
+ },
+ {
+  "id": "b_4",
+  "text": "(to herself)",
+  "type": "parenthetical"
+ },
+ {
+  "id": "b_5",
+  "text": "Three ships tonight.",
+  "type": "dialogue"
+ },
+ {
+  "id": "b_6",
+  "text": "EXT. CLIFF PATH - DAWN",
+  "type": "scene_heading"
+ },
+ {
+  "id": "b_7",
+  "runs": [
+   {
+    "text": "Gulls wheel over the "
+   },
+   {
+    "ins": "c_2",
+    "text": "black "
+   },
+   {
+    "text": "rocks."
+   }
+  ],
+  "text": "Gulls wheel over the black rocks.",
+  "type": "action"
+ },
+ {
+  "id": "b_8",
+  "text": "TOMAS",
+  "type": "character"
+ },
+ {
+  "id": "b_9",
+  "text": "Softly. She kept the light on.",
+  "type": "dialogue"
+ },
+ {
+  "change": {
+   "inserted": "c_3"
+  },
+  "id": "b_10",
+  "runs": [
+   {
+    "ins": "c_3",
+    "text": "The door bangs."
+   }
+  ],
+  "text": "The door bangs.",
+  "type": "action"
+ }
+]

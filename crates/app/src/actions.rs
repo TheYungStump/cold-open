@@ -288,6 +288,42 @@ pub const APP_ACTIONS: &[ActionInfo] = &[
         name: "app.author_name",
         title: "Change my name for changes…",
     },
+    ActionInfo {
+        name: "app.reports",
+        title: "Reports…",
+    },
+    ActionInfo {
+        name: "app.title_page",
+        title: "Edit title page…",
+    },
+    ActionInfo {
+        name: "app.compare",
+        title: "Compare with…",
+    },
+    ActionInfo {
+        name: "app.review_draft",
+        title: "Review a draft as changes…",
+    },
+    ActionInfo {
+        name: "app.revision_menu",
+        title: "Revision commands…",
+    },
+    ActionInfo {
+        name: "app.revision_start",
+        title: "Start revision…",
+    },
+    ActionInfo {
+        name: "app.revision_end",
+        title: "End revision",
+    },
+    ActionInfo {
+        name: "app.revision_colors",
+        title: "Revision colors…",
+    },
+    ActionInfo {
+        name: "app.revision_clear",
+        title: "Clear revision marks…",
+    },
 ];
 
 /// A short title for a core command.
@@ -330,6 +366,19 @@ pub fn command_title(name: &str) -> &'static str {
         "changes.accept" => "Accept tracked changes by id, scene or all",
         "changes.reject" => "Reject tracked changes by id, scene or all",
         "changes.track" => "Choose which edits are tracked",
+        "revision.start" => "Start a revision set",
+        "revision.end" => "End the revision set",
+        "revision.list" => "List revision sets",
+        "revision.colors" => "Set the revision colors",
+        "revision.clear" => "Clear revision marks",
+        "report.scenes" => "Report: scenes",
+        "report.characters" => "Report: characters",
+        "report.locations" => "Report: locations",
+        "title.get" => "Show the title page as JSON",
+        "title.set" => "Set a title-page key (params)",
+        "title.set_lines" => "Set the title page's lines (params)",
+        "diff" => "Compare two drafts (params)",
+        "changes.import" => "Bring a draft in as changes (params)",
         _ => "Command",
     }
 }

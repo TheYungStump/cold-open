@@ -22,6 +22,9 @@ pub enum BenchKind {
     Typing,
     /// Scrolls the pages with the wheel's step.
     Scrolling,
+    /// Scrolls the report view's scenes with the wheel's step (editor.md
+    /// §20; the manual test of 2026-10-26 found it slow).
+    Reports,
 }
 
 /// A benchmark run, from the environment (see `main.rs`).
@@ -97,6 +100,9 @@ impl App {
                 let pages = self.d.cached_view().map_or(0, |v| v.layout().pages.len()) as u32;
                 self.place_caret_on_page(90.min(pages * 3 / 4));
             }
+            if kind == BenchKind::Reports {
+                self.reports_open();
+            }
             return self.after_change(true);
         }
         if n > WARM_UP + state.bench.frames {
@@ -112,6 +118,32 @@ impl App {
                     modifiers: Modifiers::empty(),
                     text: Some(c),
                 })
+            }
+            BenchKind::Reports => {
+                let rows = self
+                    .reports
+                    .as_ref()
+                    .and_then(|r| r.table())
+                    .map_or(0, |t| t.rows.len());
+                let (offset, height) = self
+                    .reports
+                    .as_ref()
+                    .map_or((0, 0), |r| (r.offset, r.height));
+                let end = (rows as u32 * 22).saturating_sub(height);
+                if offset + 44 >= end {
+                    widget_op::scroll_to(
+                        super::reports::REPORT_ROWS,
+                        scrollable::AbsoluteOffset {
+                            x: None,
+                            y: Some(0.0),
+                        },
+                    )
+                } else {
+                    widget_op::scroll_by(
+                        super::reports::REPORT_ROWS,
+                        scrollable::AbsoluteOffset { x: 0.0, y: 44.0 },
+                    )
+                }
             }
             BenchKind::Scrolling => {
                 let at_end = self.viewport.as_ref().is_some_and(|v| {
@@ -147,6 +179,7 @@ impl App {
         let kind = match state.bench.kind {
             BenchKind::Typing => "typing",
             BenchKind::Scrolling => "scrolling",
+            BenchKind::Reports => "reports",
         };
         println!(
             "{{\"bench\": \"{kind}\", \"label\": \"{}\", \"frames\": {}, \"median_ms\": {:.2}, \"p95_ms\": {:.2}, \"max_ms\": {:.2}}}",

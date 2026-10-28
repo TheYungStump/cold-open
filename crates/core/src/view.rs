@@ -23,6 +23,8 @@ pub struct View {
     pub sources: SourceMap,
     format: FormatId,
     inc: Incremental,
+    /// The title lines laid out: a layout option, not part of the script.
+    title_lines: Vec<coldopen_screenplay::TitleLine>,
 }
 
 impl std::fmt::Debug for View {
@@ -61,11 +63,19 @@ impl View {
             sources,
             format,
             inc,
+            title_lines: doc.title_lines.clone(),
         }
     }
 
     /// Lays out the document again after a change, reusing what it can.
     pub fn refresh(&mut self, doc: &Document, rev: u64) {
+        // Title lines are a layout option, not part of the script the
+        // incremental layout compares, so a change to them lays the
+        // document out again. Only the title page commands change them.
+        if doc.title_lines != self.title_lines {
+            *self = View::with_format(doc, rev, self.format);
+            return;
+        }
         let LayoutForm {
             script: norm,
             sources,

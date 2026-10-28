@@ -87,6 +87,32 @@ pub enum Command {
     ChangesReject(ChangesSettle),
     #[serde(rename = "changes.track")]
     ChangesTrack(ChangesTrack),
+    #[serde(rename = "revision.start")]
+    RevisionStart(RevisionStart),
+    #[serde(rename = "revision.end")]
+    RevisionEnd(Empty),
+    #[serde(rename = "revision.list")]
+    RevisionList(Empty),
+    #[serde(rename = "revision.colors")]
+    RevisionColors(RevisionColors),
+    #[serde(rename = "revision.clear")]
+    RevisionClear(RevisionClear),
+    #[serde(rename = "report.scenes")]
+    ReportScenes(Empty),
+    #[serde(rename = "report.characters")]
+    ReportCharacters(Empty),
+    #[serde(rename = "report.locations")]
+    ReportLocations(Empty),
+    #[serde(rename = "title.get")]
+    TitleGet(Empty),
+    #[serde(rename = "title.set")]
+    TitleSet(TitleSet),
+    #[serde(rename = "title.set_lines")]
+    TitleSetLines(TitleSetLines),
+    #[serde(rename = "diff")]
+    Diff(DiffParams),
+    #[serde(rename = "changes.import")]
+    ChangesImport(ChangesImport),
 }
 
 /// How a command interacts with undo and the journal.
@@ -106,7 +132,7 @@ pub enum Class {
 
 impl Command {
     /// Every command name, in a stable order (for a command palette).
-    pub const NAMES: [&'static str; 37] = [
+    pub const NAMES: [&'static str; 50] = [
         "doc.new",
         "doc.open",
         "doc.save",
@@ -144,6 +170,19 @@ impl Command {
         "changes.accept",
         "changes.reject",
         "changes.track",
+        "revision.start",
+        "revision.end",
+        "revision.list",
+        "revision.colors",
+        "revision.clear",
+        "report.scenes",
+        "report.characters",
+        "report.locations",
+        "title.get",
+        "title.set",
+        "title.set_lines",
+        "diff",
+        "changes.import",
     ];
 
     pub fn name(&self) -> &'static str {
@@ -185,6 +224,19 @@ impl Command {
             Command::ChangesAccept(_) => "changes.accept",
             Command::ChangesReject(_) => "changes.reject",
             Command::ChangesTrack(_) => "changes.track",
+            Command::RevisionStart(_) => "revision.start",
+            Command::RevisionEnd(_) => "revision.end",
+            Command::RevisionList(_) => "revision.list",
+            Command::RevisionColors(_) => "revision.colors",
+            Command::RevisionClear(_) => "revision.clear",
+            Command::ReportScenes(_) => "report.scenes",
+            Command::ReportCharacters(_) => "report.characters",
+            Command::ReportLocations(_) => "report.locations",
+            Command::TitleGet(_) => "title.get",
+            Command::TitleSet(_) => "title.set",
+            Command::TitleSetLines(_) => "title.set_lines",
+            Command::Diff(_) => "diff",
+            Command::ChangesImport(_) => "changes.import",
         }
     }
 
@@ -201,14 +253,20 @@ impl Command {
             | Command::TextFind(_)
             | Command::TextComplete(_)
             | Command::HistoryList(_)
-            | Command::ChangesList(_) => Class::Query,
+            | Command::ChangesList(_)
+            | Command::RevisionList(_)
+            | Command::ReportScenes(_)
+            | Command::ReportCharacters(_)
+            | Command::ReportLocations(_)
+            | Command::TitleGet(_) => Class::Query,
             Command::Undo(_) | Command::Redo(_) => Class::History,
             Command::ExportPdf(_) | Command::ExportFdx(_) | Command::ExportFountain(_) => {
                 Class::Output
             }
-            Command::FileRepair(_) | Command::RecoveredList(_) | Command::RecoveredDelete(_) => {
-                Class::File
-            }
+            Command::FileRepair(_)
+            | Command::RecoveredList(_)
+            | Command::RecoveredDelete(_)
+            | Command::Diff(_) => Class::File,
             Command::RecoveredRestore(_) => Class::Session,
             // Listed one by one so a new command cannot fall into a class
             // by accident.
@@ -227,7 +285,14 @@ impl Command {
             | Command::Batch(_)
             | Command::ChangesAccept(_)
             | Command::ChangesReject(_)
-            | Command::ChangesTrack(_) => Class::Edit,
+            | Command::ChangesTrack(_)
+            | Command::RevisionStart(_)
+            | Command::RevisionEnd(_)
+            | Command::RevisionColors(_)
+            | Command::RevisionClear(_)
+            | Command::TitleSet(_)
+            | Command::TitleSetLines(_)
+            | Command::ChangesImport(_) => Class::Edit,
         }
     }
 
@@ -333,9 +398,16 @@ impl Command {
             "changes.list" => of::<ChangesList>(),
             "changes.accept" | "changes.reject" => of::<ChangesSettle>(),
             "changes.track" => of::<ChangesTrack>(),
-            "doc.get" | "scene.list" | "undo" | "redo" | "doc.revert" | "history.list" => {
-                of::<Empty>()
-            }
+            "revision.start" => of::<RevisionStart>(),
+            "revision.colors" => of::<RevisionColors>(),
+            "revision.clear" => of::<RevisionClear>(),
+            "title.set" => of::<TitleSet>(),
+            "title.set_lines" => of::<TitleSetLines>(),
+            "diff" => of::<DiffParams>(),
+            "changes.import" => of::<ChangesImport>(),
+            "doc.get" | "scene.list" | "undo" | "redo" | "doc.revert" | "history.list"
+            | "revision.end" | "revision.list" | "report.scenes" | "report.characters"
+            | "report.locations" | "title.get" => of::<Empty>(),
             _ => return None,
         })
     }
@@ -622,6 +694,10 @@ pub struct ExportPdf {
     /// (docs/specs/changes.md §9).
     #[serde(default, skip_serializing_if = "is_marked")]
     pub changes: PrintForm,
+    /// Revised pages on white (the default) or on their set's color
+    /// (docs/specs/revisions.md §7.3).
+    #[serde(default, skip_serializing_if = "is_white")]
+    pub revision_pages: RevisionPages,
     /// Replace a file already at `path`. Writers only.
     #[serde(default, skip_serializing_if = "is_false")]
     pub overwrite: bool,
@@ -629,6 +705,112 @@ pub struct ExportPdf {
 
 fn is_marked(f: &PrintForm) -> bool {
     *f == PrintForm::Marked
+}
+
+/// Params for `diff` (docs/specs/diff.md §5).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct DiffParams {
+    /// The first draft's path; the open document when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub a: Option<String>,
+    /// The second draft's path.
+    pub b: String,
+    /// Also write B with the changes marked to this .pdf path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pdf: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub overwrite: bool,
+}
+
+/// Params for `changes.import` (docs/specs/diff.md §6).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct ChangesImport {
+    /// The draft to bring in.
+    pub path: String,
+    /// The name its changes carry; the draft's file name by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// One value of a title-page key: a plain string, or runs with styles.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(untagged)]
+pub enum TitleValue {
+    Text(String),
+    Runs(Vec<Run>),
+}
+
+/// Params for `title.set`: one Fountain title-page key and its values
+/// (docs/specs/commands.md, "The title page commands").
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct TitleSet {
+    /// The key, such as "Title" or "Draft date"; matched ignoring case.
+    pub key: String,
+    /// One value per line; none removes the key.
+    #[serde(default)]
+    pub values: Vec<TitleValue>,
+    /// Where a new key goes, 0-based; the end by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<usize>,
+}
+
+/// Where a title line sits in its column.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum TitleAlign {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
+/// One positioned title line (docs/specs/fdx.md §7): its text or runs,
+/// alignment, the column's left and right edges in points from the paper's
+/// left edge, and the space above it in points.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct TitleLineParam {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runs: Option<Vec<Run>>,
+    #[serde(default)]
+    pub align: TitleAlign,
+    pub left: f64,
+    pub right: f64,
+    #[serde(default)]
+    pub space_before: f64,
+}
+
+/// Params for `title.set_lines`: the whole list of lines.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct TitleSetLines {
+    pub lines: Vec<TitleLineParam>,
+}
+
+/// The paper revised pages print on (docs/specs/revisions.md §7.3).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum RevisionPages {
+    #[default]
+    White,
+    Colored,
+}
+
+fn is_white(p: &RevisionPages) -> bool {
+    *p == RevisionPages::White
 }
 
 /// Params for `export.fdx` and `export.fountain`: a copy of the document
@@ -887,6 +1069,48 @@ pub struct ChangesTrack {
     pub agents: Option<bool>,
 }
 
+/// Params for `revision.start` (docs/specs/revisions.md §5). Each is
+/// filled in before the command is journaled, so replay never takes a
+/// default.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct RevisionStart {
+    /// The set's color; the next one in the document's list by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    /// What revised pages' headers print before the date; "<color> Rev."
+    /// by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// `YYYY-MM-DD`; today's date in UTC by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date: Option<String>,
+}
+
+/// Params for `revision.colors`: the whole list of color names.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct RevisionColors {
+    pub colors: Vec<String>,
+}
+
+/// Params for `revision.clear`: exactly one of `set` and `all`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct RevisionClear {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set: Option<crate::revisions::RevisionId>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub all: bool,
+    /// With `all`: the sets go too, and the table is the default again, as
+    /// Save anyway to Fountain or .fdx leaves it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub sets: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -930,6 +1154,11 @@ mod tests {
                 "batch" => json!({"commands": []}),
                 "text.find" => json!({"find": "x"}),
                 "changes.accept" | "changes.reject" => json!({"all": true}),
+                "revision.colors" => json!({"colors": ["White"]}),
+                "title.set" => json!({"key": "Title"}),
+                "diff" => json!({"b": "b.fountain"}),
+                "changes.import" => json!({"path": "b.fountain"}),
+                "title.set_lines" => json!({"lines": []}),
                 _ => json!({}),
             };
             let cmd = Command::from_parts(name, params).unwrap();

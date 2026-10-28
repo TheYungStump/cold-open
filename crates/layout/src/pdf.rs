@@ -44,6 +44,10 @@ pub struct PdfOptions {
     /// slot `n` prints in `CHANGE_COLORS[n % 6]`. A change not listed
     /// takes slot 0.
     pub change_slots: BTreeMap<u64, u8>,
+    /// Colored revised pages (layout.md §18): the paper color, as RGB, of
+    /// each revision set a page's header can name. A page whose set is
+    /// not listed, or that names none, stays white.
+    pub revision_fills: BTreeMap<u64, (u8, u8, u8)>,
 }
 
 /// The print colors of tracked changes' authors, as RGB in 0..=255
@@ -407,11 +411,27 @@ pub fn write(layout: &Layout, fonts: &Fonts, options: &PdfOptions) -> Result<Pdf
     }
 
     let mut page_refs = Vec::new();
-    for runs in &collected.pages {
+    for (i, runs) in collected.pages.iter().enumerate() {
         let page = refs.next();
         let content = refs.next();
         page_refs.push(page);
         let mut c = Content::new();
+        // A colored revised page: the fill goes under everything else.
+        if let Some(&(r, g, b)) = all
+            .get(i)
+            .and_then(|p| p.revision)
+            .and_then(|set| options.revision_fills.get(&set))
+        {
+            c.save_state();
+            c.set_fill_rgb(
+                f32::from(r) / 255.0,
+                f32::from(g) / 255.0,
+                f32::from(b) / 255.0,
+            );
+            c.rect(0.0, 0.0, f(format.page_width), f(format.page_height));
+            c.fill_nonzero();
+            c.restore_state();
+        }
         if let (Some(_), Some(wm)) = (gs, wm.as_ref())
             && let Some(remap) = remaps[0].as_ref()
         {

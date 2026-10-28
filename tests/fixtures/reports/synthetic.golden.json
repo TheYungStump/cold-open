@@ -1,0 +1,3182 @@
+{
+  "characters": [
+    {
+      "extensions": [
+        "V.O.",
+        "O.S."
+      ],
+      "first_page": 1,
+      "lines": 508,
+      "name": "RUTH",
+      "scenes": [
+        1,
+        3,
+        5,
+        7,
+        10,
+        13,
+        18,
+        19,
+        22,
+        26,
+        30,
+        32,
+        34,
+        36,
+        37,
+        38,
+        40,
+        42,
+        43,
+        45,
+        50,
+        52,
+        56,
+        57,
+        61,
+        66,
+        72,
+        77,
+        78,
+        79,
+        83,
+        85,
+        88,
+        90,
+        106,
+        109,
+        112,
+        115
+      ],
+      "speeches": 154,
+      "words": 3008
+    },
+    {
+      "extensions": [
+        "O.S.",
+        "V.O."
+      ],
+      "first_page": 3,
+      "lines": 451,
+      "name": "MAYA",
+      "scenes": [
+        4,
+        6,
+        11,
+        16,
+        21,
+        25,
+        26,
+        27,
+        32,
+        33,
+        34,
+        43,
+        44,
+        48,
+        49,
+        50,
+        55,
+        60,
+        65,
+        70,
+        72,
+        73,
+        76,
+        81,
+        87,
+        88,
+        89,
+        97,
+        99,
+        105,
+        108,
+        109
+      ],
+      "speeches": 134,
+      "words": 2647
+    },
+    {
+      "extensions": [
+        "O.S.",
+        "V.O."
+      ],
+      "first_page": 12,
+      "lines": 399,
+      "name": "JUNE",
+      "scenes": [
+        15,
+        19,
+        24,
+        29,
+        31,
+        41,
+        47,
+        49,
+        51,
+        54,
+        60,
+        62,
+        64,
+        66,
+        67,
+        70,
+        71,
+        75,
+        78,
+        80,
+        82,
+        91,
+        95,
+        99,
+        102,
+        110,
+        112,
+        113,
+        114
+      ],
+      "speeches": 116,
+      "words": 2383
+    },
+    {
+      "extensions": [
+        "V.O.",
+        "O.S."
+      ],
+      "first_page": 3,
+      "lines": 389,
+      "name": "SAMUEL",
+      "scenes": [
+        4,
+        11,
+        12,
+        14,
+        17,
+        24,
+        27,
+        35,
+        38,
+        39,
+        40,
+        45,
+        46,
+        55,
+        57,
+        58,
+        63,
+        64,
+        68,
+        74,
+        76,
+        83,
+        92,
+        96,
+        97,
+        101,
+        102,
+        105,
+        107,
+        116,
+        117
+      ],
+      "speeches": 122,
+      "words": 2273
+    },
+    {
+      "extensions": [
+        "V.O.",
+        "O.S."
+      ],
+      "first_page": 4,
+      "lines": 354,
+      "name": "DR. IVES",
+      "scenes": [
+        5,
+        6,
+        8,
+        9,
+        13,
+        15,
+        16,
+        30,
+        31,
+        35,
+        46,
+        47,
+        51,
+        53,
+        58,
+        62,
+        71,
+        80,
+        89,
+        93,
+        94,
+        95,
+        96,
+        104,
+        108,
+        110,
+        111,
+        115,
+        116,
+        117
+      ],
+      "speeches": 105,
+      "words": 2081
+    },
+    {
+      "extensions": [
+        "V.O.",
+        "O.S."
+      ],
+      "first_page": 1,
+      "lines": 344,
+      "name": "THEO",
+      "scenes": [
+        2,
+        25,
+        28,
+        36,
+        54,
+        59,
+        61,
+        63,
+        67,
+        69,
+        73,
+        75,
+        79,
+        82,
+        84,
+        86,
+        93,
+        98,
+        100,
+        103,
+        106,
+        107,
+        111
+      ],
+      "speeches": 103,
+      "words": 2006
+    },
+    {
+      "extensions": [
+        "O.S.",
+        "V.O."
+      ],
+      "first_page": 1,
+      "lines": 242,
+      "name": "OFFICER BELL",
+      "scenes": [
+        2,
+        7,
+        9,
+        14,
+        17,
+        20,
+        22,
+        23,
+        37,
+        41,
+        42,
+        53,
+        69,
+        77,
+        87,
+        90,
+        91,
+        101
+      ],
+      "speeches": 71,
+      "words": 1430
+    },
+    {
+      "extensions": [
+        "O.S.",
+        "V.O."
+      ],
+      "first_page": 1,
+      "lines": 211,
+      "name": "NINA",
+      "scenes": [
+        1,
+        3,
+        8,
+        10,
+        18,
+        20,
+        21,
+        23,
+        39,
+        48,
+        52,
+        56,
+        59,
+        74,
+        84,
+        86,
+        92,
+        94,
+        98,
+        113,
+        114
+      ],
+      "speeches": 68,
+      "words": 1219
+    }
+  ],
+  "locations": [
+    {
+      "location": "BRIDGE",
+      "scenes": [
+        9,
+        57,
+        61,
+        95,
+        106,
+        108
+      ],
+      "settings": [
+        {
+          "scenes": [
+            61,
+            106,
+            108
+          ],
+          "setting": "int",
+          "times": [
+            {
+              "scenes": [
+                108
+              ],
+              "time": "CONTINUOUS"
+            },
+            {
+              "scenes": [
+                106
+              ],
+              "time": "LATER"
+            },
+            {
+              "scenes": [
+                61
+              ],
+              "time": "NIGHT"
+            }
+          ]
+        },
+        {
+          "scenes": [
+            9,
+            57,
+            95
+          ],
+          "setting": "ext",
+          "times": [
+            {
+              "scenes": [
+                9
+              ],
+              "time": "DUSK"
+            },
+            {
+              "scenes": [
+                95
+              ],
+              "time": "LATER"
+            },
+            {
+              "scenes": [
+                57
+              ],
+              "time": "NIGHT"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "location": "DINER",
+      "scenes": [
+        2,
+        11,
+        49,
+        56,
+        59,
+        73,
+        82,
+        86,
+        98
+      ],
+      "settings": [
+        {
+          "scenes": [
+            2,
+            11,
+            49,
+            59,
+            73,
+            82,
+            86,
+            98
+          ],
+          "setting": "int",
+          "times": [
+            {
+              "scenes": [
+                2
+              ],
+              "time": "CONTINUOUS"
+            },
+            {
+              "scenes": [
+                59
+              ],
+              "time": "DAY"
+            },
+            {
+              "scenes": [
+                11
+              ],
+              "time": "DUSK"
+            },
+            {
+              "scenes": [
+                98
+              ],
+              "time": "LATER"
+            },
+            {
+              "scenes": [
+                73
+              ],
+              "time": "MORNING"
+            },
+            {
+              "scenes": [
+                49,
+                82,
+                86
+              ],
+              "time": "NIGHT"
+            }
+          ]
+        },
+        {
+          "scenes": [
+            56
+          ],
+          "setting": "ext",
+          "times": [
+            {
+              "scenes": [
+                56
+              ],
+              "time": "CONTINUOUS"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "location": "HARBOR",
+      "scenes": [
+        4,
+        17,
+        24,
+        26,
+        32,
+        38,
+        69,
+        72,
+        88,
+        94,
+        97,
+        107,
+        109
+      ],
+      "settings": [
+        {
+          "scenes": [
+            4,
+            17,
+            26,
+            32,
+            69,
+            72,
+            88,
+            94,
+            109
+          ],
+          "setting": "int",
+          "times": [
+            {
+              "scenes": [
+                26,
+                88,
+                94,
+                109
+              ],
+              "time": "CONTINUOUS"
+            },
+            {
+              "scenes": [
+                4,
+                72
+              ],
+              "time": "DAY"
+            },
+            {
+              "scenes": [
+                17
+              ],
+              "time": "MORNING"
+            },
+            {
+              "scenes": [
+                32,
+                69
+              ],
+              "time": "NIGHT"
+            }
+          ]
+        },
+        {
+          "scenes": [
+            24,
+            38,
+            97,
+            107
+          ],
+          "setting": "ext",
+          "times": [
+            {
+              "scenes": [
+                38
+              ],
+              "time": "CONTINUOUS"
+            },
+            {
+              "scenes": [
+                24,
+                97
+              ],
+              "time": "DAY"
+            },
+            {
+              "scenes": [
+                107
+              ],
+              "time": "DUSK"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "location": "HOSPITAL CORRIDOR",
+      "scenes": [
+        7,
+        8,
+        34,
+        112
+      ],
+      "settings": [
+        {
+          "scenes": [
+            34
+          ],
+          "setting": "int",
+          "times": [
+            {
+              "scenes": [
+                34
+              ],
+              "time": "NIGHT"
+            }
+          ]
+        },
+        {
+          "scenes": [
+            7,
+            8,
+            112
+          ],
+          "setting": "ext",
+          "times": [
+            {
+              "scenes": [
+                7,
+                8
+              ],
+              "time": "DUSK"
+            },
+            {
+              "scenes": [
+                112
+              ],
+              "time": "LATER"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "location": "KITCHEN",
+      "scenes": [
+        12,
+        21,
+        22,
+        46,
+        55,
+        58,
+        63,
+        71,
+        74,
+        85,
+        110,
+        111,
+        116
+      ],
+      "settings": [
+        {
+          "scenes": [
+            12,
+            22,
+            55,
+            58,
+            63,
+            71,
+            74,
+            110,
+            111,
+            116
+          ],
+          "setting": "int",
+          "times": [
+            {
+              "scenes": [
+                22
+              ],
+              "time": "CONTINUOUS"
+            },
+            {
+              "scenes": [
+                110
+              ],
+              "time": "DAY"
+            },
+            {
+              "scenes": [
+                116
+              ],
+              "time": "DUSK"
+            },
+            {
+              "scenes": [
+                71,
+                74
+              ],
+              "time": "LATER"
+            },
+            {
+              "scenes": [
+                58,
+                111
+              ],
+              "time": "MORNING"
+            },
+            {
+              "scenes": [
+                12,
+                55,
+                63
+              ],
+              "time": "NIGHT"
+            }
+          ]
+        },
+        {
+          "scenes": [
+            21,
+            46,
+            85
+          ],
+          "setting": "ext",
+          "times": [
+            {
+              "scenes": [
+                46
+              ],
+              "time": "CONTINUOUS"
+            },
+            {
+              "scenes": [
+                21,
+                85
+              ],
+              "time": "MORNING"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "location": "LIGHTHOUSE",
+      "scenes": [
+        3,
+        6,
+        14,
+        16,
+        29,
+        30,
+        33,
+        39,
+        54,
+        70,
+        80,
+        103
+      ],
+      "settings": [
+        {
+          "scenes": [
+            3,
+            6,
+            14,
+            16,
+            29,
+            30,
+            33,
+            39,
+            54,
+            70
+          ],
+          "setting": "int",
+          "times": [
+            {
+              "scenes": [
+                6,
+                14
+              ],
+              "time": "CONTINUOUS"
+            },
+            {
+              "scenes": [
+                29,
+                70
+              ],
+              "time": "DAY"
+            },
+            {
+              "scenes": [
+                33
+              ],
+              "time": "DUSK"
+            },
+            {
+              "scenes": [
+                16,
+                30,
+                39
+              ],
+              "time": "LATER"
+            },
+            {
+              "scenes": [
+                3,
+                54
+              ],
+              "time": "MORNING"
+            }
+          ]
+        },
+        {
+          "scenes": [
+            80,
+            103
+          ],
+          "setting": "ext",
+          "times": [
+            {
+              "scenes": [
+                80
+              ],
+              "time": "DAY"
+            },
+            {
+              "scenes": [
+                103
+              ],
+              "time": "DUSK"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "location": "MAYA'S APARTMENT",
+      "scenes": [
+        18,
+        19,
+        35,
+        42,
+        44,
+        48,
+        66,
+        83,
+        93,
+        96,
+        99,
+        105
+      ],
+      "settings": [
+        {
+          "scenes": [
+            19,
+            35,
+            42,
+            44,
+            66,
+            83
+          ],
+          "setting": "int",
+          "times": [
+            {
+              "scenes": [
+                19,
+                35
+              ],
+              "time": "CONTINUOUS"
+            },
+            {
+              "scenes": [
+                44,
+                83
+              ],
+              "time": "DAY"
+            },
+            {
+              "scenes": [
+                42,
+                66
+              ],
+              "time": "MORNING"
+            }
+          ]
+        },
+        {
+          "scenes": [
+            18,
+            48,
+            93,
+            96,
+            99,
+            105
+          ],
+          "setting": "ext",
+          "times": [
+            {
+              "scenes": [
+                48
+              ],
+              "time": "CONTINUOUS"
+            },
+            {
+              "scenes": [
+                18,
+                99
+              ],
+              "time": "DUSK"
+            },
+            {
+              "scenes": [
+                93,
+                96
+              ],
+              "time": "LATER"
+            },
+            {
+              "scenes": [
+                105
+              ],
+              "time": "NIGHT"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "location": "PARKING GARAGE",
+      "scenes": [
+        1,
+        5,
+        25,
+        28,
+        50,
+        64,
+        75,
+        89,
+        100
+      ],
+      "settings": [
+        {
+          "scenes": [
+            1,
+            25,
+            28,
+            50,
+            64,
+            75,
+            89,
+            100
+          ],
+          "setting": "int",
+          "times": [
+            {
+              "scenes": [
+                1,
+                50,
+                89
+              ],
+              "time": "DAY"
+            },
+            {
+              "scenes": [
+                25
+              ],
+              "time": "DUSK"
+            },
+            {
+              "scenes": [
+                28,
+                100
+              ],
+              "time": "LATER"
+            },
+            {
+              "scenes": [
+                75
+              ],
+              "time": "MORNING"
+            },
+            {
+              "scenes": [
+                64
+              ],
+              "time": "NIGHT"
+            }
+          ]
+        },
+        {
+          "scenes": [
+            5
+          ],
+          "setting": "ext",
+          "times": [
+            {
+              "scenes": [
+                5
+              ],
+              "time": "MORNING"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "location": "POLICE STATION",
+      "scenes": [
+        10,
+        27,
+        31,
+        37,
+        41,
+        43,
+        65,
+        87,
+        90,
+        92,
+        115
+      ],
+      "settings": [
+        {
+          "scenes": [
+            10,
+            37,
+            65,
+            87,
+            92,
+            115
+          ],
+          "setting": "int",
+          "times": [
+            {
+              "scenes": [
+                10,
+                37
+              ],
+              "time": "DAY"
+            },
+            {
+              "scenes": [
+                87
+              ],
+              "time": "DUSK"
+            },
+            {
+              "scenes": [
+                92
+              ],
+              "time": "LATER"
+            },
+            {
+              "scenes": [
+                65,
+                115
+              ],
+              "time": "NIGHT"
+            }
+          ]
+        },
+        {
+          "scenes": [
+            27,
+            31,
+            41,
+            43,
+            90
+          ],
+          "setting": "ext",
+          "times": [
+            {
+              "scenes": [
+                31,
+                41,
+                90
+              ],
+              "time": "CONTINUOUS"
+            },
+            {
+              "scenes": [
+                27
+              ],
+              "time": "DUSK"
+            },
+            {
+              "scenes": [
+                43
+              ],
+              "time": "LATER"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "location": "RADIO ROOM",
+      "scenes": [
+        45,
+        51,
+        53,
+        62,
+        77,
+        81,
+        84,
+        114,
+        117
+      ],
+      "settings": [
+        {
+          "scenes": [
+            45,
+            51,
+            62,
+            77,
+            81,
+            114,
+            117
+          ],
+          "setting": "int",
+          "times": [
+            {
+              "scenes": [
+                45
+              ],
+              "time": "CONTINUOUS"
+            },
+            {
+              "scenes": [
+                62,
+                77
+              ],
+              "time": "DUSK"
+            },
+            {
+              "scenes": [
+                114
+              ],
+              "time": "LATER"
+            },
+            {
+              "scenes": [
+                117
+              ],
+              "time": "MORNING"
+            },
+            {
+              "scenes": [
+                51,
+                81
+              ],
+              "time": "NIGHT"
+            }
+          ]
+        },
+        {
+          "scenes": [
+            53,
+            84
+          ],
+          "setting": "ext",
+          "times": [
+            {
+              "scenes": [
+                84
+              ],
+              "time": "LATER"
+            },
+            {
+              "scenes": [
+                53
+              ],
+              "time": "MORNING"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "location": "ROOFTOP",
+      "scenes": [
+        13,
+        15,
+        23,
+        36,
+        47,
+        67,
+        91,
+        101,
+        104
+      ],
+      "settings": [
+        {
+          "scenes": [
+            13,
+            15,
+            23,
+            36,
+            47,
+            91,
+            104
+          ],
+          "setting": "int",
+          "times": [
+            {
+              "scenes": [
+                23,
+                91
+              ],
+              "time": "CONTINUOUS"
+            },
+            {
+              "scenes": [
+                47
+              ],
+              "time": "DUSK"
+            },
+            {
+              "scenes": [
+                15,
+                36,
+                104
+              ],
+              "time": "MORNING"
+            },
+            {
+              "scenes": [
+                13
+              ],
+              "time": "NIGHT"
+            }
+          ]
+        },
+        {
+          "scenes": [
+            67,
+            101
+          ],
+          "setting": "ext",
+          "times": [
+            {
+              "scenes": [
+                67
+              ],
+              "time": "DUSK"
+            },
+            {
+              "scenes": [
+                101
+              ],
+              "time": "MORNING"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "location": "TRAIN STATION",
+      "scenes": [
+        20,
+        40,
+        52,
+        60,
+        68,
+        76,
+        78,
+        79,
+        102,
+        113
+      ],
+      "settings": [
+        {
+          "scenes": [
+            20,
+            52,
+            76,
+            78,
+            102,
+            113
+          ],
+          "setting": "int",
+          "times": [
+            {
+              "scenes": [
+                76,
+                113
+              ],
+              "time": "CONTINUOUS"
+            },
+            {
+              "scenes": [
+                52,
+                78
+              ],
+              "time": "DUSK"
+            },
+            {
+              "scenes": [
+                20,
+                102
+              ],
+              "time": "LATER"
+            }
+          ]
+        },
+        {
+          "scenes": [
+            40,
+            60,
+            68,
+            79
+          ],
+          "setting": "ext",
+          "times": [
+            {
+              "scenes": [
+                68
+              ],
+              "time": "LATER"
+            },
+            {
+              "scenes": [
+                79
+              ],
+              "time": "MORNING"
+            },
+            {
+              "scenes": [
+                40,
+                60
+              ],
+              "time": "NIGHT"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "scenes": [
+    {
+      "characters": [
+        "RUTH",
+        "NINA"
+      ],
+      "eighths": 4,
+      "heading": "INT. PARKING GARAGE - DAY",
+      "id": "b_1",
+      "index": 1,
+      "location": "PARKING GARAGE",
+      "number": null,
+      "page": 1,
+      "setting": "int",
+      "time": "DAY",
+      "words": 137
+    },
+    {
+      "characters": [
+        "THEO",
+        "OFFICER BELL"
+      ],
+      "eighths": 5,
+      "heading": "INT. DINER - CONTINUOUS",
+      "id": "b_8",
+      "index": 2,
+      "location": "DINER",
+      "number": null,
+      "page": 1,
+      "setting": "int",
+      "time": "CONTINUOUS",
+      "words": 170
+    },
+    {
+      "characters": [
+        "RUTH",
+        "NINA"
+      ],
+      "eighths": 6,
+      "heading": "INT. LIGHTHOUSE - MORNING",
+      "id": "b_17",
+      "index": 3,
+      "location": "LIGHTHOUSE",
+      "number": null,
+      "page": 2,
+      "setting": "int",
+      "time": "MORNING",
+      "words": 147
+    },
+    {
+      "characters": [
+        "MAYA",
+        "SAMUEL"
+      ],
+      "eighths": 9,
+      "heading": "INT. HARBOR - DAY",
+      "id": "b_28",
+      "index": 4,
+      "location": "HARBOR",
+      "number": null,
+      "page": 2,
+      "setting": "int",
+      "time": "DAY",
+      "words": 275
+    },
+    {
+      "characters": [
+        "RUTH",
+        "DR. IVES"
+      ],
+      "eighths": 9,
+      "heading": "EXT. PARKING GARAGE - MORNING",
+      "id": "b_48",
+      "index": 5,
+      "location": "PARKING GARAGE",
+      "number": null,
+      "page": 3,
+      "setting": "ext",
+      "time": "MORNING",
+      "words": 223
+    },
+    {
+      "characters": [
+        "DR. IVES",
+        "MAYA"
+      ],
+      "eighths": 4,
+      "heading": "INT. LIGHTHOUSE - CONTINUOUS",
+      "id": "b_71",
+      "index": 6,
+      "location": "LIGHTHOUSE",
+      "number": null,
+      "page": 5,
+      "setting": "int",
+      "time": "CONTINUOUS",
+      "words": 104
+    },
+    {
+      "characters": [
+        "RUTH",
+        "OFFICER BELL"
+      ],
+      "eighths": 8,
+      "heading": "EXT. HOSPITAL CORRIDOR - DUSK",
+      "id": "b_78",
+      "index": 7,
+      "location": "HOSPITAL CORRIDOR",
+      "number": null,
+      "page": 5,
+      "setting": "ext",
+      "time": "DUSK",
+      "words": 240
+    },
+    {
+      "characters": [
+        "NINA",
+        "DR. IVES"
+      ],
+      "eighths": 6,
+      "heading": "EXT. HOSPITAL CORRIDOR - DUSK",
+      "id": "b_96",
+      "index": 8,
+      "location": "HOSPITAL CORRIDOR",
+      "number": null,
+      "page": 6,
+      "setting": "ext",
+      "time": "DUSK",
+      "words": 200
+    },
+    {
+      "characters": [
+        "DR. IVES",
+        "OFFICER BELL"
+      ],
+      "eighths": 6,
+      "heading": "EXT. BRIDGE - DUSK",
+      "id": "b_110",
+      "index": 9,
+      "location": "BRIDGE",
+      "number": null,
+      "page": 7,
+      "setting": "ext",
+      "time": "DUSK",
+      "words": 149
+    },
+    {
+      "characters": [
+        "NINA",
+        "RUTH"
+      ],
+      "eighths": 7,
+      "heading": "INT. POLICE STATION - DAY",
+      "id": "b_121",
+      "index": 10,
+      "location": "POLICE STATION",
+      "number": null,
+      "page": 7,
+      "setting": "int",
+      "time": "DAY",
+      "words": 224
+    },
+    {
+      "characters": [
+        "MAYA",
+        "SAMUEL"
+      ],
+      "eighths": 11,
+      "heading": "INT. DINER - DUSK",
+      "id": "b_136",
+      "index": 11,
+      "location": "DINER",
+      "number": null,
+      "page": 8,
+      "setting": "int",
+      "time": "DUSK",
+      "words": 312
+    },
+    {
+      "characters": [
+        "SAMUEL"
+      ],
+      "eighths": 6,
+      "heading": "INT. KITCHEN - NIGHT",
+      "id": "b_162",
+      "index": 12,
+      "location": "KITCHEN",
+      "number": null,
+      "page": 10,
+      "setting": "int",
+      "time": "NIGHT",
+      "words": 144
+    },
+    {
+      "characters": [
+        "DR. IVES",
+        "RUTH"
+      ],
+      "eighths": 6,
+      "heading": "INT. ROOFTOP - NIGHT",
+      "id": "b_174",
+      "index": 13,
+      "location": "ROOFTOP",
+      "number": null,
+      "page": 10,
+      "setting": "int",
+      "time": "NIGHT",
+      "words": 147
+    },
+    {
+      "characters": [
+        "OFFICER BELL",
+        "SAMUEL"
+      ],
+      "eighths": 4,
+      "heading": "INT. LIGHTHOUSE - CONTINUOUS",
+      "id": "b_189",
+      "index": 14,
+      "location": "LIGHTHOUSE",
+      "number": null,
+      "page": 11,
+      "setting": "int",
+      "time": "CONTINUOUS",
+      "words": 116
+    },
+    {
+      "characters": [
+        "JUNE",
+        "DR. IVES"
+      ],
+      "eighths": 6,
+      "heading": "INT. ROOFTOP - MORNING",
+      "id": "b_198",
+      "index": 15,
+      "location": "ROOFTOP",
+      "number": null,
+      "page": 11,
+      "setting": "int",
+      "time": "MORNING",
+      "words": 147
+    },
+    {
+      "characters": [
+        "MAYA",
+        "DR. IVES"
+      ],
+      "eighths": 12,
+      "heading": "INT. LIGHTHOUSE - LATER",
+      "id": "b_211",
+      "index": 16,
+      "location": "LIGHTHOUSE",
+      "number": null,
+      "page": 12,
+      "setting": "int",
+      "time": "LATER",
+      "words": 315
+    },
+    {
+      "characters": [
+        "OFFICER BELL",
+        "SAMUEL"
+      ],
+      "eighths": 13,
+      "heading": "INT. HARBOR - MORNING",
+      "id": "b_242",
+      "index": 17,
+      "location": "HARBOR",
+      "number": null,
+      "page": 14,
+      "setting": "int",
+      "time": "MORNING",
+      "words": 381
+    },
+    {
+      "characters": [
+        "RUTH",
+        "NINA"
+      ],
+      "eighths": 9,
+      "heading": "EXT. MAYA'S APARTMENT - DUSK",
+      "id": "b_273",
+      "index": 18,
+      "location": "MAYA'S APARTMENT",
+      "number": null,
+      "page": 15,
+      "setting": "ext",
+      "time": "DUSK",
+      "words": 225
+    },
+    {
+      "characters": [
+        "RUTH",
+        "JUNE"
+      ],
+      "eighths": 6,
+      "heading": "INT. MAYA'S APARTMENT - CONTINUOUS",
+      "id": "b_296",
+      "index": 19,
+      "location": "MAYA'S APARTMENT",
+      "number": null,
+      "page": 16,
+      "setting": "int",
+      "time": "CONTINUOUS",
+      "words": 155
+    },
+    {
+      "characters": [
+        "OFFICER BELL",
+        "NINA"
+      ],
+      "eighths": 11,
+      "heading": "INT. TRAIN STATION - LATER",
+      "id": "b_309",
+      "index": 20,
+      "location": "TRAIN STATION",
+      "number": null,
+      "page": 17,
+      "setting": "int",
+      "time": "LATER",
+      "words": 300
+    },
+    {
+      "characters": [
+        "NINA",
+        "MAYA"
+      ],
+      "eighths": 9,
+      "heading": "EXT. KITCHEN - MORNING",
+      "id": "b_335",
+      "index": 21,
+      "location": "KITCHEN",
+      "number": null,
+      "page": 18,
+      "setting": "ext",
+      "time": "MORNING",
+      "words": 235
+    },
+    {
+      "characters": [
+        "RUTH",
+        "OFFICER BELL"
+      ],
+      "eighths": 8,
+      "heading": "INT. KITCHEN - CONTINUOUS",
+      "id": "b_354",
+      "index": 22,
+      "location": "KITCHEN",
+      "number": null,
+      "page": 20,
+      "setting": "int",
+      "time": "CONTINUOUS",
+      "words": 217
+    },
+    {
+      "characters": [
+        "OFFICER BELL",
+        "NINA"
+      ],
+      "eighths": 13,
+      "heading": "INT. ROOFTOP - CONTINUOUS",
+      "id": "b_374",
+      "index": 23,
+      "location": "ROOFTOP",
+      "number": null,
+      "page": 21,
+      "setting": "int",
+      "time": "CONTINUOUS",
+      "words": 335
+    },
+    {
+      "characters": [
+        "JUNE",
+        "SAMUEL"
+      ],
+      "eighths": 8,
+      "heading": "EXT. HARBOR - DAY",
+      "id": "b_407",
+      "index": 24,
+      "location": "HARBOR",
+      "number": null,
+      "page": 22,
+      "setting": "ext",
+      "time": "DAY",
+      "words": 217
+    },
+    {
+      "characters": [
+        "THEO",
+        "MAYA"
+      ],
+      "eighths": 4,
+      "heading": "INT. PARKING GARAGE - DUSK",
+      "id": "b_425",
+      "index": 25,
+      "location": "PARKING GARAGE",
+      "number": null,
+      "page": 23,
+      "setting": "int",
+      "time": "DUSK",
+      "words": 115
+    },
+    {
+      "characters": [
+        "RUTH",
+        "MAYA"
+      ],
+      "eighths": 10,
+      "heading": "INT. HARBOR - CONTINUOUS",
+      "id": "b_435",
+      "index": 26,
+      "location": "HARBOR",
+      "number": null,
+      "page": 24,
+      "setting": "int",
+      "time": "CONTINUOUS",
+      "words": 284
+    },
+    {
+      "characters": [
+        "SAMUEL",
+        "MAYA"
+      ],
+      "eighths": 15,
+      "heading": "EXT. POLICE STATION - DUSK",
+      "id": "b_456",
+      "index": 27,
+      "location": "POLICE STATION",
+      "number": null,
+      "page": 25,
+      "setting": "ext",
+      "time": "DUSK",
+      "words": 364
+    },
+    {
+      "characters": [
+        "THEO"
+      ],
+      "eighths": 14,
+      "heading": "INT. PARKING GARAGE - LATER",
+      "id": "b_493",
+      "index": 28,
+      "location": "PARKING GARAGE",
+      "number": null,
+      "page": 27,
+      "setting": "int",
+      "time": "LATER",
+      "words": 398
+    },
+    {
+      "characters": [
+        "JUNE"
+      ],
+      "eighths": 11,
+      "heading": "INT. LIGHTHOUSE - DAY",
+      "id": "b_530",
+      "index": 29,
+      "location": "LIGHTHOUSE",
+      "number": null,
+      "page": 28,
+      "setting": "int",
+      "time": "DAY",
+      "words": 315
+    },
+    {
+      "characters": [
+        "DR. IVES",
+        "RUTH"
+      ],
+      "eighths": 15,
+      "heading": "INT. LIGHTHOUSE - LATER",
+      "id": "b_555",
+      "index": 30,
+      "location": "LIGHTHOUSE",
+      "number": null,
+      "page": 30,
+      "setting": "int",
+      "time": "LATER",
+      "words": 425
+    },
+    {
+      "characters": [
+        "JUNE",
+        "DR. IVES"
+      ],
+      "eighths": 15,
+      "heading": "EXT. POLICE STATION - CONTINUOUS",
+      "id": "b_589",
+      "index": 31,
+      "location": "POLICE STATION",
+      "number": null,
+      "page": 32,
+      "setting": "ext",
+      "time": "CONTINUOUS",
+      "words": 427
+    },
+    {
+      "characters": [
+        "RUTH",
+        "MAYA"
+      ],
+      "eighths": 8,
+      "heading": "INT. HARBOR - NIGHT",
+      "id": "b_624",
+      "index": 32,
+      "location": "HARBOR",
+      "number": null,
+      "page": 34,
+      "setting": "int",
+      "time": "NIGHT",
+      "words": 217
+    },
+    {
+      "characters": [
+        "MAYA"
+      ],
+      "eighths": 9,
+      "heading": "INT. LIGHTHOUSE - DUSK",
+      "id": "b_643",
+      "index": 33,
+      "location": "LIGHTHOUSE",
+      "number": null,
+      "page": 35,
+      "setting": "int",
+      "time": "DUSK",
+      "words": 254
+    },
+    {
+      "characters": [
+        "RUTH",
+        "MAYA"
+      ],
+      "eighths": 5,
+      "heading": "INT. HOSPITAL CORRIDOR - NIGHT",
+      "id": "b_663",
+      "index": 34,
+      "location": "HOSPITAL CORRIDOR",
+      "number": null,
+      "page": 36,
+      "setting": "int",
+      "time": "NIGHT",
+      "words": 139
+    },
+    {
+      "characters": [
+        "SAMUEL",
+        "DR. IVES"
+      ],
+      "eighths": 8,
+      "heading": "INT. MAYA'S APARTMENT - CONTINUOUS",
+      "id": "b_674",
+      "index": 35,
+      "location": "MAYA'S APARTMENT",
+      "number": null,
+      "page": 36,
+      "setting": "int",
+      "time": "CONTINUOUS",
+      "words": 247
+    },
+    {
+      "characters": [
+        "RUTH",
+        "THEO"
+      ],
+      "eighths": 13,
+      "heading": "INT. ROOFTOP - MORNING",
+      "id": "b_691",
+      "index": 36,
+      "location": "ROOFTOP",
+      "number": null,
+      "page": 37,
+      "setting": "int",
+      "time": "MORNING",
+      "words": 312
+    },
+    {
+      "characters": [
+        "OFFICER BELL",
+        "RUTH"
+      ],
+      "eighths": 7,
+      "heading": "INT. POLICE STATION - DAY",
+      "id": "b_724",
+      "index": 37,
+      "location": "POLICE STATION",
+      "number": null,
+      "page": 39,
+      "setting": "int",
+      "time": "DAY",
+      "words": 190
+    },
+    {
+      "characters": [
+        "RUTH",
+        "SAMUEL"
+      ],
+      "eighths": 14,
+      "heading": "EXT. HARBOR - CONTINUOUS",
+      "id": "b_742",
+      "index": 38,
+      "location": "HARBOR",
+      "number": null,
+      "page": 40,
+      "setting": "ext",
+      "time": "CONTINUOUS",
+      "words": 385
+    },
+    {
+      "characters": [
+        "SAMUEL",
+        "NINA"
+      ],
+      "eighths": 6,
+      "heading": "INT. LIGHTHOUSE - LATER",
+      "id": "b_776",
+      "index": 39,
+      "location": "LIGHTHOUSE",
+      "number": null,
+      "page": 41,
+      "setting": "int",
+      "time": "LATER",
+      "words": 170
+    },
+    {
+      "characters": [
+        "SAMUEL",
+        "RUTH"
+      ],
+      "eighths": 7,
+      "heading": "EXT. TRAIN STATION - NIGHT",
+      "id": "b_789",
+      "index": 40,
+      "location": "TRAIN STATION",
+      "number": null,
+      "page": 42,
+      "setting": "ext",
+      "time": "NIGHT",
+      "words": 180
+    },
+    {
+      "characters": [
+        "JUNE",
+        "OFFICER BELL"
+      ],
+      "eighths": 12,
+      "heading": "EXT. POLICE STATION - CONTINUOUS",
+      "id": "b_805",
+      "index": 41,
+      "location": "POLICE STATION",
+      "number": null,
+      "page": 43,
+      "setting": "ext",
+      "time": "CONTINUOUS",
+      "words": 368
+    },
+    {
+      "characters": [
+        "OFFICER BELL",
+        "RUTH"
+      ],
+      "eighths": 6,
+      "heading": "INT. MAYA'S APARTMENT - MORNING",
+      "id": "b_831",
+      "index": 42,
+      "location": "MAYA'S APARTMENT",
+      "number": null,
+      "page": 45,
+      "setting": "int",
+      "time": "MORNING",
+      "words": 181
+    },
+    {
+      "characters": [
+        "MAYA",
+        "RUTH"
+      ],
+      "eighths": 8,
+      "heading": "EXT. POLICE STATION - LATER",
+      "id": "b_843",
+      "index": 43,
+      "location": "POLICE STATION",
+      "number": null,
+      "page": 45,
+      "setting": "ext",
+      "time": "LATER",
+      "words": 171
+    },
+    {
+      "characters": [
+        "MAYA"
+      ],
+      "eighths": 11,
+      "heading": "INT. MAYA'S APARTMENT - DAY",
+      "id": "b_864",
+      "index": 44,
+      "location": "MAYA'S APARTMENT",
+      "number": null,
+      "page": 46,
+      "setting": "int",
+      "time": "DAY",
+      "words": 296
+    },
+    {
+      "characters": [
+        "RUTH",
+        "SAMUEL"
+      ],
+      "eighths": 8,
+      "heading": "INT. RADIO ROOM - CONTINUOUS",
+      "id": "b_887",
+      "index": 45,
+      "location": "RADIO ROOM",
+      "number": null,
+      "page": 48,
+      "setting": "int",
+      "time": "CONTINUOUS",
+      "words": 228
+    },
+    {
+      "characters": [
+        "SAMUEL",
+        "DR. IVES"
+      ],
+      "eighths": 5,
+      "heading": "EXT. KITCHEN - CONTINUOUS",
+      "id": "b_905",
+      "index": 46,
+      "location": "KITCHEN",
+      "number": null,
+      "page": 49,
+      "setting": "ext",
+      "time": "CONTINUOUS",
+      "words": 124
+    },
+    {
+      "characters": [
+        "JUNE",
+        "DR. IVES"
+      ],
+      "eighths": 5,
+      "heading": "INT. ROOFTOP - DUSK",
+      "id": "b_918",
+      "index": 47,
+      "location": "ROOFTOP",
+      "number": null,
+      "page": 49,
+      "setting": "int",
+      "time": "DUSK",
+      "words": 150
+    },
+    {
+      "characters": [
+        "MAYA",
+        "NINA"
+      ],
+      "eighths": 7,
+      "heading": "EXT. MAYA'S APARTMENT - CONTINUOUS",
+      "id": "b_928",
+      "index": 48,
+      "location": "MAYA'S APARTMENT",
+      "number": null,
+      "page": 50,
+      "setting": "ext",
+      "time": "CONTINUOUS",
+      "words": 182
+    },
+    {
+      "characters": [
+        "MAYA",
+        "JUNE"
+      ],
+      "eighths": 5,
+      "heading": "INT. DINER - NIGHT",
+      "id": "b_946",
+      "index": 49,
+      "location": "DINER",
+      "number": null,
+      "page": 51,
+      "setting": "int",
+      "time": "NIGHT",
+      "words": 150
+    },
+    {
+      "characters": [
+        "MAYA",
+        "RUTH"
+      ],
+      "eighths": 11,
+      "heading": "INT. PARKING GARAGE - DAY",
+      "id": "b_957",
+      "index": 50,
+      "location": "PARKING GARAGE",
+      "number": null,
+      "page": 51,
+      "setting": "int",
+      "time": "DAY",
+      "words": 292
+    },
+    {
+      "characters": [
+        "DR. IVES",
+        "JUNE"
+      ],
+      "eighths": 7,
+      "heading": "INT. RADIO ROOM - NIGHT",
+      "id": "b_983",
+      "index": 51,
+      "location": "RADIO ROOM",
+      "number": null,
+      "page": 53,
+      "setting": "int",
+      "time": "NIGHT",
+      "words": 195
+    },
+    {
+      "characters": [
+        "NINA",
+        "RUTH"
+      ],
+      "eighths": 8,
+      "heading": "INT. TRAIN STATION - DUSK",
+      "id": "b_998",
+      "index": 52,
+      "location": "TRAIN STATION",
+      "number": null,
+      "page": 53,
+      "setting": "int",
+      "time": "DUSK",
+      "words": 206
+    },
+    {
+      "characters": [
+        "OFFICER BELL",
+        "DR. IVES"
+      ],
+      "eighths": 8,
+      "heading": "EXT. RADIO ROOM - MORNING",
+      "id": "b_1015",
+      "index": 53,
+      "location": "RADIO ROOM",
+      "number": null,
+      "page": 54,
+      "setting": "ext",
+      "time": "MORNING",
+      "words": 221
+    },
+    {
+      "characters": [
+        "THEO",
+        "JUNE"
+      ],
+      "eighths": 3,
+      "heading": "INT. LIGHTHOUSE - MORNING",
+      "id": "b_1032",
+      "index": 54,
+      "location": "LIGHTHOUSE",
+      "number": null,
+      "page": 55,
+      "setting": "int",
+      "time": "MORNING",
+      "words": 71
+    },
+    {
+      "characters": [
+        "SAMUEL",
+        "MAYA"
+      ],
+      "eighths": 7,
+      "heading": "INT. KITCHEN - NIGHT",
+      "id": "b_1038",
+      "index": 55,
+      "location": "KITCHEN",
+      "number": null,
+      "page": 56,
+      "setting": "int",
+      "time": "NIGHT",
+      "words": 164
+    },
+    {
+      "characters": [
+        "NINA",
+        "RUTH"
+      ],
+      "eighths": 10,
+      "heading": "EXT. DINER - CONTINUOUS",
+      "id": "b_1053",
+      "index": 56,
+      "location": "DINER",
+      "number": null,
+      "page": 56,
+      "setting": "ext",
+      "time": "CONTINUOUS",
+      "words": 282
+    },
+    {
+      "characters": [
+        "RUTH",
+        "SAMUEL"
+      ],
+      "eighths": 9,
+      "heading": "EXT. BRIDGE - NIGHT",
+      "id": "b_1074",
+      "index": 57,
+      "location": "BRIDGE",
+      "number": null,
+      "page": 58,
+      "setting": "ext",
+      "time": "NIGHT",
+      "words": 226
+    },
+    {
+      "characters": [
+        "SAMUEL",
+        "DR. IVES"
+      ],
+      "eighths": 12,
+      "heading": "INT. KITCHEN - MORNING",
+      "id": "b_1095",
+      "index": 58,
+      "location": "KITCHEN",
+      "number": null,
+      "page": 59,
+      "setting": "int",
+      "time": "MORNING",
+      "words": 317
+    },
+    {
+      "characters": [
+        "NINA",
+        "THEO"
+      ],
+      "eighths": 6,
+      "heading": "INT. DINER - DAY",
+      "id": "b_1125",
+      "index": 59,
+      "location": "DINER",
+      "number": null,
+      "page": 60,
+      "setting": "int",
+      "time": "DAY",
+      "words": 176
+    },
+    {
+      "characters": [
+        "MAYA",
+        "JUNE"
+      ],
+      "eighths": 14,
+      "heading": "EXT. TRAIN STATION - NIGHT",
+      "id": "b_1136",
+      "index": 60,
+      "location": "TRAIN STATION",
+      "number": null,
+      "page": 61,
+      "setting": "ext",
+      "time": "NIGHT",
+      "words": 392
+    },
+    {
+      "characters": [
+        "RUTH",
+        "THEO"
+      ],
+      "eighths": 8,
+      "heading": "INT. BRIDGE - NIGHT",
+      "id": "b_1168",
+      "index": 61,
+      "location": "BRIDGE",
+      "number": null,
+      "page": 63,
+      "setting": "int",
+      "time": "NIGHT",
+      "words": 250
+    },
+    {
+      "characters": [
+        "DR. IVES",
+        "JUNE"
+      ],
+      "eighths": 11,
+      "heading": "INT. RADIO ROOM - DUSK",
+      "id": "b_1186",
+      "index": 62,
+      "location": "RADIO ROOM",
+      "number": null,
+      "page": 64,
+      "setting": "int",
+      "time": "DUSK",
+      "words": 310
+    },
+    {
+      "characters": [
+        "THEO",
+        "SAMUEL"
+      ],
+      "eighths": 11,
+      "heading": "INT. KITCHEN - NIGHT",
+      "id": "b_1211",
+      "index": 63,
+      "location": "KITCHEN",
+      "number": null,
+      "page": 65,
+      "setting": "int",
+      "time": "NIGHT",
+      "words": 305
+    },
+    {
+      "characters": [
+        "SAMUEL",
+        "JUNE"
+      ],
+      "eighths": 5,
+      "heading": "INT. PARKING GARAGE - NIGHT",
+      "id": "b_1238",
+      "index": 64,
+      "location": "PARKING GARAGE",
+      "number": null,
+      "page": 66,
+      "setting": "int",
+      "time": "NIGHT",
+      "words": 143
+    },
+    {
+      "characters": [
+        "MAYA"
+      ],
+      "eighths": 8,
+      "heading": "INT. POLICE STATION - NIGHT",
+      "id": "b_1247",
+      "index": 65,
+      "location": "POLICE STATION",
+      "number": null,
+      "page": 67,
+      "setting": "int",
+      "time": "NIGHT",
+      "words": 230
+    },
+    {
+      "characters": [
+        "RUTH",
+        "JUNE"
+      ],
+      "eighths": 4,
+      "heading": "INT. MAYA'S APARTMENT - MORNING",
+      "id": "b_1264",
+      "index": 66,
+      "location": "MAYA'S APARTMENT",
+      "number": null,
+      "page": 68,
+      "setting": "int",
+      "time": "MORNING",
+      "words": 103
+    },
+    {
+      "characters": [
+        "THEO",
+        "JUNE"
+      ],
+      "eighths": 7,
+      "heading": "EXT. ROOFTOP - DUSK",
+      "id": "b_1273",
+      "index": 67,
+      "location": "ROOFTOP",
+      "number": null,
+      "page": 68,
+      "setting": "ext",
+      "time": "DUSK",
+      "words": 170
+    },
+    {
+      "characters": [
+        "SAMUEL"
+      ],
+      "eighths": 9,
+      "heading": "EXT. TRAIN STATION - LATER",
+      "id": "b_1289",
+      "index": 68,
+      "location": "TRAIN STATION",
+      "number": null,
+      "page": 69,
+      "setting": "ext",
+      "time": "LATER",
+      "words": 270
+    },
+    {
+      "characters": [
+        "OFFICER BELL",
+        "THEO"
+      ],
+      "eighths": 9,
+      "heading": "INT. HARBOR - NIGHT",
+      "id": "b_1310",
+      "index": 69,
+      "location": "HARBOR",
+      "number": null,
+      "page": 70,
+      "setting": "int",
+      "time": "NIGHT",
+      "words": 276
+    },
+    {
+      "characters": [
+        "MAYA",
+        "JUNE"
+      ],
+      "eighths": 5,
+      "heading": "INT. LIGHTHOUSE - DAY",
+      "id": "b_1331",
+      "index": 70,
+      "location": "LIGHTHOUSE",
+      "number": null,
+      "page": 71,
+      "setting": "int",
+      "time": "DAY",
+      "words": 122
+    },
+    {
+      "characters": [
+        "JUNE",
+        "DR. IVES"
+      ],
+      "eighths": 14,
+      "heading": "INT. KITCHEN - LATER",
+      "id": "b_1344",
+      "index": 71,
+      "location": "KITCHEN",
+      "number": null,
+      "page": 72,
+      "setting": "int",
+      "time": "LATER",
+      "words": 391
+    },
+    {
+      "characters": [
+        "MAYA",
+        "RUTH"
+      ],
+      "eighths": 5,
+      "heading": "INT. HARBOR - DAY",
+      "id": "b_1376",
+      "index": 72,
+      "location": "HARBOR",
+      "number": null,
+      "page": 74,
+      "setting": "int",
+      "time": "DAY",
+      "words": 125
+    },
+    {
+      "characters": [
+        "THEO",
+        "MAYA"
+      ],
+      "eighths": 4,
+      "heading": "INT. DINER - MORNING",
+      "id": "b_1389",
+      "index": 73,
+      "location": "DINER",
+      "number": null,
+      "page": 74,
+      "setting": "int",
+      "time": "MORNING",
+      "words": 140
+    },
+    {
+      "characters": [
+        "SAMUEL",
+        "NINA"
+      ],
+      "eighths": 8,
+      "heading": "INT. KITCHEN - LATER",
+      "id": "b_1397",
+      "index": 74,
+      "location": "KITCHEN",
+      "number": null,
+      "page": 75,
+      "setting": "int",
+      "time": "LATER",
+      "words": 217
+    },
+    {
+      "characters": [
+        "JUNE",
+        "THEO"
+      ],
+      "eighths": 10,
+      "heading": "INT. PARKING GARAGE - MORNING",
+      "id": "b_1417",
+      "index": 75,
+      "location": "PARKING GARAGE",
+      "number": null,
+      "page": 76,
+      "setting": "int",
+      "time": "MORNING",
+      "words": 269
+    },
+    {
+      "characters": [
+        "SAMUEL",
+        "MAYA"
+      ],
+      "eighths": 9,
+      "heading": "INT. TRAIN STATION - CONTINUOUS",
+      "id": "b_1438",
+      "index": 76,
+      "location": "TRAIN STATION",
+      "number": null,
+      "page": 77,
+      "setting": "int",
+      "time": "CONTINUOUS",
+      "words": 249
+    },
+    {
+      "characters": [
+        "OFFICER BELL",
+        "RUTH"
+      ],
+      "eighths": 15,
+      "heading": "INT. RADIO ROOM - DUSK",
+      "id": "b_1458",
+      "index": 77,
+      "location": "RADIO ROOM",
+      "number": null,
+      "page": 78,
+      "setting": "int",
+      "time": "DUSK",
+      "words": 401
+    },
+    {
+      "characters": [
+        "RUTH",
+        "JUNE"
+      ],
+      "eighths": 4,
+      "heading": "INT. TRAIN STATION - DUSK",
+      "id": "b_1495",
+      "index": 78,
+      "location": "TRAIN STATION",
+      "number": null,
+      "page": 80,
+      "setting": "int",
+      "time": "DUSK",
+      "words": 84
+    },
+    {
+      "characters": [
+        "THEO",
+        "RUTH"
+      ],
+      "eighths": 11,
+      "heading": "EXT. TRAIN STATION - MORNING",
+      "id": "b_1505",
+      "index": 79,
+      "location": "TRAIN STATION",
+      "number": null,
+      "page": 80,
+      "setting": "ext",
+      "time": "MORNING",
+      "words": 337
+    },
+    {
+      "characters": [
+        "JUNE",
+        "DR. IVES"
+      ],
+      "eighths": 8,
+      "heading": "EXT. LIGHTHOUSE - DAY",
+      "id": "b_1530",
+      "index": 80,
+      "location": "LIGHTHOUSE",
+      "number": null,
+      "page": 82,
+      "setting": "ext",
+      "time": "DAY",
+      "words": 196
+    },
+    {
+      "characters": [
+        "MAYA"
+      ],
+      "eighths": 6,
+      "heading": "INT. RADIO ROOM - NIGHT",
+      "id": "b_1546",
+      "index": 81,
+      "location": "RADIO ROOM",
+      "number": null,
+      "page": 83,
+      "setting": "int",
+      "time": "NIGHT",
+      "words": 189
+    },
+    {
+      "characters": [
+        "THEO",
+        "JUNE"
+      ],
+      "eighths": 14,
+      "heading": "INT. DINER - NIGHT",
+      "id": "b_1558",
+      "index": 82,
+      "location": "DINER",
+      "number": null,
+      "page": 83,
+      "setting": "int",
+      "time": "NIGHT",
+      "words": 369
+    },
+    {
+      "characters": [
+        "RUTH",
+        "SAMUEL"
+      ],
+      "eighths": 5,
+      "heading": "INT. MAYA'S APARTMENT - DAY",
+      "id": "b_1594",
+      "index": 83,
+      "location": "MAYA'S APARTMENT",
+      "number": null,
+      "page": 85,
+      "setting": "int",
+      "time": "DAY",
+      "words": 143
+    },
+    {
+      "characters": [
+        "THEO",
+        "NINA"
+      ],
+      "eighths": 8,
+      "heading": "EXT. RADIO ROOM - LATER",
+      "id": "b_1604",
+      "index": 84,
+      "location": "RADIO ROOM",
+      "number": null,
+      "page": 86,
+      "setting": "ext",
+      "time": "LATER",
+      "words": 217
+    },
+    {
+      "characters": [
+        "RUTH"
+      ],
+      "eighths": 9,
+      "heading": "EXT. KITCHEN - MORNING",
+      "id": "b_1625",
+      "index": 85,
+      "location": "KITCHEN",
+      "number": null,
+      "page": 87,
+      "setting": "ext",
+      "time": "MORNING",
+      "words": 251
+    },
+    {
+      "characters": [
+        "NINA",
+        "THEO"
+      ],
+      "eighths": 7,
+      "heading": "INT. DINER - NIGHT",
+      "id": "b_1648",
+      "index": 86,
+      "location": "DINER",
+      "number": null,
+      "page": 88,
+      "setting": "int",
+      "time": "NIGHT",
+      "words": 190
+    },
+    {
+      "characters": [
+        "MAYA",
+        "OFFICER BELL"
+      ],
+      "eighths": 10,
+      "heading": "INT. POLICE STATION - DUSK",
+      "id": "b_1664",
+      "index": 87,
+      "location": "POLICE STATION",
+      "number": null,
+      "page": 89,
+      "setting": "int",
+      "time": "DUSK",
+      "words": 275
+    },
+    {
+      "characters": [
+        "RUTH",
+        "MAYA"
+      ],
+      "eighths": 14,
+      "heading": "INT. HARBOR - CONTINUOUS",
+      "id": "b_1689",
+      "index": 88,
+      "location": "HARBOR",
+      "number": null,
+      "page": 90,
+      "setting": "int",
+      "time": "CONTINUOUS",
+      "words": 356
+    },
+    {
+      "characters": [
+        "DR. IVES",
+        "MAYA"
+      ],
+      "eighths": 9,
+      "heading": "INT. PARKING GARAGE - DAY",
+      "id": "b_1727",
+      "index": 89,
+      "location": "PARKING GARAGE",
+      "number": null,
+      "page": 92,
+      "setting": "int",
+      "time": "DAY",
+      "words": 261
+    },
+    {
+      "characters": [
+        "OFFICER BELL",
+        "RUTH"
+      ],
+      "eighths": 8,
+      "heading": "EXT. POLICE STATION - CONTINUOUS",
+      "id": "b_1746",
+      "index": 90,
+      "location": "POLICE STATION",
+      "number": null,
+      "page": 93,
+      "setting": "ext",
+      "time": "CONTINUOUS",
+      "words": 210
+    },
+    {
+      "characters": [
+        "JUNE",
+        "OFFICER BELL"
+      ],
+      "eighths": 5,
+      "heading": "INT. ROOFTOP - CONTINUOUS",
+      "id": "b_1766",
+      "index": 91,
+      "location": "ROOFTOP",
+      "number": null,
+      "page": 94,
+      "setting": "int",
+      "time": "CONTINUOUS",
+      "words": 138
+    },
+    {
+      "characters": [
+        "SAMUEL",
+        "NINA"
+      ],
+      "eighths": 8,
+      "heading": "INT. POLICE STATION - LATER",
+      "id": "b_1779",
+      "index": 92,
+      "location": "POLICE STATION",
+      "number": null,
+      "page": 94,
+      "setting": "int",
+      "time": "LATER",
+      "words": 217
+    },
+    {
+      "characters": [
+        "DR. IVES",
+        "THEO"
+      ],
+      "eighths": 5,
+      "heading": "EXT. MAYA'S APARTMENT - LATER",
+      "id": "b_1799",
+      "index": 93,
+      "location": "MAYA'S APARTMENT",
+      "number": null,
+      "page": 95,
+      "setting": "ext",
+      "time": "LATER",
+      "words": 113
+    },
+    {
+      "characters": [
+        "DR. IVES",
+        "NINA"
+      ],
+      "eighths": 4,
+      "heading": "INT. HARBOR - CONTINUOUS",
+      "id": "b_1810",
+      "index": 94,
+      "location": "HARBOR",
+      "number": null,
+      "page": 96,
+      "setting": "int",
+      "time": "CONTINUOUS",
+      "words": 107
+    },
+    {
+      "characters": [
+        "JUNE",
+        "DR. IVES"
+      ],
+      "eighths": 4,
+      "heading": "EXT. BRIDGE - LATER",
+      "id": "b_1817",
+      "index": 95,
+      "location": "BRIDGE",
+      "number": null,
+      "page": 96,
+      "setting": "ext",
+      "time": "LATER",
+      "words": 101
+    },
+    {
+      "characters": [
+        "SAMUEL",
+        "DR. IVES"
+      ],
+      "eighths": 6,
+      "heading": "EXT. MAYA'S APARTMENT - LATER",
+      "id": "b_1825",
+      "index": 96,
+      "location": "MAYA'S APARTMENT",
+      "number": null,
+      "page": 97,
+      "setting": "ext",
+      "time": "LATER",
+      "words": 145
+    },
+    {
+      "characters": [
+        "SAMUEL",
+        "MAYA"
+      ],
+      "eighths": 10,
+      "heading": "EXT. HARBOR - DAY",
+      "id": "b_1839",
+      "index": 97,
+      "location": "HARBOR",
+      "number": null,
+      "page": 97,
+      "setting": "ext",
+      "time": "DAY",
+      "words": 288
+    },
+    {
+      "characters": [
+        "THEO",
+        "NINA"
+      ],
+      "eighths": 4,
+      "heading": "INT. DINER - LATER",
+      "id": "b_1860",
+      "index": 98,
+      "location": "DINER",
+      "number": null,
+      "page": 99,
+      "setting": "int",
+      "time": "LATER",
+      "words": 103
+    },
+    {
+      "characters": [
+        "MAYA",
+        "JUNE"
+      ],
+      "eighths": 7,
+      "heading": "EXT. MAYA'S APARTMENT - DUSK",
+      "id": "b_1871",
+      "index": 99,
+      "location": "MAYA'S APARTMENT",
+      "number": null,
+      "page": 99,
+      "setting": "ext",
+      "time": "DUSK",
+      "words": 188
+    },
+    {
+      "characters": [
+        "THEO"
+      ],
+      "eighths": 8,
+      "heading": "INT. PARKING GARAGE - LATER",
+      "id": "b_1887",
+      "index": 100,
+      "location": "PARKING GARAGE",
+      "number": null,
+      "page": 100,
+      "setting": "int",
+      "time": "LATER",
+      "words": 247
+    },
+    {
+      "characters": [
+        "SAMUEL",
+        "OFFICER BELL"
+      ],
+      "eighths": 7,
+      "heading": "EXT. ROOFTOP - MORNING",
+      "id": "b_1906",
+      "index": 101,
+      "location": "ROOFTOP",
+      "number": null,
+      "page": 101,
+      "setting": "ext",
+      "time": "MORNING",
+      "words": 202
+    },
+    {
+      "characters": [
+        "SAMUEL",
+        "JUNE"
+      ],
+      "eighths": 14,
+      "heading": "INT. TRAIN STATION - LATER",
+      "id": "b_1924",
+      "index": 102,
+      "location": "TRAIN STATION",
+      "number": null,
+      "page": 102,
+      "setting": "int",
+      "time": "LATER",
+      "words": 431
+    },
+    {
+      "characters": [
+        "THEO"
+      ],
+      "eighths": 8,
+      "heading": "EXT. LIGHTHOUSE - DUSK",
+      "id": "b_1956",
+      "index": 103,
+      "location": "LIGHTHOUSE",
+      "number": null,
+      "page": 104,
+      "setting": "ext",
+      "time": "DUSK",
+      "words": 202
+    },
+    {
+      "characters": [
+        "DR. IVES"
+      ],
+      "eighths": 7,
+      "heading": "INT. ROOFTOP - MORNING",
+      "id": "b_1977",
+      "index": 104,
+      "location": "ROOFTOP",
+      "number": null,
+      "page": 105,
+      "setting": "int",
+      "time": "MORNING",
+      "words": 201
+    },
+    {
+      "characters": [
+        "MAYA",
+        "SAMUEL"
+      ],
+      "eighths": 6,
+      "heading": "EXT. MAYA'S APARTMENT - NIGHT",
+      "id": "b_1991",
+      "index": 105,
+      "location": "MAYA'S APARTMENT",
+      "number": null,
+      "page": 106,
+      "setting": "ext",
+      "time": "NIGHT",
+      "words": 141
+    },
+    {
+      "characters": [
+        "THEO",
+        "RUTH"
+      ],
+      "eighths": 8,
+      "heading": "INT. BRIDGE - LATER",
+      "id": "b_2006",
+      "index": 106,
+      "location": "BRIDGE",
+      "number": null,
+      "page": 106,
+      "setting": "int",
+      "time": "LATER",
+      "words": 218
+    },
+    {
+      "characters": [
+        "THEO",
+        "SAMUEL"
+      ],
+      "eighths": 12,
+      "heading": "EXT. HARBOR - DUSK",
+      "id": "b_2026",
+      "index": 107,
+      "location": "HARBOR",
+      "number": null,
+      "page": 107,
+      "setting": "ext",
+      "time": "DUSK",
+      "words": 336
+    },
+    {
+      "characters": [
+        "MAYA",
+        "DR. IVES"
+      ],
+      "eighths": 12,
+      "heading": "INT. BRIDGE - CONTINUOUS",
+      "id": "b_2057",
+      "index": 108,
+      "location": "BRIDGE",
+      "number": null,
+      "page": 109,
+      "setting": "int",
+      "time": "CONTINUOUS",
+      "words": 318
+    },
+    {
+      "characters": [
+        "MAYA",
+        "RUTH"
+      ],
+      "eighths": 7,
+      "heading": "INT. HARBOR - CONTINUOUS",
+      "id": "b_2087",
+      "index": 109,
+      "location": "HARBOR",
+      "number": null,
+      "page": 110,
+      "setting": "int",
+      "time": "CONTINUOUS",
+      "words": 190
+    },
+    {
+      "characters": [
+        "JUNE",
+        "DR. IVES"
+      ],
+      "eighths": 12,
+      "heading": "INT. KITCHEN - DAY",
+      "id": "b_2104",
+      "index": 110,
+      "location": "KITCHEN",
+      "number": null,
+      "page": 111,
+      "setting": "int",
+      "time": "DAY",
+      "words": 316
+    },
+    {
+      "characters": [
+        "DR. IVES",
+        "THEO"
+      ],
+      "eighths": 9,
+      "heading": "INT. KITCHEN - MORNING",
+      "id": "b_2135",
+      "index": 111,
+      "location": "KITCHEN",
+      "number": null,
+      "page": 113,
+      "setting": "int",
+      "time": "MORNING",
+      "words": 267
+    },
+    {
+      "characters": [
+        "RUTH",
+        "JUNE"
+      ],
+      "eighths": 14,
+      "heading": "EXT. HOSPITAL CORRIDOR - LATER",
+      "id": "b_2157",
+      "index": 112,
+      "location": "HOSPITAL CORRIDOR",
+      "number": null,
+      "page": 114,
+      "setting": "ext",
+      "time": "LATER",
+      "words": 387
+    },
+    {
+      "characters": [
+        "JUNE",
+        "NINA"
+      ],
+      "eighths": 12,
+      "heading": "INT. TRAIN STATION - CONTINUOUS",
+      "id": "b_2191",
+      "index": 113,
+      "location": "TRAIN STATION",
+      "number": null,
+      "page": 115,
+      "setting": "int",
+      "time": "CONTINUOUS",
+      "words": 294
+    },
+    {
+      "characters": [
+        "JUNE",
+        "NINA"
+      ],
+      "eighths": 4,
+      "heading": "INT. RADIO ROOM - LATER",
+      "id": "b_2222",
+      "index": 114,
+      "location": "RADIO ROOM",
+      "number": null,
+      "page": 117,
+      "setting": "int",
+      "time": "LATER",
+      "words": 82
+    },
+    {
+      "characters": [
+        "DR. IVES",
+        "RUTH"
+      ],
+      "eighths": 6,
+      "heading": "INT. POLICE STATION - NIGHT",
+      "id": "b_2231",
+      "index": 115,
+      "location": "POLICE STATION",
+      "number": null,
+      "page": 117,
+      "setting": "int",
+      "time": "NIGHT",
+      "words": 133
+    },
+    {
+      "characters": [
+        "DR. IVES",
+        "SAMUEL"
+      ],
+      "eighths": 8,
+      "heading": "INT. KITCHEN - DUSK",
+      "id": "b_2245",
+      "index": 116,
+      "location": "KITCHEN",
+      "number": null,
+      "page": 118,
+      "setting": "int",
+      "time": "DUSK",
+      "words": 230
+    },
+    {
+      "characters": [
+        "SAMUEL",
+        "DR. IVES"
+      ],
+      "eighths": 3,
+      "heading": "INT. RADIO ROOM - MORNING",
+      "id": "b_2263",
+      "index": 117,
+      "location": "RADIO ROOM",
+      "number": null,
+      "page": 119,
+      "setting": "int",
+      "time": "MORNING",
+      "words": 60
+    }
+  ]
+}

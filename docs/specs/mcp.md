@@ -50,6 +50,10 @@ coldopen mcp [--doc PATH] [--no-attach] [--untracked]
 | `export_pdf`, `export_fdx`, `export_fountain` | output | The last two added 2026-10-16. |
 | `file_repair` | file | Added 2026-10-16: writes a repaired copy of an .fdx file to a new path (`docs/specs/commands.md`, "Files"). |
 | `recovered_restore`, `recovered_delete` | writer-only | Added 2026-10-16. Listed, as every command is, but an agent always gets `writer_only`: the writer's set-aside work is theirs to restore or delete (§6). |
+| `revision_list`, `title_get`, `report_scenes`, `report_characters`, `report_locations` | query | Added 2026-10-22 (phase 5b). |
+| `title_set`, `title_set_lines` | edit | Added 2026-10-22. Refused with `writer_only` while the script's agent tracking is on, so every agent edit stays reviewable (decided with the project's owner); allowed when it is off. |
+| `revision_start`, `revision_end`, `revision_colors`, `revision_clear`, `changes_import` | writer-only | Added 2026-10-22. Listed, but an agent always gets `writer_only`: revision sets are the production's record, and an import's changes carry a writer's name. An agent's edits are revision-marked like anyone's while a set is active. |
+| `diff` | file | Added 2026-10-22: compares two drafts (`docs/specs/diff.md`). `overwrite` for its PDF is refused, as for `export_pdf`. |
 
 - **Input schemas.** Each tool's input schema is its command's params as JSON Schema, generated from the same Rust types the dispatcher deserializes, so they cannot drift apart. Unknown params are refused, as in the envelope.
 - **Results.**
@@ -71,10 +75,12 @@ With a document open:
 | `coldopen://doc/scenes` | `application/json` | The scene list (`scene.list`). |
 | `coldopen://scene/{id}` (template) | `text/plain` | One scene, heading to end, as Fountain. |
 | `coldopen://doc/changes` | `application/json` | (2026-10-18) The pending tracked changes (`changes.list`). |
+| `coldopen://doc/revisions` | `application/json` | (2026-10-22) The revision sets (`revision.list`). |
+| `coldopen://report/scenes`, `coldopen://report/characters`, `coldopen://report/locations` | `application/json` | (2026-10-22) The reports (`docs/specs/reports.md`). |
 
 - **No document.** With no document open, the list is empty, and reading any of these fails with "resource not found" (JSON-RPC `-32602`).
 - **Updates.** When the document changes, by any author including the writer in the app, the server reports every resource above as updated to clients that subscribed. Opening or closing a document changes the resource list, which the server announces. Clients on revision 2026-07-28 subscribe with `subscriptions/listen`; older clients with `resources/subscribe`. Both are supported.
-- **Reports.** The reports of phase 5 (`report.characters` and others) will be added here as they arrive.
+- **Reports** (2026-10-22, phase 5b) are the three `coldopen://report/` resources above, updated with the others.
 
 ## 5. The agent link
 
@@ -200,6 +206,6 @@ Tokens never appear in logs, errors or the journal.
 
 ## 8. Not yet
 
-- Report resources (phase 5b). Agent edits as tracked changes arrived in phase 5a (§6.1).
+- Agent edits as tracked changes arrived in phase 5a (§6.1), and report resources in phase 5b (§4).
 - Attaching to a script that is open in another `coldopen mcp` or `serve --stdio` process, rather than in the app.
 - Any network transport.

@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use crate::author::{Author, Clock};
 use crate::command::{
     ChangesSettle, Class, Command, DocClose, DocNew, DocOpen, DocSave, ExportFile, ExportPdf,
-    FileRepair, Recover, RecoveredDelete, RecoveredList, RecoveredRestore,
+    FileRepair, Recover, RecoveredDelete, RecoveredList, RecoveredRestore, RevisionClear,
 };
 use crate::document::Document;
 use crate::error::CommandError;
@@ -436,6 +436,8 @@ impl Dispatcher {
             Command::RecoveredList(p) => self.recovered_list(p),
             Command::RecoveredRestore(p) => self.recovered_restore(p, by),
             Command::RecoveredDelete(p) => self.recovered_delete(p, by),
+            Command::Diff(p) => self.diff(p, by),
+            Command::ChangesImport(p) => self.changes_import(p, by),
             other => self
                 .session
                 .as_mut()
@@ -1070,11 +1072,13 @@ impl Dispatcher {
     /// the form the file will hold, as a converting save does. The version
     /// with its changes marked is set aside first, as a Recovered version
     /// (docs/specs/journal.md), then every pending change is accepted as
-    /// one undoable step, journaled like any other. Returns the warning
-    /// that says so, or nothing when the save keeps the marks or has none.
-    fn accept_for_save(&mut self, p: &DocSave) -> Result<Option<Value>, CommandError> {
+    /// one undoable step, journaled like any other. The same holds for
+    /// revision sets and marks (docs/specs/revisions.md §9), reset as one
+    /// more step. Returns the warnings that say so, none when the save
+    /// keeps everything or there is nothing to take out.
+    fn accept_for_save(&mut self, p: &DocSave) -> Result<Vec<Value>, CommandError> {
         let Some(session) = self.session.as_mut() else {
-            return Ok(None);
+            return Ok(Vec::new());
         };
         let target = p.path.as_deref().map(Path::new).or(session.path.as_deref());
         let format = match (&p.format, target) {
@@ -1084,13 +1088,20 @@ impl Dispatcher {
         };
         // A bundle keeps the marks; a format that is not known fails when
         // the save renders, as before.
-        if !p.allow_lossy
-            || format.is_none_or(|f| f == FormatId::Bundle)
-            || !session.doc.has_changes()
+        let changes = session.doc.has_changes();
+        let revisions = session.doc.has_revision_data();
+        if !p.allow_lossy || format.is_none_or(|f| f == FormatId::Bundle) || !(changes || revisions)
         {
-            return Ok(None);
+            return Ok(Vec::new());
         }
         let count = session.doc.pending().len();
+        let sets = session.doc.revisions.sets.len();
+        let marked = session
+            .doc
+            .blocks
+            .iter()
+            .filter(|b| b.has_revisions())
+            .count();
         let copy = match &mut session.journal {
             Some(j) => {
                 let path = j.path().to_path_buf();
@@ -1100,32 +1111,27 @@ impl Dispatcher {
             }
             None => None,
         };
-        let accept = Command::ChangesAccept(ChangesSettle {
-            all: true,
-            ..ChangesSettle::default()
-        });
-        session.execute_with(&accept, &Exec::by(self.writer.clone()))?;
         let name = format.map_or("this format", |f| f.title());
-        let changes = if count == 1 {
-            "1 pending change".to_string()
-        } else {
-            format!("{count} pending changes")
-        };
-        Ok(Some(match copy {
-            Some(copy) => json!({
-                "code": "changes_accepted",
-                "message": format!(
-                    "{name} cannot hold tracked changes, so saving accepted {changes};                      the version with them marked is kept in {}",
-                    copy.display()
-                ),
-                "details": { "copy": copy.display().to_string(), "count": count },
-            }),
-            None => json!({
-                "code": "changes_accepted",
-                "message": format!("{name} cannot hold tracked changes, so saving accepted {changes}"),
-                "details": { "count": count },
-            }),
-        }))
+        let mut warnings = Vec::new();
+        if changes {
+            let accept = Command::ChangesAccept(ChangesSettle {
+                all: true,
+                ..ChangesSettle::default()
+            });
+            session.execute_with(&accept, &Exec::by(self.writer.clone()))?;
+            warnings.push(accepted_warning(name, count, copy.as_deref()));
+        }
+        if revisions {
+            // Accepting may have marked text: the reset takes it out too.
+            let clear = Command::RevisionClear(RevisionClear {
+                all: true,
+                sets: true,
+                ..RevisionClear::default()
+            });
+            session.execute_with(&clear, &Exec::by(self.writer.clone()))?;
+            warnings.push(cleared_warning(name, sets, marked, copy.as_deref()));
+        }
+        Ok(warnings)
     }
 
     /// Locks the journal of a "save as" target and judges what it holds
@@ -1338,6 +1344,156 @@ impl Dispatcher {
 
     /// Lays out the open document and writes it as a PDF. The document and
     /// its journal are untouched (docs/specs/commands.md, "Output").
+    /// `diff` (docs/specs/diff.md §5): two drafts compared, and with `pdf`
+    /// B with the changes marked. The open document is never changed.
+    fn diff(&mut self, p: crate::command::DiffParams, by: &Author) -> Result<Value, CommandError> {
+        if p.overwrite && !by.is_writer() {
+            return Err(writer_only("replace an existing file"));
+        }
+        let b_path = PathBuf::from(&p.b);
+        let (b_doc, b_format) = crate::diff::read_draft(&b_path)?;
+        let read_a;
+        let (a_doc, a_format, a_path) = match &p.a {
+            Some(a) => {
+                let path = PathBuf::from(a);
+                read_a = crate::diff::read_draft(&path)?;
+                (&read_a.0, read_a.1, Some(path))
+            }
+            None => {
+                let s = self
+                    .session
+                    .as_ref()
+                    .ok_or_else(CommandError::no_document)?;
+                (&s.doc, s.format, s.path.clone())
+            }
+        };
+        let mut out = crate::diff::result(
+            &crate::diff::Named {
+                doc: a_doc,
+                format: a_format,
+                path: a_path.as_deref(),
+            },
+            &crate::diff::Named {
+                doc: &b_doc,
+                format: b_format,
+                path: Some(&b_path),
+            },
+        );
+        let Some(pdf) = &p.pdf else {
+            return Ok(out);
+        };
+        let target = PathBuf::from(pdf);
+        let is_pdf = target
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("pdf"));
+        if !is_pdf {
+            return Err(CommandError::new(
+                "unsupported_format",
+                format!("{} is not a .pdf path", target.display()),
+            ));
+        }
+        let open = self.session.as_ref().and_then(|s| s.path.clone());
+        let taken = [
+            a_path.clone(),
+            Some(b_path.clone()),
+            open.clone(),
+            open.as_deref().map(journal::path_for),
+        ];
+        if taken.iter().flatten().any(|t| same_path(t, &target)) {
+            return Err(CommandError::new(
+                "would_overwrite_document",
+                format!(
+                    "{} is one of the drafts, the open document or its crash journal; choose another path",
+                    target.display()
+                ),
+            )
+            .with_details(json!({ "path": target.display().to_string() })));
+        }
+        if !p.overwrite && target.exists() {
+            return Err(exists(&target));
+        }
+        // B with the changes marked: A with B brought in as one author's
+        // tracked changes, printed in the marked print form (diff.md §4.3).
+        let doc = crate::diff::marked(
+            a_doc,
+            a_format,
+            &b_doc,
+            b_format,
+            &crate::diff::default_name(&b_path),
+        )?;
+        let marked = Session::new(doc, None, a_format, SourceStyle::default());
+        let (layout, _) = marked.layout_as(
+            &coldopen_layout::Options::default(),
+            crate::changes::PrintForm::Marked,
+        );
+        let fonts = coldopen_layout::Fonts::new()
+            .map_err(|e| CommandError::new("internal_error", format!("bundled fonts: {e}")))?;
+        let written = coldopen_layout::pdf::write(
+            &layout,
+            &fonts,
+            &coldopen_layout::pdf::PdfOptions {
+                change_slots: marked.doc.change_slots(),
+                ..Default::default()
+            },
+        )
+        .map_err(|e| CommandError::new("internal_error", e.to_string()))?;
+        io::atomic_write(&target, &written.bytes).map_err(|e| CommandError::io(&target, &e))?;
+        out["pdf"] = json!(target.display().to_string());
+        Ok(out)
+    }
+
+    /// `changes.import` (docs/specs/diff.md §6): the draft at `path` brought
+    /// into the open document as one writer's tracked edits, run as one
+    /// labelled `batch`, so the journal holds the edits and replay never
+    /// reads the draft.
+    fn changes_import(
+        &mut self,
+        p: crate::command::ChangesImport,
+        by: &Author,
+    ) -> Result<Value, CommandError> {
+        if !by.is_writer() {
+            return Err(writer_only("bring a draft in as changes"));
+        }
+        let session = self
+            .session
+            .as_mut()
+            .ok_or_else(CommandError::no_document)?;
+        if session.doc.has_changes() {
+            return Err(CommandError::new(
+                "change_pending",
+                "this script has tracked changes waiting; accept or reject them before bringing in a draft",
+            ));
+        }
+        let path = PathBuf::from(&p.path);
+        let (b_doc, b_format) = crate::diff::read_draft(&path)?;
+        let name = p
+            .name
+            .map(|n| n.trim().to_string())
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| crate::diff::default_name(&path));
+        let (items, skipped) =
+            crate::diff::import_edits(&session.doc, session.format, &b_doc, b_format);
+        if items.is_empty() {
+            return Ok(json!({ "change": null, "edits": 0, "skipped": skipped }));
+        }
+        let edits = items.len();
+        let batch = Command::Batch(crate::command::Batch {
+            commands: items,
+            label: Some(format!("Changes from {name}")),
+        });
+        // A batch's tracked edits are one change (docs/specs/changes.md).
+        let r = session.execute_with(&batch, &Exec::by(Author::named_writer(name)))?;
+        let change = r["results"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find_map(|x| x.get("change"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        Ok(json!({ "change": change, "edits": edits, "skipped": skipped }))
+    }
+
     fn export_pdf(&mut self, p: ExportPdf, by: &Author) -> Result<Value, CommandError> {
         if p.overwrite && !by.is_writer() {
             return Err(writer_only("replace an existing file"));
@@ -1394,6 +1550,16 @@ impl Dispatcher {
                 watermark: p.watermark.clone(),
                 title,
                 change_slots: session.doc.change_slots(),
+                revision_fills: match p.revision_pages {
+                    crate::command::RevisionPages::White => Default::default(),
+                    crate::command::RevisionPages::Colored => session
+                        .doc
+                        .revisions
+                        .sets
+                        .iter()
+                        .map(|s| (s.id.0, crate::revisions::shades(&s.color).paper))
+                        .collect(),
+                },
             },
         )
         .map_err(|e| CommandError::new("internal_error", e.to_string()))?;
@@ -2209,6 +2375,55 @@ fn exists(target: &Path) -> CommandError {
 
 /// Some choices are the writer's to make, never an agent's: an agent would
 /// simply pass the flag.
+/// The warning a save that accepted pending changes gives.
+fn accepted_warning(name: &str, count: usize, copy: Option<&Path>) -> Value {
+    let changes = if count == 1 {
+        "1 pending change".to_string()
+    } else {
+        format!("{count} pending changes")
+    };
+    match copy {
+        Some(copy) => json!({
+            "code": "changes_accepted",
+            "message": format!(
+                "{name} cannot hold tracked changes, so saving accepted {changes}; the version with them marked is kept in {}",
+                copy.display()
+            ),
+            "details": { "copy": copy.display().to_string(), "count": count },
+        }),
+        None => json!({
+            "code": "changes_accepted",
+            "message": format!("{name} cannot hold tracked changes, so saving accepted {changes}"),
+            "details": { "count": count },
+        }),
+    }
+}
+
+/// The warning a save that took out revision sets and marks gives
+/// (docs/specs/revisions.md §9).
+fn cleared_warning(name: &str, sets: usize, blocks: usize, copy: Option<&Path>) -> Value {
+    let what = format!(
+        "{sets} revision set{} and the marks on {blocks} block{}",
+        if sets == 1 { "" } else { "s" },
+        if blocks == 1 { "" } else { "s" },
+    );
+    match copy {
+        Some(copy) => json!({
+            "code": "revisions_cleared",
+            "message": format!(
+                "{name} cannot hold revision marks, so saving took out {what}; the version with them is kept in {}",
+                copy.display()
+            ),
+            "details": { "copy": copy.display().to_string(), "sets": sets, "blocks": blocks },
+        }),
+        None => json!({
+            "code": "revisions_cleared",
+            "message": format!("{name} cannot hold revision marks, so saving took out {what}"),
+            "details": { "sets": sets, "blocks": blocks },
+        }),
+    }
+}
+
 fn writer_only(what: &str) -> CommandError {
     CommandError::new(
         "writer_only",

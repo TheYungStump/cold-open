@@ -18,6 +18,10 @@ pub struct Look {
     /// it has both), as its number. Whoever draws the cell gives the
     /// change's author a color; layout itself knows no authors.
     pub change: Option<u64>,
+    /// The production revision set that last changed the cell, as its
+    /// number (layout.md §18). It never changes how the cell prints; it
+    /// marks the line.
+    pub rev: Option<u64>,
 }
 
 impl Look {
@@ -35,6 +39,7 @@ impl Look {
         Look {
             strike: m.del.is_some(),
             change: m.del.or(m.ins).map(|c| c.0),
+            rev: m.rev.map(|r| r.0),
             ..self
         }
     }
@@ -46,6 +51,7 @@ impl Look {
             underline: self.underline || o.underline,
             strike: self.strike || o.strike,
             change: self.change.or(o.change),
+            rev: self.rev.max(o.rev),
         }
     }
 }

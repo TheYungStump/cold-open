@@ -114,6 +114,58 @@ pub const TOOLS: &[(&str, &str)] = &[
         "Choose which edits are tracked. Only the writer may; an agent gets writer_only.",
     ),
     (
+        "revision.list",
+        "The production revision sets, oldest first: color, label, date, whether each is active, and the blocks and pages its marks are on.",
+    ),
+    (
+        "revision.start",
+        "Start a production revision set. Only the writer may; an agent gets writer_only. While a set is active, this agent's edits are marked with it like anyone's.",
+    ),
+    (
+        "revision.end",
+        "End the active revision set. Only the writer may; an agent gets writer_only.",
+    ),
+    (
+        "revision.colors",
+        "Set the list of revision colors. Only the writer may; an agent gets writer_only.",
+    ),
+    (
+        "revision.clear",
+        "Remove revision marks, of one set or all. Only the writer may; an agent gets writer_only.",
+    ),
+    (
+        "report.scenes",
+        "Every scene: heading, setting (int, ext, int_ext, est), location, time, page, length in eighths, words, and the characters who speak.",
+    ),
+    (
+        "report.characters",
+        "Every speaker, most words first: speeches, printed dialogue lines, words, scenes, extensions and first page.",
+    ),
+    (
+        "report.locations",
+        "Every location by name, split by setting and time of day, with its scenes.",
+    ),
+    (
+        "title.get",
+        "The title page: its form (keys, lines or none), its Fountain keys with their values, and its positioned lines.",
+    ),
+    (
+        "title.set",
+        "Set one title-page key's values (none removes the key). Refused with writer_only while this script tracks agents' edits.",
+    ),
+    (
+        "title.set_lines",
+        "Replace the title page's positioned lines. Refused with writer_only while this script tracks agents' edits.",
+    ),
+    (
+        "diff",
+        "Compare two drafts (.fountain, .fdx or .coldopen) scene by scene: moved, changed, added and deleted scenes, then blocks and words, with a readable summary in text. Without a, the open script is the first draft. With pdf, also writes the second draft with the changes marked.",
+    ),
+    (
+        "changes.import",
+        "Bring a draft into the open script as one writer's tracked changes. Writer-only: an agent gets writer_only.",
+    ),
+    (
         "undo",
         "Undo this agent's newest step. Fails with not_your_step when the newest step is someone else's.",
     ),
@@ -168,6 +220,11 @@ fn read_only(command: &str) -> bool {
             | "text.complete"
             | "history.list"
             | "changes.list"
+            | "revision.list"
+            | "report.scenes"
+            | "report.characters"
+            | "report.locations"
+            | "title.get"
     )
 }
 
