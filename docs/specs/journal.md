@@ -270,6 +270,8 @@ Added 2026-10-16 (phase 4). Set-aside copies hold work a writer may want back, s
 
 **Preview.** A journal copy is replayed exactly as recovery would replay it (steps 1 and 2 of "Recovery on open"), without touching the disk, and the document it reaches is shown. A damaged original is read as its script would be. A copy whose header cannot be read is listed as unreadable: it can be deleted, not restored.
 
+**A copy that replays in part** (2026-10-28, review finding CL2). A copy is often set aside because its replay stopped early, and this version may stop at the same entry. `recovered.list` gives each journal copy's `entries` (the commands it holds) and `replayed` (how many replay), with `problem` when they differ; the desktop app says "This copy restores 12 of its 15 changes". Restoring such a copy still restores what replays, and its result carries a `journal_partial` warning with `replayed` and `entries`, so a restore never brings back less without saying so.
+
 **Restore.** `recovered.restore` opens the copy's document as a new, unsaved script journaled at a path the caller gives (the app uses `Unsaved/`). The new journal's header holds that document with `unsaved: true` and no `disk`, so:
 
 - a crash before the first save recovers it, as a never-saved document is recovered ("A file that does not exist");

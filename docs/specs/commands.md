@@ -177,6 +177,7 @@ Notes on each command:
   - The new journal's header is marked as holding unsaved work, so a crash before the first save recovers it and the app offers it at start-up (`docs/specs/journal.md`, "Recovered versions").
   - Writer-only: an agent gets `writer_only`, and over the app's agent link `not_allowed_attached`.
   - A copy that cannot be read fails with `copy_unreadable`.
+  - A journal copy that replays only in part is restored as far as it replays, with a `journal_partial` warning whose `details` give `replayed` and `entries` (2026-10-28; `docs/specs/journal.md`, "Recovered versions").
 
 Opening or creating a document while another is open first closes the open one. If that one has unsaved changes, the request fails with `unsaved_changes`.
 
@@ -193,7 +194,7 @@ Opening or creating a document while another is open first closes the open one. 
 | `text.complete` | `id`, `at` | `{context, from, to, items: [{text, count}]}` |
 | `history.list` | — | `{undo: [{command, label, by}], redo: [...]}` |
 | `changes.list` | `scene?` | `{changes: [{id, by, t, kinds, blocks, scene, inserted, deleted}]}` |
-| `recovered.list` | `path?` | `{copies: [{copy, script, kind, at, unread, readable}]}` |
+| `recovered.list` | `path?` | `{copies: [{copy, script, kind, at, unread, readable, entries?, replayed?, problem?}]}` |
 | `revision.list` | — | `{active, colors, sets: [{id, color, label, date, started, ended, blocks, pages}]}` (2026-10-22) |
 | `title.get` | — | `{form, keys, lines}` (2026-10-22) |
 | `report.scenes` | — | `{scenes: [...]}` (2026-10-22, `docs/specs/reports.md` §4.1) |
@@ -232,6 +233,7 @@ Pages come from laying out the document in its format's form with its page forma
   - Lists the set-aside copies (`docs/specs/journal.md`, "Recovered versions") of the script at `path`, or of the open document without it, newest first.
   - `copy` is the copy's path; `script` the script it belongs to; `kind` is `discarded`, `corrupt`, `diverged`, `original` (a damaged .fdx file kept before a repaired save) or (2026-10-21) `marked` (the version with its tracked changes marked, kept before a save accepted them, `doc.save`); `at` is when it was made, in milliseconds since the Unix epoch, from its name.
   - `readable` says whether the copy can be restored. `unread` is reserved for front ends that track which copies a writer has been shown, and is false here.
+  - (2026-10-28) A journal copy also gives `entries`, the commands it holds, and `replayed`, how many of them replay, with `problem` saying why replay stopped when it stops early: restoring it brings back only what replays (`docs/specs/journal.md`, "Recovered versions").
 
 - **`changes.list`** (2026-10-18) lists the pending tracked changes, in document order, as `docs/specs/changes.md` §8 describes. With `scene`, only those with a mark in that scene.
 

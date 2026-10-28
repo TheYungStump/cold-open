@@ -337,9 +337,7 @@ impl App {
             let _ = std::fs::create_dir_all(parent);
         }
         let script = coldopen_core::recovered::parse(copy).map(|c| c.script);
-        if self
-            .run("recovered.restore", json!({ "copy": copy, "path": path }))
-            .is_some()
+        if let Some(r) = self.run("recovered.restore", json!({ "copy": copy, "path": path }))
             && let Some(s) = self.d.session()
         {
             self.editor = self.fresh_editor(&s.doc);
@@ -347,12 +345,21 @@ impl App {
                 .as_deref()
                 .and_then(Path::file_name)
                 .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-            self.banners.push(
-                format!(
+            // A copy that replays only in part brings back less than it
+            // holds; the writer is told, and the copy stays.
+            let partial = r["warnings"]
+                .as_array()
+                .and_then(|w| w.iter().find(|w| w["code"] == "journal_partial"));
+            let text = match partial {
+                Some(w) => format!(
+                    "Restored a recovered version of {name} as a new script, with {} of its {} changes; the rest couldn't be brought back, and the copy is kept. Save it to keep it.",
+                    w["details"]["replayed"], w["details"]["entries"]
+                ),
+                None => format!(
                     "Restored a recovered version of {name} as a new script. Save it to keep it."
-                )
-                .into(),
-            );
+                ),
+            };
+            self.banners.push(text.into());
         }
     }
 

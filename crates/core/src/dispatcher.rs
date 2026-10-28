@@ -1751,14 +1751,26 @@ impl Dispatcher {
         let copies: Vec<Value> = crate::recovered::of_script(&script)
             .iter()
             .map(|c| {
-                json!({
+                let mut row = json!({
                     "copy": c.copy.display().to_string(),
                     "script": c.script.display().to_string(),
                     "kind": c.kind,
                     "at": c.at,
                     "unread": false,
                     "readable": crate::recovered::readable(c),
-                })
+                });
+                // How much of a journal copy a restore brings back
+                // (docs/specs/commands.md, `recovered.list`, 2026-10-28).
+                if c.kind != crate::recovered::Kind::Original
+                    && let Ok(r) = crate::recovered::read_counted(c)
+                {
+                    row["entries"] = json!(r.entries);
+                    row["replayed"] = json!(r.replayed);
+                    if let Some(p) = r.problem {
+                        row["problem"] = json!(p);
+                    }
+                }
+                row
             })
             .collect();
         Ok(json!({ "copies": copies }))
@@ -1785,13 +1797,31 @@ impl Dispatcher {
             ));
         }
         let format = FormatId::for_path(&path).ok_or_else(|| unsupported(&path))?;
-        let (doc, _) = crate::recovered::read(&copy).map_err(|why| {
+        let read = crate::recovered::read_counted(&copy).map_err(|why| {
             CommandError::new(
                 "copy_unreadable",
                 format!("{} cannot be read: {why}", copy.copy.display()),
             )
             .with_details(json!({ "copy": copy.copy.display().to_string() }))
         })?;
+        // A copy that replays only in part restores with less work than it
+        // holds, which the writer must be told (2026-10-28).
+        let mut warnings = Vec::new();
+        if let Some(why) = &read.problem {
+            warnings.push(json!({
+                "code": "journal_partial",
+                "message": format!(
+                    "only {} of the copy's {} changes could be brought back; {why}; the copy is kept as it is",
+                    read.replayed, read.entries
+                ),
+                "details": {
+                    "copy": copy.copy.display().to_string(),
+                    "replayed": read.replayed,
+                    "entries": read.entries,
+                },
+            }));
+        }
+        let doc = read.doc;
         let mut journal = None;
         if self.opts.journal {
             let (mut j, contents) = open_journal(&path, format, self.durability())?;
@@ -1821,7 +1851,7 @@ impl Dispatcher {
             "format": format.name(),
             "blocks": session.doc.blocks.len(),
             "scenes": session.doc.scenes().len(),
-            "warnings": [],
+            "warnings": warnings,
         });
         self.session = Some(session);
         Ok(result)
@@ -2086,8 +2116,18 @@ fn recovered_copy(path: &str) -> Result<crate::recovered::Copy, CommandError> {
 
 /// The document a journal copy holds, replayed as recovery replays it,
 /// and the format its header names; nothing on disk is touched.
-pub(crate) fn replay_copy(script: &Path, contents: &[u8]) -> Result<(Document, FormatId), String> {
-    let format = journal::read(contents)?.header.format;
+pub(crate) fn replay_copy(
+    script: &Path,
+    contents: &[u8],
+) -> Result<crate::recovered::Read, String> {
+    let read = journal::read(contents)?;
+    let format = read.header.format;
+    // Commands, not markers: what `recovered.commands` counts on open.
+    let entries = read
+        .entries
+        .iter()
+        .filter(|e| e.saved_disk().is_none() && e.adopted().is_none() && e.semantics().is_none())
+        .count();
     match Dispatcher::default().assess(
         script,
         format,
@@ -2096,7 +2136,13 @@ pub(crate) fn replay_copy(script: &Path, contents: &[u8]) -> Result<(Document, F
         (&[], true),
     ) {
         Assessment::Unreadable(why) => Err(why),
-        Assessment::Replayed(r) => Ok((r.session.doc, format)),
+        Assessment::Replayed(r) => Ok(crate::recovered::Read {
+            doc: r.session.doc,
+            format,
+            entries,
+            replayed: r.commands,
+            problem: r.problem,
+        }),
     }
 }
 

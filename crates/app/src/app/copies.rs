@@ -248,19 +248,33 @@ impl App {
             s.preview_note = Some("This copy can't be read, so it can't be restored.".into());
             return;
         }
-        match recovered::read(&row.copy) {
-            Ok((doc, _)) => {
+        match recovered::read_counted(&row.copy) {
+            Ok(r) => {
+                let doc = r.doc;
                 s.preview = doc
                     .blocks
                     .iter()
                     .take(PREVIEW_BLOCKS)
                     .map(|b| (b.element.kind, b.element.text.plain_text()))
                     .collect();
+                let mut notes = Vec::new();
+                // A copy this version can replay only in part restores with
+                // less than it holds (docs/specs/journal.md, "Recovered
+                // versions", 2026-10-28).
+                if r.problem.is_some() {
+                    notes.push(format!(
+                        "This copy restores {} of its {} changes; the rest can't be brought back.",
+                        r.replayed, r.entries
+                    ));
+                }
                 if doc.blocks.len() > PREVIEW_BLOCKS {
-                    s.preview_note = Some(format!(
+                    notes.push(format!(
                         "The first {PREVIEW_BLOCKS} of {} paragraphs.",
                         doc.blocks.len()
                     ));
+                }
+                if !notes.is_empty() {
+                    s.preview_note = Some(notes.join(" "));
                 }
             }
             Err(_) => s.preview_note = Some("This copy can't be read.".into()),

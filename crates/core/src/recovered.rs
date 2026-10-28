@@ -113,12 +113,36 @@ pub fn of_script(script: &Path) -> Vec<Copy> {
 /// replayed as recovery replays it, without touching the disk; a damaged
 /// original read as its script is read.
 pub fn read(copy: &Copy) -> Result<(Document, FormatId), String> {
+    read_counted(copy).map(|r| (r.doc, r.format))
+}
+
+/// A copy read, with how much of it replayed.
+pub struct Read {
+    pub doc: Document,
+    pub format: FormatId,
+    /// For a journal copy: the commands it holds, the ones replayed, and
+    /// why replay stopped before the end, if it did (2026-10-28,
+    /// docs/specs/journal.md, "Recovered versions"). A damaged original
+    /// reads whole: zero commands.
+    pub entries: usize,
+    pub replayed: usize,
+    pub problem: Option<String>,
+}
+
+/// [`read`], saying how much of a journal copy replays.
+pub fn read_counted(copy: &Copy) -> Result<Read, String> {
     let bytes = fs::read(&copy.copy).map_err(|e| e.to_string())?;
     match copy.kind {
         Kind::Original => {
             let format = FormatId::for_path(&copy.script).unwrap_or_default();
             let read = format.get().read(&bytes).map_err(|e| e.message)?;
-            Ok((read.doc, format))
+            Ok(Read {
+                doc: read.doc,
+                format,
+                entries: 0,
+                replayed: 0,
+                problem: None,
+            })
         }
         _ => crate::dispatcher::replay_copy(&copy.script, &bytes),
     }

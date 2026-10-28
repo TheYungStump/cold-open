@@ -1037,3 +1037,53 @@ fn ar12_revert_keeps_the_untracked_switch() {
     assert!(r.get("change").is_none(), "tracked after a revert: {r}");
     d.discard();
 }
+
+/// CL2: a set-aside copy that replays only in part (here because an entry
+/// was damaged) restores with less work than it holds. The restore says
+/// so, and `recovered.list` shows how much of the copy replays.
+#[test]
+fn cl2_a_copy_that_replays_in_part_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = crashed_with_work(dir.path(), &Author::writer());
+    let jpath = journal::path_for(&p);
+    let mut lines = fs::read_to_string(&jpath).unwrap();
+    lines.push_str("{\"seq\":2,\"t\":0,\"command\":\"block.insert\",\"params\":{\"type\":\"action\",\"text\":\"Lost.\",\"tracked\":false},\"result\":{\"id\":\"b_99\"}}\n");
+    fs::write(&jpath, lines).unwrap();
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, &Author::writer(), "doc.open", json!({"path": p}));
+    let copy = r["warnings"][0]["details"]["copy"].clone();
+    assert!(copy.is_string(), "{r}");
+    d.discard();
+
+    let list = ok(
+        &mut d,
+        &Author::writer(),
+        "recovered.list",
+        json!({"path": p}),
+    );
+    let row = list["copies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["copy"] == copy)
+        .unwrap()
+        .clone();
+    assert_eq!(
+        (row["replayed"].clone(), row["entries"].clone()),
+        (json!(1), json!(2)),
+        "{row}"
+    );
+    assert!(row["problem"].is_string(), "{row}");
+
+    let target = dir.path().join("restored.fountain");
+    let r = ok(
+        &mut d,
+        &Author::writer(),
+        "recovered.restore",
+        json!({"copy": copy, "path": target}),
+    );
+    assert_eq!(r["warnings"][0]["code"], "journal_partial", "{r}");
+    assert_eq!(r["warnings"][0]["details"]["replayed"], 1, "{r}");
+    assert!(text(&mut d).contains(UNSAVED));
+    d.discard();
+}
