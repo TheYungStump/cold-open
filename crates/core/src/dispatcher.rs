@@ -629,12 +629,28 @@ impl Dispatcher {
             }
             Err(e) => return Err(CommandError::io(&path, &e)),
         };
+        // A file that was never saved is not read: its journal holds the
+        // document, and empty bytes are no project or .fdx file
+        // (2026-10-28, review finding GP5).
         let ReadOut {
             doc: disk_doc,
             style,
             mut warnings,
             repaired,
-        } = format.get().read(&bytes)?;
+        } = if missing {
+            ReadOut {
+                doc: Document {
+                    next_id: 1,
+                    doc_id: (format == FormatId::Bundle).then(crate::bundle::new_doc_id),
+                    ..Document::default()
+                },
+                style: SourceStyle::default(),
+                warnings: Vec::new(),
+                repaired: None,
+            }
+        } else {
+            format.get().read(&bytes)?
+        };
         let mut session = self.new_session(disk_doc.clone(), Some(path.clone()), format, style);
         let mut recovered = Value::Null;
 

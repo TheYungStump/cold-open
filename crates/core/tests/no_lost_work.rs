@@ -1128,3 +1128,39 @@ fn gp4_a_restored_copy_stays_the_writers_after_agent_edits() {
     assert!(text(&mut d).contains("The writer's ending."));
     d.discard();
 }
+
+/// GP5: a project made with `doc.new` and never saved exists only in its
+/// journal. Opening it again after a crash recovers it, as for Fountain;
+/// before, the missing file was read as an empty zip and the open failed.
+/// The same holds for .fdx.
+#[test]
+fn gp5_a_never_saved_project_or_fdx_recovers_its_journal() {
+    for name in ["never-saved.coldopen", "never-saved.fdx"] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(name);
+        let w = Author::writer();
+        let mut d = Dispatcher::new(Options::default());
+        ok(&mut d, &w, "doc.new", json!({"path": path}));
+        ok(
+            &mut d,
+            &w,
+            "block.insert",
+            json!({"type": "action", "text": "The door opens."}),
+        );
+        drop(d); // a crash
+        assert!(journal::path_for(&path).exists());
+        let mut d = Dispatcher::new(Options::default());
+        let r = ok(&mut d, &w, "doc.open", json!({"path": path}));
+        assert_eq!(r["recovered"]["commands"], 1, "{name}: {r}");
+        assert_eq!(r["repaired"], Value::Null, "{name}: {r}");
+        assert_eq!(
+            ok(&mut d, &w, "doc.get", json!({}))["blocks"][0]["text"],
+            "The door opens.",
+            "{name}"
+        );
+        // And it saves, which writes the file for the first time.
+        ok(&mut d, &w, "doc.save", json!({}));
+        assert!(path.exists(), "{name}");
+        d.discard();
+    }
+}

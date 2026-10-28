@@ -234,6 +234,7 @@ When `doc.open` finds a journal for the file:
    - `commands` counts the commands replayed; markers are not counted. It is 0 when only the header was recovered.
 
 **A file that does not exist** (2026-10-15). If the script file is missing but a journal for it exists, as for a document created with `doc.new` that was never saved, the journal alone is recovered:
+- the file is not read (2026-10-28): its document stands as an empty one of its format, so a `.coldopen` or `.fdx` path, whose empty bytes are no file of that format, recovers like any other (review finding GP5);
 - the file's bytes count as empty in step 4;
 - `external_change` is false when the header's `disk` is null, and true otherwise, because a file that was once saved is now gone.
 
