@@ -526,7 +526,7 @@ fn settle_holding(
                 skipped.extend(join_where(&mut work, &mut ops, &|b| {
                     b.marks.split == Some(c) && here(b.id)
                 }));
-                restore_retypes(&mut work, &mut ops, c, &here);
+                restore_retypes(&mut work, &mut ops, &mut more, c, &here);
             }
         }
     }
@@ -729,9 +729,13 @@ fn undo_moves(
 }
 
 /// Gives the blocks change `c` retyped their type and kept attributes back.
+/// A block whose old type would drop text or styles it holds now (a page
+/// break holds no text, a note no styles), typed since the retype, is held
+/// instead (docs/specs/changes.md §6).
 fn restore_retypes(
     work: &mut Document,
     ops: &mut Vec<Op>,
+    held: &mut BTreeSet<(ChangeId, BlockId)>,
     c: ChangeId,
     in_scope: &dyn Fn(BlockId) -> bool,
 ) {
@@ -767,6 +771,10 @@ fn restore_retypes(
         }
         if !r.from.is_transparent() && r.space_before.is_some() {
             e.space_before = r.space_before;
+        }
+        if e.text != b.element.text {
+            held.insert((c, b.id));
+            continue;
         }
         let mut marks = b.marks.clone();
         marks.retyped.retain(|x| x.change != c);

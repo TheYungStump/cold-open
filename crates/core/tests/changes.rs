@@ -787,6 +787,45 @@ fn rejecting_a_split_of_ones_own_block_joins_it_back() {
     );
 }
 
+/// GR4: a retype of a page break, rejected after text was typed into the
+/// block, would empty it. It is a conflict instead, and the text stays.
+#[test]
+fn rejecting_a_retype_never_empties_text_typed_since() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = open_text(dir.path(), "INT. ROOM - DAY\n\nGo.\n");
+    track_writer(&mut d);
+    let r = ok(
+        &mut d,
+        &writer(),
+        "block.insert",
+        json!({"after": "b_2", "type": "page_break", "tracked": false}),
+    );
+    let id = r["id"].clone();
+    let r = ok(
+        &mut d,
+        &writer(),
+        "block.set_type",
+        json!({"id": id, "type": "action", "tracked": true}),
+    );
+    let c = r["change"].clone();
+    ok(
+        &mut d,
+        &writer(),
+        "text.insert",
+        json!({"id": id, "at": 0, "text": "Hello", "tracked": false}),
+    );
+    let before = blocks(&mut d);
+    let e = err(&mut d, &writer(), "changes.reject", json!({"id": c}));
+    assert_eq!(e.code, "change_conflict", "{e}");
+    let r = ok(&mut d, &writer(), "changes.reject", json!({"all": true}));
+    assert_eq!(r["skipped"], json!([c]), "{r}");
+    assert_eq!(blocks(&mut d), before);
+    assert_eq!(block(&mut d, id.as_str().unwrap())["text"], "Hello");
+    // Accepting the retype settles it.
+    ok(&mut d, &writer(), "changes.accept", json!({"id": c}));
+    assert!(changes(&mut d).is_empty());
+}
+
 // ---- Properties ----------------------------------------------------------
 
 /// One edit, by one of three authors, described by positions.
