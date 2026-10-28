@@ -57,6 +57,14 @@ impl Exec {
             ..Exec::default()
         }
     }
+
+    /// The semantics the command runs under: the journal's (or its last
+    /// marker's) while replaying, this version's for a live command. Rules
+    /// a later semantics changed keep their old form for older journals
+    /// (docs/specs/journal.md, "Header").
+    pub fn rules(&self) -> u32 {
+        self.semantics.unwrap_or(crate::journal::SEMANTICS)
+    }
 }
 
 /// Whether a keystroke command joins the typing step before it.

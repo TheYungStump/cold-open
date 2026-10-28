@@ -212,6 +212,91 @@ fn an_old_journal_goes_on_with_tracked_edits_and_recovers_again() {
     }
 }
 
+/// The phase 5b journal (semantics 3) recovers on this computer after the
+/// upgrade. Its header still says what its entries mean, so one marker
+/// says the entries after it mean semantics 4, and after a second crash
+/// both parts replay, each under its own rules (docs/specs/journal.md,
+/// "Semantics markers").
+#[test]
+fn a_phase_5b_journal_goes_on_under_semantics_4_and_recovers_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("lighthouse.fountain");
+    fs::copy(fixture("lighthouse.fountain"), &script).unwrap();
+    fs::copy(fixture("phase5b.journal"), journal::path_for(&script)).unwrap();
+    restamp(&script);
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, "doc.open", json!({"path": script}));
+    assert_eq!(
+        r["recovered"]["commands"].as_u64(),
+        Some(entries("phase5b") as u64),
+        "{r}"
+    );
+    ok(
+        &mut d,
+        "text.insert",
+        json!({"id": "b_14", "at": 0, "text": "Still "}),
+    );
+    let before = ok(&mut d, "doc.get", json!({}))["blocks"].clone();
+    drop(d); // a second crash
+
+    // The marker follows the old entries, before the new one.
+    let text = fs::read_to_string(journal::path_for(&script)).unwrap();
+    let marker: Value =
+        serde_json::from_str(text.lines().nth(entries("phase5b") + 1).unwrap()).unwrap();
+    assert_eq!(marker["command"], journal::RULES, "{marker}");
+    assert_eq!(marker["params"], json!({"semantics": journal::SEMANTICS}));
+
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, "doc.open", json!({"path": script}));
+    assert_eq!(r["warnings"], json!([]), "{r}");
+    assert_eq!(ok(&mut d, "doc.get", json!({}))["blocks"], before);
+    drop(d);
+    // The journal already says semantics 4: no second marker.
+    let text = fs::read_to_string(journal::path_for(&script)).unwrap();
+    assert_eq!(text.matches(journal::RULES).count(), 1, "{text}");
+}
+
+/// A marker that names semantics this version does not know, or that goes
+/// down, cannot be trusted: replay stops there, and what came before it is
+/// recovered.
+#[test]
+fn a_semantics_marker_this_version_cannot_follow_stops_replay() {
+    for n in [journal::SEMANTICS + 1, 1] {
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("s.fountain");
+        fs::write(&script, "INT. ROOM - DAY\n\nGo.\n").unwrap();
+        let mut d = Dispatcher::new(Options::default());
+        ok(&mut d, "doc.open", json!({"path": script}));
+        ok(
+            &mut d,
+            "text.insert",
+            json!({"id": "b_2", "at": 3, "text": " Now."}),
+        );
+        drop(d);
+        let jpath = journal::path_for(&script);
+        let mut text = fs::read_to_string(&jpath).unwrap();
+        text.push_str(&format!(
+            "{}\n",
+            json!({"seq": 2, "t": 0, "command": journal::RULES, "params": {"semantics": n}, "result": {}})
+        ));
+        text.push_str(&format!(
+            "{}\n",
+            json!({"seq": 3, "t": 0, "command": "text.insert", "params": {"id": "b_2", "at": 0, "text": "Lost ", "tracked": false}, "result": {}})
+        ));
+        fs::write(&jpath, text).unwrap();
+        let mut d = Dispatcher::new(Options::default());
+        let r = ok(&mut d, "doc.open", json!({"path": script}));
+        assert_eq!(r["recovered"]["commands"], 1, "{n}: {r}");
+        assert_eq!(r["warnings"][0]["code"], "journal_partial", "{n}: {r}");
+        assert_eq!(
+            ok(&mut d, "doc.get", json!({}))["blocks"][1]["text"],
+            "Go. Now.",
+            "{n}"
+        );
+        d.discard();
+    }
+}
+
 /// The phase 5a journal, with tracked changes pending in it, recovers on
 /// this computer after the upgrade; a revision set then marks new edits
 /// (semantics 3) on top, and after a second crash everything comes back:

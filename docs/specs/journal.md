@@ -1,6 +1,6 @@
 # Crash journal and atomic saves
 
-- **Date:** 2026-10-13, updated 2026-10-15, 2026-10-16, 2026-10-18 and 2026-10-22 (phase 5b: `semantics` 3 and the revision table in the header)
+- **Date:** 2026-10-13, updated 2026-10-15, 2026-10-16, 2026-10-18, 2026-10-22 (phase 5b: `semantics` 3 and the revision table in the header) and 2026-10-28 (`semantics` 4 and semantics markers, from the reviews of phases 4–5b)
 - **Status:** implemented in `crates/core` (phases 1, 3 and 4, and the review fixes of 2026-10-16). Phase 5a (2026-10-18: `semantics` 2 and the `tracked` param, `doc_id`, the change data and how the header names it, bundles) is being implemented.
 - **Sources:** `docs/spec.md` (Reliability features, File formats), `CLAUDE.md` (Reliability), the phase 3 brief and its approved decisions (2026-10-15), the reviews of phases 1–3 (2026-10-15, listed in `docs/progress/review-fixes.md`; section "F18" there for the decisions at the end), the phase 4 brief and its decisions (2026-10-16, `docs/progress/phase-4.md`), the phase 5a brief and its decisions (2026-10-18, `docs/progress/phase-5a.md`), `docs/specs/changes.md`, `docs/specs/bundle.md`. No external material.
 
@@ -22,7 +22,7 @@
 | --- | --- |
 | `doc` | A full snapshot of the base document, with ids and `next_id`. This makes the journal self-contained: recovery works even if the script file was changed, damaged or deleted. |
 | `disk` | The length and FNV-1a 64-bit hash of the script file as last saved, or null if it has never been saved. It is used only to notice changes made by other programs. |
-| `semantics` | (2026-10-16) What replaying the entries means. It goes up whenever a command's replay changes meaning, because results alone cannot show that ("What replay compares"). Absent means 1. A journal with a higher number than this version knows is treated like an unreadable header: kept aside, never replayed. **2** since phase 5a (2026-10-18): edits can be tracked changes, and every edit entry says whether it is ("Entries"). **3** since phase 5b (2026-10-22): while a revision set is active, edits and `changes.accept` mark what they change (`docs/specs/revisions.md` §6). The active set is in the header's document and is changed only by journaled commands, so replay marks what the edits marked. Journals of semantics 1 and 2 have no revision sets, so they replay exactly as before. |
+| `semantics` | (2026-10-16) What replaying the entries means. It goes up whenever a command's replay changes meaning, because results alone cannot show that ("What replay compares"). Absent means 1. A journal with a higher number than this version knows is treated like an unreadable header: kept aside, never replayed. **2** since phase 5a (2026-10-18): edits can be tracked changes, and every edit entry says whether it is ("Entries"). **3** since phase 5b (2026-10-22): while a revision set is active, edits and `changes.accept` mark what they change (`docs/specs/revisions.md` §6). The active set is in the header's document and is changed only by journaled commands, so replay marks what the edits marked. Journals of semantics 1 and 2 have no revision sets, so they replay exactly as before. **4** since 2026-10-28 (the fixes of the reviews of phases 4–5b, `docs/progress/review-fixes-4-5b.md`): settling a change never removes text or blocks that are not part of it, a split of one's own inserted block that moves text is marked `split`, a change that retyped or moved a block twice is rejected step by step, an agent's untracked retype or move over another author's is refused, and accepting marks each change with its own revision set (`docs/specs/changes.md` §5, §6; `docs/specs/revisions.md` §6). Journals of semantics 1 to 3 replay with the rules they were written under, which the code keeps for them. |
 | `doc_id` | (2026-10-18, phase 5a) For a bundle, the document's identity (`docs/specs/bundle.md` §8). Absent for other formats. |
 | `changes`, `changes_ref` | (2026-10-18, phase 5a) The document's change table ("The change data"). For a bundle, `changes_ref` names it; for other formats, `changes` holds it. Both are absent when the table is empty. |
 | `host`, `path` | (2026-10-16) The computer's name and the script's canonical path when the header was written. Absent in older journals. |
@@ -80,7 +80,7 @@ The header holds one copy of the store, written at each save, as it already held
 | `merge` | Optional (2026-10-15). `true` when the command joined the undo step before it. Absent means false. |
 | `step` | `undo` and `redo` only, optional (2026-10-16). The step reversed: see "Undo and redo entries". |
 
-Only edits, `undo`, `redo`, `doc.saved` markers and (2026-10-21) `journal.adopted` markers are written. Queries, output commands and session commands are not. Replay stops at any other entry, so a damaged or hand-made journal can never make recovery write files.
+Only edits, `undo`, `redo`, `doc.saved` markers, (2026-10-21) `journal.adopted` markers and (2026-10-28) `journal.semantics` markers are written. Queries, output commands and session commands are not. Replay stops at any other entry, so a damaged or hand-made journal can never make recovery write files.
 
 **`doc.saved` markers** (2026-10-15). A marker records that a save of the document, as it stood at that point in the journal, was started:
 
@@ -97,6 +97,14 @@ Replay runs nothing for a marker. It only remembers the fingerprint, for `extern
 ```
 
 Replay runs nothing for it either. It remembers the newest one's `host` and `path`, which stand for the header's when recovery asks whether the journal is from somewhere else. Builds from before 2026-10-21 do not know this marker: they stop replay at it and keep the journal aside as a copy, so they recover the entries before it, and the copy holds the rest.
+
+**Semantics markers** (2026-10-28). A recovered journal goes on under its old header, so its header's `semantics` would also name what the entries made after the recovery mean. When the journal's semantics is older than this version's, `doc.open` therefore appends a marker once it has recovered it:
+
+```json
+{"seq":64,"t":1761650000000,"command":"journal.semantics","params":{"semantics":4},"result":{}}
+```
+
+Replay runs nothing for it. The entries before it replay with the header's semantics, and the entries after it with the marker's. A marker that names semantics this version does not know, or a lower number than the one in force, cannot be trusted, and replay stops there. It is one appended line, as an adoption marker is, so no crash point can cost the work; the next save starts the journal again under a header of this version's semantics anyway. Builds from before 2026-10-28 already keep aside a journal of semantics 4; one of older semantics with this marker in it, they replay up to the marker and keep the journal aside as a copy.
 
 **Undo and redo entries** (2026-10-16). Replay must reverse exactly the step the writer reversed, so each `undo` or `redo` entry says which step that was:
 

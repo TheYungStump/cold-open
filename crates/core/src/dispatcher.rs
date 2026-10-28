@@ -220,6 +220,9 @@ struct Replayed {
     foreign: Option<Value>,
     /// Warnings recovery adds, such as `change_data_missing`.
     notes: Vec<Value>,
+    /// The semantics the last trusted entries were replayed under: the
+    /// header's, or a marker's after it.
+    semantics: u32,
 }
 
 impl Replayed {
@@ -250,6 +253,8 @@ struct Replay {
     /// The computer and path of the newest adoption marker, which stand
     /// for the header's from there on.
     adopted: Option<(String, String)>,
+    /// The semantics in force: the header's, then each marker's.
+    semantics: u32,
 }
 
 /// A document written out for saving, before anything touches the disk.
@@ -701,6 +706,12 @@ impl Dispatcher {
                                     if r.foreign.is_some() {
                                         j.append_adopted().map_err(|e| jio(e, &j))?;
                                     }
+                                    // Its header still says what its entries
+                                    // mean; the ones made from now on mean
+                                    // what this version makes them mean.
+                                    if r.semantics < journal::SEMANTICS {
+                                        j.append_semantics().map_err(|e| jio(e, &j))?;
+                                    }
                                     recovered = json!({
                                         "commands": r.commands,
                                         "external_change": r.external_change,
@@ -770,6 +781,7 @@ impl Dispatcher {
             problem: read.problem.clone(),
             diverged: false,
             adopted: None,
+            semantics: read.header.semantics,
         };
         for (k, entry) in read.entries.iter().enumerate().take(limit) {
             if let Some(fp) = entry.saved_disk() {
@@ -784,13 +796,30 @@ impl Dispatcher {
                 r.valid_len = read.entry_end(k);
                 continue;
             }
+            // A semantics marker: the entries after it mean what that
+            // version made them mean (docs/specs/journal.md, "Semantics
+            // markers"). Markers only ever go up, to a version this one
+            // knows.
+            if let Some(n) = entry.semantics() {
+                if n < r.semantics || n > journal::SEMANTICS {
+                    r.problem = Some(format!(
+                        "entry {} says the entries after it mean semantics {n}, which this version cannot replay after semantics {}",
+                        entry.seq, r.semantics
+                    ));
+                    break;
+                }
+                r.semantics = n;
+                r.applied = k + 1;
+                r.valid_len = read.entry_end(k);
+                continue;
+            }
             let ex = Exec {
                 by: entry.by.clone().unwrap_or_default(),
                 merge: Merge::Recorded(entry.merge),
                 seq: Some(entry.seq),
                 step: entry.step.clone(),
                 t: Some(entry.t),
-                semantics: Some(read.header.semantics),
+                semantics: Some(r.semantics),
             };
             let outcome = Command::from_parts(&entry.command, entry.params.clone())
                 .map_err(|e| format!("entry {} cannot be read as a command: {e}", entry.seq))
@@ -880,6 +909,7 @@ impl Dispatcher {
             let trusted = self.replay(&read, path, (format, style), r.applied);
             r.session = trusted.session;
             r.adopted = trusted.adopted;
+            r.semantics = trusted.semantics;
         }
         let Replay {
             session: mut replay,
@@ -891,6 +921,7 @@ impl Dispatcher {
             valid_len,
             problem,
             adopted,
+            semantics,
             ..
         } = r;
 
@@ -944,6 +975,7 @@ impl Dispatcher {
             recover,
             external_change,
             writer,
+            semantics,
         }))
     }
 
