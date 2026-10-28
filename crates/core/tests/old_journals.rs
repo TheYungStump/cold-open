@@ -5,7 +5,9 @@
 //! (docs/specs/journal.md), and a recovered one goes on with entries of
 //! semantics 2. Since phase 5b a journal of semantics 2, written by the
 //! phase 5a build with tracked changes in it, replays with no revision
-//! marking and goes on with entries of semantics 3.
+//! marking and goes on with entries of semantics 3. The phase 5b build's
+//! journal (semantics 3) holds every settle the fixes of the reviews of
+//! phases 4–5b changed, so it shows those journals replay as they were made.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -25,13 +27,14 @@ fn ok(d: &mut Dispatcher, command: &str, params: Value) -> Value {
 }
 
 /// The phases whose builds wrote a fixture journal, each with its script.
-const PHASES: [(&str, &str); 6] = [
+const PHASES: [(&str, &str); 7] = [
     ("phase1", "lighthouse.fountain"),
     ("phase2", "lighthouse.fountain"),
     ("phase3", "lighthouse.fountain"),
     ("phase4", "lighthouse.fountain"),
     ("phase4-fdx", "lighthouse.fdx"),
     ("phase5a", "lighthouse.fountain"),
+    ("phase5b", "lighthouse.fountain"),
 ];
 
 fn script_of(phase: &str) -> &'static str {

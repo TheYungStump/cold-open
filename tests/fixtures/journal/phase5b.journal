@@ -1,0 +1,64 @@
+{"journal":"coldopen","v":1,"app":"0.1.0","doc":{"title_page":{"fields":[{"key":"Title","values":[{"text":"The Keeper's Log"}]},{"key":"Author","values":[{"text":"Cold Open tests"}]}]},"blocks":[{"id":"b_1","type":"scene_heading","text":"INT. LIGHTHOUSE - NIGHT"},{"id":"b_2","type":"action","text":"The lamp turns. Rain against the glass."},{"id":"b_3","type":"character","text":"MARA"},{"id":"b_4","type":"parenthetical","text":"(to herself)"},{"id":"b_5","type":"dialogue","text":"Three ships tonight."},{"id":"b_6","type":"scene_heading","text":"EXT. CLIFF PATH - DAWN"},{"id":"b_7","type":"action","text":"Gulls wheel over the rocks."},{"id":"b_8","type":"character","text":"TOMAS"},{"id":"b_9","type":"dialogue","text":"She kept the light on."}],"next_id":10},"disk":{"len":237,"fnv64":"8290f0868d70dc09"},"semantics":3,"host":"fixture-host","path":"/fixtures/lighthouse.fountain"}
+{"seq":1,"t":1793219931186,"command":"changes.track","params":{"writer":true},"result":{"agents":true,"writer":true}}
+{"seq":2,"t":1793219931186,"command":"block.insert","params":{"after":"b_9","text":"A bell rings.","tracked":true,"type":"action"},"result":{"change":"c_1","id":"b_10"}}
+{"seq":3,"t":1793219931187,"command":"changes.track","params":{"writer":false},"result":{"agents":true,"writer":false}}
+{"seq":4,"t":1793219931187,"command":"text.insert","params":{"at":13,"id":"b_10","style":{},"text":" Twice.","tracked":false},"result":{}}
+{"seq":5,"t":1793219931187,"command":"changes.reject","params":{"id":"c_1"},"result":{"changes":["c_1"],"count":1,"skipped":[]}}
+{"seq":6,"t":1793219931188,"command":"changes.track","params":{"writer":true},"result":{"agents":true,"writer":true}}
+{"seq":7,"t":1793219931188,"command":"block.insert","params":{"after":"b_9","text":"First wave. Second wave.","tracked":true,"type":"action"},"result":{"change":"c_2","id":"b_11"}}
+{"seq":8,"t":1793219931188,"command":"block.split","params":{"at":12,"id":"b_11","tracked":true,"type":"action"},"result":{"change":"c_3","id":"b_12"}}
+{"seq":9,"t":1793219931189,"command":"changes.reject","params":{"id":"c_3"},"result":{"changes":["c_3"],"count":1,"skipped":[]}}
+{"seq":10,"t":1793219931189,"command":"changes.track","params":{"writer":false},"result":{"agents":true,"writer":false}}
+{"seq":11,"t":1793219931189,"command":"block.insert","params":{"after":"b_11","tracked":false,"type":"page_break"},"result":{"id":"b_13"}}
+{"seq":12,"t":1793219931190,"command":"changes.track","params":{"writer":true},"result":{"agents":true,"writer":true}}
+{"seq":13,"t":1793219931190,"command":"block.set_type","params":{"id":"b_13","tracked":true,"type":"action"},"result":{"change":"c_4"}}
+{"seq":14,"t":1793219931190,"command":"changes.track","params":{"writer":false},"result":{"agents":true,"writer":false}}
+{"seq":15,"t":1793219931191,"command":"text.insert","params":{"at":0,"id":"b_13","style":{},"text":"Hello.","tracked":false},"result":{}}
+{"seq":16,"t":1793219931191,"command":"changes.reject","params":{"id":"c_4"},"result":{"changes":["c_4"],"count":1,"skipped":[]}}
+{"seq":17,"t":1793219931191,"command":"block.insert","params":{"after":"b_13","text":"Kept line.","tracked":false,"type":"action"},"result":{"id":"b_14"}}
+{"seq":18,"t":1793219931192,"command":"block.insert","params":{"after":"b_14","text":"disappear","tracked":false,"type":"action"},"result":{"id":"b_15"}}
+{"seq":19,"t":1793219931192,"command":"block.insert","params":{"after":"b_15","text":"Joined text.","tracked":false,"type":"action"},"result":{"id":"b_16"}}
+{"seq":20,"t":1793219931192,"command":"changes.track","params":{"writer":true},"result":{"agents":true,"writer":true}}
+{"seq":21,"t":1793219931192,"command":"block.join","params":{"id":"b_16","tracked":true},"result":{"at":9,"change":"c_5","id":"b_15"}}
+{"seq":22,"t":1793219931193,"command":"block.delete","params":{"id":"b_15","tracked":true},"result":{"change":"c_6"}}
+{"seq":23,"t":1793219931193,"command":"changes.accept","params":{"id":"c_5"},"result":{"changes":["c_5"],"count":1,"skipped":[]}}
+{"seq":24,"t":1793219931193,"command":"changes.accept","params":{"id":"c_6"},"result":{"changes":["c_6"],"count":1,"skipped":[]}}
+{"seq":25,"t":1793219931194,"command":"changes.track","params":{"writer":false},"result":{"agents":true,"writer":false}}
+{"seq":26,"t":1793219931194,"command":"block.insert","params":{"after":"b_14","text":"INT. STAIRS - NIGHT","tracked":false,"type":"scene_heading"},"result":{"id":"b_17"}}
+{"seq":27,"t":1793219931194,"command":"block.insert","params":{"after":"b_17","text":"Step one. Step two.","tracked":false,"type":"action"},"result":{"id":"b_18"}}
+{"seq":28,"t":1793219931194,"command":"changes.track","params":{"writer":true},"result":{"agents":true,"writer":true}}
+{"seq":29,"t":1793219931195,"command":"block.split","params":{"at":10,"id":"b_18","tracked":true,"type":"action"},"result":{"change":"c_7","id":"b_19"}}
+{"seq":30,"t":1793219931195,"command":"changes.track","params":{"writer":false},"result":{"agents":true,"writer":false}}
+{"seq":31,"t":1793219931195,"command":"block.set_type","params":{"id":"b_18","tracked":false,"type":"page_break"},"result":{}}
+{"seq":32,"t":1793219931196,"command":"changes.reject","params":{"scene":"b_17"},"result":{"changes":["c_7"],"count":1,"skipped":["c_7"]}}
+{"seq":33,"t":1793219931196,"command":"block.insert","params":{"after":"b_19","text":"A line.","tracked":false,"type":"action"},"result":{"id":"b_20"}}
+{"seq":34,"t":1793219931196,"command":"block.set_attrs","params":{"centered":true,"id":"b_20"},"result":{}}
+{"seq":35,"t":1793219931197,"command":"batch","params":{"commands":[{"command":"block.set_type","params":{"id":"b_20","tracked":true,"type":"character"}},{"command":"block.set_type","params":{"id":"b_20","tracked":true,"type":"dialogue"}}]},"result":{"change":"c_8","results":[{"change":"c_8"},{"change":"c_8"}]}}
+{"seq":36,"t":1793219931197,"command":"changes.reject","params":{"id":"c_8"},"result":{"changes":["c_8"],"count":1,"skipped":[]}}
+{"seq":37,"t":1793219931197,"command":"block.insert","params":{"after":"b_20","text":"INT. S - DAY","tracked":false,"type":"scene_heading"},"result":{"id":"b_21"}}
+{"seq":38,"t":1793219931198,"command":"block.insert","params":{"after":"b_21","text":"sa","tracked":false,"type":"action"},"result":{"id":"b_22"}}
+{"seq":39,"t":1793219931198,"command":"block.insert","params":{"after":"b_22","text":"INT. T - DAY","tracked":false,"type":"scene_heading"},"result":{"id":"b_23"}}
+{"seq":40,"t":1793219931198,"command":"block.insert","params":{"after":"b_23","text":"ta","tracked":false,"type":"action"},"result":{"id":"b_24"}}
+{"seq":41,"t":1793219931198,"command":"block.insert","params":{"after":"b_24","text":"INT. U - DAY","tracked":false,"type":"scene_heading"},"result":{"id":"b_25"}}
+{"seq":42,"t":1793219931199,"command":"block.insert","params":{"after":"b_25","text":"ua","tracked":false,"type":"action"},"result":{"id":"b_26"}}
+{"seq":43,"t":1793219931199,"command":"batch","params":{"commands":[{"command":"scene.move","params":{"id":"b_21","tracked":true}},{"command":"scene.move","params":{"before":"b_25","id":"b_21","tracked":true}}]},"result":{"change":"c_9","results":[{"change":"c_9"},{"change":"c_9"}]}}
+{"seq":44,"t":1793219931199,"command":"changes.reject","params":{"id":"c_9"},"result":{"changes":["c_9"],"count":1,"skipped":[]}}
+{"seq":45,"t":1793219931200,"command":"block.insert","params":{"after":"b_26","text":"Go.","tracked":false,"type":"action"},"result":{"id":"b_27"}}
+{"seq":46,"t":1793219931200,"command":"block.set_attrs","params":{"centered":true,"id":"b_27"},"result":{}}
+{"seq":47,"t":1793219931200,"command":"block.set_type","params":{"id":"b_27","tracked":true,"type":"character"},"result":{"change":"c_10"}}
+{"seq":48,"t":1793219931201,"command":"revision.start","params":{"color":"Blue","date":"2026-10-28","label":"Blue Rev."},"result":{"set":{"color":"Blue","date":"2026-10-28","id":"r_1","label":"Blue Rev.","started":1793219931201}}}
+{"seq":49,"t":1793219931201,"command":"changes.accept","params":{"id":"c_10"},"result":{"changes":["c_10"],"count":1,"skipped":[]}}
+{"seq":50,"t":1793219931201,"command":"block.set_type","params":{"id":"b_27","tracked":false,"type":"action"},"result":{}}
+{"seq":51,"t":1793219931202,"command":"block.set_attrs","params":{"centered":true,"id":"b_27"},"result":{}}
+{"seq":52,"t":1793219931202,"command":"revision.end","params":{},"result":{"set":{"color":"Blue","date":"2026-10-28","ended":1793219931202,"id":"r_1","label":"Blue Rev.","started":1793219931201}}}
+{"seq":53,"t":1793219931202,"command":"revision.start","params":{"color":"Pink","date":"2026-10-28","label":"Pink Rev."},"result":{"set":{"color":"Pink","date":"2026-10-28","id":"r_2","label":"Pink Rev.","started":1793219931202}}}
+{"seq":54,"t":1793219931203,"command":"text.insert","params":{"at":0,"id":"b_2","style":{},"text":"Far off, ","tracked":true},"result":{"change":"c_11"}}
+{"seq":55,"t":1793219931203,"command":"revision.end","params":{},"result":{"set":{"color":"Pink","date":"2026-10-28","ended":1793219931203,"id":"r_2","label":"Pink Rev.","started":1793219931202}}}
+{"seq":56,"t":1793219931203,"command":"revision.start","params":{"color":"Yellow","date":"2026-10-29","label":"Yellow Rev."},"result":{"set":{"color":"Yellow","date":"2026-10-29","id":"r_3","label":"Yellow Rev.","started":1793219931203}}}
+{"seq":57,"t":1793219931204,"command":"text.insert","params":{"at":0,"id":"b_9","style":{},"text":"Later, ","tracked":true},"result":{"change":"c_12"}}
+{"seq":58,"t":1793219931204,"command":"revision.end","params":{},"result":{"set":{"color":"Yellow","date":"2026-10-29","ended":1793219931204,"id":"r_3","label":"Yellow Rev.","started":1793219931203}}}
+{"seq":59,"t":1793219931204,"command":"revision.start","params":{"color":"Green","date":"2026-10-30","label":"Green Rev."},"result":{"set":{"color":"Green","date":"2026-10-30","id":"r_4","label":"Green Rev.","started":1793219931204}}}
+{"seq":60,"t":1793219931205,"command":"batch","params":{"commands":[{"command":"text.insert","params":{"at":0,"id":"b_5","style":{},"text":"Oh, ","tracked":true}},{"command":"text.insert","params":{"at":0,"id":"b_7","style":{},"text":"High, ","tracked":true}}]},"result":{"change":"c_13","results":[{"change":"c_13"},{"change":"c_13"}]}}
+{"seq":61,"t":1793219931205,"command":"revision.end","params":{},"result":{"set":{"color":"Green","date":"2026-10-30","ended":1793219931205,"id":"r_4","label":"Green Rev.","started":1793219931204}}}
+{"seq":62,"t":1793219931206,"command":"changes.accept","params":{"scene":"b_1"},"result":{"changes":["c_11","c_13"],"count":2,"skipped":[]}}
+{"seq":63,"t":1793219931206,"command":"changes.accept","params":{"all":true},"result":{"changes":["c_2","c_12","c_13"],"count":3,"skipped":[]}}
