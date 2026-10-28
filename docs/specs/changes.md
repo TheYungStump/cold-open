@@ -243,7 +243,7 @@ A document with pending changes has two print forms:
 
 **Writing other formats.** Fountain and .fdx cannot hold marks, so they are written from the accepted form, and a save or export reports a `tracked_changes` loss through the usual question (`docs/specs/commands.md`, "Losses"). A bundle keeps everything (`docs/specs/bundle.md`).
 
-**Resolution: after "Save anyway".** A save that wrote the accepted form leaves the open script as it was, marks included, so the writer can still review and undo; but the file is now the record. Reopening the file, after a close or after a crash, gives the file's text, as for any other loss the writer accepted (`docs/specs/journal.md`, "Nothing to recover?": the file is the version the journal's header names). Rewriting the open document into its accepted form on such a save would change its blocks under the undo history, so it is not done.
+**Resolution: after "Save anyway"** (2026-10-18, replaced 2026-10-21, refined 2026-10-28). Since phase 5a's manual test, a save with `allow_lossy` to Fountain or .fdx leaves the open script in the form the file holds: once every check that could refuse the save has passed, the version with its changes marked is set aside as a Recovered version, and every pending change is accepted, as one undoable step (`docs/specs/commands.md`, `doc.save`). Reopening the file gives the file's text. Before 2026-10-21 the open script kept its marks after such a save, so it and the file differed.
 
 **Resolution: no .fdx mapping.** No publicly shared .fdx file we have shows how marked runs are stored (`docs/specs/fdx.md` §11), so the clean room gives us nothing to write them from. If one turns up, mapping them becomes its own task.
 

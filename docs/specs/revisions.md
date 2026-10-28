@@ -1,6 +1,6 @@
 # Production revision sets
 
-- **Date:** 2026-10-22, updated 2026-10-26 (§6.4, text put back)
+- **Date:** 2026-10-22, updated 2026-10-26 (§6.4, text put back) and 2026-10-28 (§9, "Save anyway" as one step after its checks)
 - **Status:** phase 5b, being implemented in `crates/screenplay` (marks in text runs), `crates/core` (the revision table, marking, the commands, files), `crates/layout` (asterisks, page headers, colored pages) and `crates/app`.
 - **Sources:**
   - `docs/spec.md`: "Revising" (colored revision sets with asterisks in the margin and revised-page headers) and "Output" (PDF export with revision colors).
@@ -226,7 +226,7 @@ Added 2026-10-26, from the project owner's manual test of phase 5b: deleting a s
 - **The bundle** (`docs/specs/bundle.md`) keeps the table in a new entry, `revisions.json`, and the marks in `document.json`. A bundle holding a table other than the default writes `meta.json` with `v: 2`, so a phase 5a build refuses it with `unsupported_format`. Without that, a 5a build would find fields it does not know in `document.json`, read the readable copy instead, and lose every mark on its next save. A bundle with the default table is written as `v: 1`, byte for byte as before.
 - **The crash journal** (`docs/specs/journal.md`) writes `semantics: 3`. The header's `doc` holds `revisions` when it is not the default. The table is small (one entry per distributed draft), so it is copied, not named by fingerprint as the change table is.
 - **Fountain and .fdx** cannot hold marks or sets. A save or export of a document with a table other than the default reports a `revision_marks` loss of class `lost`, counting the marked blocks and the sets. The desktop app asks about it as it asks about tracked changes.
-  - **Save anyway** leaves the open script in the form the file holds, as it does for tracked changes (phase 5a decision 51). It sets the marked version aside as a Recovered version (`.marked-<ms>`), then accepts any pending changes, then resets the revision table and its marks to the default, each as one undoable step, then saves. A `revisions_cleared` warning says so.
+  - **Save anyway** leaves the open script in the form the file holds, as it does for tracked changes (phase 5a decision 51). Every check that can refuse the save runs first, so a refused save changes nothing (2026-10-28). Then it sets the marked version aside as a Recovered version (`.marked-<ms>`), accepts any pending changes and resets the revision table and its marks to the default, together as one undoable step, and saves (`docs/specs/commands.md`, `doc.save`). A `revisions_cleared` warning says so.
   - Exports (`export.fdx`, `export.fountain`, "Save a copy as") don't change the script. Their question says the script keeps its marks.
 - **An .fdx file's own `Revisions` list** (`docs/specs/fdx.md` §13) passes through untouched, as before. **Resolution:** no marks are written into .fdx. No public sample shows how revision-marked runs are stored (`docs/specs/fdx.md` §11), so the clean room gives us nothing to write them from.
 

@@ -9,8 +9,9 @@ use serde_json::{Value, json};
 
 use crate::author::{Author, Clock};
 use crate::command::{
-    ChangesSettle, Class, Command, DocClose, DocNew, DocOpen, DocSave, ExportFile, ExportPdf,
-    FileRepair, Recover, RecoveredDelete, RecoveredList, RecoveredRestore, RevisionClear,
+    Batch, BatchItem, ChangesSettle, Class, Command, DocClose, DocNew, DocOpen, DocSave,
+    ExportFile, ExportPdf, FileRepair, Recover, RecoveredDelete, RecoveredList, RecoveredRestore,
+    RevisionClear,
 };
 use crate::document::Document;
 use crate::error::CommandError;
@@ -1016,26 +1017,67 @@ impl Dispatcher {
         }
         let opts = self.opts;
         let durability = self.durability();
-        refuse_while_saving(
-            self.session
-                .as_ref()
-                .ok_or_else(CommandError::no_document)?,
-        )?;
-        let accepted = self.accept_for_save(&p)?;
         let session = self
             .session
             .as_ref()
             .ok_or_else(CommandError::no_document)?;
-        let Rendered {
-            target,
-            format,
-            mut bytes,
-            losses,
-        } = Self::render(session, &p)?;
+        refuse_while_saving(session)?;
+        // Every check that can refuse the save runs before anything
+        // changes: a refused save leaves the script, its journal and the
+        // target as they were, and makes no copy (docs/specs/commands.md,
+        // `doc.save`; review findings CL6, AR3).
+        let (target, format) = save_target(session.path.as_deref(), &p)?;
         let same_file = session
             .path
             .as_ref()
             .is_some_and(|old| same_path(old, &target));
+        if same_file {
+            refuse_if_changed(session, &target, p.overwrite)?;
+        } else if !p.overwrite && target.exists() {
+            return Err(exists(&target));
+        }
+        // A lossy save without `allow_lossy` is refused before the target
+        // is claimed. One with it accepts first, and is rendered after.
+        let accepting = acceptance_needed(session, &p, format);
+        let rendered = if accepting {
+            None
+        } else {
+            Some(Self::render(session, &p)?)
+        };
+        // Save as: the target's lock is taken, and its journal judged,
+        // before anything is written (docs/specs/journal.md, "Saving").
+        let claimed = if opts.journal && !same_file {
+            Some(self.claim_target(&target, format, durability)?)
+        } else {
+            None
+        };
+        // The empty journal a refused or failed save made is not needed.
+        let release = |claimed: Option<(Journal, bool)>| {
+            if let Some((j, true)) = claimed {
+                let _ = j.delete();
+            }
+        };
+        let accepted = match self.accept_for_save(&p) {
+            Ok(w) => w,
+            Err(e) => {
+                release(claimed);
+                return Err(e);
+            }
+        };
+        let session = self
+            .session
+            .as_ref()
+            .ok_or_else(CommandError::no_document)?;
+        let rendered = match rendered.map_or_else(|| Self::render(session, &p), Ok) {
+            Ok(r) => r,
+            Err(e) => {
+                release(claimed);
+                return Err(e);
+            }
+        };
+        let Rendered {
+            mut bytes, losses, ..
+        } = rendered;
         // A bundle first written at a path gets an identity of its own
         // (docs/specs/bundle.md §8); a save in place keeps it.
         let new_id = (format == FormatId::Bundle
@@ -1046,20 +1088,8 @@ impl Dispatcher {
             doc.doc_id = Some(id.clone());
             bytes = format.get().write(&doc, session.style).bytes;
         }
-        if same_file {
-            refuse_if_changed(session, &target, p.overwrite)?;
-        } else if !p.overwrite && target.exists() {
-            return Err(exists(&target));
-        }
         let original = if same_file && session.damaged {
             keep_original(&target)?
-        } else {
-            None
-        };
-        // Save as: the target's lock is taken, and its journal judged,
-        // before anything is written (docs/specs/journal.md, "Saving").
-        let claimed = if opts.journal && !same_file {
-            Some(self.claim_target(&target, format, durability)?)
         } else {
             None
         };
@@ -1121,11 +1151,12 @@ impl Dispatcher {
     /// (docs/specs/commands.md, `doc.save`, 2026-10-21): the document takes
     /// the form the file will hold, as a converting save does. The version
     /// with its changes marked is set aside first, as a Recovered version
-    /// (docs/specs/journal.md), then every pending change is accepted as
-    /// one undoable step, journaled like any other. The same holds for
-    /// revision sets and marks (docs/specs/revisions.md §9), reset as one
-    /// more step. Returns the warnings that say so, none when the save
-    /// keeps everything or there is nothing to take out.
+    /// (docs/specs/journal.md), then every pending change is accepted and
+    /// revision sets and marks are reset (docs/specs/revisions.md §9), as
+    /// one undoable step, journaled like any other (2026-10-28). The caller
+    /// has run every check that can refuse the save. Returns the warnings
+    /// that say so, none when the save keeps everything or there is nothing
+    /// to take out.
     fn accept_for_save(&mut self, p: &DocSave) -> Result<Vec<Value>, CommandError> {
         let Some(session) = self.session.as_mut() else {
             return Ok(Vec::new());
@@ -1136,15 +1167,11 @@ impl Dispatcher {
             (None, Some(t)) => FormatId::for_path(t),
             (None, None) => None,
         };
-        // A bundle keeps the marks; a format that is not known fails when
-        // the save renders, as before.
+        let Some(format) = format.filter(|&f| acceptance_needed(session, p, f)) else {
+            return Ok(Vec::new());
+        };
         let changes = session.doc.has_changes();
         let revisions = session.doc.has_revision_data();
-        if !p.allow_lossy || format.is_none_or(|f| f == FormatId::Bundle) || !(changes || revisions)
-        {
-            return Ok(Vec::new());
-        }
-        let count = session.doc.pending().len();
         let sets = session.doc.revisions.sets.len();
         let marked = session
             .doc
@@ -1161,24 +1188,46 @@ impl Dispatcher {
             }
             None => None,
         };
-        let name = format.map_or("this format", |f| f.title());
-        let mut warnings = Vec::new();
+        let name = format.title();
+        let mut commands = Vec::new();
         if changes {
-            let accept = Command::ChangesAccept(ChangesSettle {
+            commands.push(BatchItem::of(&Command::ChangesAccept(ChangesSettle {
                 all: true,
                 ..ChangesSettle::default()
-            });
-            session.execute_with(&accept, &Exec::by(self.writer.clone()))?;
-            warnings.push(accepted_warning(name, count, copy.as_deref()));
+            })));
         }
         if revisions {
             // Accepting may have marked text: the reset takes it out too.
-            let clear = Command::RevisionClear(RevisionClear {
+            commands.push(BatchItem::of(&Command::RevisionClear(RevisionClear {
                 all: true,
                 sets: true,
                 ..RevisionClear::default()
-            });
-            session.execute_with(&clear, &Exec::by(self.writer.clone()))?;
+            })));
+        }
+        let label = match (changes, revisions) {
+            (true, true) => "Accept changes and clear revisions",
+            (true, false) => "Accept all changes",
+            _ => "Clear revisions",
+        };
+        let step = Command::Batch(Batch {
+            commands,
+            label: Some(label.into()),
+        });
+        let r = session.execute_with(&step, &Exec::by(self.writer.clone()))?;
+        let mut warnings = Vec::new();
+        if changes {
+            let a = &r["results"][0];
+            let count = a["count"].as_u64().unwrap_or(0) as usize;
+            let mut w = accepted_warning(name, count, copy.as_deref());
+            // A change that cannot be accepted as it stands stays pending
+            // (docs/specs/changes.md §6), and the file holds it accepted
+            // as far as it can be.
+            if a["skipped"].as_array().is_some_and(|s| !s.is_empty()) {
+                w["details"]["skipped"] = a["skipped"].clone();
+            }
+            warnings.push(w);
+        }
+        if revisions {
             warnings.push(cleared_warning(name, sets, marked, copy.as_deref()));
         }
         Ok(warnings)
@@ -1260,6 +1309,16 @@ impl Dispatcher {
             ));
         };
         refuse_while_saving(session)?;
+        // "Save anyway": what could refuse the save is checked before the
+        // acceptance changes anything (review findings CL6, AR3). The
+        // worker checks the file again; a change in the milliseconds
+        // between is a failed write, which undo answers.
+        if let Ok((_, format)) = save_target(Some(&path), p)
+            && acceptance_needed(session, p, format)
+        {
+            refuse_if_changed(session, &path, p.overwrite)?;
+        }
+        save_target(Some(&path), p)?;
         let notes = self.accept_for_save(p)?.into_iter().collect();
         let session = self
             .session
@@ -2181,17 +2240,18 @@ fn refuse_document_or_journal(open: Option<&Path>, target: &Path) -> Result<(), 
     Ok(())
 }
 
-/// Keeps a copy of a repaired file as it is, before the first save over it
-/// (docs/specs/journal.md, "Damaged originals"). A file that has gone has
-/// nothing to keep.
-/// Writes a document out for saving and checks it can be saved, without
-/// touching the disk: to `p.path`, or to `own`, the document's own path.
-fn render_doc(
-    doc: &Document,
-    style: SourceStyle,
-    own: Option<&Path>,
-    p: &DocSave,
-) -> Result<Rendered, CommandError> {
+/// Whether a save must accept pending changes or clear revision data
+/// first: "Save anyway" (`allow_lossy`) to a format that cannot hold them.
+fn acceptance_needed(session: &Session, p: &DocSave, format: FormatId) -> bool {
+    p.allow_lossy
+        && format != FormatId::Bundle
+        && (session.doc.has_changes() || session.doc.has_revision_data())
+}
+
+/// Where a save writes, and in which format: `p.path`, or `own`, the
+/// document's own path; `p.format`, or the path's. Checked before anything
+/// is written or changed.
+fn save_target(own: Option<&Path>, p: &DocSave) -> Result<(PathBuf, FormatId), CommandError> {
     let target = match (&p.path, own) {
         (Some(p), _) => PathBuf::from(p),
         (None, Some(p)) => p.to_path_buf(),
@@ -2227,7 +2287,18 @@ fn render_doc(
             ),
         ));
     }
+    Ok((target, format))
+}
 
+/// Writes a document out for saving and checks it can be saved, without
+/// touching the disk: to `p.path`, or to `own`, the document's own path.
+fn render_doc(
+    doc: &Document,
+    style: SourceStyle,
+    own: Option<&Path>,
+    p: &DocSave,
+) -> Result<Rendered, CommandError> {
+    let (target, format) = save_target(own, p)?;
     let written = format.get().write(doc, style);
     let mut losses = crate::session::losses_json(doc, &written.losses);
     // The file is written as UTF-8, which other programs show wrongly
@@ -2258,6 +2329,9 @@ fn render_doc(
     })
 }
 
+/// Keeps a copy of a repaired file as it is, before the first save over it
+/// (docs/specs/journal.md, "Damaged originals"). A file that has gone has
+/// nothing to keep.
 fn keep_original(target: &Path) -> Result<Option<PathBuf>, CommandError> {
     let bytes = match fs::read(target) {
         Ok(b) => b,
