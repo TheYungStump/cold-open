@@ -272,11 +272,29 @@ fn entries(bytes: &[u8]) -> Result<Entries, String> {
             });
         match data {
             Ok(d) if known => out.found.push((name, d)),
-            Ok(d) => out.extra.push((name, d)),
+            Ok(d) if keepable(&name) => out.extra.push((name, d)),
+            // A name a zip writer would spell otherwise cannot be written
+            // back as it is: dropped and reported, so the first save keeps
+            // a copy of the file (§7).
+            Ok(_) => out
+                .damaged
+                .push(format!("{name}: its name cannot be written back as it is")),
             Err(why) => out.damaged.push(format!("{name}: {why}")),
         }
     }
     Ok(out)
+}
+
+/// Whether another tool's entry can be written back under the same name:
+/// printable ASCII, no backslash, not absolute, no `..` (§2). Zip writers
+/// spell other names otherwise.
+fn keepable(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 255
+        && name.bytes().all(|b| b.is_ascii_graphic() || b == b' ')
+        && !name.contains('\\')
+        && !name.starts_with('/')
+        && !name.split('/').any(|part| part == ".." || part.is_empty())
 }
 
 /// What a bundle's report says (docs/specs/bundle.md §7), as `.fdx` issues
