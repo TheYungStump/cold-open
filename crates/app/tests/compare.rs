@@ -103,3 +103,31 @@ fn a_draft_comes_in_as_one_change_under_the_name_given() {
     h.shortcut('z', false);
     assert!(!h.app.d.session().unwrap().doc.has_changes());
 }
+
+/// CL7 (the reviews of phases 4–5b, 2026-10-28): the draft is compared on a
+/// worker thread, as a save is written. Until it is done the status bar
+/// says so and the editor stays usable; Esc stops waiting, and an answer
+/// that comes after that is let go.
+#[test]
+fn a_comparison_runs_off_the_ui_thread_and_esc_stops_waiting() {
+    let home = tempfile::tempdir().unwrap();
+    let mut h = app(home.path());
+    let b = home.path().join("b.fountain");
+    // The worker's answer, held back until the test runs it.
+    let pending = h.app.update(Message::Chosen(Ask::Compare, Some(b)));
+    assert!(
+        h.app.working.is_some(),
+        "the status bar says it is comparing"
+    );
+    assert!(h.app.compare.is_none());
+    // The editor takes keys meanwhile.
+    h.type_text("x");
+    assert!(h.app.d.session().unwrap().dirty);
+    h.named(Named::Escape, Modifiers::empty());
+    assert!(h.app.working.is_none());
+    h.run_task(pending);
+    assert!(
+        h.app.compare.is_none(),
+        "a stopped comparison does not open"
+    );
+}

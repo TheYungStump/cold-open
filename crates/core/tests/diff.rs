@@ -586,3 +586,33 @@ fn a_shot_and_general_text_import_as_nothing_from_fountain() {
     assert_eq!(r["edits"], 0, "{r}");
     d.discard();
 }
+
+/// CL7 (2026-10-28): `changes.import` in three steps, so a front end can
+/// plan on a worker thread. A script edited between planning and applying
+/// is not brought in on stale plans: `import_stale`, and planning again
+/// works.
+#[test]
+fn an_import_planned_before_an_edit_is_planned_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let (a, b) = (dir.path().join("a.fountain"), dir.path().join("b.fountain"));
+    fs::write(&a, "INT. LAB - NIGHT\n\nRain.\n").unwrap();
+    fs::write(&b, "INT. LAB - NIGHT\n\nRain falls.\n").unwrap();
+    let mut d = open(&a);
+    let p = coldopen_core::command::ChangesImport {
+        path: b.display().to_string(),
+        name: None,
+    };
+    let job = d.import_prepare(&p).unwrap();
+    let planned = std::thread::spawn(move || job.plan()).join().unwrap();
+    ok(
+        &mut d,
+        "text.insert",
+        json!({"id": "b_2", "at": 0, "text": "Cold "}),
+    );
+    let e = d.import_apply(planned).unwrap_err();
+    assert_eq!(e.code, "import_stale", "{e}");
+    let job = d.import_prepare(&p).unwrap();
+    let r = d.import_apply(job.plan()).unwrap();
+    assert!(r["change"].is_string(), "{r}");
+    d.discard();
+}

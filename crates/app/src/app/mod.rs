@@ -145,6 +145,10 @@ pub enum Message {
     Title(title::TitleInput),
     /// The compare view and the import question (editor.md §21).
     Compare(compare::CompareInput),
+    /// A comparison worked out off the UI thread, by its token.
+    Compared(u64, compare::Handoff<Result<compare::Compared, String>>),
+    /// An import planned off the UI thread.
+    ImportPlanned(compare::ImportPlanned),
     /// The worker's answer about the recent files: those it checked, and
     /// those that are gone (editor.md §11).
     RecentChecked {
@@ -396,6 +400,11 @@ pub struct App {
     pub title_sheet: Option<title::TitleSheet>,
     /// The compare view (editor.md §21).
     pub compare: Option<compare::CompareView>,
+    /// A comparison or import being worked out off the UI thread
+    /// (editor.md §21).
+    pub working: Option<compare::Working>,
+    /// Numbers that work, so a stopped one's answer is let go.
+    jobs: u64,
     /// Recent files found to be gone, as last checked (editor.md §11).
     pub missing: std::collections::BTreeSet<PathBuf>,
     pub export: Option<ExportForm>,
@@ -520,6 +529,8 @@ impl App {
             reports: None,
             title_sheet: None,
             compare: None,
+            working: None,
+            jobs: 0,
             missing: std::collections::BTreeSet::new(),
             export: None,
             sheet: None,
@@ -1223,6 +1234,8 @@ impl App {
             }
             Message::Chosen(ask, path) => self.chosen(ask, path),
             Message::Rendered(r) => self.rendered(r),
+            Message::Compared(token, out) => self.compared(token, out),
+            Message::ImportPlanned(p) => self.import_planned(p),
             Message::Saved(r) => self.saved(r),
             Message::Reply(r) => self.reply(r),
             Message::RecoveryKeep => self.recovery_keep(),
@@ -1484,6 +1497,14 @@ impl App {
                 _ => {}
             }
         }
+        // Esc stops waiting for a comparison (editor.md §21).
+        if kp.key == Key::Named(Named::Escape)
+            && self.prompt.is_none()
+            && self.working.take().is_some()
+        {
+            self.banners.push("Stopped comparing.".into());
+            return Task::none();
+        }
         if let Some(chord) = Chord::from_key(&kp.key, m)
             && let Some(action) = self.keymap.action(&chord).map(str::to_string)
         {
@@ -1722,6 +1743,11 @@ impl App {
         }
         if let Some(t) = self.reports_key(kp, enter, esc) {
             return t;
+        }
+        // Esc stops waiting for a comparison (editor.md §21).
+        if esc && self.prompt.is_none() && self.working.take().is_some() {
+            self.banners.push("Stopped comparing.".into());
+            return Task::none();
         }
         if self.prompt.is_none()
             && let Some(t) = self.compare_key(kp, enter, esc)

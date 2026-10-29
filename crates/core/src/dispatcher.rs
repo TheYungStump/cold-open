@@ -1575,25 +1575,60 @@ impl Dispatcher {
         if !by.is_writer() {
             return Err(writer_only("bring a draft in as changes"));
         }
+        let job = self.import_prepare(&p)?;
+        self.import_apply(job.plan())
+    }
+
+    /// Step 1 of `changes.import` off the UI thread (docs/specs/diff.md §6,
+    /// 2026-10-28): the checks, and a copy of what the planning needs. The
+    /// caller runs [`ImportJob::plan`] on any thread, which reads the draft
+    /// and compares, and hands the outcome to [`Dispatcher::import_apply`].
+    /// `changes.import` runs the three in a row, after its writer-only
+    /// check; a front end that calls these runs for the writer.
+    pub fn import_prepare(
+        &self,
+        p: &crate::command::ChangesImport,
+    ) -> Result<ImportJob, CommandError> {
+        let session = self
+            .session
+            .as_ref()
+            .ok_or_else(CommandError::no_document)?;
+        refuse_pending_import(session)?;
+        let path = PathBuf::from(&p.path);
+        let name = p
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .map_or_else(|| crate::diff::default_name(&path), str::to_string);
+        Ok(ImportJob {
+            doc: session.doc.clone(),
+            format: session.format,
+            path,
+            name,
+            session: session.id(),
+            rev: session.rev,
+        })
+    }
+
+    /// Step 3 of `changes.import`: the planned edits applied, as one tracked
+    /// batch by a writer of the draft's name, if the script is still the
+    /// one they were planned on. One that changed meanwhile fails with
+    /// `import_stale`, and the caller plans again.
+    pub fn import_apply(&mut self, planned: PlannedImport) -> Result<Value, CommandError> {
         let session = self
             .session
             .as_mut()
             .ok_or_else(CommandError::no_document)?;
-        if session.doc.has_changes() {
+        if session.id() != planned.session || session.rev != planned.rev {
             return Err(CommandError::new(
-                "change_pending",
-                "this script has tracked changes waiting; accept or reject them before bringing in a draft",
+                "import_stale",
+                "the script changed while the draft was being compared; bring it in again",
             ));
         }
-        let path = PathBuf::from(&p.path);
-        let (b_doc, b_format) = crate::diff::read_draft(&path)?;
-        let name = p
-            .name
-            .map(|n| n.trim().to_string())
-            .filter(|n| !n.is_empty())
-            .unwrap_or_else(|| crate::diff::default_name(&path));
-        let (items, skipped) =
-            crate::diff::import_edits(&session.doc, session.format, &b_doc, b_format);
+        refuse_pending_import(session)?;
+        let name = planned.name;
+        let (items, skipped) = planned.planned?;
         if items.is_empty() {
             return Ok(json!({ "change": null, "edits": 0, "skipped": skipped }));
         }
@@ -2560,6 +2595,53 @@ fn exists(target: &Path) -> CommandError {
         ),
     )
     .with_details(json!({ "path": target.display().to_string() }))
+}
+
+/// A draft is brought in only over a script with no tracked changes
+/// waiting (docs/specs/diff.md §6).
+fn refuse_pending_import(session: &Session) -> Result<(), CommandError> {
+    if session.doc.has_changes() {
+        return Err(CommandError::new(
+            "change_pending",
+            "this script has tracked changes waiting; accept or reject them before bringing in a draft",
+        ));
+    }
+    Ok(())
+}
+
+/// What `changes.import` plans with, taken from the session
+/// ([`Dispatcher::import_prepare`]).
+pub struct ImportJob {
+    doc: Document,
+    format: FormatId,
+    path: PathBuf,
+    name: String,
+    session: u64,
+    rev: u64,
+}
+
+/// An import planned: its edits, or why there are none.
+#[derive(Clone, Debug)]
+pub struct PlannedImport {
+    session: u64,
+    rev: u64,
+    name: String,
+    planned: Result<(Vec<BatchItem>, Vec<Value>), CommandError>,
+}
+
+impl ImportJob {
+    /// Step 2, on any thread: reads the draft and plans the edits that
+    /// bring it in. Touches nothing but the draft's file.
+    pub fn plan(self) -> PlannedImport {
+        let planned = crate::diff::read_draft(&self.path)
+            .map(|(b, fb)| crate::diff::import_edits(&self.doc, self.format, &b, fb));
+        PlannedImport {
+            session: self.session,
+            rev: self.rev,
+            name: self.name,
+            planned,
+        }
+    }
 }
 
 /// Some choices are the writer's to make, never an agent's: an agent would

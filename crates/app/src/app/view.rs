@@ -912,6 +912,11 @@ impl App {
         let scene_txt = scene.map_or_else(String::new, |r| {
             format!("Scene {} · {}", r.number, eighths(r.eighths))
         });
+        // A comparison being worked out (editor.md §21).
+        let working = self
+            .working
+            .as_ref()
+            .map(|w| format!("{} Esc stops.", w.what));
         let (journal, jcolor) = match self.d.journal_status() {
             _ if self.saving.is_some() => ("Saving…".to_string(), pal.text_quiet),
             Some(st) if st.error.is_some() => ("Not protected".to_string(), pal.danger),
@@ -939,6 +944,9 @@ impl App {
         ]
         .spacing(16)
         .align_y(Center);
+        if let Some(w) = working {
+            r = r.push(text(w).font(fonts::UI).size(12).color(pal.text_quiet));
+        }
         // Pending changes; a click shows the panel (editor.md §17.3).
         if self.review.0 > 0 {
             r = r.push(
