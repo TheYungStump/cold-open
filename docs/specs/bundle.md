@@ -64,7 +64,7 @@ The same document therefore always gives the same bytes. **Resolution:** a newer
 | Field | Meaning |
 | --- | --- |
 | `format` | Always `"coldopen-bundle"`. |
-| `v` | The bundle format's version, 1, 2 or (2026-10-28) 3. A bundle with a higher `v` was made by a newer Cold Open; it is refused with `unsupported_format` rather than read in part and saved over. |
+| `v` | The bundle format's version, 1, 2 or (2026-10-28) 3. A bundle with a higher `v` was made by a newer Cold Open; it is refused with `unsupported_format` rather than read in part and saved over. (2026-10-28, review finding GP14) `format` and `v` are read before the rest of `meta.json`, so a newer file's fields this version does not know never hide its version. |
 
 **Version 2** (2026-10-22, phase 5b). A bundle whose revision table is not the default (`docs/specs/revisions.md` §3) is written as version 2. It holds `revisions.json`, and its `document.json` may hold revision marks (`rev` in text runs and on blocks). Every other bundle is still written as version 1, byte for byte as before. **Resolution:** a phase 5a build reading a version 2 bundle as version 1 would find fields it does not know in `document.json`, fall back to `script.fountain` (§7), and lose every mark on its next save. The higher `v` makes it refuse the file instead. Version 2 readers take both versions.
 

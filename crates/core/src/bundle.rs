@@ -49,6 +49,14 @@ struct Meta {
     doc_id: Option<String>,
 }
 
+/// What `meta.json` says the file is, read before the rest of it, and with
+/// any other fields allowed (§3).
+#[derive(Deserialize)]
+struct Version {
+    format: String,
+    v: u32,
+}
+
 /// A new document identity: a random version 4 UUID (RFC 9562), in
 /// lower-case hex with hyphens.
 pub fn new_doc_id() -> String {
@@ -349,12 +357,14 @@ pub fn read(bytes: &[u8]) -> Result<ReadOut, CommandError> {
         ));
     }
 
-    // meta.json: refuse a newer format; keep going without it.
-    let meta = e
+    // meta.json: refuse a newer format, judged on `format` and `v` alone,
+    // before anything else in it is read: a newer one may hold fields this
+    // version does not know (2026-10-28, review finding GP14). Then keep
+    // going without it if the rest cannot be read.
+    if let Some(m) = e
         .get(META)
-        .and_then(|m| serde_json::from_slice::<Meta>(m).ok())
-        .filter(|m| m.format == KIND);
-    if let Some(m) = &meta
+        .and_then(|m| serde_json::from_slice::<Version>(m).ok())
+        .filter(|m| m.format == KIND)
         && m.v > V
     {
         return Err(CommandError::new(
@@ -365,6 +375,10 @@ pub fn read(bytes: &[u8]) -> Result<ReadOut, CommandError> {
             ),
         ));
     }
+    let meta = e
+        .get(META)
+        .and_then(|m| serde_json::from_slice::<Meta>(m).ok())
+        .filter(|m| m.format == KIND);
     let mut doc_id = meta
         .as_ref()
         .and_then(|m| m.doc_id.clone())

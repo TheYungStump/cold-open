@@ -556,3 +556,41 @@ fn cl5_a_crafted_project_opens_or_is_refused_quickly() {
     let r = coldopen_core::bundle::read(&bomb(20_000, None)).unwrap();
     assert_eq!(r.doc.blocks.len(), 10_000);
 }
+
+/// GP14 (the reviews of phases 4–5b, 2026-10-28): a newer bundle's
+/// `meta.json` with a field this version does not know is still refused
+/// as newer. Before, the unknown field made the whole of `meta.json`
+/// unreadable, so the version was never looked at, and the file opened.
+#[test]
+fn gp14_a_newer_version_with_a_new_field_is_refused() {
+    let mut out = Vec::new();
+    let mut zw = rawzip::ZipArchiveWriter::new(&mut out);
+    for (name, data) in [
+        (
+            "meta.json",
+            br#"{"format":"coldopen-bundle","v":4,"app":"future","new_field":true}"#.to_vec(),
+        ),
+        (
+            "document.json",
+            br#"{"blocks":[{"id":"b_1","type":"action","text":"x"}],"next_id":2}"#.to_vec(),
+        ),
+        ("changes.json", br#"{"v":1,"changes":[]}"#.to_vec()),
+        ("script.fountain", b"x\n".to_vec()),
+    ] {
+        let (mut entry, _) = zw
+            .new_file(name)
+            .compression_method(rawzip::CompressionMethod::STORE)
+            .start()
+            .unwrap();
+        std::io::Write::write_all(&mut entry, &data).unwrap();
+        entry
+            .finish(rawzip::DataDescriptorOutput::new(
+                rawzip::crc32(&data),
+                data.len() as u64,
+            ))
+            .unwrap();
+    }
+    zw.finish().unwrap();
+    let e = coldopen_core::bundle::read(&out).map(|_| ()).unwrap_err();
+    assert_eq!(e.code, "unsupported_format", "{e}");
+}
