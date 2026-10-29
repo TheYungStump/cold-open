@@ -714,3 +714,55 @@ fn the_export_form_prints_the_current_text_on_mod_3() {
     assert!(h.app.export.is_none());
     h.app.d.discard();
 }
+
+// ---- The reviews of phases 4–5b (2026-10-28) ------------------------------
+
+/// A script with a section between its two scenes.
+const SECTIONS: &str = "INT. LAB - NIGHT\n\nRain on the roof.\n\n# Act Two\n\nRain falls.\n\nEXT. ROOF - NIGHT\n\nRain again.\n";
+
+fn sections(home: &Path) -> (Headless, Vec<coldopen_core::BlockId>) {
+    let p = home.join("acts.fountain");
+    std::fs::write(&p, SECTIONS).unwrap();
+    let mut h = open(&p, home, Choice::Light);
+    h.app.settings.author_name = Some("Dana".into());
+    h.app.d.set_writer_name(Some("Dana".into()));
+    let ids = h
+        .app
+        .d
+        .session()
+        .unwrap()
+        .doc
+        .blocks
+        .iter()
+        .map(|b| b.id)
+        .collect();
+    (h, ids)
+}
+
+/// A scene whose heading's deletion is pending keeps its row, struck,
+/// though `scene.list` leaves it out since AR6; before, the row was lost,
+/// or another scene's numbers were drawn on it.
+#[test]
+fn a_pending_deleted_scene_keeps_its_row() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut h, ids) = sections(home.path());
+    action(&mut h, "changes.track_mine");
+    let cmd = coldopen_core::Command::from_parts("block.delete", json!({"id": ids[0]})).unwrap();
+    h.app.d.execute(cmd).unwrap();
+    let _ = h.app.refresh();
+    let rows: Vec<(String, String, bool)> = h
+        .app
+        .nav_rows()
+        .iter()
+        .map(|r| (r.number.clone(), r.heading.clone(), r.deleted))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            (String::new(), "INT. LAB - NIGHT".into(), true),
+            (String::new(), "Act Two".into(), false),
+            ("1".into(), "EXT. ROOF - NIGHT".into(), false),
+        ]
+    );
+    h.app.d.discard();
+}

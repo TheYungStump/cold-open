@@ -397,7 +397,7 @@ Added 2026-10-18 (phase 5a). Sources: `docs/spec.md` ("Revising", "Agents edit i
 
 - **A change bar.** Every line holding a mark gets a thin bar in the left margin, in its author's color: the line's first mark when there are several.
 - **Block marks** get a small label in the left margin, in the author's color: "New" for an inserted block, "Deleted" for a deleted one (its text is all struck), "Was Action" (the old type) for a retyped one, "Split" and "Joined" (with a struck ¶ at the end of the line before) for a split or joined block, and "Moved" on a moved scene heading. A deleted empty block, such as a page break, shows its label on an empty line.
-- **The navigator** strikes through a scene whose heading is a pending deletion, and marks a scene holding pending changes with a dot in its first author's color.
+- **The navigator** strikes through a scene whose heading is a pending deletion, and marks a scene holding pending changes with a dot in its first author's color. (2026-10-28) Since `scene.list` lists only the current text's scenes (review finding AR6), a struck scene's row shows its struck heading and no number, page or length, and the scenes after it are numbered without it.
 - **The hint bar** shows "Tracking your changes" while the writer's switch is on.
 
 ### 17.2 Settling changes

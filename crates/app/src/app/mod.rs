@@ -897,6 +897,31 @@ impl App {
                     change: None,
                     revised: false,
                 }),
+                // A heading whose deletion is pending is no scene of the
+                // current text, so `scene.list` leaves it out; it keeps its
+                // row, struck, named by its struck text, with nothing
+                // measured (2026-10-28).
+                ElementKind::SceneHeading if b.marks.deleted.is_some() => rows.push(NavRow {
+                    id: b.id,
+                    section: false,
+                    depth: 0,
+                    number: String::new(),
+                    heading: b
+                        .element
+                        .text
+                        .runs()
+                        .iter()
+                        .filter_map(|r| match r {
+                            coldopen_screenplay::Run::Text { text, .. } => Some(text.as_str()),
+                            _ => None,
+                        })
+                        .collect(),
+                    page: None,
+                    eighths: 0,
+                    deleted: true,
+                    change: None,
+                    revised: false,
+                }),
                 ElementKind::SceneHeading => {
                     if let Some(s) = si.next() {
                         rows.push(NavRow {
