@@ -563,6 +563,15 @@ pub fn diff(data: &[u8]) -> Result<(), String> {
     };
     let left = result(&unspaced(&s.doc), &unspaced(&b));
     for scene in left["scenes"].as_array().into_iter().flatten() {
+        // Compared again, only blocks that could not be tracked differ: no
+        // scene is moved, added or deleted (2026-10-28, review finding
+        // GP10).
+        if scene["op"] != "changed" {
+            return Err(format!(
+                "after accepting the import, a scene is still {}",
+                scene["op"]
+            ));
+        }
         for block in scene["blocks"].as_array().into_iter().flatten() {
             if block["op"] != "restyled" && block["op"] != "attributes" {
                 return Err(format!(

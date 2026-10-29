@@ -1577,10 +1577,20 @@ impl Session {
         ex: &Exec,
     ) -> Result<(Transaction, Value), CommandError> {
         let rules = ex.rules();
-        let scene = self
+        let mut scene = self
             .doc
             .scene(p.id)
             .ok_or(CommandError::scene_not_found(p.id))?;
+        // A longer range, up to `last`, never a shorter one.
+        if let Some(last) = p.last {
+            let l = self.index(last)?;
+            if l + 1 < scene.end {
+                return Err(CommandError::invalid_params(format!(
+                    "{last} is inside the scene; \"last\" may only take in more blocks"
+                )));
+            }
+            scene.end = l + 1;
+        }
         if ctx.is_none() {
             self.refuse_others_structure(ex, scene.start, |m| {
                 m.moved.iter().map(|r| r.change).collect()

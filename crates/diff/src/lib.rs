@@ -64,6 +64,10 @@ pub enum Edit {
     Move {
         unit: usize,
         before: Option<usize>,
+        /// The unit's last element, so the whole unit moves: sections and
+        /// headings without a setting are part of it (§3.1), and what a
+        /// comparison left out between it and the next unit goes with it.
+        last: usize,
     },
     Delete {
         a: usize,
@@ -643,6 +647,7 @@ fn plan(
     rows: &BTreeMap<usize, Vec<Row>>,
 ) -> Vec<Edit> {
     let first = |i: usize| ua[i].blocks[0];
+    let last = |i: usize| ua.get(i + 1).map_or(ea.len(), |u| u.blocks[0]) - 1;
     let next_scene =
         |j: usize| (j + 1..ub.len()).find_map(|k| partner_of_b.get(&k).map(|&(i, _)| first(i)));
     let mut edits = Vec::new();
@@ -653,6 +658,7 @@ fn plan(
                 edits.push(Edit::Move {
                     unit: first(i),
                     before: next,
+                    last: last(i),
                 });
             }
             next = Some(first(i));

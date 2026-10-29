@@ -249,16 +249,30 @@ const WORDS: [&str; 14] = [
     "*rain*", "**the**", "_pumps_", "*2*",
 ];
 
+/// What a scene's block can be, besides action: a speech, or (2026-10-28)
+/// a section, a synopsis or a heading without a setting, which a diff unit
+/// takes in and `scene.move` alone does not (diff.md §3.1).
+const EXTRAS: [&str; 3] = ["# Wing", "= Later that night.", ".MOMENTS LATER"];
+
 /// A Fountain script of scenes with action and speeches.
 fn fountain() -> impl Strategy<Value = String> {
-    let block = (any::<bool>(), prop::collection::vec(0..WORDS.len(), 1..7));
+    let block = (0..6u8, prop::collection::vec(0..WORDS.len(), 1..7));
     let scene = (0..HEADINGS.len(), prop::collection::vec(block, 0..4));
     prop::collection::vec(scene, 1..6).prop_map(|scenes| {
         let mut out = String::new();
         for (h, blocks) in scenes {
             out.push_str(HEADINGS[h]);
             out.push_str("\n\n");
-            for (speech, w) in blocks {
+            for (what, w) in blocks {
+                if let Some(extra) = EXTRAS
+                    .get(usize::from(what).saturating_sub(3))
+                    .filter(|_| what >= 3)
+                {
+                    out.push_str(extra);
+                    out.push_str("\n\n");
+                    continue;
+                }
+                let speech = what == 1;
                 let mut text = w.iter().map(|&i| WORDS[i]).collect::<Vec<_>>().join(" ");
                 text.push('.');
                 if let Some(c) = text.get_mut(0..1) {
@@ -490,4 +504,42 @@ fn rejecting_a_retype_gives_the_blank_lines_back() {
     assert_eq!(gap(&ok(&mut d, "doc.get", json!({}))), Value::Null);
     ok(&mut d, "changes.reject", json!({"all": true}));
     assert_eq!(gap(&ok(&mut d, "doc.get", json!({}))), json!(3));
+}
+
+/// GR6 = GP10 = AR2 (the reviews of phases 4–5b, 2026-10-28): a diff unit
+/// runs from a heading with a setting to the next one, sections and forced
+/// headings included (diff.md §3.1); `scene.move` stops at either. Import
+/// moved only the scene, leaving the rest of the unit behind. It moves the
+/// whole unit now, and comparing again after accepting finds nothing.
+#[test]
+fn importing_a_moved_unit_moves_its_section_and_forced_heading() {
+    for (x, y) in [
+        (
+            "EXT. PARK - DAY\n\ntrees\n\nINT. HOUSE - DAY\n\nhello\n\n# Wing\n\nthere\n",
+            "INT. HOUSE - DAY\n\nhello\n\n# Wing\n\nthere\n\nEXT. PARK - DAY\n\ntrees\n",
+        ),
+        (
+            "INT. OFFICE - DAY\n\nAlice works.\n\n.MOMENTS LATER\n\nAlice answers.\n\nEXT. STREET - NIGHT\n\nBob walks.\n\nINT. DINER - NIGHT\n\nCarol drinks.\n",
+            "EXT. STREET - NIGHT\n\nBob walks.\n\nINT. DINER - NIGHT\n\nCarol drinks.\n\nINT. OFFICE - DAY\n\nAlice works.\n\n.MOMENTS LATER\n\nAlice answers.\n",
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (dir.path().join("a.fountain"), dir.path().join("b.fountain"));
+        fs::write(&a, x).unwrap();
+        fs::write(&b, y).unwrap();
+        let mut want = open(&b);
+        let want = said(&mut want);
+        let mut d = open(&a);
+        let before = said(&mut d);
+        let r = ok(&mut d, "changes.import", json!({"path": b}));
+        assert_eq!(r["skipped"], json!([]), "{r}");
+        ok(&mut d, "changes.accept", json!({"all": true}));
+        assert_eq!(said(&mut d), want);
+        let again = ok(&mut d, "diff", json!({"b": b}));
+        assert_eq!(again["scenes"], json!([]), "{again}");
+        ok(&mut d, "undo", json!({}));
+        ok(&mut d, "changes.reject", json!({"all": true}));
+        assert_eq!(said(&mut d), before);
+        d.discard();
+    }
 }

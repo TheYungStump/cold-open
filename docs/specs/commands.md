@@ -258,7 +258,7 @@ For `scene.list`:
 | `block.set_attrs` | `id`, `scene_number?`, `dual?`, `centered?`, `depth?`, `space_before?` | `{}` |
 | `block.delete` | `id` | `{}` |
 | `text.replace` | `find`, `with`, `scope?` or `at?`, `match_case?` | `{count, blocks}` |
-| `scene.move` | `id`, `before?` | `{}` |
+| `scene.move` | `id`, `before?`, `last?` | `{}` |
 | `text.insert` | `id`, `at`, `text`, `style?`, `after_deleted?` | `{}` |
 | `text.delete` | `id`, `from`, `to` | `{}` |
 | `text.style` | `id`, `from`, `to`, `bold?`, `italic?`, `underline?` | `{}` |
@@ -299,6 +299,7 @@ Notes on each command:
   - `at` (2026-10-15) is `{"id", "from"}`: only the match starting at offset `from` in that block is replaced. If no match starts there, nothing changes and `count` is 0. `at` and `scope` together fail with `invalid_params`.
 - **`scene.move`**
   - Moves a scene (its heading and body) before the scene or section given in `before`, or to the end when `before` is omitted.
+  - (2026-10-28) `last` names the last block to move, at or after the scene's own last block, so the move can take in what follows it: a section, a heading without a setting, more scenes. A `last` inside the scene fails with `invalid_params`. `changes.import` uses it to move a diff unit whole (`docs/specs/diff.md` §6).
 
 The keystroke commands below (2026-10-15) are what the desktop editor sends for every key. Any client may use them. Offsets follow "Positions in text" above.
 

@@ -297,9 +297,12 @@ pub fn import_edits(
         .edits
         .iter()
         .map(|e| match *e {
-            Edit::Move { unit, before } => item(
+            Edit::Move { unit, before, last } => item(
                 "scene.move",
-                with_before(json!({ "id": id(unit), "tracked": true }), before.map(id)),
+                with_before(
+                    json!({ "id": id(unit), "last": id(last), "tracked": true }),
+                    before.map(id),
+                ),
             ),
             Edit::Delete { a } => item("block.delete", json!({ "id": id(a), "tracked": true })),
             Edit::Retype { a, b } => item(

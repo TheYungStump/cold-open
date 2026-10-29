@@ -152,7 +152,7 @@ Decided with the project's owner, 2026-10-22: in phase 5b. A co-writer's .fdx dr
   | deleted block | `block.delete` |
   | changed block | `block.set_text`, which marks word by word (`docs/specs/changes.md` §5.1) |
   | retyped block | `block.set_type` |
-  | moved unit | `scene.move` |
+  | moved unit | `scene.move`, with `last` the unit's last block (2026-10-28): the unit moves whole, its sections and headings without a setting with it, where `scene.move` alone stops at either (review findings GR6, GP10, AR2) |
 
 - **Not imported.** Restyled blocks, changed attributes and the title page cannot be tracked (`docs/specs/changes.md` §10), so they are left out and listed in the result's `skipped`, each with its block or key. The writer can apply them by hand.
   - **Resolution (2026-10-26):** found by the `diff` fuzz target and a local run of its check.
@@ -176,6 +176,7 @@ Decided with the project's owner, 2026-10-22: in phase 5b. A co-writer's .fdx dr
   - A against B and B against A swap added and deleted, and report the same moves;
   - a script against itself written as .fdx by Cold Open is empty, apart from transparent elements, which are left out;
   - importing B into A, then accepting all, gives B's comparison form; rejecting all gives A.
+  - (2026-10-28) after accepting all of an import, comparing the document with B again finds no scene moved, added or deleted, only what `skipped` explains; the drafts the property tests build hold sections, synopses and headings without a setting.
 - **The Big Fish variants** in `corpus/`: fountain.io's .fountain and .fdx, jumpcut's .fdx and screenplain's .fdx, each pair compared, with every reported difference explained in `docs/progress/phase-5b.md`.
 - **The budget** is measured on the synthetic 119-page script against an edited copy, and on the Big Fish variants, and asserted on Linux by the budgets job.
 - **Fuzzing.** The `diff` fuzz target parses two inputs as Fountain, compares them and checks that nothing panics, that each diffed with itself is empty, and that the counts match the lists. It also brings B into A: the import must apply, accepting all of it must leave only what cannot be tracked (styles, attributes among them blank lines and centering, and the title page), and rejecting all of it must give A back. The property tests in `crates/core/tests/diff.rs` run the same check on random bytes and on drafts built from words.
