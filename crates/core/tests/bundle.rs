@@ -457,3 +457,44 @@ fn gr2_a_mark_naming_an_absurd_id_is_not_filled_up_to() {
     let r = coldopen_core::bundle::read(&sparse("c_1000", None)).unwrap();
     assert_eq!(r.doc.changes.len(), 1000);
 }
+
+/// GR7 = GP13: a project whose .fdx store holds a kept paragraph with no
+/// blocks, or one not stored under its first block, or naming an id at or
+/// past `next_id`, fails `Document::check`, so it opens from its readable
+/// copy instead of reaching the writer (Astra's probe, as a bundle).
+#[test]
+fn gr7_a_kept_paragraph_with_no_blocks_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("s.fdx");
+    fs::write(
+        &p,
+        "<?xml version=\"1.0\"?>\n<FinalDraft>\n  <Content>\n    <Paragraph Type=\"Action\" Custom=\"x\">\n      <Text>Rain.</Text>\n    </Paragraph>\n  </Content>\n</FinalDraft>\n",
+    )
+    .unwrap();
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &Author::writer(), "doc.open", json!({"path": p}));
+    let doc = d.session().unwrap().doc.clone();
+    d.discard();
+    let key = *doc.fdx.as_ref().unwrap().paragraphs.keys().next().unwrap();
+    for broken in 0..3 {
+        let mut doc = doc.clone();
+        let kept = doc.fdx.as_mut().unwrap();
+        let kp = kept.paragraphs.get_mut(&key).unwrap();
+        match broken {
+            0 => kp.blocks.clear(),
+            1 => kp.blocks[0].id = 7,
+            _ => {
+                let mut extra = kp.blocks[0].clone();
+                extra.id = 99;
+                kp.blocks.push(extra);
+            }
+        }
+        assert!(doc.check().is_err(), "case {broken}");
+        let read = coldopen_core::bundle::read(&coldopen_core::bundle::write(&doc)).unwrap();
+        let issues = read.repaired.expect("repaired")["issues"].to_string();
+        assert!(
+            issues.contains("bundle_document"),
+            "case {broken}: {issues}"
+        );
+    }
+}

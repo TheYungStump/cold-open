@@ -366,3 +366,32 @@ fn a_first_paragraphs_break_does_not_appear_when_something_comes_before_it() {
     assert!(!kinds.contains(&ElementKind::PageBreak), "{kinds:?}\n{out}");
     assert!(out.contains("Custom=\"keep\""), "{out}");
 }
+
+/// GR7 = GP13 (the reviews of phases 4–5b, 2026-10-28): a kept paragraph
+/// with no blocks, which only a hand-edited project or journal can hold,
+/// matched every group, and the writer copied it without moving on, for
+/// ever. The writer now always moves forward (Grok's probe).
+#[test]
+fn an_empty_kept_paragraph_never_stops_the_writer() {
+    let text =
+        file("\n    <Paragraph Type=\"Action\">\n      <Text>Rain.</Text>\n    </Paragraph>");
+    let doc = read(text.as_bytes()).unwrap();
+    let mut kept = doc.kept.clone();
+    let blocks = doc.blocks();
+    kept.paragraphs.insert(
+        blocks[0].id,
+        coldopen_fdx::KeptParagraph {
+            text: String::new(),
+            verbatim: true,
+            blocks: Vec::new(),
+        },
+    );
+    let out = write(&Doc {
+        blocks,
+        format: &doc.format,
+        title_lines: &doc.title_lines,
+        kept: Some(&kept),
+        declare_utf8: false,
+    });
+    assert!(out.text.contains("Rain."), "{}", out.text);
+}

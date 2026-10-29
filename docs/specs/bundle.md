@@ -83,7 +83,7 @@ The document, exactly as the crash journal's header holds it (`docs/specs/journa
 | `page_format`, `title_lines`, `spacing`, `fdx` | As in the journal header: the page and element settings, positioned title lines, paragraph spacing by block id, and the .fdx passthrough store. Each is absent when empty. |
 | `tracking` | The tracking switches, `{"writer": bool, "agents": bool}` (`docs/specs/changes.md` §4). Absent means the defaults. |
 
-The document must pass the checks a journal header's document passes (`docs/specs/journal.md`, recovery step 1): unique ids below `next_id`, every block keeping the model rules, a valid page format, and spacing inside the page body. In addition, every mark must name a change in `changes.json`.
+The document must pass the checks a journal header's document passes (`docs/specs/journal.md`, recovery step 1): unique ids below `next_id`, every block keeping the model rules, a valid page format, and spacing inside the page body. In addition, every mark must name a change in `changes.json`. (2026-10-28, review findings GR7, GP13) The .fdx store's kept paragraphs each have blocks, are stored under their first block, and name only ids below `next_id`, as do its loose children's anchors.
 
 **Layout.** A bundle prints its blocks as they stand, as an .fdx document does, with its own page format, title lines and spacing (`docs/specs/layout.md` §4.8). **Resolution:** not in Fountain's normal form, since the bundle keeps exactly what was written. A document read from Fountain is already in normal form, so its pages do not change when it becomes a bundle.
 

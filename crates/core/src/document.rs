@@ -354,10 +354,29 @@ impl Document {
                 return Err("a title line's space above is outside the page body".into());
             }
         }
-        if let Some(kept) = &self.fdx
-            && kept.paragraphs.keys().any(|&id| id >= self.next_id)
-        {
-            return Err("the .fdx store names a block id not below next_id".into());
+        if let Some(kept) = &self.fdx {
+            // Every kept paragraph has blocks and is stored under its first
+            // (docs/specs/fdx.md §13.1): an empty one matched every group
+            // and stopped the writer (2026-10-28, review findings GR7,
+            // GP13).
+            for (&key, kp) in &kept.paragraphs {
+                let Some(first) = kp.blocks.first() else {
+                    return Err(format!(
+                        "the .fdx store keeps a paragraph {key} with no blocks"
+                    ));
+                };
+                if first.id != key {
+                    return Err(format!(
+                        "the .fdx store keeps a paragraph under {key}, not its first block"
+                    ));
+                }
+                if kp.blocks.iter().any(|b| b.id >= self.next_id) {
+                    return Err("the .fdx store names a block id not below next_id".into());
+                }
+            }
+            if kept.loose.iter().any(|l| l.after >= self.next_id) {
+                return Err("the .fdx store names a block id not below next_id".into());
+            }
         }
         Ok(())
     }

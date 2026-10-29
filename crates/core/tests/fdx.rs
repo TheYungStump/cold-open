@@ -429,6 +429,10 @@ fn the_view_lays_out_an_fdx_as_the_reference_gate_does() {
             fsync: false,
         });
         ok(&mut d, "doc.open", json!({"path": path}));
+        // Every store a real file gives passes the checks a bundle's
+        // document must (GR7, GP13).
+        let check = d.session().unwrap().doc.check();
+        assert!(check.is_ok(), "{}: {check:?}", path.display());
         let view = d.view().unwrap().layout();
         assert_eq!(view.pages, direct.pages, "{}", path.display());
         assert_eq!(view.title, direct.title, "{}", path.display());
