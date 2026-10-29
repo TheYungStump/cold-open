@@ -318,7 +318,7 @@ When an agent attaches to the open script through `coldopen mcp` (`docs/specs/mc
 - **Tracked by default** (2026-10-18). While the script's agent switch is on (the default), an agent's edits arrive as tracked changes under its name (`docs/specs/mcp.md` §6.1), in its color, and the writer settles them as §17 says. "Track agent edits" in the palette and in the status bar's agent menu turns the switch off or on for this script (`changes.track`, an undoable step). The status bar's agent text adds "· N to review" while the agent has pending changes.
 - **Margin marks.** Each block an agent changed without tracking gets a violet bar in the left margin. The bar stays until the writer edits that block, or the "Dismiss agent marks" action clears all of them. Tracked edits have their own marks (§17) and get no violet bar.
 - **Undo.** Agent steps appear in the undo history with their label, `<name> · <tool>`. Mod+Z undoes the newest step whoever made it. `app.undo_agent` undoes all the agent steps on top of the history, one `undo` each.
-- **Caret.** Agent edits never move the writer's caret except to keep it in the same text (§4).
+- **Caret.** Agent edits never move the writer's caret except to keep it in the same text (§4). (2026-10-28, review finding AR11) A `batch` keeps it there as its commands would one by one.
 
 ## 13. Reliability on screen
 
