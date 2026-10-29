@@ -870,3 +870,47 @@ fn a_later_set_puts_back_the_earlier_sets_marks() {
     let table = ok(&mut d, "doc.export", json!({"format": "json"}));
     assert!(!table.to_string().contains("\"base\""), "ended: {table}");
 }
+
+/// GR10 (the reviews of phases 4–5b, 2026-10-28): a block's starting point
+/// for the active set holds the printing attributes it had in the
+/// distributed draft, before a pending retype cleared them. Put back to
+/// that type and those attributes, it loses its block mark.
+#[test]
+fn a_starting_point_keeps_the_attributes_a_pending_retype_cleared() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("s.fountain");
+    fs::write(&p, "INT. ROOM - DAY\n\nGo.\n").unwrap();
+    let mut d = Dispatcher::new(Options::default());
+    let w = Author::writer();
+    let run = |d: &mut Dispatcher, c: &str, v: Value| {
+        d.execute_as(Command::from_parts(c, v).unwrap(), &w)
+            .unwrap_or_else(|e| panic!("{c}: {e}"))
+    };
+    run(&mut d, "doc.open", json!({"path": p}));
+    run(
+        &mut d,
+        "block.set_attrs",
+        json!({"id": "b_2", "centered": true}),
+    );
+    let c = run(
+        &mut d,
+        "block.set_type",
+        json!({"id": "b_2", "type": "character", "tracked": true}),
+    )["change"]
+        .clone();
+    run(&mut d, "revision.start", json!({"date": "2026-10-28"}));
+    run(&mut d, "changes.accept", json!({"id": c}));
+    run(
+        &mut d,
+        "block.set_type",
+        json!({"id": "b_2", "type": "action"}),
+    );
+    run(
+        &mut d,
+        "block.set_attrs",
+        json!({"id": "b_2", "centered": true}),
+    );
+    let b = &run(&mut d, "doc.get", json!({}))["blocks"][1];
+    assert!(b.get("rev").is_none(), "{b}");
+    d.discard();
+}

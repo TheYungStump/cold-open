@@ -686,13 +686,13 @@ impl Session {
         if let (Some(c), Value::Object(m)) = (ctx.change, &mut result) {
             m.insert("change".into(), json!(c));
         }
-        Ok((Some(self.apply_marking(tx, &cmd)), result, cmd))
+        Ok((Some(self.apply_marking(tx, &cmd, ex.rules())), result, cmd))
     }
 
     /// Applies an edit's operations. While the document has revision sets,
     /// an untracked edit or an accept is marked with the active set, and
     /// text it did not change keeps its marks (docs/specs/revisions.md §6).
-    fn apply_marking(&mut self, tx: Transaction, cmd: &Command) -> Transaction {
+    fn apply_marking(&mut self, tx: Transaction, cmd: &Command, rules: u32) -> Transaction {
         let untracked = cmd.tracked().is_some_and(|t| t != Some(true))
             || matches!(cmd, Command::TextStyle(_) | Command::BlockSetAttrs(_));
         let accept = matches!(cmd, Command::ChangesAccept(_));
@@ -705,7 +705,7 @@ impl Session {
         } else {
             Default::default()
         };
-        revise::apply(tx, &mut self.doc, |doc| {
+        revise::apply(tx, &mut self.doc, rules, |doc| {
             active.or_else(|| accept.then(|| revise::settled_rev(doc, &before)).flatten())
         })
     }
@@ -826,7 +826,7 @@ impl Session {
             match self.plan(&cmd, ex, ctx) {
                 Ok((tx, r)) => {
                     if !tx.is_empty() {
-                        inverses.push(self.apply_marking(tx, &cmd));
+                        inverses.push(self.apply_marking(tx, &cmd, ex.rules()));
                     }
                     results.push(r);
                     resolved.push(BatchItem::of(&cmd));
