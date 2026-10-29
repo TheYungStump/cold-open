@@ -149,6 +149,23 @@ pub fn characters(doc: &Document, layout: &Layout, map: &[usize]) -> Value {
     }
     let scene = scene_of(doc);
     let printed = printed_lines(layout, map);
+    // The page format's continued string, as an extension reads it: without
+    // its brackets (§2; 2026-10-28, review finding AR9). With none, or only
+    // brackets, CONT'D and CONTD are still the marker.
+    let format = crate::view::page_format(doc);
+    let contd = format
+        .get()
+        .contd
+        .as_deref()
+        .map(|c| {
+            c.trim()
+                .trim_start_matches('(')
+                .trim_end_matches(')')
+                .trim()
+        })
+        .filter(|c| !c.is_empty())
+        .unwrap_or("CONT'D")
+        .to_string();
     let mut rows: BTreeMap<String, Row> = BTreeMap::new();
     for s in speeches(doc) {
         let row = rows.entry(s.key.clone()).or_insert_with(|| Row {
@@ -166,7 +183,7 @@ pub fn characters(doc: &Document, layout: &Layout, map: &[usize]) -> Value {
             row.scenes.push(id);
         }
         for e in s.extensions {
-            if !names::has_contd_marker(&e, "(CONT'D)") && !row.extensions.contains(&e) {
+            if !names::has_contd_marker(&e, &contd) && !row.extensions.contains(&e) {
                 row.extensions.push(e);
             }
         }

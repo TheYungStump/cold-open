@@ -207,3 +207,27 @@ fn ar6_pending_deletions_make_and_end_no_scenes_or_speeches() {
     assert_eq!(row("ALICE")["words"], 5, "{characters}");
     assert_eq!(row("ALICE")["speeches"], 2, "{characters}");
 }
+
+/// AR9 (the reviews of phases 4–5b, 2026-10-28): the page format's own
+/// continued string is the continued marker, as `docs/specs/reports.md` §2
+/// says, and the report leaves it out of the extensions; it compared each
+/// extension, brackets gone, with a fixed `(CONT'D)` (Antigravity's
+/// reproduction).
+#[test]
+fn ar9_the_formats_own_continued_string_is_not_an_extension() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("test.fdx");
+    fs::write(
+        &p,
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\" ?>\n<FinalDraft DocumentType=\"Script\" Template=\"No\" Version=\"5\">\n  <Content>\n    <Paragraph Type=\"Scene Heading\">\n      <Text>INT. HOUSE - DAY</Text>\n    </Paragraph>\n    <Paragraph Type=\"Character\">\n      <Text>MAYA</Text>\n    </Paragraph>\n    <Paragraph Type=\"Dialogue\">\n      <Text>One.</Text>\n    </Paragraph>\n    <Paragraph Type=\"Action\">\n      <Text>She turns.</Text>\n    </Paragraph>\n    <Paragraph Type=\"Character\">\n      <Text>MAYA (CONTINUED)</Text>\n    </Paragraph>\n    <Paragraph Type=\"Dialogue\">\n      <Text>Two three.</Text>\n    </Paragraph>\n    <Paragraph Type=\"Character\">\n      <Text>MAYA (V.O.)</Text>\n    </Paragraph>\n    <Paragraph Type=\"Dialogue\">\n      <Text>Four.</Text>\n    </Paragraph>\n  </Content>\n  <MoresAndContinueds>\n    <DialogueBreaks BottomOfPage=\"Yes\" DialogueBottom=\"(MORE)\" TopOfNext=\"Yes\" DialogueTop=\"(CONTINUED)\" AutomaticCharacterContinueds=\"Yes\"/>\n  </MoresAndContinueds>\n</FinalDraft>\n",
+    )
+    .unwrap();
+    let mut d = Dispatcher::new(Options::default());
+    d.execute(Command::from_parts("doc.open", json!({"path": p})).unwrap())
+        .unwrap();
+    let c = run(&mut d, "report.characters")["characters"].clone();
+    assert_eq!(c[0]["name"], "MAYA", "{c}");
+    assert_eq!(c[0]["extensions"], json!(["V.O."]), "{c}");
+    d.execute(Command::from_parts("doc.close", json!({"discard": true})).unwrap())
+        .unwrap();
+}
