@@ -1398,6 +1398,14 @@ proptest! {
         bytes.truncate(cut % (bytes.len() + 1));
         prop_assert_eq!(coldopen_core::fuzzing::bundle_read(&bytes), Ok(()));
     }
+
+    /// The `bundle_read` fuzz target's crafted bundles, on stable: marks
+    /// naming absurd ids, entries declaring false sizes, newer versions
+    /// with new fields (the reviews of phases 4–5b: GR2, CL5, GP14).
+    #[test]
+    fn fuzz_hostile_bundle_check(data in proptest::collection::vec(any::<u8>(), 0..200)) {
+        prop_assert_eq!(coldopen_core::fuzzing::bundle_hostile(&data), Ok(()));
+    }
 }
 
 // ---- Printing -------------------------------------------------------------

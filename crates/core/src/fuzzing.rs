@@ -123,6 +123,116 @@ pub fn bundle_read(data: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// Builds a bundle from `data` the way a crafted file would be made, and
+/// reads it (the reviews of phases 4–5b: GR2, CL5, GP14). The bytes choose
+/// the change and revision set a mark names, small, at or just past each
+/// limit, or anywhere in `u64`; whether `meta.json` claims a newer version
+/// with a field this one does not know; and the size `script.fountain`
+/// declares against what it holds. Besides what [`bundle_read`] checks, no
+/// table is filled past its limit, nor past a few thousand stand-ins for a
+/// mark past it.
+pub fn bundle_hostile(data: &[u8]) -> Result<(), String> {
+    use crate::changes::MAX_CHANGES;
+    use crate::revisions::MAX_SETS;
+
+    fn id(class: u8, raw: &[u8], max: u64) -> u64 {
+        let mut b = [0u8; 8];
+        b[..raw.len()].copy_from_slice(raw);
+        let n = u64::from_le_bytes(b);
+        match class % 4 {
+            0 => n % 2_000,
+            1 => max + 1 + n % 2,
+            2 => n.max(max + 1),
+            _ => u64::MAX - n % 2,
+        }
+    }
+    let byte = |i: usize| data.get(i).copied().unwrap_or(0);
+    let raw = |i: usize| &data[i.min(data.len())..(i + 8).min(data.len())];
+    let change = id(byte(0), raw(1), MAX_CHANGES as u64);
+    let rev = (byte(9) % 5 != 0).then(|| id(byte(9), raw(10), MAX_SETS));
+    let newer = byte(18) % 4 == 0;
+    let declared = |len: usize| match byte(19) % 4 {
+        0 => len as u64,
+        1 => len as u64 / 2,
+        2 => len as u64 + 1,
+        _ => u64::from(u32::from_le_bytes([byte(20), byte(21), byte(22), byte(23)])),
+    };
+    let script = data.get(24..).unwrap_or_default();
+
+    let mut block = json!({"id": "b_1", "type": "action", "text": "x", "change": {"inserted": format!("c_{change}")}});
+    if let Some(r) = rev {
+        block["rev"] = json!(format!("r_{r}"));
+    }
+    let mut meta = json!({
+        "format": "coldopen-bundle",
+        "v": if newer { 9 } else if rev.is_some() { 2 } else { 1 },
+        "app": "0.1.0",
+        "doc_id": "x",
+    });
+    if newer {
+        meta["new_field"] = json!(true);
+    }
+    let entries: [(&str, Vec<u8>); 3] = [
+        ("meta.json", meta.to_string().into_bytes()),
+        (
+            "document.json",
+            json!({"blocks": [block], "next_id": 2})
+                .to_string()
+                .into_bytes(),
+        ),
+        ("script.fountain", script.to_vec()),
+    ];
+    let mut bytes = Vec::new();
+    let mut zw = rawzip::ZipArchiveWriter::new(&mut bytes);
+    for (name, data) in entries {
+        let script = name == "script.fountain";
+        let method = if script {
+            rawzip::CompressionMethod::DEFLATE
+        } else {
+            rawzip::CompressionMethod::STORE
+        };
+        let (mut entry, _) = zw
+            .new_file(name)
+            .compression_method(method)
+            .start()
+            .map_err(|e| e.to_string())?;
+        let packed = if script {
+            miniz_oxide::deflate::compress_to_vec(&data, 1)
+        } else {
+            data.clone()
+        };
+        std::io::Write::write_all(&mut entry, &packed).map_err(|e| e.to_string())?;
+        let size = if script {
+            declared(data.len())
+        } else {
+            data.len() as u64
+        };
+        entry
+            .finish(rawzip::DataDescriptorOutput::new(
+                rawzip::crc32(&data),
+                size,
+            ))
+            .map_err(|e| e.to_string())?;
+    }
+    zw.finish().map_err(|e| e.to_string())?;
+
+    match crate::bundle::read(&bytes) {
+        Ok(_) if newer => return Err("a newer bundle was read".into()),
+        Ok(read) => {
+            let changes = read.doc.changes.len() as u64;
+            let sets = read.doc.revisions.sets.len() as u64;
+            let past = change > MAX_CHANGES as u64 || rev.is_some_and(|r| r > MAX_SETS);
+            if changes > MAX_CHANGES as u64 || sets > MAX_SETS || (past && changes > 2_000) {
+                return Err(format!(
+                    "a mark naming c_{change} and {rev:?} filled {changes} changes and {sets} sets"
+                ));
+            }
+        }
+        Err(_) => {}
+    }
+    bundle_read(&bytes)
+}
+
 /// The script the `changes` check edits.
 const CHANGES_SCRIPT: &str = "INT. KITCHEN - DAY\n\nMaya makes toast.\n\nMAYA\nBreakfast is ready.\n\nEXT. GARDEN - DAY\n\nTheo waters plants.\n\nINT. SHED - NIGHT\n\nA lamp flickers.\n";
 
