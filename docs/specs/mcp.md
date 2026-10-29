@@ -73,7 +73,7 @@ With a document open:
 | `coldopen://doc/blocks` | `application/json` | The title page and blocks with ids (`doc.get`). |
 | `coldopen://doc/pages` | `text/plain` | The page view (`doc.export`, format `pages`). |
 | `coldopen://doc/scenes` | `application/json` | The scene list (`scene.list`). |
-| `coldopen://scene/{id}` (template) | `text/plain` | One scene, heading to end, as Fountain. |
+| `coldopen://scene/{id}` (template) | `text/plain` | One scene, heading to end, as Fountain. (2026-10-28, review finding AR8) Like `coldopen://doc/fountain`, it is the accepted form, without text or blocks whose deletion is pending. |
 | `coldopen://doc/changes` | `application/json` | (2026-10-18) The pending tracked changes (`changes.list`). |
 | `coldopen://doc/revisions` | `application/json` | (2026-10-22) The revision sets (`revision.list`). |
 | `coldopen://report/scenes`, `coldopen://report/characters`, `coldopen://report/locations` | `application/json` | (2026-10-22) The reports (`docs/specs/reports.md`). |
