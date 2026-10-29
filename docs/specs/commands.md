@@ -247,6 +247,7 @@ For `scene.list`:
 - `words` counts words in its printing blocks.
 - `page` is the body page the scene's heading prints on, counting from 1 after the title page; null if nothing prints.
 - `eighths` is the scene's length in eighths of a page (`docs/specs/layout.md` §10); 9 means one and one-eighth pages.
+- (2026-10-28, review finding AR6) Scenes are those of the current text (`docs/specs/changes.md` §2): a heading or section whose deletion is pending neither starts nor ends one, and `blocks`, `words` and `synopsis` read only blocks that are not pending deletions. Structural commands (`scene.move` and the rest) still treat a pending-deleted heading as a heading, as their journals replay.
 
 ### Edits
 

@@ -402,20 +402,34 @@ impl Document {
     }
 
     /// Scenes in order. A scene runs from its heading to the next heading
-    /// or section.
+    /// or section. Structural commands use these, as journals replay them.
     pub fn scenes(&self) -> Vec<Scene> {
+        self.scenes_of(|_| true)
+    }
+
+    /// The scenes of the current text (docs/specs/changes.md §2): a heading
+    /// or section whose deletion is pending neither starts nor ends one.
+    /// What the writer reads uses these: `scene.list` and the reports
+    /// (2026-10-28, review finding AR6).
+    pub fn current_scenes(&self) -> Vec<Scene> {
+        self.scenes_of(|b| b.marks.deleted.is_none())
+    }
+
+    /// Scenes whose headings and ends are the blocks `counts` accepts.
+    fn scenes_of(&self, counts: impl Fn(&Block) -> bool) -> Vec<Scene> {
         let mut out = Vec::new();
         let n = self.blocks.len();
         for (i, b) in self.blocks.iter().enumerate() {
-            if b.element.kind != ElementKind::SceneHeading {
+            if b.element.kind != ElementKind::SceneHeading || !counts(b) {
                 continue;
             }
             let end = (i + 1..n)
                 .find(|&j| {
+                    let b = &self.blocks[j];
                     matches!(
-                        self.blocks[j].element.kind,
+                        b.element.kind,
                         ElementKind::SceneHeading | ElementKind::Section
-                    )
+                    ) && counts(b)
                 })
                 .unwrap_or(n);
             out.push(Scene { start: i, end });

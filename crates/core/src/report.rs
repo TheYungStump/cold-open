@@ -20,7 +20,7 @@ fn current(doc: &Document, i: usize) -> bool {
 /// draws scenes.
 fn scene_of(doc: &Document) -> Vec<Option<BlockId>> {
     let mut out = vec![None; doc.blocks.len()];
-    for s in doc.scenes() {
+    for s in doc.current_scenes() {
         let id = doc.blocks[s.start].id;
         for slot in &mut out[s.start..s.end] {
             *slot = Some(id);
@@ -51,13 +51,15 @@ fn speeches(doc: &Document) -> Vec<Speech> {
         let mut lines = Vec::new();
         for (k, m) in doc.blocks.iter().enumerate().skip(i + 1) {
             let kind = m.element.kind;
-            if kind.is_transparent() && kind != ElementKind::PageBreak {
+            // A pending deletion is not in the current text, so it does
+            // not end the speech (2026-10-28, review finding AR6).
+            if !current(doc, k) || (kind.is_transparent() && kind != ElementKind::PageBreak) {
                 continue;
             }
             if !kind.is_dialogue_member() {
                 break;
             }
-            if matches!(kind, ElementKind::Dialogue | ElementKind::Lyric) && current(doc, k) {
+            if matches!(kind, ElementKind::Dialogue | ElementKind::Lyric) {
                 lines.push(k);
             }
         }
@@ -216,7 +218,7 @@ pub fn locations(doc: &Document) -> Value {
         settings: BTreeMap<Setting, Times>,
     }
     let mut locs: BTreeMap<String, Loc> = BTreeMap::new();
-    for s in doc.scenes() {
+    for s in doc.current_scenes() {
         let b = &doc.blocks[s.start];
         if b.element.kind != ElementKind::SceneHeading || !current(doc, s.start) {
             continue;

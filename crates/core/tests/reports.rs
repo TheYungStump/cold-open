@@ -143,3 +143,67 @@ fn the_synthetic_scripts_reports_match_the_golden() {
         .collect();
     assert!(names.windows(2).all(|w| w[0] <= w[1]), "{names:?}");
 }
+
+/// AR6 (the reviews of phases 4–5b, 2026-10-28): a heading or section whose
+/// deletion is pending is not in the current text, so it neither makes a
+/// scene nor ends one in `scene.list` and the reports, and a pending
+/// deleted block inside a speech does not end it (Antigravity's
+/// reproduction, and a deleted action inside ALICE's speech).
+#[test]
+fn ar6_pending_deletions_make_and_end_no_scenes_or_speeches() {
+    let mut d = Dispatcher::new(Options {
+        journal: false,
+        fsync: false,
+    });
+    let mut exec = |command: &str, params: Value| {
+        d.execute(Command::from_parts(command, params).unwrap())
+            .unwrap_or_else(|e| panic!("{command}: {e}"))
+    };
+    exec("doc.new", json!({}));
+    for (after, kind, text) in [
+        (None, "scene_heading", "INT. KITCHEN - DAY"),
+        (Some("b_1"), "character", "ALICE"),
+        (Some("b_2"), "dialogue", "Hello there."),
+        (Some("b_3"), "section", "Beat two"),
+        (Some("b_4"), "character", "BOB"),
+        (Some("b_5"), "dialogue", "General Kenobi."),
+        (Some("b_6"), "scene_heading", "EXT. ROOF - NIGHT"),
+        (Some("b_7"), "character", "ALICE"),
+        (Some("b_8"), "dialogue", "One."),
+        (Some("b_9"), "action", "She turns."),
+        (Some("b_10"), "dialogue", "Two three."),
+    ] {
+        exec(
+            "block.insert",
+            json!({"after": after, "type": kind, "text": text}),
+        );
+    }
+    exec("changes.track", json!({"writer": true}));
+    for id in ["b_4", "b_7", "b_10"] {
+        exec("block.delete", json!({"id": id}));
+    }
+    let list = exec("scene.list", json!({}))["scenes"].clone();
+    let rows = list.as_array().unwrap();
+    assert_eq!(rows.len(), 1, "{list}");
+    assert_eq!(rows[0]["id"], "b_1");
+    // Every current block from the heading to the end: the section, the
+    // second heading and the action are pending deletions.
+    assert_eq!(rows[0]["blocks"], 8, "{list}");
+    let scenes = exec("report.scenes", json!({}))["scenes"].clone();
+    assert_eq!(scenes.as_array().unwrap().len(), 1, "{scenes}");
+    assert_eq!(scenes[0]["characters"], json!(["ALICE", "BOB"]));
+    let characters = exec("report.characters", json!({}))["characters"].clone();
+    let row = |name: &str| {
+        characters
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["name"] == name)
+            .unwrap_or_else(|| panic!("{name}: {characters}"))
+            .clone()
+    };
+    assert_eq!(row("BOB")["scenes"], json!(["b_1"]));
+    // Hello there. One. Two three.
+    assert_eq!(row("ALICE")["words"], 5, "{characters}");
+    assert_eq!(row("ALICE")["speeches"], 2, "{characters}");
+}

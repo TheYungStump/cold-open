@@ -50,6 +50,8 @@ The editor's completion (`docs/specs/editor.md` §6) offers locations and times 
 
 Each report is a query, with no params, laid out as `scene.list` lays the document out (its print form with pending changes marked, `docs/specs/changes.md` §9), so its pages are the pages on screen.
 
+(2026-10-28, review finding AR6) The reports read the current text, as §2 and §3 do: their scenes are `scene.list`'s, so a heading or section whose deletion is pending neither starts nor ends one, and a pending-deleted block inside a speech neither ends it nor counts.
+
 ### 4.1 `report.scenes`
 
 One row per scene heading, in script order:

@@ -536,16 +536,21 @@ impl Session {
         let elements = |start: usize, end: usize| {
             map.partition_point(|&b| b < start)..map.partition_point(|&b| b < end)
         };
+        // The current text's scenes and blocks: a pending deletion is not
+        // in the script being read (2026-10-28, review finding AR6).
         self.doc
-            .scenes()
+            .current_scenes()
             .iter()
             .enumerate()
             .map(|(k, s)| {
                 let range = elements(s.start, s.end);
                 let page = range.clone().find_map(|e| layout.first_page(e));
                 let eighths = layout.eighths(range);
-                let blocks = &self.doc.blocks[s.start..s.end];
-                let head = &blocks[0];
+                let head = &self.doc.blocks[s.start];
+                let blocks: Vec<&Block> = self.doc.blocks[s.start..s.end]
+                    .iter()
+                    .filter(|b| b.marks.deleted.is_none())
+                    .collect();
                 let synopsis = blocks
                     .iter()
                     .find(|b| b.element.kind == ElementKind::Synopsis)
