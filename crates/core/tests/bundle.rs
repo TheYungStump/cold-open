@@ -498,3 +498,61 @@ fn gr7_a_kept_paragraph_with_no_blocks_is_refused() {
         );
     }
 }
+
+/// A bundle whose only usable part is a `script.fountain` of `lines`
+/// lines, deflated: a few kilobytes that inflate a thousand times over.
+fn bomb(lines: usize, declared: Option<u64>) -> Vec<u8> {
+    let script = "A.\n\n".repeat(lines / 2).into_bytes();
+    let mut out = Vec::new();
+    let mut zw = rawzip::ZipArchiveWriter::new(&mut out);
+    for (name, data) in [
+        ("document.json", b"{".to_vec()),
+        ("script.fountain", script),
+    ] {
+        let (mut entry, _) = zw
+            .new_file(name)
+            .compression_method(rawzip::CompressionMethod::DEFLATE)
+            .start()
+            .unwrap();
+        let packed = miniz_oxide::deflate::compress_to_vec(&data, 9);
+        std::io::Write::write_all(&mut entry, &packed).unwrap();
+        entry
+            .finish(rawzip::DataDescriptorOutput::new(
+                rawzip::crc32(&data),
+                declared.unwrap_or(data.len() as u64),
+            ))
+            .unwrap();
+    }
+    zw.finish().unwrap();
+    out
+}
+
+/// CL5 (the reviews of phases 4–5b, 2026-10-28): a crafted project can't
+/// freeze an open. An entry inflates only to the size it declares, entries
+/// may inflate to 16 MiB each, and a readable copy of more than 250,000
+/// lines is not read. Before, a 33 KB file took 15 s and made 8.4 million
+/// blocks.
+#[test]
+fn cl5_a_crafted_project_opens_or_is_refused_quickly() {
+    for (lines, declared) in [
+        // 32 MiB of script: past the entry limit.
+        (16_777_216, None),
+        // Within it, but far too many lines for a script.
+        (2_000_000, None),
+        // An entry that inflates past what it declares.
+        (2_000_000, Some(64)),
+    ] {
+        let bytes = bomb(lines, declared);
+        let start = std::time::Instant::now();
+        let r = coldopen_core::bundle::read(&bytes);
+        let took = start.elapsed();
+        assert!(r.is_err(), "{lines} lines");
+        assert!(
+            took < std::time::Duration::from_secs(3),
+            "{lines} lines: {took:?}"
+        );
+    }
+    // A real script's length still opens from its copy.
+    let r = coldopen_core::bundle::read(&bomb(20_000, None)).unwrap();
+    assert_eq!(r.doc.blocks.len(), 10_000);
+}

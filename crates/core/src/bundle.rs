@@ -25,10 +25,16 @@ pub const SCRIPT: &str = "script.fountain";
 pub const V: u32 = 3;
 const KIND: &str = "coldopen-bundle";
 
-/// The most an entry may inflate to, and the most entries an archive may
-/// hold (docs/specs/bundle.md §2).
-const MAX_ENTRY: usize = 256 << 20;
+/// The most an entry may inflate to, all entries together may, and the
+/// most entries an archive may hold (docs/specs/bundle.md §2). A 120-page
+/// script's project is about 200 KB of Fountain and a few MB of JSON; 16
+/// MiB is generous (2026-10-28, review finding CL5; 256 MiB before).
+const MAX_ENTRY: usize = 16 << 20;
+const MAX_TOTAL: usize = 64 << 20;
 const MAX_ENTRIES: u64 = 64;
+/// The most lines the readable copy may have to be read in place of
+/// `document.json`: ten times a long feature's (2026-10-28).
+const MAX_SCRIPT_LINES: usize = 250_000;
 /// Deflate level for Cold Open's own writer: level 2 deflates about four
 /// times as fast as 6 for a file 14% larger (docs/specs/bundle.md §2).
 const LEVEL: u8 = 2;
@@ -220,6 +226,7 @@ fn entries(bytes: &[u8]) -> Result<Entries, String> {
     }
     let mut list = archive.entries();
     let mut seen = 0u64;
+    let mut total = 0usize;
     loop {
         let e = match list.next_entry() {
             Ok(Some(e)) => e,
@@ -248,14 +255,16 @@ fn entries(bytes: &[u8]) -> Result<Entries, String> {
             .map_err(|e| e.to_string())
             .and_then(|entry| {
                 let raw = entry.data();
-                if size > MAX_ENTRY as u64 {
+                if size > MAX_ENTRY as u64 || total.saturating_add(size as usize) > MAX_TOTAL {
                     return Err("it is too large".to_string());
                 }
                 match method {
                     rawzip::CompressionMethod::STORE => Ok(raw.to_vec()),
+                    // No further than the size it declares, which the
+                    // check below then holds it to.
                     rawzip::CompressionMethod::DEFLATE => {
-                        miniz_oxide::inflate::decompress_to_vec_with_limit(raw, MAX_ENTRY)
-                            .map_err(|_| "its data does not inflate".to_string())
+                        miniz_oxide::inflate::decompress_to_vec_with_limit(raw, size as usize + 1)
+                            .map_err(|_| "its data does not inflate to its size".to_string())
                     }
                     other => Err(format!(
                         "its compression method {} is not read",
@@ -270,6 +279,9 @@ fn entries(bytes: &[u8]) -> Result<Entries, String> {
                     Ok(data)
                 }
             });
+        if let Ok(d) = &data {
+            total += d.len();
+        }
         match data {
             Ok(d) if known => out.found.push((name, d)),
             Ok(d) if keepable(&name) => out.extra.push((name, d)),
@@ -451,6 +463,14 @@ pub fn read(bytes: &[u8]) -> Result<ReadOut, CommandError> {
                     "document.json cannot be used ({why}) and there is no script.fountain"
                 ))
             })?;
+            // A copy longer than any script is not read: parsing it would
+            // freeze the open (2026-10-28, review finding CL5).
+            let lines = script.iter().filter(|&&b| b == b'\n').count();
+            if lines > MAX_SCRIPT_LINES {
+                return Err(unreadable(format!(
+                    "document.json cannot be used ({why}), and script.fountain is {lines} lines long, more than any script"
+                )));
+            }
             let read = Fountain.read(script)?;
             issues.push(issue(
                 "bundle_document",
