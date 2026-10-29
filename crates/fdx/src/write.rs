@@ -556,7 +556,15 @@ impl<'a> Gen<'a> {
         let mut extra_children: Vec<(usize, String)> = Vec::new();
         if let Some(c) = carry {
             for (k, v) in &c.para.attrs {
-                if !matches!(k.as_str(), "SpaceBefore" | "StartsNewPage" | "Type") {
+                let keep = match k.as_str() {
+                    "SpaceBefore" | "Type" => false,
+                    // As for any paragraph (§14.4): carried while the page
+                    // break before the block is as it was read (review
+                    // finding CL8).
+                    "StartsNewPage" => c.read_broke == starts_page && !starts_page,
+                    _ => true,
+                };
+                if keep {
                     attrs.push((k.clone(), v.clone()));
                 }
             }

@@ -568,3 +568,136 @@ fn gp2b_undualling_keeps_each_speeches_parts_and_reports_the_rest() {
     assert!(losses.contains("kept_parts"), "{losses}");
     d.discard();
 }
+
+/// CL8: an edit inside a dual-dialogue block keeps the outer paragraph's
+/// `StartsNewPage="No"`, as §14.4 carries it for any paragraph whose page
+/// break did not change.
+#[test]
+fn cl8_editing_a_dual_speech_keeps_the_outer_starts_new_page() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = copy(dir.path(), "dual-dialogue.fdx");
+    let before = fs::read_to_string(&p).unwrap();
+    let outer = paragraph_with(&before, "<DualDialogue>").to_string();
+    assert!(outer.contains("StartsNewPage=\"No\""), "{outer}");
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, "doc.open", json!({"path": p}));
+    let id = first(&mut d, "dialogue");
+    ok(
+        &mut d,
+        "text.insert",
+        json!({"id": id, "at": 0, "text": "Zz "}),
+    );
+    ok(&mut d, "doc.save", json!({}));
+    let after = fs::read_to_string(&p).unwrap();
+    let outer = paragraph_with(&after, "<DualDialogue>");
+    assert!(outer.contains("StartsNewPage=\"No\""), "{outer}");
+    d.discard();
+}
+
+fn corpus_fdx(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut entries: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
+    entries.sort();
+    for p in entries {
+        if p.is_dir() {
+            corpus_fdx(&p, out);
+        } else if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("fdx")) {
+            out.push(p);
+        }
+    }
+}
+
+/// CL8, on the corpus (Claude's reproduction): in every public .fdx file
+/// with dual dialogue that reads without repair, three characters typed
+/// into a dual speech change nothing outside that dual-dialogue group
+/// (fdx.md §16.1, G3), and the group's outer `StartsNewPage` keeps its
+/// value. Copies only; skips cleanly without `corpus/`.
+#[test]
+fn an_edit_inside_dual_dialogue_stays_local_in_the_corpus() {
+    let mut files = Vec::new();
+    corpus_fdx(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus"),
+        &mut files,
+    );
+    let mut tried = 0;
+    for src in files {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("s.fdx");
+        fs::copy(&src, &p).unwrap();
+        let before = fs::read(&p).unwrap();
+        let mut d = Dispatcher::new(Options {
+            journal: false,
+            ..Options::default()
+        });
+        let r = ok(&mut d, "doc.open", json!({"path": p}));
+        if !r["repaired"].is_null() {
+            continue;
+        }
+        let bs = blocks(&mut d);
+        let Some(k) = bs.iter().position(|b| b["dual"] == true) else {
+            continue;
+        };
+        let Some(line) = bs[k..].iter().find(|b| b["type"] == "dialogue") else {
+            continue;
+        };
+        ok(
+            &mut d,
+            "text.insert",
+            json!({"id": line["id"], "at": 0, "text": "Zz "}),
+        );
+        ok(&mut d, "doc.save", json!({}));
+        let after = fs::read(&p).unwrap();
+        let pre = before
+            .iter()
+            .zip(&after)
+            .take_while(|(a, b)| a == b)
+            .count();
+        let suf = before[pre..]
+            .iter()
+            .rev()
+            .zip(after[pre..].iter().rev())
+            .take_while(|(a, b)| a == b)
+            .count();
+        // The group: the outer paragraph around the dual block edited.
+        let text = String::from_utf8_lossy(&before);
+        // The first change is inside the group: in the dual block, or in
+        // the whitespace just before it, which is generated too.
+        let dd = text[..pre]
+            .rfind("<DualDialogue>")
+            .filter(|&k| !text[k..pre].contains("</DualDialogue>"))
+            .or_else(|| text[pre..].find("<DualDialogue>").map(|k| pre + k))
+            .expect("the edit is in a dual block");
+        let start = text[..dd].rfind("<Paragraph").unwrap();
+        let tag_end = start + text[start..].find('>').unwrap() + 1;
+        let close = dd + text[dd..].find("</DualDialogue>").unwrap();
+        let end = close + text[close..].find("</Paragraph>").unwrap() + "</Paragraph>".len();
+        let name = src.display();
+        // The outer start tag is generated when the group is (§14.7), but
+        // what it carried of the file's keeps its value (§14.4).
+        let attr = |tag: &str| {
+            tag.find("StartsNewPage=\"")
+                .map(|k| tag[k..].split('"').nth(1).unwrap_or("").to_string())
+        };
+        let new_text = String::from_utf8_lossy(&after);
+        let new_tag = &new_text[start..start + new_text[start..].find('>').unwrap() + 1];
+        assert_eq!(
+            attr(new_tag),
+            attr(&text[start..tag_end]),
+            "{name}: {new_tag}"
+        );
+        assert!(
+            before.len() - suf <= end,
+            "{name}: bytes after the group changed"
+        );
+        assert!(
+            String::from_utf8_lossy(&after[pre..after.len() - suf]).contains("Zz "),
+            "{name}"
+        );
+        tried += 1;
+    }
+    if tried == 0 {
+        eprintln!("an_edit_inside_dual_dialogue_stays_local_in_the_corpus: no corpus, skipped");
+    }
+}

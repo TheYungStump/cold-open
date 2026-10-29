@@ -573,7 +573,7 @@ A document without a store is written as:
 - **Breaks that print the same** are normalized rather than reported (§16.2):
   - several breaks in a row are one;
   - a break before the first printing paragraph, or after the last, changes nothing, as layout ignores it (`docs/specs/layout.md` §4.5).
-- **A dual-dialogue block** (a character with `dual` and the group before it, as layout pairs them, `docs/specs/layout.md` §4.4) is written as one outer `General` paragraph with `SpaceBefore` set to the character kind's space before. Its only child is a `DualDialogue` element holding the two groups' paragraphs, each with only its `Type` and runs.
+- **A dual-dialogue block** (a character with `dual` and the group before it, as layout pairs them, `docs/specs/layout.md` §4.4) is written as one outer `General` paragraph with `SpaceBefore` set to the character kind's space before. Its only child is a `DualDialogue` element holding the two groups' paragraphs, each with only its `Type` and runs. (2026-10-28, review finding CL8) An edited kept dual block carries the outer paragraph's `StartsNewPage` as §14.4 carries it for any paragraph, so a file's `StartsNewPage="No"` stays while the break before the block is as it was read.
 - A `dual` character that layout would not pair is written as an ordinary group, and the flag is a loss (`dual_unpaired`).
 - **Resolution (2026-10-17):** groups are found in the document as it is written, without the notes, boneyard, sections and synopses that §15 leaves out. A section between the second speaker's dialogue and a parenthetical no longer ends the dual-dialogue block, since reading the file back would join them and writing it again would give other text. Found by the `fdx_write` fuzz target.
 
