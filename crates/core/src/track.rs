@@ -515,9 +515,12 @@ fn settle_holding(
         }
         Settle::Reject => {
             // 2. Structure is put back change by change, newest first, as
-            // undo would: each change's moves, then its inserted blocks,
-            // then its splits, then its retypes. A later change that
-            // reshaped a scene is undone before an earlier move of it.
+            // undo would: each change's splits, then its moves, then its
+            // inserted blocks, then its retypes. A later change that
+            // reshaped a scene is undone before an earlier move of it. A
+            // split goes first because a move's record does not cover a
+            // block split off after it, which would otherwise be left
+            // behind and joined to the wrong block (2026-10-29).
             let mut structural: Vec<ChangeId> = work
                 .blocks
                 .iter()
@@ -536,13 +539,13 @@ fn settle_holding(
             structural.dedup();
             for c in structural {
                 let here = |id: BlockId| settles(c, id);
+                join_where(&mut work, &mut ops, &mut tags, &mut more, &|b| {
+                    b.marks.split.filter(|&x| x == c && here(b.id))
+                });
                 if !undo_moves(&mut work, &mut ops, c, &here) {
                     skipped.insert(c);
                 }
                 remove_inserted(&mut work, &mut ops, &mut more, c, &here);
-                join_where(&mut work, &mut ops, &mut tags, &mut more, &|b| {
-                    b.marks.split.filter(|&x| x == c && here(b.id))
-                });
                 restore_retypes(&mut work, &mut ops, &mut more, c, &here);
                 fill(&mut tags, &ops, c);
             }

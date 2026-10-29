@@ -1493,3 +1493,40 @@ fn pages_show_changes_marked_and_a_pdf_can_print_them_either_way() {
     assert_eq!(fs::read(&again).unwrap(), fs::read(&clean).unwrap());
     d.discard();
 }
+
+/// Found in passing while planning the fixes of the reviews of phases 4–5b
+/// (2026-10-28): a change that moves a scene and then splits the scene's
+/// last block is rejected back to the script it started from, whether the
+/// split moves text or not, and so is one that splits first. Before, the
+/// move was undone first and left the split-off block at the end, where
+/// the split's reject joined it to the last scene's last block.
+#[test]
+fn rejecting_a_move_then_a_split_of_the_moved_scene() {
+    let dir = tempfile::tempdir().unwrap();
+    let mv = json!({"command": "scene.move", "params": {"id": "b_1"}});
+    for (at, split_first) in [(9, false), (19, false), (9, true), (19, true)] {
+        let (mut d, _) = open(dir.path());
+        let before = blocks(&mut d);
+        let split = json!({"command": "block.split", "params": {"id": "b_4", "at": at}});
+        let commands = if split_first {
+            [split, mv.clone()]
+        } else {
+            [mv.clone(), split]
+        };
+        let r = ok(&mut d, &agent(), "batch", json!({ "commands": commands }));
+        assert_eq!(texts(&mut d)[0], "EXT. GARDEN - DAY");
+        ok(
+            &mut d,
+            &writer(),
+            "changes.reject",
+            json!({"id": r["change"]}),
+        );
+        assert_eq!(
+            blocks(&mut d),
+            before,
+            "split at {at}, first {split_first}: {:?}",
+            texts(&mut d)
+        );
+        d.discard();
+    }
+}
