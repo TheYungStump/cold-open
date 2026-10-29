@@ -1178,12 +1178,12 @@ impl Session {
         let ctx = tracked.then_some(ctx);
         match cmd {
             Command::BlockInsert(p) => self.plan_insert(p, ctx),
-            Command::BlockSetType(p) => self.plan_set_type(p, ctx),
+            Command::BlockSetType(p) => self.plan_set_type(p, ctx, ex),
             Command::BlockSetText(p) => self.plan_set_text(p, ctx),
             Command::BlockSetAttrs(p) => self.plan_set_attrs(p),
             Command::BlockDelete(p) => self.plan_delete(p, ctx, &ex.by),
             Command::TextReplace(p) => self.plan_replace(p, ctx),
-            Command::SceneMove(p) => self.plan_move(p, ctx, ex.rules()),
+            Command::SceneMove(p) => self.plan_move(p, ctx, ex),
             Command::TextInsert(p) => self.plan_text_insert(p, ctx),
             Command::TextDelete(p) => self.plan_text_delete(p, ctx),
             Command::TextStyle(p) => self.plan_text_style(p),
@@ -1291,9 +1291,15 @@ impl Session {
         &mut self,
         p: &BlockSetType,
         ctx: Option<&mut TrackCtx>,
+        ex: &Exec,
     ) -> Result<(Transaction, Value), CommandError> {
         let index = self.index(p.id)?;
         self.refuse_pending(index)?;
+        if ctx.is_none() {
+            self.refuse_others_structure(ex, index, |m| {
+                m.retyped.iter().map(|r| r.change).collect()
+            })?;
+        }
         let old = self.doc.blocks[index].element.clone();
         let mut e = old.clone();
         e.kind = p.kind;
@@ -1534,12 +1540,18 @@ impl Session {
         &mut self,
         p: &SceneMove,
         ctx: Option<&mut TrackCtx>,
-        rules: u32,
+        ex: &Exec,
     ) -> Result<(Transaction, Value), CommandError> {
+        let rules = ex.rules();
         let scene = self
             .doc
             .scene(p.id)
             .ok_or(CommandError::scene_not_found(p.id))?;
+        if ctx.is_none() {
+            self.refuse_others_structure(ex, scene.start, |m| {
+                m.moved.iter().map(|r| r.change).collect()
+            })?;
+        }
         let target = match p.before {
             None => self.doc.blocks.len(),
             Some(b) => {
@@ -1611,6 +1623,32 @@ impl Session {
             to,
         });
         Ok((Transaction(ops), json!({})))
+    }
+
+    /// An agent's untracked retype or move of a block another author
+    /// retyped or moved would change that author's proposal and leave its
+    /// mark as it was, where the check on other authors' marks cannot see
+    /// it: it is refused (docs/specs/changes.md §5.4, semantics 4, review
+    /// finding GR9).
+    fn refuse_others_structure(
+        &self,
+        ex: &Exec,
+        index: usize,
+        changes: impl Fn(&BlockMarks) -> Vec<ChangeId>,
+    ) -> Result<(), CommandError> {
+        if ex.by.is_writer() || ex.rules() < 4 {
+            return Ok(());
+        }
+        let mine = ChangeBy::of(&ex.by);
+        let others = changes(&self.doc.blocks[index].marks)
+            .into_iter()
+            .any(|c| self.doc.changes.get(c).is_none_or(|e| e.by != mine));
+        if others {
+            return Err(track::not_your_change(
+                "another author retyped or moved this block, and that is pending",
+            ));
+        }
+        Ok(())
     }
 
     /// The number a new move of change `c`, of the scene headed by

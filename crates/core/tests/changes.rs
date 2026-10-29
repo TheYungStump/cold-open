@@ -1063,6 +1063,56 @@ fn meta_v(bytes: &[u8]) -> u64 {
     0
 }
 
+/// GR9: an agent's untracked retype or move of a block another author
+/// retyped or moved changes that author's proposal without touching its
+/// mark, so the check on other authors' marks did not see it. It is
+/// refused with `not_your_change`, tracked or not (§5.4).
+#[test]
+fn an_agents_untracked_retype_or_move_over_another_authors_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = open_text(
+        dir.path(),
+        "INT. ROOM - DAY\n\nGo.\n\nINT. HALL - DAY\n\nStop.\n",
+    );
+    track_writer(&mut d);
+    ok(
+        &mut d,
+        &writer(),
+        "block.set_type",
+        json!({"id": "b_2", "type": "character"}),
+    );
+    ok(
+        &mut d,
+        &writer(),
+        "scene.move",
+        json!({"id": "b_3", "before": "b_1"}),
+    );
+    ok(&mut d, &writer(), "changes.track", json!({"agents": false}));
+    let before = blocks(&mut d);
+    let e = err(
+        &mut d,
+        &agent(),
+        "block.set_type",
+        json!({"id": "b_2", "type": "action", "tracked": false}),
+    );
+    assert_eq!(e.code, "not_your_change", "{e}");
+    let e = err(
+        &mut d,
+        &agent(),
+        "scene.move",
+        json!({"id": "b_3", "tracked": false}),
+    );
+    assert_eq!(e.code, "not_your_change", "{e}");
+    assert_eq!(blocks(&mut d), before);
+    // A block nobody else marked is the agent's to change.
+    ok(
+        &mut d,
+        &agent(),
+        "block.set_type",
+        json!({"id": "b_4", "type": "character", "tracked": false}),
+    );
+}
+
 // ---- Properties ----------------------------------------------------------
 
 /// One edit, by one of three authors, described by positions.

@@ -158,7 +158,7 @@ One undo step creates at most one change, and an agent's tool call is one undo s
 | Error | When |
 | --- | --- |
 | `change_pending` | Any edit of a block marked `deleted`, except settling it, or an untracked `block.delete` by the writer (which removes it outright). `details` give `id` and `change`. |
-| `not_your_change` | An agent's edit, tracked or not, that would remove or change another author's mark, such as an untracked delete over the writer's pending insertion, or a retype of a block the writer has retyped. Tracked edits never remove another author's marks; they add their own beside them, so they are refused only where a block holds one mark of a kind (`retyped`, `moved`). |
+| `not_your_change` | An agent's edit, tracked or not, that would remove or change another author's mark, such as an untracked delete over the writer's pending insertion, or a retype of a block the writer has retyped. Tracked edits never remove another author's marks; they add their own beside them, so they are refused only where a block holds one mark of a kind (`retyped`, `moved`). (2026-10-28, semantics 4, review finding GR9) An agent's untracked retype of a block, or move of a scene, that another author retyped or moved is refused too: it changes that author's proposal while leaving its mark as it was. |
 
 Writers are never refused for whose marks an edit touches: the writer may edit anything.
 
