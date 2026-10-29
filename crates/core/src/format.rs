@@ -200,6 +200,22 @@ fn plain_form(doc: &Document) -> Option<(Document, Vec<Loss>)> {
     Some((plain, losses))
 }
 
+/// A Fountain or .fdx file has no place for the entries another tool added
+/// to a bundle (docs/specs/bundle.md §2).
+fn extra_entries_loss(doc: &Document) -> Option<Loss> {
+    let n = doc.extra_entries.len();
+    (n > 0).then(|| {
+        Loss::lost(
+            None,
+            "bundle_entries",
+            format!(
+                "{n} entr{} another program added to the project cannot be kept",
+                if n == 1 { "y" } else { "ies" }
+            ),
+        )
+    })
+}
+
 /// A document written out.
 pub struct Written {
     pub bytes: Vec<u8>,
@@ -278,6 +294,7 @@ impl Format for Fountain {
             .map(|l| Loss::lost(l.element, l.code, l.message))
             .collect();
         all.append(&mut losses);
+        all.extend(extra_entries_loss(doc));
         all.extend(accepted.into_iter().flat_map(|(_, l)| l));
         all.extend(written.normalized.into_iter().map(|l| Loss {
             element: l.element,
@@ -383,8 +400,10 @@ fn fountain_script(doc: &Document) -> (Script, Vec<Loss>) {
 /// "Converting"). None of these parts is changed by an undoable command.
 pub fn adopt(doc: &mut Document, format: FormatId) {
     // The identity belongs to a bundle; another file is another document.
+    // So do the entries another tool added to it.
     if format != FormatId::Bundle {
         doc.doc_id = None;
+        doc.extra_entries.clear();
     }
     match format {
         // A bundle holds everything.
@@ -557,6 +576,7 @@ impl Format for Fdx {
         let doc = accepted.as_ref().map_or(doc, |(d, _)| d);
         let format = doc.page_format.as_deref().cloned().unwrap_or_default();
         let mut losses: Vec<Loss> = accepted.iter().flat_map(|(_, l)| l.clone()).collect();
+        losses.extend(extra_entries_loss(doc));
         // A Fountain title page is written as the lines it prints as
         // (docs/specs/fdx.md §14.3).
         let converted;

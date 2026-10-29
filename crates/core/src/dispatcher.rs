@@ -942,6 +942,11 @@ impl Dispatcher {
             ..
         } = r;
 
+        // The bundle on disk holds what another tool added to it, which the
+        // journal does not; the same document takes it back (bundle.md §2).
+        if read.header.format == FormatId::Bundle && !missing && !elsewhere {
+            replay.doc.extra_entries = crate::bundle::extra_entries(disk_bytes);
+        }
         // The file already holds the replayed document only if writing it
         // is lossless and gives the same bytes. A lossy write can match the
         // file's text while the document differs, so it always recovers.

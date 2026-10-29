@@ -281,3 +281,114 @@ fn doc_new_at_a_bundle_path_starts_a_project() {
     assert_eq!(e.code, "unsupported_format");
     d.shutdown();
 }
+
+// ---- The reviews of phases 4–5b (2026-10-28) ------------------------------
+
+/// A bundle with the usual entries and one another tool added.
+fn with_extra_entry(dir: &Path) -> PathBuf {
+    let p = dir.join("extra.coldopen");
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &Author::writer(), "doc.new", json!({"path": p}));
+    ok(
+        &mut d,
+        &Author::writer(),
+        "block.insert",
+        json!({"type": "action", "text": "Rain."}),
+    );
+    ok(&mut d, &Author::writer(), "doc.save", json!({}));
+    d.shutdown();
+    let bytes = fs::read(&p).unwrap();
+    let archive = rawzip::ZipArchive::from_slice(&bytes).unwrap();
+    let mut parts: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut list = archive.entries();
+    while let Some(e) = list.next_entry().unwrap() {
+        let name = String::from_utf8_lossy(e.file_path().as_ref()).into_owned();
+        let raw = archive.get_entry(e.wayfinder()).unwrap().data().to_vec();
+        let data = miniz_oxide::inflate::decompress_to_vec(&raw).unwrap();
+        parts.push((name, data));
+    }
+    parts.push((
+        "notes.json".into(),
+        br#"{"notes":["Keep the opening scene."]}"#.to_vec(),
+    ));
+    let mut out = Vec::new();
+    let mut zw = rawzip::ZipArchiveWriter::new(&mut out);
+    for (name, data) in &parts {
+        let (mut entry, _) = zw
+            .new_file(name)
+            .compression_method(rawzip::CompressionMethod::STORE)
+            .start()
+            .unwrap();
+        std::io::Write::write_all(&mut entry, data).unwrap();
+        entry
+            .finish(rawzip::DataDescriptorOutput::new(
+                rawzip::crc32(data),
+                data.len() as u64,
+            ))
+            .unwrap();
+    }
+    zw.finish().unwrap();
+    fs::write(&p, out).unwrap();
+    p
+}
+
+fn entry_names(bytes: &[u8]) -> Vec<String> {
+    let archive = rawzip::ZipArchive::from_slice(bytes).unwrap();
+    let mut names = Vec::new();
+    let mut list = archive.entries();
+    while let Some(e) = list.next_entry().unwrap() {
+        names.push(String::from_utf8_lossy(e.file_path().as_ref()).into_owned());
+    }
+    names
+}
+
+/// GP3: an entry another tool added to a project is kept: saving writes it
+/// back, unchanged, after Cold Open's own; so does a crash and recovery.
+/// Converting to Fountain asks first, with a `bundle_entries` loss.
+#[test]
+fn gp3_another_tools_entries_are_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = with_extra_entry(dir.path());
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &Author::writer(), "doc.open", json!({"path": p}));
+    ok(
+        &mut d,
+        &Author::writer(),
+        "block.insert",
+        json!({"type": "action", "text": "Wind."}),
+    );
+    ok(&mut d, &Author::writer(), "doc.save", json!({}));
+    let names = entry_names(&fs::read(&p).unwrap());
+    assert_eq!(
+        names.last().map(String::as_str),
+        Some("notes.json"),
+        "{names:?}"
+    );
+
+    // A crash: the recovered document still writes it back.
+    ok(
+        &mut d,
+        &Author::writer(),
+        "block.insert",
+        json!({"type": "action", "text": "Hail."}),
+    );
+    drop(d);
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, &Author::writer(), "doc.open", json!({"path": p}));
+    assert_eq!(r["recovered"]["commands"], 1, "{r}");
+    ok(&mut d, &Author::writer(), "doc.save", json!({}));
+    assert!(entry_names(&fs::read(&p).unwrap()).contains(&"notes.json".to_string()));
+
+    // Converting leaves it out only when asked.
+    let f = dir.path().join("extra.fountain");
+    let e = d
+        .execute(Command::from_parts("doc.save", json!({"path": f})).unwrap())
+        .unwrap_err();
+    assert_eq!(e.code, "lossy_format", "{e}");
+    assert!(
+        format!("{:?}", e.details).contains("bundle_entries"),
+        "{:?}",
+        e.details
+    );
+    d.discard();
+}

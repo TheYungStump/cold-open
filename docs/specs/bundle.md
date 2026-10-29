@@ -33,7 +33,7 @@ A bundle is a zip archive (APPNOTE.TXT) holding these entries, each at most once
 
 **Rules for writers.**
 
-- Entries are compressed with deflate (method 8) or stored (method 0). No encryption, no directories, no other entries.
+- Entries are compressed with deflate (method 8) or stored (method 0). No encryption, no directories, no other entries of Cold Open's own.
 - Names are the ASCII names above.
 
 **Cold Open's own writer**, which other tools need not copy:
@@ -42,6 +42,7 @@ A bundle is a zip archive (APPNOTE.TXT) holding these entries, each at most once
 - **The readable copy** is written by the Fountain writer's quick path (`coldopen_fountain::write_text`). It gives the same text as a Fountain save but doesn't read the text back to find losses, which a copy that is never read back doesn't need (§6). A test checks the bytes are the same.
 - **Times.** No entry records a time: the date and time fields are zero and there is no timestamp extra field, so the time a file was saved never changes its bytes. Tools that show a time show the format's earliest.
 - **No extra fields** and no archive comment.
+- **Another tool's entries** (2026-10-28), kept as the reader found them (below), are written after its own, unchanged and in the order read, deflated like the rest.
 
 The same document therefore always gives the same bytes. **Resolution:** a newer miniz_oxide could compress differently. That changes only the bytes, never what a reader gets, and would at most make recovery offer a journal whose work the file already holds.
 
@@ -51,7 +52,7 @@ The same document therefore always gives the same bytes. **Resolution:** a newer
 - An entry's CRC-32 and size must match what is read; an entry that fails is treated as damaged (§7).
 - No entry may be larger than 256 MiB once inflated, and an archive may hold at most 64 entries. A larger one is damaged, so a crafted file cannot exhaust memory.
 - A second entry with the same name is ignored, with a report.
-- An entry with another name is ignored, with a report. A save then writes the bundle without it and lists it as a loss (`bundle_entries`), so nothing a newer tool added vanishes without a question.
+- An entry with another name, which another tool added, is kept (2026-10-28, decided with the project's owner after review finding GP3): it is reported, and a save writes it back unchanged. It is not in `document.json` or the journal's header; recovery takes it from the bundle on disk when that bundle is the same document (§8). Converting the project to Fountain or .fdx, which have no place for it, lists it as a loss (`bundle_entries`), so it is never dropped without a question. Before, this paragraph promised that loss on every save, and the writer dropped such entries with none.
 
 ## 3. `meta.json`
 
@@ -131,7 +132,8 @@ Cold Open's reader recovers what it can and reports the rest in `doc.open`'s `re
 | `changes.json` missing or unreadable, or missing entries a mark names | The document with its marks. Each change the table lacks gets the author `{"kind": "writer", "name": "Unknown"}` and time 0, so the writer can still accept or reject it. | `bundle_changes` (fixed) |
 | (2026-10-22) In a version 2 bundle, `revisions.json` missing or unreadable, or missing sets a mark names | The document with its revision marks. Each set the table lacks gets the color "Unknown", the label "Unknown Rev.", the date 1900-01-01 and time 0, and no set is active. The default colors are used. | `bundle_revisions` (fixed) |
 | An entry that fails its CRC or size check | As if that entry were missing. | |
-| A duplicate or unknown entry | It is ignored. | `bundle_entries` (kept) |
+| A duplicate entry | It is ignored. | `bundle_entries` (kept) |
+| (2026-10-28) An entry with another name | It is kept and written back (§2). | `bundle_entries` (kept) |
 
 ## 8. `doc_id`
 

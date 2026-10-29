@@ -181,6 +181,12 @@ pub struct Document {
     /// Kept in `meta.json` and the journal header, not in the JSON.
     #[serde(skip)]
     pub doc_id: Option<String>,
+    /// Entries another tool added to the bundle the document was read
+    /// from, by name, kept to write back (docs/specs/bundle.md §2,
+    /// 2026-10-28). Not in the JSON: recovery takes them from the bundle on
+    /// disk.
+    #[serde(skip)]
+    pub extra_entries: Vec<(String, Vec<u8>)>,
 }
 
 /// A scene derived from the block list.

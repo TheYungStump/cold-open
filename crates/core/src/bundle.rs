@@ -137,6 +137,10 @@ pub fn write(doc: &Document) -> Vec<u8> {
         parts.push((REVISIONS, r));
     }
     parts.push((SCRIPT, &script));
+    // Entries another tool added, kept as they were read (§2, 2026-10-28).
+    for (name, data) in &doc.extra_entries {
+        parts.push((name, data));
+    }
     for (name, data) in parts {
         // Writing to memory cannot fail.
         let _ = put(&mut archive, name, data);
@@ -170,8 +174,11 @@ struct Entries {
     found: Vec<(String, Vec<u8>)>,
     /// Names of entries that failed their checks.
     damaged: Vec<String>,
-    /// Duplicate or unknown entries, ignored.
+    /// Duplicate entries, ignored.
     ignored: Vec<String>,
+    /// Entries with names a bundle does not use, which another tool added:
+    /// kept, in the order read (§2, 2026-10-28).
+    extra: Vec<(String, Vec<u8>)>,
 }
 
 impl Entries {
@@ -191,6 +198,7 @@ fn entries(bytes: &[u8]) -> Result<Entries, String> {
         found: Vec::new(),
         damaged: Vec::new(),
         ignored: Vec::new(),
+        extra: Vec::new(),
     };
     if archive.entries_hint() > MAX_ENTRIES {
         return Err(format!(
@@ -215,9 +223,8 @@ fn entries(bytes: &[u8]) -> Result<Entries, String> {
             break;
         }
         let name = String::from_utf8_lossy(e.file_path().as_ref()).into_owned();
-        if ![META, DOCUMENT, CHANGES, REVISIONS, SCRIPT].contains(&name.as_str())
-            || out.found.iter().any(|(n, _)| *n == name)
-        {
+        let known = [META, DOCUMENT, CHANGES, REVISIONS, SCRIPT].contains(&name.as_str());
+        if out.found.iter().chain(&out.extra).any(|(n, _)| *n == name) {
             out.ignored.push(name);
             continue;
         }
@@ -252,7 +259,8 @@ fn entries(bytes: &[u8]) -> Result<Entries, String> {
                 }
             });
         match data {
-            Ok(d) => out.found.push((name, d)),
+            Ok(d) if known => out.found.push((name, d)),
+            Ok(d) => out.extra.push((name, d)),
             Err(why) => out.damaged.push(format!("{name}: {why}")),
         }
     }
@@ -286,8 +294,15 @@ pub fn read(bytes: &[u8]) -> Result<ReadOut, CommandError> {
         issues.push(issue(
             "bundle_entries",
             "kept",
+            format!("the entry \"{n}\" is a second copy of one, and is ignored"),
+        ));
+    }
+    for (n, _) in &e.extra {
+        issues.push(issue(
+            "bundle_entries",
+            "kept",
             format!(
-                "the entry \"{n}\" is not part of a bundle, or a second copy of one, and is ignored"
+                "the entry \"{n}\" is not part of a bundle; it is kept, and written back as it is"
             ),
         ));
     }
@@ -384,7 +399,7 @@ pub fn read(bytes: &[u8]) -> Result<ReadOut, CommandError> {
         }
         Err(why) => Err(why),
     };
-    let (doc, warnings) = match doc {
+    let (mut doc, warnings) = match doc {
         Ok(doc) => (doc, Vec::new()),
         Err(why) => {
             // The readable copy, as a Fountain file.
@@ -406,6 +421,7 @@ pub fn read(bytes: &[u8]) -> Result<ReadOut, CommandError> {
             (doc, read.warnings)
         }
     };
+    doc.extra_entries = e.extra;
     let repaired_issues: Vec<Value> = issues
         .iter()
         .filter(|i| i["class"] == "fixed" || i["class"] == "dropped")
@@ -476,6 +492,13 @@ impl Format for Bundle {
         // As the blocks stand (docs/specs/bundle.md §4).
         crate::format::Fdx.layout_form(doc)
     }
+}
+
+/// The entries another tool added to a bundle, kept as they were read (§2):
+/// recovery gives them to a document replayed from the journal, which does
+/// not hold them (docs/specs/journal.md, "Recovery on open").
+pub fn extra_entries(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
+    entries(bytes).map(|e| e.extra).unwrap_or_default()
 }
 
 /// The highest change id a document's marks name.
