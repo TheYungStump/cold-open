@@ -2313,7 +2313,10 @@ fn save_target(own: Option<&Path>, p: &DocSave) -> Result<(PathBuf, FormatId), C
             let f = f.to_ascii_lowercase();
             CommandError::new(
                 "unsupported_format",
-                format!("\"{f}\" is not a supported format in this version; use \"fountain\""),
+                // Every format a save can write (2026-10-28, review finding AR12).
+                format!(
+                    "\"{f}\" is not a supported format in this version; use \"fountain\", \"fdx\" or \"coldopen\""
+                ),
             )
         })?,
         None => FormatId::for_path(&target).ok_or_else(|| unsupported(&target))?,

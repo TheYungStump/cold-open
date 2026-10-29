@@ -724,3 +724,25 @@ fn save_anyway_is_one_undo_step() {
     assert_eq!((undone.0, undone.1), (before.0, before.1));
     d.discard();
 }
+
+/// AR12 part 2 (the reviews of phases 4–5b, 2026-10-28): an unknown format
+/// is refused with a message naming the three Cold Open saves, not only
+/// Fountain (Antigravity's reproduction).
+#[test]
+fn an_unknown_format_names_every_format() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, "doc.new", json!({}));
+    let e = run(
+        &mut d,
+        &Author::writer(),
+        "doc.save",
+        json!({"path": dir.path().join("out.fountain"), "format": "bogus"}),
+    )
+    .unwrap_err();
+    assert_eq!(e.code, "unsupported_format", "{e}");
+    for name in ["\"fountain\"", "\"fdx\"", "\"coldopen\""] {
+        assert!(e.message.contains(name), "{e}");
+    }
+    d.discard();
+}
