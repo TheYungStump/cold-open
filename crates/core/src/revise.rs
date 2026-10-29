@@ -14,7 +14,6 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use coldopen_screenplay::{Element, ElementKind, Marks, RichText, Run, Style, words};
 
-use crate::changes::ChangeId;
 use crate::document::{Block, BlockId, Document};
 use crate::ops::{Op, Transaction};
 use crate::revisions::RevisionId;
@@ -571,19 +570,6 @@ fn gap_at(
     let at = if last { cs.len() - 1 } else { 0 };
     revs[at] = Some(rev);
     texts.insert(k, with_revs(&text, &revs));
-}
-
-/// The newest revision set recorded by the changes an edit settled: those
-/// the blocks it touched named before, and no longer name. A change
-/// accepted with no set active is marked with it (docs/specs/revisions.md
-/// §6.3).
-pub fn settled_rev(doc: &Document, before: &BTreeSet<ChangeId>) -> Option<RevisionId> {
-    let still: BTreeSet<ChangeId> = doc.blocks.iter().flat_map(Block::change_ids).collect();
-    before
-        .iter()
-        .filter(|c| !still.contains(c))
-        .filter_map(|&c| doc.changes.get(c).and_then(|e| e.rev))
-        .max()
 }
 
 #[cfg(test)]

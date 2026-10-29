@@ -12,6 +12,7 @@ use coldopen_screenplay::{ElementKind, Settle};
 use crate::changes::ChangeId;
 use crate::document::{Block, BlockId, Document};
 use crate::ops::Op;
+use crate::revisions::RevisionId;
 use crate::track::{Selection, Settled};
 
 /// Whether a tracked split makes the new block an insertion rather than a
@@ -130,6 +131,7 @@ pub fn settle(doc: &Document, how: Settle, sel: &Selection) -> Settled {
         .collect();
     Settled {
         ops,
+        tags: Vec::new(),
         settled,
         skipped,
     }
@@ -333,4 +335,18 @@ fn has_other_marks(doc: &Document, c: ChangeId) -> bool {
             .contains(&Some(c))
             || b.marks.retyped.iter().any(|r| r.change == c)
     })
+}
+
+/// Before semantics 4: the newest revision set recorded by the changes an
+/// edit settled: those
+/// the blocks it touched named before, and no longer name. A change
+/// accepted with no set active is marked with it (docs/specs/revisions.md
+/// §6.3).
+pub fn settled_rev(doc: &Document, before: &BTreeSet<ChangeId>) -> Option<RevisionId> {
+    let still: BTreeSet<ChangeId> = doc.blocks.iter().flat_map(Block::change_ids).collect();
+    before
+        .iter()
+        .filter(|c| !still.contains(c))
+        .filter_map(|&c| doc.changes.get(c).and_then(|e| e.rev))
+        .max()
 }

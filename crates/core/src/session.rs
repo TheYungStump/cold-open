@@ -164,6 +164,9 @@ pub struct Session {
     /// `coldopen mcp --untracked` (docs/specs/mcp.md §6.1). Not document
     /// state; every edit journals the `tracked` it took.
     pub agent_tracking: Option<bool>,
+    /// The change each operation of the accept just planned settles, for
+    /// its marking (semantics 4).
+    settled_tags: Option<Vec<Option<ChangeId>>>,
     undo: Vec<Step>,
     redo: Vec<Step>,
     /// The laid-out document, refreshed when `rev` moves on.
@@ -279,6 +282,7 @@ impl Session {
             clock: Clock::default(),
             wall: wall_clock(),
             agent_tracking: None,
+            settled_tags: None,
             undo: Vec::new(),
             redo: Vec::new(),
             view: None,
@@ -700,13 +704,43 @@ impl Session {
             return tx.apply(&mut self.doc);
         }
         let active = self.doc.revisions.active;
+        let tags = self.settled_tags.take();
+        // With no set active, each accepted change is marked with the set
+        // it recorded, wherever it is accepted (docs/specs/revisions.md
+        // §6.3, semantics 4, review finding GP11): each run of operations
+        // settling one change is marked on its own.
+        if accept
+            && active.is_none()
+            && let Some(tags) = tags.filter(|t| t.len() == tx.0.len())
+        {
+            let mut inverse: Vec<Transaction> = Vec::new();
+            let mut ops = tx.0.into_iter().zip(tags).peekable();
+            while let Some((op, tag)) = ops.next() {
+                let mut run = vec![op];
+                while let Some((op, _)) = ops.next_if(|(_, t)| *t == tag) {
+                    run.push(op);
+                }
+                let rev = tag.and_then(|c| self.doc.changes.get(c).and_then(|e| e.rev));
+                inverse.push(revise::apply(
+                    Transaction(run),
+                    &mut self.doc,
+                    rules,
+                    |_| rev,
+                ));
+            }
+            return Transaction(inverse.into_iter().rev().flat_map(|t| t.0).collect());
+        }
         let before: std::collections::BTreeSet<ChangeId> = if accept && active.is_none() {
             self.doc.blocks.iter().flat_map(Block::change_ids).collect()
         } else {
             Default::default()
         };
         revise::apply(tx, &mut self.doc, rules, |doc| {
-            active.or_else(|| accept.then(|| revise::settled_rev(doc, &before)).flatten())
+            active.or_else(|| {
+                accept
+                    .then(|| crate::legacy::settled_rev(doc, &before))
+                    .flatten()
+            })
         })
     }
 
@@ -1960,6 +1994,8 @@ impl Session {
         } else {
             crate::legacy::settle(&self.doc, how, &sel)
         };
+        // For the marking that follows (`apply_marking`).
+        self.settled_tags = (ex.rules() >= 4 && how == Settle::Accept).then(|| out.tags.clone());
         if let Some(id) = p.id
             && out.skipped.contains(&id)
         {

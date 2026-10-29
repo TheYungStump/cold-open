@@ -914,3 +914,114 @@ fn a_starting_point_keeps_the_attributes_a_pending_retype_cleared() {
     assert!(b.get("rev").is_none(), "{b}");
     d.discard();
 }
+
+/// The revision sets that mark a block's runs, in order.
+fn run_revs(b: &Value) -> Vec<Value> {
+    b["runs"]
+        .as_array()
+        .map(|rs| rs.iter().map(|r| r["rev"].clone()).collect())
+        .unwrap_or_default()
+}
+
+/// GP11 (the reviews of phases 4–5b, 2026-10-28): accepting with no set
+/// active marks each change with the set it recorded, not all of them with
+/// the newest; and a change accepted in one scene only is marked there too.
+#[test]
+fn accepting_with_no_set_active_marks_each_change_with_its_own_set() {
+    let w = Author::writer();
+    let new = || {
+        let mut d = Dispatcher::new(Options {
+            journal: false,
+            fsync: false,
+        });
+        d.execute_as(Command::from_parts("doc.new", json!({})).unwrap(), &w)
+            .unwrap();
+        d
+    };
+    let run = |d: &mut Dispatcher, c: &str, v: Value| {
+        d.execute_as(Command::from_parts(c, v).unwrap(), &w)
+            .unwrap_or_else(|e| panic!("{c}: {e}"))
+    };
+
+    let mut d = new();
+    run(
+        &mut d,
+        "block.insert",
+        json!({"type": "action", "text": "First."}),
+    );
+    run(
+        &mut d,
+        "block.insert",
+        json!({"type": "action", "text": "Second."}),
+    );
+    run(
+        &mut d,
+        "block.insert",
+        json!({"type": "action", "text": "Third."}),
+    );
+    run(&mut d, "revision.start", json!({"color": "Blue"}));
+    run(
+        &mut d,
+        "text.insert",
+        json!({"id": "b_1", "at": 6, "text": " Blue.", "tracked": true}),
+    );
+    run(&mut d, "revision.end", json!({}));
+    run(&mut d, "revision.start", json!({"color": "Pink"}));
+    run(
+        &mut d,
+        "text.insert",
+        json!({"id": "b_2", "at": 7, "text": " Pink.", "tracked": true}),
+    );
+    run(&mut d, "revision.end", json!({}));
+    // A change made with no set active is marked with none.
+    run(
+        &mut d,
+        "text.insert",
+        json!({"id": "b_3", "at": 6, "text": " None.", "tracked": true}),
+    );
+    run(&mut d, "changes.accept", json!({"all": true}));
+    let bs = run(&mut d, "doc.get", json!({}))["blocks"].clone();
+    assert_eq!(run_revs(&bs[0]), [Value::Null, json!("r_1")], "{bs}");
+    assert_eq!(run_revs(&bs[1]), [Value::Null, json!("r_2")], "{bs}");
+    assert!(
+        bs[2].get("runs").is_none() && bs[2].get("rev").is_none(),
+        "{bs}"
+    );
+
+    // One change in two scenes, accepted in the first only.
+    let mut d = new();
+    run(
+        &mut d,
+        "block.insert",
+        json!({"type": "scene_heading", "text": "INT. A - DAY"}),
+    );
+    run(
+        &mut d,
+        "block.insert",
+        json!({"type": "action", "text": "A."}),
+    );
+    run(
+        &mut d,
+        "block.insert",
+        json!({"type": "scene_heading", "text": "INT. B - DAY"}),
+    );
+    run(
+        &mut d,
+        "block.insert",
+        json!({"type": "action", "text": "B."}),
+    );
+    run(&mut d, "revision.start", json!({"color": "Blue"}));
+    run(
+        &mut d,
+        "batch",
+        json!({"commands": [
+            {"command": "text.insert", "params": {"id": "b_2", "at": 2, "text": " New.", "tracked": true}},
+            {"command": "text.insert", "params": {"id": "b_4", "at": 2, "text": " New.", "tracked": true}}
+        ]}),
+    );
+    run(&mut d, "revision.end", json!({}));
+    run(&mut d, "changes.accept", json!({"scene": "b_1"}));
+    let bs = run(&mut d, "doc.get", json!({}))["blocks"].clone();
+    assert_eq!(run_revs(&bs[1]), [Value::Null, json!("r_1")], "{bs}");
+    assert_eq!(bs[3]["runs"][1]["ins"], "c_1", "still pending: {bs}");
+}

@@ -401,6 +401,10 @@ pub struct Selection {
 /// What settling leaves, as operations on the document and the result.
 pub struct Settled {
     pub ops: Vec<Op>,
+    /// For each operation, the change it settles, so an accept with no set
+    /// active can mark each with the set its change recorded
+    /// (docs/specs/revisions.md §6.3, 2026-10-28).
+    pub tags: Vec<Option<ChangeId>>,
     pub settled: Vec<ChangeId>,
     pub skipped: Vec<ChangeId>,
 }
@@ -437,6 +441,11 @@ fn settle_holding(
 ) -> (Settled, BTreeSet<(ChangeId, BlockId)>) {
     let mut work = doc.clone();
     let mut ops = Vec::new();
+    let mut tags: Vec<Option<ChangeId>> = Vec::new();
+    // The operations added since the tags were last filled settle `c`.
+    let fill = |tags: &mut Vec<Option<ChangeId>>, ops: &Vec<Op>, c: ChangeId| {
+        tags.resize(ops.len(), Some(c));
+    };
     let in_scope = |id: BlockId| sel.blocks.as_ref().is_none_or(|s| s.contains(&id));
     // Whether change `c`'s marks in block `id` are settled.
     let settles = |c: ChangeId, id: BlockId| {
@@ -445,43 +454,51 @@ fn settle_holding(
     let mut more = BTreeSet::new();
     let mut skipped: BTreeSet<ChangeId> = held.iter().map(|&(c, _)| c).collect();
 
-    // 1. Text marks, and block marks that only come off, in any order.
+    // 1. Text marks, and block marks that only come off, in any order:
+    // one change at a time, so each operation settles one change.
     for index in 0..work.blocks.len() {
-        let b = &work.blocks[index];
-        let id = b.id;
+        let id = work.blocks[index].id;
         if !in_scope(id) {
             continue;
         }
-        let text = b.element.text.settle(how, &|c| settles(c, id));
-        if text != b.element.text {
-            let mut e = b.element.clone();
-            e.text = text;
-            apply(&mut work, Op::Replace { index, element: e }, &mut ops);
-        }
-        let mut m = work.blocks[index].marks.clone();
-        let off = |c: &Option<ChangeId>| c.is_some_and(|c| settles(c, id));
-        match how {
-            Settle::Accept => {
-                if off(&m.inserted) {
-                    m.inserted = None;
-                }
-                m.retyped.retain(|r| !settles(r.change, id));
-                if off(&m.split) {
-                    m.split = None;
-                }
-                m.moved.retain(|r| !settles(r.change, id));
+        let here: BTreeSet<ChangeId> = work.blocks[index]
+            .change_ids()
+            .filter(|&c| settles(c, id))
+            .collect();
+        for c in here {
+            let b = &work.blocks[index];
+            let text = b.element.text.settle(how, &|x| x == c);
+            if text != b.element.text {
+                let mut e = b.element.clone();
+                e.text = text;
+                apply(&mut work, Op::Replace { index, element: e }, &mut ops);
             }
-            Settle::Reject => {
-                if off(&m.deleted) {
-                    m.deleted = None;
+            let mut m = work.blocks[index].marks.clone();
+            let off = |x: &Option<ChangeId>| *x == Some(c);
+            match how {
+                Settle::Accept => {
+                    if off(&m.inserted) {
+                        m.inserted = None;
+                    }
+                    m.retyped.retain(|r| r.change != c);
+                    if off(&m.split) {
+                        m.split = None;
+                    }
+                    m.moved.retain(|r| r.change != c);
                 }
-                if off(&m.joined) {
-                    m.joined = None;
+                Settle::Reject => {
+                    if off(&m.deleted) {
+                        m.deleted = None;
+                    }
+                    if off(&m.joined) {
+                        m.joined = None;
+                    }
                 }
             }
-        }
-        if m != work.blocks[index].marks {
-            apply(&mut work, Op::Mark { index, marks: m }, &mut ops);
+            if m != work.blocks[index].marks {
+                apply(&mut work, Op::Mark { index, marks: m }, &mut ops);
+            }
+            fill(&mut tags, &ops, c);
         }
     }
 
@@ -489,10 +506,10 @@ fn settle_holding(
         Settle::Accept => {
             // 2. Deleted blocks go, then joined blocks join the block kept
             // before them, as the accepted form joins them.
-            remove_deleted(&mut work, &mut ops, &mut more, &|b| {
+            remove_deleted(&mut work, &mut ops, &mut tags, &mut more, &|b| {
                 b.marks.deleted.filter(|&c| settles(c, b.id))
             });
-            join_where(&mut work, &mut ops, &mut more, &|b| {
+            join_where(&mut work, &mut ops, &mut tags, &mut more, &|b| {
                 b.marks.joined.filter(|&c| settles(c, b.id))
             });
         }
@@ -523,10 +540,11 @@ fn settle_holding(
                     skipped.insert(c);
                 }
                 remove_inserted(&mut work, &mut ops, &mut more, c, &here);
-                join_where(&mut work, &mut ops, &mut more, &|b| {
+                join_where(&mut work, &mut ops, &mut tags, &mut more, &|b| {
                     b.marks.split.filter(|&x| x == c && here(b.id))
                 });
                 restore_retypes(&mut work, &mut ops, &mut more, c, &here);
+                fill(&mut tags, &ops, c);
             }
         }
     }
@@ -542,6 +560,7 @@ fn settle_holding(
     (
         Settled {
             ops,
+            tags,
             settled,
             skipped: skipped.into_iter().collect(),
         },
@@ -573,6 +592,7 @@ fn apply(work: &mut Document, op: Op, ops: &mut Vec<Op>) {
 fn remove_deleted(
     work: &mut Document,
     ops: &mut Vec<Op>,
+    tags: &mut Vec<Option<ChangeId>>,
     held: &mut BTreeSet<(ChangeId, BlockId)>,
     which: &dyn Fn(&Block) -> Option<ChangeId>,
 ) {
@@ -585,6 +605,7 @@ fn remove_deleted(
             held.insert((c, b.id));
         } else {
             apply(work, Op::Remove { index }, ops);
+            tags.resize(ops.len(), Some(c));
         }
     }
 }
@@ -632,6 +653,7 @@ fn remove_inserted(
 fn join_where(
     work: &mut Document,
     ops: &mut Vec<Op>,
+    tags: &mut Vec<Option<ChangeId>>,
     held: &mut BTreeSet<(ChangeId, BlockId)>,
     which: &dyn Fn(&Block) -> Option<ChangeId>,
 ) {
@@ -659,6 +681,7 @@ fn join_where(
                 ops,
             );
             apply(work, Op::Remove { index }, ops);
+            tags.resize(ops.len(), Some(c));
         } else {
             held.insert((c, work.blocks[index].id));
             index += 1;
