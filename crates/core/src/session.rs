@@ -1183,7 +1183,7 @@ impl Session {
             Command::BlockSetAttrs(p) => self.plan_set_attrs(p),
             Command::BlockDelete(p) => self.plan_delete(p, ctx, &ex.by),
             Command::TextReplace(p) => self.plan_replace(p, ctx),
-            Command::SceneMove(p) => self.plan_move(p, ctx),
+            Command::SceneMove(p) => self.plan_move(p, ctx, ex.rules()),
             Command::TextInsert(p) => self.plan_text_insert(p, ctx),
             Command::TextDelete(p) => self.plan_text_delete(p, ctx),
             Command::TextStyle(p) => self.plan_text_style(p),
@@ -1534,6 +1534,7 @@ impl Session {
         &mut self,
         p: &SceneMove,
         ctx: Option<&mut TrackCtx>,
+        rules: u32,
     ) -> Result<(Transaction, Value), CommandError> {
         let scene = self
             .doc
@@ -1575,12 +1576,29 @@ impl Session {
             // undoes them in order.
             let was = self.doc.blocks.get(scene.end).map(|b| b.id);
             let last = self.doc.blocks[scene.end - 1].id;
-            let mut marks = self.doc.blocks[scene.start].marks.clone();
             let c = ctx.change(&mut self.doc, None);
+            // A change that moves a second scene numbers its moves, so a
+            // reject can undo them newest first (docs/specs/changes.md
+            // §2.2). Its moves so far all sit on one heading, oldest first.
+            let heading = self.doc.blocks[scene.start].id;
+            let n = if rules >= 4 {
+                self.number_moves(c, heading, &mut ops)
+            } else {
+                None
+            };
+            let mut marks = self.doc.blocks[scene.start].marks.clone();
+            if let Some(Op::Mark { marks: m, .. }) = ops
+                .iter()
+                .rev()
+                .find(|op| matches!(op, Op::Mark { index, .. } if *index == scene.start))
+            {
+                marks = m.clone();
+            }
             marks.moved.push(Moved {
                 change: c,
                 before: was,
                 last,
+                n,
             });
             ops.push(Op::Mark {
                 index: scene.start,
@@ -1593,6 +1611,47 @@ impl Session {
             to,
         });
         Ok((Transaction(ops), json!({})))
+    }
+
+    /// The number a new move of change `c`, of the scene headed by
+    /// `heading`, takes: `None` while the change has moved only this scene.
+    /// When it moves a second, its earlier moves are numbered first, in
+    /// the order they sit (one heading's, oldest first), as operations of
+    /// this edit.
+    fn number_moves(&self, c: ChangeId, heading: BlockId, ops: &mut Vec<Op>) -> Option<u32> {
+        let mine = |b: &Block| b.marks.moved.iter().filter(|m| m.change == c).count();
+        let elsewhere = self
+            .doc
+            .blocks
+            .iter()
+            .any(|b| b.id != heading && mine(b) > 0);
+        let numbered = self
+            .doc
+            .blocks
+            .iter()
+            .flat_map(|b| b.marks.moved.iter())
+            .filter(|m| m.change == c)
+            .filter_map(|m| m.n)
+            .max();
+        if let Some(top) = numbered {
+            return Some(top + 1);
+        }
+        if !elsewhere {
+            return None;
+        }
+        let mut next = 0u32;
+        for (index, b) in self.doc.blocks.iter().enumerate() {
+            if mine(b) == 0 {
+                continue;
+            }
+            let mut marks = b.marks.clone();
+            for m in marks.moved.iter_mut().filter(|m| m.change == c) {
+                next += 1;
+                m.n = Some(next);
+            }
+            ops.push(Op::Mark { index, marks });
+        }
+        Some(next + 1)
     }
 
     fn plan_text_insert(

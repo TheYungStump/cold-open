@@ -934,6 +934,135 @@ fn block_text(d: &mut Dispatcher, id: &str) -> String {
     block(d, id)["text"].as_str().unwrap_or("").to_string()
 }
 
+/// GR5 = GP7 + GP8: one change (a batch) that retyped a block twice, or
+/// moved scenes twice, is rejected step by step, newest first, so the
+/// document comes back as it was. Before, only the newest retype was
+/// undone, and moves were undone oldest first.
+#[test]
+fn rejecting_a_change_undoes_its_retypes_and_moves_newest_first() {
+    let dir = tempfile::tempdir().unwrap();
+
+    // Two retypes of one block.
+    let mut d = open_text(dir.path(), "A line.\n");
+    ok(
+        &mut d,
+        &writer(),
+        "block.set_attrs",
+        json!({"id": "b_1", "centered": true}),
+    );
+    let before = blocks(&mut d);
+    let r = ok(
+        &mut d,
+        &writer(),
+        "batch",
+        json!({"commands": [
+            {"command": "block.set_type", "params": {"id": "b_1", "type": "character", "tracked": true}},
+            {"command": "block.set_type", "params": {"id": "b_1", "type": "dialogue", "tracked": true}}
+        ]}),
+    );
+    ok(
+        &mut d,
+        &writer(),
+        "changes.reject",
+        json!({"id": r["change"]}),
+    );
+    assert_eq!(blocks(&mut d), before);
+    d.discard();
+
+    // Two moves of one scene.
+    let three = "INT. S - DAY\n\nsa\n\nINT. T - DAY\n\nta\n\nINT. U - DAY\n\nua\n";
+    let mut d = open_text(dir.path(), three);
+    let before = texts(&mut d);
+    let r = ok(
+        &mut d,
+        &writer(),
+        "batch",
+        json!({"commands": [
+            {"command": "scene.move", "params": {"id": "b_1", "tracked": true}},
+            {"command": "scene.move", "params": {"id": "b_1", "before": "b_5", "tracked": true}}
+        ]}),
+    );
+    assert_eq!(
+        texts(&mut d),
+        [
+            "INT. T - DAY",
+            "ta",
+            "INT. S - DAY",
+            "sa",
+            "INT. U - DAY",
+            "ua"
+        ]
+    );
+    ok(
+        &mut d,
+        &writer(),
+        "changes.reject",
+        json!({"id": r["change"]}),
+    );
+    assert_eq!(texts(&mut d), before);
+    d.discard();
+
+    // Moves of two scenes in one change: their order is recorded, so the
+    // reject undoes the second before the first, though the first moved
+    // scene now comes first in the document.
+    let mut d = open_text(dir.path(), three);
+    let r = ok(
+        &mut d,
+        &writer(),
+        "batch",
+        json!({"commands": [
+            {"command": "scene.move", "params": {"id": "b_1", "tracked": true}},
+            {"command": "scene.move", "params": {"id": "b_3", "tracked": true}}
+        ]}),
+    );
+    assert_eq!(
+        texts(&mut d),
+        [
+            "INT. U - DAY",
+            "ua",
+            "INT. S - DAY",
+            "sa",
+            "INT. T - DAY",
+            "ta"
+        ]
+    );
+    let marked = blocks(&mut d);
+    assert_eq!(marked[2]["change"]["moved"][0]["n"], 1, "{marked:?}");
+    assert_eq!(marked[4]["change"]["moved"][0]["n"], 2, "{marked:?}");
+    // A project holding that order is version 3, and reads back as it was.
+    let p = dir.path().join("moves.coldopen");
+    ok(&mut d, &writer(), "doc.save", json!({"path": p}));
+    let meta = coldopen_core::bundle::read(&fs::read(&p).unwrap()).unwrap();
+    assert_eq!(
+        serde_json::to_value(&meta.doc.blocks).unwrap(),
+        Value::Array(marked.clone())
+    );
+    assert_eq!(meta_v(&fs::read(&p).unwrap()), 3);
+    ok(
+        &mut d,
+        &writer(),
+        "changes.reject",
+        json!({"id": r["change"]}),
+    );
+    assert_eq!(texts(&mut d), before);
+    d.discard();
+}
+
+/// The `v` in a bundle's `meta.json`.
+fn meta_v(bytes: &[u8]) -> u64 {
+    let archive = rawzip::ZipArchive::from_slice(bytes).unwrap();
+    let mut list = archive.entries();
+    while let Some(e) = list.next_entry().unwrap() {
+        if e.file_path().as_ref() == b"meta.json" {
+            let raw = archive.get_entry(e.wayfinder()).unwrap().data().to_vec();
+            let data = miniz_oxide::inflate::decompress_to_vec(&raw).unwrap();
+            let v: Value = serde_json::from_slice(&data).unwrap();
+            return v["v"].as_u64().unwrap();
+        }
+    }
+    0
+}
+
 // ---- Properties ----------------------------------------------------------
 
 /// One edit, by one of three authors, described by positions.

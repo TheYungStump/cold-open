@@ -22,7 +22,7 @@ pub const REVISIONS: &str = "revisions.json";
 pub const SCRIPT: &str = "script.fountain";
 
 /// The bundle format's version (docs/specs/bundle.md §3).
-pub const V: u32 = 2;
+pub const V: u32 = 3;
 const KIND: &str = "coldopen-bundle";
 
 /// The most an entry may inflate to, and the most entries an archive may
@@ -93,9 +93,21 @@ struct DocumentOut<'a> {
 /// phase 5b; any other is version 2, with `revisions.json`.
 pub fn write(doc: &Document) -> Vec<u8> {
     let v2 = !doc.revisions.is_default();
+    // Numbered moves (docs/specs/changes.md §2.2) are version 3, which a
+    // build that would drop their order refuses (§3, 2026-10-28).
+    let v3 = doc
+        .blocks
+        .iter()
+        .any(|b| b.marks.moved.iter().any(|m| m.n.is_some()));
     let meta = Meta {
         format: KIND.into(),
-        v: if v2 { 2 } else { 1 },
+        v: if v3 {
+            3
+        } else if v2 {
+            2
+        } else {
+            1
+        },
         app: env!("CARGO_PKG_VERSION").into(),
         doc_id: doc.doc_id.clone(),
     };

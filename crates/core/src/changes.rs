@@ -271,6 +271,12 @@ pub struct Moved {
     pub change: ChangeId,
     pub before: Option<BlockId>,
     pub last: BlockId,
+    /// The move's place among its change's moves, counted from 1, once the
+    /// change has moved more than one scene: rejecting undoes them newest
+    /// first, and nothing else records their order across scenes
+    /// (docs/specs/changes.md §2.2, 2026-10-28).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n: Option<u32>,
 }
 
 fn is_false(b: &bool) -> bool {

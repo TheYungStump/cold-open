@@ -7,7 +7,7 @@ use coldopen_screenplay::{ElementKind, Marks, RichText, Run, Settle, Style};
 use serde_json::{Value, json};
 
 use crate::author::Author;
-use crate::changes::{ChangeBy, ChangeId};
+use crate::changes::{ChangeBy, ChangeId, Retyped};
 use crate::document::{Block, BlockId, Document};
 use crate::error::CommandError;
 use crate::ops::Op;
@@ -675,7 +675,10 @@ fn undo_moves(
     c: ChangeId,
     in_scope: &dyn Fn(BlockId) -> bool,
 ) -> bool {
-    let moves: Vec<(BlockId, Option<BlockId>, BlockId)> = work
+    // Newest first (docs/specs/changes.md §6): by their numbers when the
+    // change moved more than one scene, otherwise one heading's, from the
+    // last.
+    let mut moves: Vec<(BlockId, crate::changes::Moved, usize)> = work
         .blocks
         .iter()
         .filter(|b| in_scope(b.id))
@@ -683,13 +686,16 @@ fn undo_moves(
             b.marks
                 .moved
                 .iter()
-                .filter(|mv| mv.change == c)
-                .map(|mv| (b.id, mv.before, mv.last))
+                .enumerate()
+                .filter(|(_, mv)| mv.change == c)
+                .map(|(k, mv)| (b.id, mv.clone(), k))
                 .collect::<Vec<_>>()
         })
         .collect();
+    moves.sort_by(|a, b| b.1.n.cmp(&a.1.n).then(b.2.cmp(&a.2)));
     let mut all = true;
-    for (heading, before, last) in moves {
+    for (heading, mv, _) in moves {
+        let (before, last) = (mv.before, mv.last);
         let Some(start) = work.index_of(heading) else {
             all = false;
             continue;
@@ -722,7 +728,9 @@ fn undo_moves(
         };
         let index = scene.start;
         let mut marks = work.blocks[index].marks.clone();
-        marks.moved.retain(|mv| mv.change != c);
+        if let Some(k) = marks.moved.iter().rposition(|m| *m == mv) {
+            marks.moved.remove(k);
+        }
         apply(work, Op::Mark { index, marks }, ops);
         if target != scene.start && target != scene.end {
             let len = scene.end - scene.start;
@@ -745,6 +753,29 @@ fn undo_moves(
     all
 }
 
+/// An element given back the type and kept attributes one retype took.
+fn restored(e: &coldopen_screenplay::Element, r: &Retyped) -> coldopen_screenplay::Element {
+    let mut e = e.clone();
+    e.kind = r.from;
+    e.clear_inapplicable();
+    if r.from == ElementKind::SceneHeading {
+        e.scene_number = r.scene_number.clone();
+    }
+    if r.from == ElementKind::Character {
+        e.dual = r.dual;
+    }
+    if r.from == ElementKind::Action {
+        e.centered = r.centered;
+    }
+    if r.from == ElementKind::Section && r.depth > 0 {
+        e.depth = r.depth;
+    }
+    if !r.from.is_transparent() && r.space_before.is_some() {
+        e.space_before = r.space_before;
+    }
+    e
+}
+
 /// Gives the blocks change `c` retyped their type and kept attributes back.
 /// A block whose old type would drop text or styles it holds now (a page
 /// break holds no text, a note no styles), typed since the retype, is held
@@ -761,35 +792,27 @@ fn restore_retypes(
         if !in_scope(b.id) {
             continue;
         }
-        let Some(r) = b
+        // Each of the change's retypes, newest first, as undo would
+        // (docs/specs/changes.md §5.2). Any that would drop text holds the
+        // block, and none is undone.
+        let mine: Vec<Retyped> = b
             .marks
             .retyped
             .iter()
-            .rev()
-            .find(|r| r.change == c)
+            .filter(|r| r.change == c)
             .cloned()
-        else {
+            .collect();
+        if mine.is_empty() {
             continue;
-        };
+        }
         let mut e = b.element.clone();
-        e.kind = r.from;
-        e.clear_inapplicable();
-        if r.from == ElementKind::SceneHeading {
-            e.scene_number = r.scene_number.clone();
+        let mut drops = false;
+        for r in mine.iter().rev() {
+            let text = e.text.clone();
+            e = restored(&e, r);
+            drops |= e.text != text;
         }
-        if r.from == ElementKind::Character {
-            e.dual = r.dual;
-        }
-        if r.from == ElementKind::Action {
-            e.centered = r.centered;
-        }
-        if r.from == ElementKind::Section && r.depth > 0 {
-            e.depth = r.depth;
-        }
-        if !r.from.is_transparent() && r.space_before.is_some() {
-            e.space_before = r.space_before;
-        }
-        if e.text != b.element.text {
+        if drops {
             held.insert((c, b.id));
             continue;
         }
