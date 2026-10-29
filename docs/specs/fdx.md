@@ -456,7 +456,8 @@ The writer emits, in order:
 1. the prolog and the root's start tag;
 2. each section, as kept (§13.5 for the settings and the title page), with `Content` at its place:
    - `Content`'s start tag;
-   - for each paragraph group in the model, in block order: if a kept paragraph is stored under its first block's id, its blocks still equal the stored copy (kind, text, attributes and spacing override), they are contiguous and in the same order, and its text is verbatim, the kept text; otherwise the group generated (§14), carrying the kept paragraph's attributes and children when there is one (§14.4);
+   - for each paragraph group in the model, in block order: if a kept paragraph belongs to the group, its blocks still equal the stored copy (kind, text, attributes and spacing override), they start where the group starts, are contiguous and in the same order, and take in at least the whole group, and its text is verbatim, the kept text; otherwise the group generated (§14), carrying the kept paragraph's attributes and children when there is one (§14.4);
+   - **which kept paragraph belongs to a group** (2026-10-28): the one whose first block that is not a page break is the group's first printing block. A paragraph is stored under its group's first block, which is the page break `StartsNewPage` put before it when there is one, but the break is a block of its own. Looked up by the stored key, a deleted break, a break added before a kept paragraph, or a scene moved away from its break parted the paragraph from its block, or gave its scene properties and unknown attributes to the paragraph after the break (review findings GR8, GP2). The store is unchanged, so files, projects and journals are too;
    - loose children, after the group they are anchored to (§13.4);
    - the trailing paragraphs, then the whitespace and `</Content>`;
 3. the root's end tag and what follows it.

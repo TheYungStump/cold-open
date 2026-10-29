@@ -285,3 +285,28 @@ fn the_files_newline_and_indentation_are_followed() {
         text.replace("Fog on the rails.", "Fog on the rails. A horn.")
     );
 }
+
+/// GR8 (the reviews of phases 4–5b, 2026-10-28): a heading read after a
+/// `StartsNewPage` break, written again without that break, keeps its scene
+/// properties. The store keys its paragraph by the break's id; the writer
+/// finds it by the heading's.
+#[test]
+fn a_kept_heading_keeps_its_parts_without_its_page_break() {
+    let text = file(
+        "\n    <Paragraph Type=\"Action\">\n      <Text>Before.</Text>\n    </Paragraph>\n    <Paragraph Type=\"Scene Heading\" StartsNewPage=\"Yes\">\n      <SceneProperties Length=\"1/8\" Page=\"2\" Title=\"\"/>\n      <Text>INT. LAB - NIGHT</Text>\n    </Paragraph>\n    <Paragraph Type=\"Action\">\n      <Text>Rain.</Text>\n    </Paragraph>",
+    );
+    let doc = read(text.as_bytes()).unwrap();
+    let kinds: Vec<_> = doc.script.elements.iter().map(|e| e.kind).collect();
+    assert_eq!(kinds[1], ElementKind::PageBreak, "{kinds:?}");
+    let elements: Vec<(u64, Element)> = doc
+        .script
+        .elements
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| e.kind != ElementKind::PageBreak)
+        .map(|(i, e)| (i as u64 + 1, e.clone()))
+        .collect();
+    let out = rewrite(&doc, &elements).text;
+    assert!(out.contains("SceneProperties"), "{out}");
+    assert!(!out.contains("StartsNewPage"), "{out}");
+}

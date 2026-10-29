@@ -557,19 +557,30 @@ impl<'a> Gen<'a> {
             }
         }
         emit(&mut self.out, 0, &mut loose);
+        let anchors = anchors(kept);
         let mut i = 0;
         while i < blocks.len() {
-            let first = blocks[i].id;
-            let kp = kept.paragraphs.get(&first);
+            let group = group_end(blocks, i);
+            let kp = blocks[i..group]
+                .iter()
+                .find(|b| b.element.kind.is_printing())
+                .and_then(|b| anchors.get(&b.id).copied());
+            // The kept text, while the paragraph's blocks are as they were
+            // read, start where this group starts, and take in at least the
+            // whole group; otherwise the group is generated, carrying what
+            // the paragraph held (§13.3).
             let end = match kp {
-                Some(kp) if kp.verbatim && unchanged(kp, &blocks[i..]) => {
+                Some(kp)
+                    if kp.verbatim
+                        && kp.blocks.len() >= group - i
+                        && unchanged(kp, &blocks[i..]) =>
+                {
                     self.out.push_str(&kp.text);
                     i + kp.blocks.len()
                 }
                 _ => {
-                    let end = group_end(blocks, i);
-                    self.group(&blocks[i..end], &lead, kp);
-                    end
+                    self.group(&blocks[i..group], &lead, kp);
+                    group
                 }
             };
             for b in &blocks[i..end] {
@@ -1031,6 +1042,26 @@ impl<'a> Gen<'a> {
 type RunOut = (String, Style, Vec<(String, String)>);
 
 /// Whether the blocks from here on are exactly a kept paragraph's (§13.3).
+/// The kept paragraphs by their anchor: the first of their blocks that is
+/// not a page break, which is the paragraph's own (§13.3, 2026-10-28). The
+/// store keys a paragraph by its group's first block, which is the page
+/// break `StartsNewPage` put before it, when there is one; but the break is
+/// a block of its own. Deleting it, adding one, or moving the paragraph's
+/// scene away from it must not part the paragraph from its block, or hand
+/// its kept parts to whatever comes after the break (review findings GR8,
+/// GP2).
+fn anchors(kept: &Kept) -> BTreeMap<u64, &KeptParagraph> {
+    kept.paragraphs
+        .values()
+        .filter_map(|kp| {
+            kp.blocks
+                .iter()
+                .find(|b| b.element.kind != ElementKind::PageBreak)
+                .map(|b| (b.id, kp))
+        })
+        .collect()
+}
+
 fn unchanged(kp: &KeptParagraph, blocks: &[Blk<'_>]) -> bool {
     kp.blocks.len() <= blocks.len()
         && kp

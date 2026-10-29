@@ -434,3 +434,88 @@ fn the_view_lays_out_an_fdx_as_the_reference_gate_does() {
         assert_eq!(view.title, direct.title, "{}", path.display());
     }
 }
+
+// ---- The reviews of phases 4–5b (2026-10-28) ------------------------------
+
+/// Opens `text` as an .fdx file of its own.
+fn open_fdx(dir: &Path, text: &str) -> (Dispatcher, PathBuf) {
+    let p = dir.join("kept.fdx");
+    fs::write(&p, text).unwrap();
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, "doc.open", json!({"path": p}));
+    (d, p)
+}
+
+/// The `<Paragraph …>…</Paragraph>` in `xml` that holds `text`.
+fn paragraph_with<'a>(xml: &'a str, text: &str) -> &'a str {
+    let at = xml
+        .find(text)
+        .unwrap_or_else(|| panic!("no {text:?} in {xml}"));
+    let start = xml[..at].rfind("<Paragraph").unwrap();
+    let end = at + xml[at..].find("</Paragraph>").unwrap();
+    &xml[start..end]
+}
+
+const KEPT_HEADING: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\" ?>\n<FinalDraft DocumentType=\"Script\" Template=\"No\" Version=\"4\">\n  <Content>\n    <Paragraph Type=\"Action\">\n      <Text>Before.</Text>\n    </Paragraph>\n    <Paragraph Type=\"Scene Heading\" StartsNewPage=\"Yes\">\n      <SceneProperties Length=\"1/8\" Page=\"2\" Title=\"two\"/>\n      <Text>INT. TWO - NIGHT</Text>\n    </Paragraph>\n    <Paragraph Type=\"Action\">\n      <Text>Rain.</Text>\n    </Paragraph>\n    <Paragraph Type=\"Scene Heading\">\n      <SceneProperties Length=\"1/8\" Page=\"2\" Title=\"three\"/>\n      <Text>INT. THREE - DAY</Text>\n    </Paragraph>\n    <Paragraph Type=\"Action\">\n      <Text>Sun.</Text>\n    </Paragraph>\n  </Content>\n</FinalDraft>\n";
+
+/// GR8 = GP2 (A): a page break read before a paragraph belongs to its
+/// group, and the store kept the paragraph under the break's id. So
+/// deleting the break, adding one before a kept paragraph, or moving the
+/// scene away from its break lost the paragraph's kept parts, or gave them
+/// to the wrong paragraph.
+#[test]
+fn gr8_a_kept_paragraph_follows_its_block_not_its_page_break() {
+    let dir = tempfile::tempdir().unwrap();
+
+    // The break deleted: the heading keeps its scene properties.
+    let (mut d, p) = open_fdx(dir.path(), KEPT_HEADING);
+    let kinds: Vec<Value> = blocks(&mut d).iter().map(|b| b["type"].clone()).collect();
+    assert_eq!(kinds[1], "page_break", "{kinds:?}");
+    let br = blocks(&mut d)[1]["id"].clone();
+    ok(&mut d, "block.delete", json!({"id": br}));
+    ok(&mut d, "doc.save", json!({}));
+    let xml = fs::read_to_string(&p).unwrap();
+    let two = paragraph_with(&xml, "INT. TWO - NIGHT");
+    assert!(two.contains("Title=\"two\""), "{two}");
+    assert!(!two.contains("StartsNewPage"), "{two}");
+    d.discard();
+
+    // The scene moved away from its break: the break stays, now before the
+    // next heading, which keeps its own parts and gets none of the moved
+    // one's; the moved heading keeps its own.
+    let (mut d, p) = open_fdx(dir.path(), KEPT_HEADING);
+    let two_id = first(&mut d, "scene_heading");
+    ok(&mut d, "scene.move", json!({"id": two_id}));
+    ok(&mut d, "doc.save", json!({}));
+    let xml = fs::read_to_string(&p).unwrap();
+    let three = paragraph_with(&xml, "INT. THREE - DAY");
+    assert!(three.contains("Title=\"three\""), "{three}");
+    assert!(!three.contains("Title=\"two\""), "{three}");
+    let two = paragraph_with(&xml, "INT. TWO - NIGHT");
+    assert!(two.contains("Title=\"two\""), "{two}");
+    d.discard();
+
+    // A break inserted before a kept paragraph (Astra's GP2 A).
+    let (mut d, p) = open_fdx(
+        dir.path(),
+        r#"<FinalDraft><Content><Paragraph Type="Action"><Text>Rain.</Text></Paragraph><Paragraph Type="Action" Custom="keep-me"><Text Color="red">The door opens.</Text><ScriptNote>Remember the key.</ScriptNote></Paragraph></Content></FinalDraft>"#,
+    );
+    ok(
+        &mut d,
+        "block.insert",
+        json!({"before": "b_2", "type": "page_break"}),
+    );
+    let r = ok(&mut d, "doc.save", json!({}));
+    assert_eq!(r["losses"], json!([]), "{r}");
+    let xml = fs::read_to_string(&p).unwrap();
+    let door = paragraph_with(&xml, "The door opens.");
+    for part in [
+        "Custom=\"keep-me\"",
+        "Color=\"red\"",
+        "Remember the key.",
+        "StartsNewPage=\"Yes\"",
+    ] {
+        assert!(door.contains(part), "{part} in {door}");
+    }
+    d.discard();
+}
