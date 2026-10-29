@@ -459,16 +459,44 @@ fn greedy(
 
 /// The pairs, by A's order, that lie in the longest run increasing in B
 /// too (§3.2 step 4). Ties go to the pairs that come first in A.
+///
+/// Each pair's run is the longest one ending in it: one more than the best
+/// of the earlier pairs lower in B, the first of them on a tie. The best of
+/// those is read from a tree indexed by B's position, so this takes
+/// n log n, not n² (2026-10-29: anchoring reuses it for thousands of
+/// blocks, §3.3 step 3).
 fn in_order(pairs: &[(usize, usize)]) -> Vec<bool> {
     let n = pairs.len();
     let mut len = vec![1usize; n];
     let mut prev = vec![usize::MAX; n];
+    let mut ranks: Vec<usize> = pairs.iter().map(|p| p.1).collect();
+    ranks.sort_unstable();
+    ranks.dedup();
+    // A Fenwick tree over B's positions: each node holds the longest run,
+    // and the first pair ending one, among the positions it covers. Pairs
+    // go in in A's order, so a later pair replaces a node only when longer.
+    let mut tree: Vec<(usize, usize)> = vec![(0, usize::MAX); ranks.len() + 1];
+    let better = |x: (usize, usize), y: (usize, usize)| x.0 > y.0 || (x.0 == y.0 && x.1 < y.1);
     for i in 0..n {
-        for j in 0..i {
-            if pairs[j].1 < pairs[i].1 && len[j] + 1 > len[i] {
-                len[i] = len[j] + 1;
-                prev[i] = j;
+        let r = ranks.partition_point(|&v| v < pairs[i].1);
+        let mut best = (0, usize::MAX);
+        let mut k = r;
+        while k > 0 {
+            if better(tree[k], best) {
+                best = tree[k];
             }
+            k &= k - 1;
+        }
+        if best.0 > 0 {
+            len[i] = best.0 + 1;
+            prev[i] = best.1;
+        }
+        let mut k = r + 1;
+        while k < tree.len() {
+            if len[i] > tree[k].0 {
+                tree[k] = (len[i], i);
+            }
+            k += k & k.wrapping_neg();
         }
     }
     let mut keep = vec![false; n];
@@ -1219,4 +1247,47 @@ fn compare_lines(a: &[TitleLine], b: &[TitleLine]) -> Vec<TitleOp> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+
+    /// `in_order` as it was written first, in n²: the reference for the
+    /// faster one.
+    fn in_order_quadratic(pairs: &[(usize, usize)]) -> Vec<bool> {
+        let n = pairs.len();
+        let mut len = vec![1usize; n];
+        let mut prev = vec![usize::MAX; n];
+        for i in 0..n {
+            for j in 0..i {
+                if pairs[j].1 < pairs[i].1 && len[j] + 1 > len[i] {
+                    len[i] = len[j] + 1;
+                    prev[i] = j;
+                }
+            }
+        }
+        let mut keep = vec![false; n];
+        let Some(best) = len.iter().copied().max() else {
+            return keep;
+        };
+        let mut at = len.iter().position(|&l| l == best).unwrap_or(usize::MAX);
+        while at != usize::MAX {
+            keep[at] = true;
+            at = prev[at];
+        }
+        keep
+    }
+
+    proptest! {
+        /// The same pairs kept, ties included: positions repeat in B, and
+        /// in A, so many runs share the longest length.
+        #[test]
+        fn in_order_keeps_what_the_quadratic_search_kept(
+            mut pairs in proptest::collection::vec((0usize..12, 0usize..12), 0..60)
+        ) {
+            pairs.sort_unstable();
+            prop_assert_eq!(super::in_order(&pairs), in_order_quadratic(&pairs));
+        }
+    }
 }

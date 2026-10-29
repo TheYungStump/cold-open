@@ -162,11 +162,13 @@ fn a_long_unit_is_compared_in_bounded_time() {
         t
     };
     let small = (0..3).map(|_| time(1200)).min().unwrap();
-    let large = (0..3).map(|_| time(4800)).min().unwrap();
-    // A quadratic step shows as about 16 times for 4 times the blocks.
+    let large = (0..3).map(|_| time(9600)).min().unwrap();
+    // 8 times the blocks take about 9 times as long in n log n. A quadratic
+    // step, even a small one, shows well past 14: the n² search for the
+    // anchors in order took 20 times in a debug build (2026-10-29).
     assert!(
-        large < small * 9 + Duration::from_millis(50),
-        "1,200 blocks: {small:?}; 4,800 blocks: {large:?}"
+        large < small * 14 + Duration::from_millis(50),
+        "1,200 blocks: {small:?}; 9,600 blocks: {large:?}"
     );
 
     // Grok's GR11 shape: the second draft rotated, so half the lines align

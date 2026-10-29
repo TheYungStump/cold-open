@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc e7c619cbca4b7a779c47a0713d0d553a0f62b7c6b040790a8946befa2ce03b7f # shrinks to mut pairs = [(9, 3), (5, 4), (9, 2), (11, 5), (5, 7), (11, 11), (6, 0), (11, 6), (9, 4), (0, 0), (6, 8), (6, 9), (5, 5), (11, 7), (0, 2)]
