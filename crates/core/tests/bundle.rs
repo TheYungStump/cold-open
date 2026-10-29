@@ -594,3 +594,23 @@ fn gp14_a_newer_version_with_a_new_field_is_refused() {
     let e = coldopen_core::bundle::read(&out).map(|_| ()).unwrap_err();
     assert_eq!(e.code, "unsupported_format", "{e}");
 }
+
+/// P6 (found by the bundle property at 4,096 cases, 2026-10-29): another
+/// tool's entry is kept only under a name the zip writer leaves as it is.
+/// A name holding a colon, which writers drop up to as a drive letter, or
+/// a `.` part, was kept and came back as another name ("script.fo:ntain"
+/// as "ntain"), so the project read back differently.
+#[test]
+fn p6_an_entry_is_kept_only_under_a_name_that_writes_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let bytes = fs::read(with_extra_entry(dir.path())).unwrap();
+    for name in ["notes:json", "n/./s.json", "n//es.json", "../es.json"] {
+        let mut b = bytes.clone();
+        let mut at = 0;
+        while let Some(k) = b[at..].windows(10).position(|w| w == b"notes.json") {
+            b[at + k..at + k + 10].copy_from_slice(name.as_bytes());
+            at += k + 10;
+        }
+        assert_eq!(coldopen_core::fuzzing::bundle_read(&b), Ok(()), "{name}");
+    }
+}

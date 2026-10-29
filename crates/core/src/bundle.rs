@@ -307,14 +307,20 @@ fn entries(bytes: &[u8]) -> Result<Entries, String> {
 
 /// Whether another tool's entry can be written back under the same name:
 /// printable ASCII, no backslash, not absolute, no `..` (§2). Zip writers
-/// spell other names otherwise.
+/// spell other names otherwise. The writer also drops a name up to a
+/// colon, as a drive letter, and `.` parts, so a name is kept only when it
+/// leaves it as it is (2026-10-29, P6).
 fn keepable(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 255
         && name.bytes().all(|b| b.is_ascii_graphic() || b == b' ')
         && !name.contains('\\')
+        && !name.contains(':')
         && !name.starts_with('/')
-        && !name.split('/').any(|part| part == ".." || part.is_empty())
+        && !name
+            .split('/')
+            .any(|part| part == ".." || part == "." || part.is_empty())
+        && rawzip::path::ZipFilePath::from_str(name).as_str() == name
 }
 
 /// What a bundle's report says (docs/specs/bundle.md §7), as `.fdx` issues
