@@ -459,6 +459,12 @@ impl App {
         &self.nav
     }
 
+    /// The row of the scene holding the caret, as the status bar and "This
+    /// scene" take it.
+    pub fn scene_row(&self) -> Option<&super::NavRow> {
+        self.current_scene_row().and_then(|i| self.nav.get(i))
+    }
+
     /// The name the writer's tracked changes carry now.
     pub fn editing_as(&self) -> String {
         match self.d.writer() {

@@ -184,6 +184,7 @@ It shows the caret block's kind, and what Enter and Tab would make it, from the 
   - Each section is a header, indented by its depth.
   - Each scene shows its number (`scene_number`, or its position), heading, start page and length in eighths (`scene.list`).
   - The scene holding the caret is highlighted.
+  - (2026-10-28, review finding AR10) A section's row is not a scene. Under a section, before the next heading, the caret's scene is the one before the section: "This scene" in Find, the status bar and Alt+Up and Alt+Down act on it. The section's own row is highlighted, and Up and Down in the navigator start from it. A section's row gets the change dot and revision mark for its own block and the blocks under it before the next scene.
 - **Moving around.** A click, or Enter on a selected row, moves the caret to the start of that heading.
 - **Reordering.** Dragging a scene and dropping it before another scene or section sends `scene.move` with `before`; dropping after the last scene sends it with no `before`. With the navigator focused, Alt+Up and Alt+Down move the selected scene one place, also through `scene.move`.
 

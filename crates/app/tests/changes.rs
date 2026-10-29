@@ -766,3 +766,63 @@ fn a_pending_deleted_scene_keeps_its_row() {
     );
     h.app.d.discard();
 }
+
+/// AR10: a section's row is not a scene. With the caret under a section,
+/// the scene is the one before it: "This scene" replaces in it rather than
+/// sending the section's id (`scene_not_found`), the status bar names it,
+/// and Alt+Down in the navigator moves it. A change under the section
+/// gets the section's row a dot (Antigravity's reproduction).
+#[test]
+fn ar10_a_section_row_is_not_a_scene() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut h, ids) = sections(home.path());
+
+    // A tracked change under the section: the section's row gets the dot.
+    action(&mut h, "changes.track_mine");
+    h.app.banners.clear();
+    h.doc_start();
+    while h.app.editor.caret.block != ids[3] {
+        h.named(Named::ArrowDown, Modifiers::empty());
+    }
+    h.named(Named::End, Modifiers::empty());
+    h.type_text(" Thunder.");
+    assert_eq!(texts(&h)[3], "Rain falls. Thunder.");
+    h.run(vec![Message::Tick]);
+    let rows = h.app.nav_rows();
+    assert!(rows[1].section && rows[1].change.is_some(), "{rows:?}");
+    assert!(rows[0].change.is_none() && rows[2].change.is_none());
+
+    // Under the section, the scene is the one before it.
+    assert_eq!(h.app.scene_row().map(|r| r.id), Some(ids[0]));
+    h.shortcut('f', false);
+    h.type_text("Rain");
+    h.run(vec![
+        Message::FindScope,
+        Message::Action("edit.replace".into()),
+        Message::ReplaceInput("Snow".into()),
+        Message::ReplaceAll,
+    ]);
+    assert!(h.app.banners.is_empty(), "{:?}", h.app.banners);
+    assert_eq!(
+        texts(&h),
+        [
+            "INT. LAB - NIGHT",
+            "Snow on the roof.",
+            "Act Two",
+            "Rain falls. Thunder.",
+            "EXT. ROOF - NIGHT",
+            "Rain again."
+        ]
+    );
+    while h.app.find_open() {
+        h.named(Named::Escape, Modifiers::empty());
+    }
+
+    // From the section, Alt+Down moves the scene before it.
+    h.app.editor.caret = Caret::at(ids[2], 0);
+    h.app.focus = Focus::Navigator;
+    h.named(Named::ArrowDown, Modifiers::ALT);
+    let t = texts(&h);
+    assert_eq!(t[t.len() - 2], "INT. LAB - NIGHT", "{t:?}");
+    h.app.d.discard();
+}

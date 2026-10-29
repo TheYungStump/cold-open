@@ -942,16 +942,13 @@ impl App {
                 }
                 _ => {}
             }
-            // A scene holding pending changes gets a dot (editor.md §17.1).
-            if let Some(last) = rows.last_mut()
-                && !last.section
-                && last.change.is_none()
-            {
-                last.change = b.change_ids().next();
-            }
-            if let Some(last) = rows.last_mut()
-                && !last.section
-            {
+            // A scene holding pending changes gets a dot (editor.md §17.1),
+            // and so does a section for those under it before the next
+            // scene (2026-10-28, review finding AR10).
+            if let Some(last) = rows.last_mut() {
+                if last.change.is_none() {
+                    last.change = b.change_ids().next();
+                }
                 last.revised |= b.has_revisions();
             }
         }
@@ -1853,7 +1850,7 @@ impl App {
             return self.after_change(false);
         }
         if self.focus == Focus::Navigator {
-            let current = self.current_scene_row();
+            let current = self.current_row();
             match kp.key.as_ref() {
                 Key::Named(Named::ArrowUp) if kp.modifiers.alt() => {
                     return self.action("nav.move_scene_up");
@@ -1886,12 +1883,26 @@ impl App {
         }
     }
 
+    /// The navigator row at or before the caret, a section's included: the
+    /// row highlighted, and where Up and Down in the navigator start.
+    fn current_row(&self) -> Option<usize> {
+        self.row_before_caret(|_| true)
+    }
+
+    /// The row of the scene holding the caret, or under a section, the
+    /// scene before it: what "This scene", the status bar and moving a
+    /// scene act on. A section's row is no scene (2026-10-28, review
+    /// finding AR10).
     fn current_scene_row(&self) -> Option<usize> {
+        self.row_before_caret(|r| !r.section)
+    }
+
+    fn row_before_caret(&self, counts: impl Fn(&NavRow) -> bool) -> Option<usize> {
         let doc = &self.d.session()?.doc;
         let ci = doc.index_of(self.editor.caret.block)?;
         self.nav
             .iter()
-            .rposition(|r| doc.index_of(r.id).is_some_and(|i| i <= ci))
+            .rposition(|r| counts(r) && doc.index_of(r.id).is_some_and(|i| i <= ci))
     }
 
     fn goto_row(&mut self, i: usize) -> Task<Message> {
@@ -1947,7 +1958,6 @@ impl App {
         let mut params = json!({ "find": f.query, "match_case": f.match_case });
         if f.scene_only
             && let Some(row) = self.current_scene_row().and_then(|i| self.nav.get(i))
-            && !row.section
         {
             params["scope"] = json!({ "scene": row.id });
         }

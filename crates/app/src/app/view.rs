@@ -787,7 +787,7 @@ impl App {
     }
 
     fn navigator(&self, pal: Palette) -> Element<'_, Message> {
-        let current = self.current_scene_row();
+        let current = self.current_row();
         let slots = self
             .d
             .session()
