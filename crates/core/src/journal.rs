@@ -603,9 +603,7 @@ pub struct ReadBack {
     entry_ends: Vec<u64>,
 }
 
-/// More changes than any real script could hold: a header naming more is
-/// damaged.
-const MAX_CHANGES: usize = 10_000_000;
+use crate::changes::MAX_CHANGES;
 
 impl ReadBack {
     /// Takes a bundle's change table for the one the header names, when

@@ -377,13 +377,21 @@ pub fn read(bytes: &[u8]) -> Result<ReadOut, CommandError> {
         .ok_or_else(|| "document.json is missing".to_string())
         .and_then(|d| serde_json::from_slice::<Document>(d).map_err(|e| e.to_string()));
     let doc = match parsed {
-        Ok(mut doc) => {
+        Ok(mut doc) => 'doc: {
             let mut changes = table.clone().unwrap_or_default();
             let highest = doc
                 .blocks
                 .iter()
                 .flat_map(|b| b.change_ids().collect::<Vec<_>>())
                 .max();
+            // A mark past any real table is not a real project's: it would
+            // take that many stand-ins (2026-10-28, review findings GR2,
+            // CL4, GP12).
+            if let Some(h) = highest
+                && h.0 > crate::changes::MAX_CHANGES as u64
+            {
+                break 'doc Err(format!("a mark names {h}, past any change table"));
+            }
             if table.is_none() || highest.is_some_and(|h| changes.get(h).is_none()) {
                 if let Some(h) = highest {
                     changes.fill_to(h);
@@ -410,6 +418,11 @@ pub fn read(bytes: &[u8]) -> Result<ReadOut, CommandError> {
                     Some(Ok(t)) => t,
                     _ => Revisions::default(),
                 };
+                if let Some(h) = highest
+                    && h.0 > crate::revisions::MAX_SETS
+                {
+                    break 'doc Err(format!("a mark names {h}, past any revision table"));
+                }
                 if !readable || highest.is_some_and(|h| table.get(h).is_none()) {
                     if let Some(h) = highest {
                         table.fill_to(h.0);

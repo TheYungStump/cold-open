@@ -392,3 +392,68 @@ fn gp3_another_tools_entries_are_kept() {
     );
     d.discard();
 }
+
+/// A one-block bundle whose block is marked with change `c`, or revision
+/// set `r`, and has no table for it: as a few hundred bytes a crafted file
+/// can be.
+fn sparse(change: &str, rev: Option<&str>) -> Vec<u8> {
+    let mut block =
+        json!({"id": "b_1", "type": "action", "text": "x", "change": {"inserted": change}});
+    if let Some(r) = rev {
+        block["rev"] = json!(r);
+    }
+    let doc = json!({"blocks": [block], "next_id": 2});
+    let meta = format!(
+        "{{\"format\":\"coldopen-bundle\",\"v\":{},\"app\":\"0.1.0\",\"doc_id\":\"x\"}}",
+        if rev.is_some() { 2 } else { 1 }
+    );
+    let mut out = Vec::new();
+    let mut zw = rawzip::ZipArchiveWriter::new(&mut out);
+    for (name, data) in [
+        ("meta.json", meta.into_bytes()),
+        ("document.json", serde_json::to_vec(&doc).unwrap()),
+        ("script.fountain", b"x\n".to_vec()),
+    ] {
+        let (mut entry, _) = zw
+            .new_file(name)
+            .compression_method(rawzip::CompressionMethod::STORE)
+            .start()
+            .unwrap();
+        std::io::Write::write_all(&mut entry, &data).unwrap();
+        entry
+            .finish(rawzip::DataDescriptorOutput::new(
+                rawzip::crc32(&data),
+                data.len() as u64,
+            ))
+            .unwrap();
+    }
+    zw.finish().unwrap();
+    out
+}
+
+/// GR2 = CL4 = GP12: a mark naming a change, or a revision set, the bundle
+/// has no table for is given a stand-in, and so is every id below it. An id
+/// past what the journal ever accepts (10,000,000 changes; 10,000 sets) is
+/// not a real project's: `document.json` counts as damaged, and the project
+/// opens from its readable copy, at once. Before, `c_18446744073709551614`
+/// ran until memory ran out.
+#[test]
+fn gr2_a_mark_naming_an_absurd_id_is_not_filled_up_to() {
+    for bytes in [
+        sparse("c_10000001", None),
+        sparse("c_18446744073709551614", None),
+        sparse("c_1", Some("r_10001")),
+        sparse("c_1", Some("r_18446744073709551614")),
+    ] {
+        let start = std::time::Instant::now();
+        let r = coldopen_core::bundle::read(&bytes).unwrap();
+        assert!(start.elapsed() < std::time::Duration::from_secs(2));
+        assert!(r.doc.changes.len() <= 1, "{}", r.doc.changes.len());
+        assert!(r.doc.revisions.sets.len() <= 1);
+        let codes = r.repaired.unwrap()["issues"].to_string();
+        assert!(codes.contains("bundle_document"), "{codes}");
+    }
+    // Within the limits, the stand-ins are made as before.
+    let r = coldopen_core::bundle::read(&sparse("c_1000", None)).unwrap();
+    assert_eq!(r.doc.changes.len(), 1000);
+}

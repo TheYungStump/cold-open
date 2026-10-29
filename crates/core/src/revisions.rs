@@ -3,6 +3,11 @@
 
 use serde::{Deserialize, Serialize};
 
+/// More revision sets than any production could have, one per distributed
+/// draft: a bundle whose marks name more is damaged (docs/specs/bundle.md
+/// §7, 2026-10-28).
+pub const MAX_SETS: u64 = 10_000;
+
 pub use coldopen_screenplay::RevisionId;
 
 /// The usual order of revision colors (docs/specs/revisions.md §2.1): nine

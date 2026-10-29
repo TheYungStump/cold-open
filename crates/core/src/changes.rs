@@ -11,6 +11,10 @@ use crate::document::{Block, BlockId, Document};
 use crate::io::Fingerprint;
 use crate::revisions::RevisionId;
 
+/// More changes than any real script could hold: a journal header or a
+/// bundle that names more is damaged (docs/specs/journal.md, bundle.md §7).
+pub const MAX_CHANGES: usize = 10_000_000;
+
 pub use coldopen_screenplay::ChangeId;
 
 /// The name a writer's changes show when the writer has none
@@ -195,6 +199,8 @@ impl Changes {
 
     /// Adds entries for changes up to `id` that the table lacks, with an
     /// unknown author and time 0 (docs/specs/bundle.md §7).
+    /// Fills the table with stand-ins up to `id`; past [`MAX_CHANGES`] the
+    /// caller refuses instead (docs/specs/bundle.md §7).
     pub fn fill_to(&mut self, id: ChangeId) {
         while (self.0.len() as u64) < id.0 {
             self.push(ChangeBy::unknown(), 0, None);
