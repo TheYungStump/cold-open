@@ -823,7 +823,7 @@ fn compare_blocks(
     let key = |els: &[Element], i: usize| (els[i].kind, els[i].text.plain_text());
     let ka: Vec<(ElementKind, String)> = xa.iter().map(|&i| key(ea, i)).collect();
     let kb: Vec<(ElementKind, String)> = xb.iter().map(|&i| key(eb, i)).collect();
-    let aligned = align(&ka, &kb);
+    let aligned = align_blocks(&ka, &kb, 0);
     let mut out = Vec::new();
     let mut rows = Vec::new();
     let (mut pa, mut pb) = (0, 0);
@@ -874,6 +874,86 @@ fn align<T: PartialEq>(a: &[T], b: &[T]) -> Vec<(usize, usize)> {
         .collect()
 }
 
+/// Blocks aligned (§3.3 steps 1 and 3): the common start and end, then the
+/// longest common sequence between. Past the pair bound, the middle is
+/// anchored on the blocks whose kind and text occur once in each draft's
+/// middle, those in the longest run increasing in both, and aligned again
+/// between the anchors (2026-10-28, review findings GR11, CL7). `depth`
+/// bounds that.
+fn align_blocks<T: Ord>(a: &[T], b: &[T], depth: u32) -> Vec<(usize, usize)> {
+    let start = a.iter().zip(b).take_while(|(x, y)| x == y).count();
+    let end = a[start..]
+        .iter()
+        .rev()
+        .zip(b[start..].iter().rev())
+        .take_while(|(x, y)| x == y)
+        .count();
+    let (ma, mb) = (&a[start..a.len() - end], &b[start..b.len() - end]);
+    let middle = match words::common(ma, mb) {
+        Some(m) => m,
+        None if depth < MAX_ANCHOR_DEPTH => anchored(ma, mb, depth),
+        None => Vec::new(),
+    };
+    (0..start)
+        .map(|k| (k, k))
+        .chain(middle.into_iter().map(|(i, j)| (i + start, j + start)))
+        .chain((0..end).map(|k| (a.len() - end + k, b.len() - end + k)))
+        .collect()
+}
+
+/// How deep anchoring may go before a middle is left unaligned.
+const MAX_ANCHOR_DEPTH: u32 = 32;
+
+/// The middle of two long block lists aligned on their unique blocks.
+fn anchored<T: Ord>(a: &[T], b: &[T], depth: u32) -> Vec<(usize, usize)> {
+    // For each key: how often it occurs in A, where, and the same in B.
+    let mut seen: BTreeMap<&T, (usize, usize, usize, usize)> = BTreeMap::new();
+    for (i, x) in a.iter().enumerate() {
+        let e = seen.entry(x).or_insert((0, 0, 0, 0));
+        e.0 += 1;
+        e.1 = i;
+    }
+    for (j, y) in b.iter().enumerate() {
+        if let Some(e) = seen.get_mut(y) {
+            e.2 += 1;
+            e.3 = j;
+        }
+    }
+    let mut pairs: Vec<(usize, usize)> = seen
+        .values()
+        .filter(|e| e.0 == 1 && e.2 == 1)
+        .map(|e| (e.1, e.3))
+        .collect();
+    pairs.sort_unstable();
+    let keep = in_order(&pairs);
+    let anchors: Vec<(usize, usize)> = pairs
+        .into_iter()
+        .zip(keep)
+        .filter_map(|(p, k)| k.then_some(p))
+        .collect();
+    if anchors.is_empty() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let (mut pa, mut pb) = (0, 0);
+    for (i, j) in anchors
+        .into_iter()
+        .chain(std::iter::once((a.len(), b.len())))
+    {
+        let between = align_blocks(&a[pa..i], &b[pb..j], depth + 1);
+        out.extend(between.into_iter().map(|(x, y)| (x + pa, y + pb)));
+        if i < a.len() {
+            out.push((i, j));
+        }
+        (pa, pb) = (i + 1, j + 1);
+    }
+    out
+}
+
+/// The most pairs of blocks a gap is scored for (§3.3 step 3, 2026-10-28):
+/// past it, its blocks are deleted and added.
+const MAX_GAP_PAIRS: usize = 250_000;
+
 /// The unaligned blocks between two aligned ones (§3.3 step 2): pairs by
 /// similarity, the same kind first, and the rest added or deleted. Deleted
 /// blocks come before added ones, each in its draft's order.
@@ -898,28 +978,33 @@ fn gap(
         .iter()
         .map(|&j| word_list(&eb[j].text.plain_text()))
         .collect();
-    let pairs = greedy(ga.len(), gb.len(), true, |x, y| {
-        let (e, f) = (&ea[ga[x]], &eb[gb[y]]);
-        // A page break pairs only with a page break, and a note or
-        // boneyard block only with one of those: nothing else can become
-        // one without losing its text or styles (2026-10-26).
-        if (e.kind == ElementKind::PageBreak) != (f.kind == ElementKind::PageBreak)
-            || e.kind.is_raw_text() != f.kind.is_raw_text()
-        {
-            return None;
-        }
-        let s = if e.text.plain_text() == f.text.plain_text() {
-            1.0
-        } else if wa[x].is_empty() && wb[y].is_empty() {
-            // No words on either side, and different text: nothing to
-            // say they are the same block.
-            0.0
-        } else {
-            block_similarity(&wa[x], &wb[y])
-        };
-        // The same kind wins a tie.
-        (s >= SIMILAR).then_some(s + if e.kind == f.kind { 1e-9 } else { 0.0 })
-    });
+    let bounded = ga.len().saturating_mul(gb.len()) <= MAX_GAP_PAIRS;
+    let pairs = if !bounded {
+        Vec::new()
+    } else {
+        greedy(ga.len(), gb.len(), true, |x, y| {
+            let (e, f) = (&ea[ga[x]], &eb[gb[y]]);
+            // A page break pairs only with a page break, and a note or
+            // boneyard block only with one of those: nothing else can become
+            // one without losing its text or styles (2026-10-26).
+            if (e.kind == ElementKind::PageBreak) != (f.kind == ElementKind::PageBreak)
+                || e.kind.is_raw_text() != f.kind.is_raw_text()
+            {
+                return None;
+            }
+            let s = if e.text.plain_text() == f.text.plain_text() {
+                1.0
+            } else if wa[x].is_empty() && wb[y].is_empty() {
+                // No words on either side, and different text: nothing to
+                // say they are the same block.
+                0.0
+            } else {
+                block_similarity(&wa[x], &wb[y])
+            };
+            // The same kind wins a tie.
+            (s >= SIMILAR).then_some(s + if e.kind == f.kind { 1e-9 } else { 0.0 })
+        })
+    };
     let paired_a: BTreeSet<usize> = pairs.iter().map(|p| p.0).collect();
     let paired_b: BTreeMap<usize, usize> = pairs.iter().map(|&(x, y)| (y, x)).collect();
     for (x, &i) in ga.iter().enumerate() {
