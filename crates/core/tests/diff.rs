@@ -543,3 +543,46 @@ fn importing_a_moved_unit_moves_its_section_and_forced_heading() {
         d.discard();
     }
 }
+
+/// AR7 (the reviews of phases 4–5b, 2026-10-28): an .fdx script with a
+/// Shot and General text, compared with itself as Fountain, has no
+/// differences, and importing it brings in none. Before, the coercion that
+/// makes them compare equal also made A's comparison form inexact, so the
+/// import planned on the raw blocks and retyped both.
+#[test]
+fn a_shot_and_general_text_import_as_nothing_from_fountain() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a.fdx");
+    fs::write(
+        &a,
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
+<FinalDraft DocumentType="Script" Template="No" Version="5">
+  <Content>
+    <Paragraph Type="Scene Heading">
+      <Text>INT. OFFICE - DAY</Text>
+    </Paragraph>
+    <Paragraph Type="Shot">
+      <Text>CLOSE ON THE PHONE</Text>
+    </Paragraph>
+    <Paragraph Type="General">
+      <Text>It rings.</Text>
+    </Paragraph>
+  </Content>
+</FinalDraft>
+"#,
+    )
+    .unwrap();
+    let b = dir.path().join("b.fountain");
+    let mut d = open(&a);
+    ok(
+        &mut d,
+        "export.fountain",
+        json!({"path": b, "allow_lossy": true}),
+    );
+    let r = ok(&mut d, "diff", json!({"b": b}));
+    assert_eq!(r["scenes"], json!([]), "{r}");
+    let r = ok(&mut d, "changes.import", json!({"path": b}));
+    assert_eq!(r["change"], Value::Null, "{r}");
+    assert_eq!(r["edits"], 0, "{r}");
+    d.discard();
+}
