@@ -330,6 +330,29 @@ pub(crate) fn fountain_text(doc: &Document) -> Vec<u8> {
 /// The script a document writes as Fountain, with what Fountain cannot hold
 /// of a document read from .fdx (docs/specs/fountain.md §11). A Fountain
 /// document has none of it, so it writes exactly as before.
+/// The spacing overrides Fountain writes, as blank lines of the document's
+/// line height: each printing block's index, its nearest whole number of
+/// lines, and whether that is exact (docs/specs/fountain.md §11).
+fn spacing_lines(doc: &Document) -> Vec<(usize, u8, bool)> {
+    let line = doc
+        .page_format
+        .as_deref()
+        .map_or(PageFormat::default().line_height, |f| f.line_height)
+        .0
+        .max(1);
+    doc.spacing
+        .iter()
+        .filter_map(|(id, pt)| {
+            let i = doc.index_of(*id)?;
+            if !doc.blocks[i].element.kind.is_printing() {
+                return None;
+            }
+            let lines = u8::try_from((pt.0.max(0) + line / 2) / line).unwrap_or(u8::MAX);
+            Some((i, lines, pt.0 % line == 0))
+        })
+        .collect()
+}
+
 fn fountain_script(doc: &Document) -> (Script, Vec<Loss>) {
     let mut script = doc.to_script();
     let mut losses = Vec::new();
@@ -344,23 +367,9 @@ fn fountain_script(doc: &Document) -> (Script, Vec<Loss>) {
             "the page and element settings are not kept; Fountain always prints with the default format",
         ));
     }
-    let line = doc
-        .page_format
-        .as_deref()
-        .map_or(PageFormat::default().line_height, |f| f.line_height)
-        .0
-        .max(1);
-    for (id, pt) in &doc.spacing {
-        let Some(i) = doc.index_of(*id) else {
-            continue;
-        };
-        let e = &mut script.elements[i];
-        if !e.kind.is_printing() {
-            continue;
-        }
-        let lines = u8::try_from((pt.0.max(0) + line / 2) / line).unwrap_or(u8::MAX);
-        e.space_before = Some(lines);
-        if pt.0 % line != 0 {
+    for (i, lines, whole) in spacing_lines(doc) {
+        script.elements[i].space_before = Some(lines);
+        if !whole {
             losses.push(Loss::lost(
                 Some(i),
                 "paragraph_spacing",
@@ -409,6 +418,13 @@ pub fn adopt(doc: &mut Document, format: FormatId) {
         // A bundle holds everything.
         FormatId::Bundle => {}
         FormatId::Fountain => {
+            // The spacing becomes the blank lines the file was written with,
+            // measured before the page format goes (2026-10-28, review
+            // finding AR5).
+            for (i, lines, _) in spacing_lines(doc) {
+                doc.blocks[i].element.space_before = Some(lines);
+            }
+            doc.spacing.clear();
             doc.fdx = None;
             doc.page_format = None;
             if doc.title_page.is_empty() && !doc.title_lines.is_empty() {

@@ -313,7 +313,7 @@ A document read from an .fdx file can hold what Fountain cannot, besides the ele
 | Code | Content | What the writer does |
 | --- | --- | --- |
 | `page_format` | A page format other than the default: page size, margins, element settings | Writes the script; a Fountain file always prints with the default format |
-| `paragraph_spacing` | A paragraph's space above, in points, that is not a whole number of lines | Writes the nearest whole number of blank lines. An override that is a whole number of lines is written as that many blank lines (`space_before`) and is not a loss |
+| `paragraph_spacing` | A paragraph's space above, in points, that is not a whole number of lines | Writes the nearest whole number of blank lines. An override that is a whole number of lines is written as that many blank lines (`space_before`) and is not a loss. (2026-10-28, review finding AR5) Once converted, the document holds the blank lines it was written with, measured in the old format's line height, and no overrides, so a later save does not report this again |
 | `title_page_layout` | Title lines with their own positions | Writes them as title-page keys, as below; their positions are not kept |
 | `fdx_data` | The .fdx passthrough store: settings, smart-type lists, revision sets and everything else Cold Open keeps but does not use (`docs/specs/fdx.md` §13), listed by section name | Leaves it out |
 

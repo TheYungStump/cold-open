@@ -705,3 +705,38 @@ fn an_edit_inside_dual_dialogue_stays_local_in_the_corpus() {
         eprintln!("an_edit_inside_dual_dialogue_stays_local_in_the_corpus: no corpus, skipped");
     }
 }
+
+/// AR5: once an .fdx script with space above that is not a whole number of
+/// lines is converted to Fountain, that space is blank lines in the
+/// document too, so a later save in place does not ask again
+/// (docs/specs/commands.md, "Converting"; Antigravity's reproduction).
+#[test]
+fn ar5_converting_to_fountain_takes_the_spacing_as_blank_lines() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, _) = open_fdx(
+        dir.path(),
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\" ?>\n<FinalDraft DocumentType=\"Script\" Template=\"No\" Version=\"5\">\n  <Content>\n    <Paragraph Type=\"Scene Heading\">\n      <Text>INT. OFFICE - DAY</Text>\n    </Paragraph>\n    <Paragraph Type=\"Action\" SpaceBefore=\"18\">\n      <Text>Alice waits.</Text>\n    </Paragraph>\n  </Content>\n</FinalDraft>\n",
+    );
+    let action = first(&mut d, "action");
+    let p = dir.path().join("test.fountain");
+    ok(&mut d, "doc.save", json!({"path": p, "allow_lossy": true}));
+    ok(
+        &mut d,
+        "text.insert",
+        json!({"id": action, "at": 12, "text": " Impatiently."}),
+    );
+    ok(&mut d, "doc.save", json!({}));
+    // 18 pt is a line and a half: the nearest whole number is two lines,
+    // as the converted file wrote it.
+    let written = fs::read_to_string(&p).unwrap();
+    let action = blocks(&mut d)
+        .into_iter()
+        .find(|b| b["type"] == "action")
+        .unwrap();
+    assert_eq!(action["space_before"], 2, "{action}");
+    assert!(
+        written.contains("DAY\n\n\nAlice waits. Impatiently."),
+        "{written:?}"
+    );
+    d.discard();
+}
