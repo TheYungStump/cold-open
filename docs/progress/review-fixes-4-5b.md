@@ -54,6 +54,7 @@ Each finding gets a test made from the reviewer's reproduction. It is run before
 | 7 | AR12 (part 2): the `unsupported_format` message names only Fountain | fixed. Before: `"bogus" is not a supported format in this version; use "fountain"` | `core/tests/saving.rs` `an_unknown_format_names_every_format` | "Name every save format when refusing an unknown one" (d26d392) |
 | 7 | P5 (found checking the plan's passing notes): rejecting a change that moved a scene and then split its last block undid the move first, left the split-off block at the end, and joined " is ready." onto the last scene's last block | fixed (semantics 4, unreleased): a change's splits are joined back before its moves | `core/tests/changes.rs` `rejecting_a_move_then_a_split_of_the_moved_scene` (both orders, both split points) | "Reject a change's splits before its moves" (533d1d8) |
 | 7 | P6 (found by the bundle property at 4,096 cases): an entry named `script.fo:ntain` was kept and written back as `ntain`, since the zip writer drops a name up to a colon | fixed: an entry is kept only under a name the writer leaves as it is | `core/tests/bundle.rs` `p6_an_entry_is_kept_only_under_a_name_that_writes_back`; the case in `changes.proptest-regressions` | "Keep another tool's entry only under a name that writes back" (fd4aace) |
+| CI | P7 (found by CI on macOS, PR run 40829425290): the GR11 anchoring chose its anchors in order with the n² search written for scene pairs, so a long unit still had a quadratic step; the growth test saw 621 ms for 4,800 blocks against 60 ms for 1,200 (10.3 times, limit 9) | fixed: the same run with the same ties, found in n log n with a Fenwick tree. Before, locally in a debug build: 9,600 blocks took 20.7 times as long as 1,200, and the growth test, now over 8 times the blocks with a limit of 14, failed; after, 8.1 times | `diff/tests/perf.rs` `a_long_unit_is_compared_in_bounded_time`; `diff/src/lib.rs` `in_order_keeps_what_the_quadratic_search_kept` (checked against the old search, ties included) | "Choose the diff's anchors in order in n log n" (107deeb) |
 
 ## Checks per group
 
@@ -66,6 +67,14 @@ Each finding gets a test made from the reviewer's reproduction. It is run before
 - **Group 4** (2026-10-28, Windows 11): the same checks, all passing, with clippy of core for Linux and macOS; the crash gate ran with the workspace tests. The core properties ran at 512 cases, the bundle property at 2,048 (which found P4). `old_journals.rs` still replays the phase 5b fixture through the frozen rules.
 
 - **Group 5** (2026-10-28, Windows 11): the same checks, all passing, with clippy of core, the diff crate and the app for Linux and macOS; the crash gate ran with the workspace tests. The GR11 timing ran in release (above); the diff budget test still reports 16 ms for two 120-page scripts.
+
+- **Group 6** (2026-10-29, Windows 11): the same checks, all passing, with clippy of core and the .fdx crate for Linux and macOS. A read at the GR2 cap takes 0.43 s in release; CL5's crafted bundle is refused in 0.6 s (it opened after 43 s in debug before). The bundle property ran at 4,096 cases (which found P6).
+
+- **Group 7** (2026-10-29, Windows 11): the same checks, all passing, with clippy of core, the app and the MCP crate for Linux and macOS.
+
+- **Final** (2026-10-29): the crash gate passed 5 times in a row; `old_journals.rs` replays every fixture of semantics 1 to 3, the phase 5b one included; the save budgets pass with `--assert` (UI thread p95 at most 1.4 ms against 4 ms, whole saves 6 to 21 ms median against 50 ms); the 34 corpus .fdx files write back byte for byte; the reference gate passes with the numbers of group 3. No new dependencies. The fuzz workflow, run by hand on the branch (run 40829338100), passed every target, `bundle_read` with `bundle_hostile` included.
+
+- **CI** (2026-10-29): the PR's first run failed one job, the macOS test, on the GR11 growth test (P7). After its fix: `cargo fmt --check`, clippy of the workspace and `cargo test --workspace` (no failures), the diff crate's property at 20,000 cases in release, and the end-to-end diff budget, all passing locally.
 
 ## Manual tests
 
