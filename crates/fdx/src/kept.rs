@@ -752,6 +752,6 @@ fn generated(
         return None;
     }
     let mut g = write::Gen::new(style, format);
-    g.group(&blks, lead, None);
+    g.group(&blks, lead, None, &write::Sources::default());
     Some(g.out)
 }

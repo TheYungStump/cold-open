@@ -519,3 +519,52 @@ fn gr8_a_kept_paragraph_follows_its_block_not_its_page_break() {
     }
     d.discard();
 }
+
+/// GP2 (B): a dual-dialogue block made into two ordinary speeches carries
+/// each nested paragraph's kept parts to its speech's paragraph. What the
+/// outer paragraph held that has no place now is a loss the save asks
+/// about, never dropped without a word.
+#[test]
+fn gp2b_undualling_keeps_each_speeches_parts_and_reports_the_rest() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, p) = open_fdx(
+        dir.path(),
+        r#"<FinalDraft><Content><Paragraph Type="General"><DualDialogue><Paragraph Type="Character"><Text>ADA</Text></Paragraph><Paragraph Type="Dialogue"><Text>Wait.</Text></Paragraph><Paragraph Type="Character" Custom="keep-me"><Text>BEN</Text></Paragraph><Paragraph Type="Dialogue"><Text Color="red">Go.</Text><ScriptNote>Remember the key.</ScriptNote></Paragraph></DualDialogue></Paragraph></Content></FinalDraft>"#,
+    );
+    ok(
+        &mut d,
+        "block.set_attrs",
+        json!({"id": "b_3", "dual": false}),
+    );
+    let r = ok(&mut d, "doc.save", json!({}));
+    assert_eq!(r["losses"], json!([]), "{r}");
+    let xml = fs::read_to_string(&p).unwrap();
+    assert!(!xml.contains("DualDialogue"), "{xml}");
+    assert!(
+        paragraph_with(&xml, "BEN").contains("Custom=\"keep-me\""),
+        "{xml}"
+    );
+    let go = paragraph_with(&xml, "Go.");
+    assert!(
+        go.contains("Color=\"red\"") && go.contains("Remember the key."),
+        "{go}"
+    );
+    d.discard();
+
+    // An unknown attribute or element on the outer paragraph has no place
+    // in two ordinary speeches.
+    let (mut d, _) = open_fdx(
+        dir.path(),
+        r#"<FinalDraft><Content><Paragraph Type="General" Zork="keepme"><Zed/><DualDialogue><Paragraph Type="Character"><Text>ADA</Text></Paragraph><Paragraph Type="Dialogue"><Text>Wait.</Text></Paragraph><Paragraph Type="Character"><Text>BEN</Text></Paragraph><Paragraph Type="Dialogue"><Text>Go.</Text></Paragraph></DualDialogue></Paragraph></Content></FinalDraft>"#,
+    );
+    ok(
+        &mut d,
+        "block.set_attrs",
+        json!({"id": "b_3", "dual": false}),
+    );
+    let (code, e) = run(&mut d, "doc.save", json!({})).unwrap_err();
+    assert_eq!(code, "lossy_format", "{e}");
+    let losses = e["details"]["losses"].to_string();
+    assert!(losses.contains("kept_parts"), "{losses}");
+    d.discard();
+}
