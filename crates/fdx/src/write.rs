@@ -241,6 +241,9 @@ pub(crate) struct Gen<'a> {
     format: &'a PageFormat,
     pub(crate) out: String,
     pub(crate) losses: Vec<Loss>,
+    /// A printing paragraph has been written into `Content`, so a
+    /// `StartsNewPage="Yes"` from here on makes a page break (§6.5).
+    printed: bool,
 }
 
 impl<'a> Gen<'a> {
@@ -250,6 +253,7 @@ impl<'a> Gen<'a> {
             format,
             out: String::new(),
             losses: Vec::new(),
+            printed: false,
         }
     }
 
@@ -510,7 +514,10 @@ impl<'a> Gen<'a> {
                 // A nested paragraph takes no break (§6.6): only one read
                 // nested carries what it had.
                 "StartsNewPage" => {
-                    (depth == 2 || c.nested) && read_broke == starts_page && !starts_page
+                    (depth == 2 || c.nested)
+                        && read_broke == starts_page
+                        && !starts_page
+                        && !(depth == 2 && self.printed && v == "Yes")
                 }
                 "Number" => same_kind && e.kind != ElementKind::SceneHeading,
                 "Type" => same_kind && type_of_kind(e.kind) != v.as_str(),
@@ -561,7 +568,9 @@ impl<'a> Gen<'a> {
                     // As for any paragraph (§14.4): carried while the page
                     // break before the block is as it was read (review
                     // finding CL8).
-                    "StartsNewPage" => c.read_broke == starts_page && !starts_page,
+                    "StartsNewPage" => {
+                        c.read_broke == starts_page && !starts_page && !(self.printed && v == "Yes")
+                    }
                     _ => true,
                 };
                 if keep {
@@ -653,7 +662,8 @@ impl<'a> Gen<'a> {
                 Some(kp)
                     if kp.verbatim
                         && kp.blocks.len() >= group - i
-                        && unchanged(kp, &blocks[i..]) =>
+                        && unchanged(kp, &blocks[i..])
+                        && !(self.printed && breaks_only_later(kp)) =>
                 {
                     self.out.push_str(&kp.text);
                     i + kp.blocks.len()
@@ -663,6 +673,7 @@ impl<'a> Gen<'a> {
                     group
                 }
             };
+            self.printed |= blocks[i..end].iter().any(|b| b.element.kind.is_printing());
             for b in &blocks[i..end] {
                 emit(&mut self.out, b.id, &mut loose);
             }
@@ -1140,6 +1151,16 @@ fn anchors(kept: &Kept) -> BTreeMap<u64, &KeptParagraph> {
                 .map(|b| (b.id, kp))
         })
         .collect()
+}
+
+/// Whether a kept paragraph says `StartsNewPage="Yes"` though no break was
+/// read before it: it came first, where the attribute makes no break
+/// (§6.5). Anywhere later, it would make one the document does not have
+/// (2026-10-28).
+fn breaks_only_later(kp: &KeptParagraph) -> bool {
+    kp.text.contains("StartsNewPage")
+        && Carry::of(kp)
+            .is_some_and(|c| !c.read_broke && c.para.attr("StartsNewPage") == Some("Yes"))
 }
 
 fn unchanged(kp: &KeptParagraph, blocks: &[Blk<'_>]) -> bool {

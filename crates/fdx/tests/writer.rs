@@ -310,3 +310,59 @@ fn a_kept_heading_keeps_its_parts_without_its_page_break() {
     assert!(out.contains("SceneProperties"), "{out}");
     assert!(!out.contains("StartsNewPage"), "{out}");
 }
+
+/// P2 (found while fixing GR8, 2026-10-28): an unedited kept first
+/// speaker was copied as it was even when the next speaker was made its
+/// dual partner, so the dual block was never written and the second
+/// speaker was reported `dual_unpaired`.
+#[test]
+fn a_kept_first_speaker_joins_a_new_dual_block() {
+    let text = file(
+        "\n    <Paragraph Type=\"Character\" Custom=\"keep\">\n      <Text>ADA</Text>\n    </Paragraph>\n    <Paragraph Type=\"Dialogue\">\n      <Text>Wait.</Text>\n    </Paragraph>\n    <Paragraph Type=\"Character\">\n      <Text>BEN</Text>\n    </Paragraph>\n    <Paragraph Type=\"Dialogue\">\n      <Text>Go.</Text>\n    </Paragraph>",
+    );
+    let doc = read(text.as_bytes()).unwrap();
+    let mut elements: Vec<(u64, Element)> = doc
+        .script
+        .elements
+        .iter()
+        .enumerate()
+        .map(|(i, e)| (i as u64 + 1, e.clone()))
+        .collect();
+    elements[2].1.dual = true;
+    let out = rewrite(&doc, &elements);
+    assert!(out.text.contains("<DualDialogue>"), "{}", out.text);
+    assert!(out.losses.is_empty(), "{:?}", out.losses);
+    assert!(out.text.contains("Custom=\"keep\""), "{}", out.text);
+}
+
+/// P3 (found while fixing GR8, 2026-10-28): the first paragraph's
+/// `StartsNewPage="Yes"` makes no break, since nothing comes before it
+/// (§6.5). Copied as it was after a paragraph is added before it, it would
+/// make one when the file is read again.
+#[test]
+fn a_first_paragraphs_break_does_not_appear_when_something_comes_before_it() {
+    let text = file(
+        "\n    <Paragraph Type=\"Action\" StartsNewPage=\"Yes\" Custom=\"keep\">\n      <Text>Dawn.</Text>\n    </Paragraph>\n    <Paragraph Type=\"Action\">\n      <Text>Rain.</Text>\n    </Paragraph>",
+    );
+    let doc = read(text.as_bytes()).unwrap();
+    assert!(
+        !doc.script
+            .elements
+            .iter()
+            .any(|e| e.kind == ElementKind::PageBreak)
+    );
+    let mut elements: Vec<(u64, Element)> =
+        vec![(10, Element::new(ElementKind::Action, "Before."))];
+    elements.extend(
+        doc.script
+            .elements
+            .iter()
+            .enumerate()
+            .map(|(i, e)| (i as u64 + 1, e.clone())),
+    );
+    let out = rewrite(&doc, &elements).text;
+    let back = read(out.as_bytes()).unwrap();
+    let kinds: Vec<ElementKind> = back.script.elements.iter().map(|e| e.kind).collect();
+    assert!(!kinds.contains(&ElementKind::PageBreak), "{kinds:?}\n{out}");
+    assert!(out.contains("Custom=\"keep\""), "{out}");
+}
