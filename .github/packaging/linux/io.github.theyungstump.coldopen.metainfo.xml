@@ -5,9 +5,9 @@
   <project_license>GPL-3.0-or-later</project_license>
   <name>Cold Open</name>
   <summary>Write screenplays that never lose work</summary>
-  <developer id="io.github.theyungstump">
-    <name>The Cold Open contributors</name>
-  </developer>
+  <!-- developer_name, not the newer <developer>, and no vcs-browser URL:
+       the AppStream tools of Ubuntu 22.04 and its peers don't know those. -->
+  <developer_name>The Cold Open contributors</developer_name>
   <description>
     <p>
       Cold Open is a free, open-source screenwriting app. It reads and writes
@@ -22,7 +22,6 @@
   <launchable type="desktop-id">io.github.theyungstump.coldopen.desktop</launchable>
   <url type="homepage">https://github.com/TheYungStump/cold-open</url>
   <url type="bugtracker">https://github.com/TheYungStump/cold-open/issues</url>
-  <url type="vcs-browser">https://github.com/TheYungStump/cold-open</url>
   <provides>
     <binary>coldopen</binary>
     <binary>coldopen-app</binary>
