@@ -124,3 +124,27 @@ fn a_journal_already_there_is_still_recovered_read_only_or_not() {
         assert_ne!(e.code, "folder_read_only", "{}", e.message);
     }
 }
+
+#[test]
+fn save_as_into_a_read_only_folder_writes_nothing() {
+    let home = tempfile::tempdir().unwrap();
+    let locked = tempfile::tempdir().unwrap();
+    let script = home.path().join("pilot.fountain");
+    fs::write(&script, "INT. HOUSE - DAY\n\nRain.\n").unwrap();
+    let mut d = Dispatcher::new(Options::default());
+    open(&mut d, &script).unwrap();
+    let Some(_ro) = ReadOnly::new(locked.path()) else {
+        return;
+    };
+    let target = locked.path().join("pilot.fountain");
+    let e = d
+        .execute(Command::from_parts("doc.save", json!({ "path": target })).unwrap())
+        .unwrap_err();
+    assert_eq!(e.code, "folder_read_only", "{}", e.message);
+    assert_eq!(fs::read_dir(locked.path()).unwrap().count(), 0);
+    assert_eq!(
+        d.session().unwrap().path.as_deref(),
+        Some(script.as_path()),
+        "the script keeps its own file"
+    );
+}
