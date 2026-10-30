@@ -145,6 +145,10 @@ pub enum Message {
     Title(title::TitleInput),
     /// The compare view and the import question (editor.md §21).
     Compare(compare::CompareInput),
+    /// A comparison worked out off the UI thread, by its token.
+    Compared(u64, compare::Handoff<Result<compare::Compared, String>>),
+    /// An import planned off the UI thread.
+    ImportPlanned(compare::ImportPlanned),
     /// The worker's answer about the recent files: those it checked, and
     /// those that are gone (editor.md §11).
     RecentChecked {
@@ -396,6 +400,11 @@ pub struct App {
     pub title_sheet: Option<title::TitleSheet>,
     /// The compare view (editor.md §21).
     pub compare: Option<compare::CompareView>,
+    /// A comparison or import being worked out off the UI thread
+    /// (editor.md §21).
+    pub working: Option<compare::Working>,
+    /// Numbers that work, so a stopped one's answer is let go.
+    jobs: u64,
     /// Recent files found to be gone, as last checked (editor.md §11).
     pub missing: std::collections::BTreeSet<PathBuf>,
     pub export: Option<ExportForm>,
@@ -520,6 +529,8 @@ impl App {
             reports: None,
             title_sheet: None,
             compare: None,
+            working: None,
+            jobs: 0,
             missing: std::collections::BTreeSet::new(),
             export: None,
             sheet: None,
@@ -886,6 +897,31 @@ impl App {
                     change: None,
                     revised: false,
                 }),
+                // A heading whose deletion is pending is no scene of the
+                // current text, so `scene.list` leaves it out; it keeps its
+                // row, struck, named by its struck text, with nothing
+                // measured (2026-10-28).
+                ElementKind::SceneHeading if b.marks.deleted.is_some() => rows.push(NavRow {
+                    id: b.id,
+                    section: false,
+                    depth: 0,
+                    number: String::new(),
+                    heading: b
+                        .element
+                        .text
+                        .runs()
+                        .iter()
+                        .filter_map(|r| match r {
+                            coldopen_screenplay::Run::Text { text, .. } => Some(text.as_str()),
+                            _ => None,
+                        })
+                        .collect(),
+                    page: None,
+                    eighths: 0,
+                    deleted: true,
+                    change: None,
+                    revised: false,
+                }),
                 ElementKind::SceneHeading => {
                     if let Some(s) = si.next() {
                         rows.push(NavRow {
@@ -906,16 +942,13 @@ impl App {
                 }
                 _ => {}
             }
-            // A scene holding pending changes gets a dot (editor.md §17.1).
-            if let Some(last) = rows.last_mut()
-                && !last.section
-                && last.change.is_none()
-            {
-                last.change = b.change_ids().next();
-            }
-            if let Some(last) = rows.last_mut()
-                && !last.section
-            {
+            // A scene holding pending changes gets a dot (editor.md §17.1),
+            // and so does a section for those under it before the next
+            // scene (2026-10-28, review finding AR10).
+            if let Some(last) = rows.last_mut() {
+                if last.change.is_none() {
+                    last.change = b.change_ids().next();
+                }
                 last.revised |= b.has_revisions();
             }
         }
@@ -1223,6 +1256,8 @@ impl App {
             }
             Message::Chosen(ask, path) => self.chosen(ask, path),
             Message::Rendered(r) => self.rendered(r),
+            Message::Compared(token, out) => self.compared(token, out),
+            Message::ImportPlanned(p) => self.import_planned(p),
             Message::Saved(r) => self.saved(r),
             Message::Reply(r) => self.reply(r),
             Message::RecoveryKeep => self.recovery_keep(),
@@ -1484,6 +1519,14 @@ impl App {
                 _ => {}
             }
         }
+        // Esc stops waiting for a comparison (editor.md §21).
+        if kp.key == Key::Named(Named::Escape)
+            && self.prompt.is_none()
+            && self.working.take().is_some()
+        {
+            self.banners.push("Stopped comparing.".into());
+            return Task::none();
+        }
         if let Some(chord) = Chord::from_key(&kp.key, m)
             && let Some(action) = self.keymap.action(&chord).map(str::to_string)
         {
@@ -1723,6 +1766,11 @@ impl App {
         if let Some(t) = self.reports_key(kp, enter, esc) {
             return t;
         }
+        // Esc stops waiting for a comparison (editor.md §21).
+        if esc && self.prompt.is_none() && self.working.take().is_some() {
+            self.banners.push("Stopped comparing.".into());
+            return Task::none();
+        }
         if self.prompt.is_none()
             && let Some(t) = self.compare_key(kp, enter, esc)
         {
@@ -1802,7 +1850,7 @@ impl App {
             return self.after_change(false);
         }
         if self.focus == Focus::Navigator {
-            let current = self.current_scene_row();
+            let current = self.current_row();
             match kp.key.as_ref() {
                 Key::Named(Named::ArrowUp) if kp.modifiers.alt() => {
                     return self.action("nav.move_scene_up");
@@ -1835,12 +1883,25 @@ impl App {
         }
     }
 
+    /// The navigator row at or before the caret, a section's included: the
+    /// row highlighted, and where Up and Down in the navigator start.
+    fn current_row(&self) -> Option<usize> {
+        self.row_before_caret(|_| true)
+    }
+
+    /// The row of the scene holding the caret, or under a section, the
+    /// scene before it: what "This scene" and the status bar act on. A
+    /// section's row is no scene (2026-10-28, review finding AR10).
     fn current_scene_row(&self) -> Option<usize> {
+        self.row_before_caret(|r| !r.section)
+    }
+
+    fn row_before_caret(&self, counts: impl Fn(&NavRow) -> bool) -> Option<usize> {
         let doc = &self.d.session()?.doc;
         let ci = doc.index_of(self.editor.caret.block)?;
         self.nav
             .iter()
-            .rposition(|r| doc.index_of(r.id).is_some_and(|i| i <= ci))
+            .rposition(|r| counts(r) && doc.index_of(r.id).is_some_and(|i| i <= ci))
     }
 
     fn goto_row(&mut self, i: usize) -> Task<Message> {
@@ -1896,7 +1957,6 @@ impl App {
         let mut params = json!({ "find": f.query, "match_case": f.match_case });
         if f.scene_only
             && let Some(row) = self.current_scene_row().and_then(|i| self.nav.get(i))
-            && !row.section
         {
             params["scope"] = json!({ "scene": row.id });
         }
@@ -2227,7 +2287,11 @@ impl App {
                     .motion(&mut self.d, Motion::NextScene, false, Pt::ZERO);
             }
             "nav.move_scene_up" | "nav.move_scene_down" => {
-                if let Some(i) = self.current_scene_row() {
+                // The selected row, only when it is a scene: a section's row
+                // moved the scene before it, which looked like the section
+                // moving the other way (2026-10-30). Sections are not dragged
+                // either.
+                if let Some(i) = self.current_row().filter(|&i| !self.nav[i].section) {
                     let scenes: Vec<usize> = (0..self.nav.len())
                         .filter(|&j| !self.nav[j].section)
                         .collect();

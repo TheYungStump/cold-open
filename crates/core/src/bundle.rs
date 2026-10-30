@@ -22,13 +22,19 @@ pub const REVISIONS: &str = "revisions.json";
 pub const SCRIPT: &str = "script.fountain";
 
 /// The bundle format's version (docs/specs/bundle.md §3).
-pub const V: u32 = 2;
+pub const V: u32 = 3;
 const KIND: &str = "coldopen-bundle";
 
-/// The most an entry may inflate to, and the most entries an archive may
-/// hold (docs/specs/bundle.md §2).
-const MAX_ENTRY: usize = 256 << 20;
+/// The most an entry may inflate to, all entries together may, and the
+/// most entries an archive may hold (docs/specs/bundle.md §2). A 120-page
+/// script's project is about 200 KB of Fountain and a few MB of JSON; 16
+/// MiB is generous (2026-10-28, review finding CL5; 256 MiB before).
+const MAX_ENTRY: usize = 16 << 20;
+const MAX_TOTAL: usize = 64 << 20;
 const MAX_ENTRIES: u64 = 64;
+/// The most lines the readable copy may have to be read in place of
+/// `document.json`: ten times a long feature's (2026-10-28).
+const MAX_SCRIPT_LINES: usize = 250_000;
 /// Deflate level for Cold Open's own writer: level 2 deflates about four
 /// times as fast as 6 for a file 14% larger (docs/specs/bundle.md §2).
 const LEVEL: u8 = 2;
@@ -41,6 +47,14 @@ struct Meta {
     app: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     doc_id: Option<String>,
+}
+
+/// What `meta.json` says the file is, read before the rest of it, and with
+/// any other fields allowed (§3).
+#[derive(Deserialize)]
+struct Version {
+    format: String,
+    v: u32,
 }
 
 /// A new document identity: a random version 4 UUID (RFC 9562), in
@@ -93,9 +107,21 @@ struct DocumentOut<'a> {
 /// phase 5b; any other is version 2, with `revisions.json`.
 pub fn write(doc: &Document) -> Vec<u8> {
     let v2 = !doc.revisions.is_default();
+    // Numbered moves (docs/specs/changes.md §2.2) are version 3, which a
+    // build that would drop their order refuses (§3, 2026-10-28).
+    let v3 = doc
+        .blocks
+        .iter()
+        .any(|b| b.marks.moved.iter().any(|m| m.n.is_some()));
     let meta = Meta {
         format: KIND.into(),
-        v: if v2 { 2 } else { 1 },
+        v: if v3 {
+            3
+        } else if v2 {
+            2
+        } else {
+            1
+        },
         app: env!("CARGO_PKG_VERSION").into(),
         doc_id: doc.doc_id.clone(),
     };
@@ -137,6 +163,10 @@ pub fn write(doc: &Document) -> Vec<u8> {
         parts.push((REVISIONS, r));
     }
     parts.push((SCRIPT, &script));
+    // Entries another tool added, kept as they were read (§2, 2026-10-28).
+    for (name, data) in &doc.extra_entries {
+        parts.push((name, data));
+    }
     for (name, data) in parts {
         // Writing to memory cannot fail.
         let _ = put(&mut archive, name, data);
@@ -170,8 +200,11 @@ struct Entries {
     found: Vec<(String, Vec<u8>)>,
     /// Names of entries that failed their checks.
     damaged: Vec<String>,
-    /// Duplicate or unknown entries, ignored.
+    /// Duplicate entries, ignored.
     ignored: Vec<String>,
+    /// Entries with names a bundle does not use, which another tool added:
+    /// kept, in the order read (§2, 2026-10-28).
+    extra: Vec<(String, Vec<u8>)>,
 }
 
 impl Entries {
@@ -191,6 +224,7 @@ fn entries(bytes: &[u8]) -> Result<Entries, String> {
         found: Vec::new(),
         damaged: Vec::new(),
         ignored: Vec::new(),
+        extra: Vec::new(),
     };
     if archive.entries_hint() > MAX_ENTRIES {
         return Err(format!(
@@ -200,6 +234,7 @@ fn entries(bytes: &[u8]) -> Result<Entries, String> {
     }
     let mut list = archive.entries();
     let mut seen = 0u64;
+    let mut total = 0usize;
     loop {
         let e = match list.next_entry() {
             Ok(Some(e)) => e,
@@ -215,9 +250,8 @@ fn entries(bytes: &[u8]) -> Result<Entries, String> {
             break;
         }
         let name = String::from_utf8_lossy(e.file_path().as_ref()).into_owned();
-        if ![META, DOCUMENT, CHANGES, REVISIONS, SCRIPT].contains(&name.as_str())
-            || out.found.iter().any(|(n, _)| *n == name)
-        {
+        let known = [META, DOCUMENT, CHANGES, REVISIONS, SCRIPT].contains(&name.as_str());
+        if out.found.iter().chain(&out.extra).any(|(n, _)| *n == name) {
             out.ignored.push(name);
             continue;
         }
@@ -229,14 +263,16 @@ fn entries(bytes: &[u8]) -> Result<Entries, String> {
             .map_err(|e| e.to_string())
             .and_then(|entry| {
                 let raw = entry.data();
-                if size > MAX_ENTRY as u64 {
+                if size > MAX_ENTRY as u64 || total.saturating_add(size as usize) > MAX_TOTAL {
                     return Err("it is too large".to_string());
                 }
                 match method {
                     rawzip::CompressionMethod::STORE => Ok(raw.to_vec()),
+                    // No further than the size it declares, which the
+                    // check below then holds it to.
                     rawzip::CompressionMethod::DEFLATE => {
-                        miniz_oxide::inflate::decompress_to_vec_with_limit(raw, MAX_ENTRY)
-                            .map_err(|_| "its data does not inflate".to_string())
+                        miniz_oxide::inflate::decompress_to_vec_with_limit(raw, size as usize + 1)
+                            .map_err(|_| "its data does not inflate to its size".to_string())
                     }
                     other => Err(format!(
                         "its compression method {} is not read",
@@ -251,12 +287,40 @@ fn entries(bytes: &[u8]) -> Result<Entries, String> {
                     Ok(data)
                 }
             });
+        if let Ok(d) = &data {
+            total += d.len();
+        }
         match data {
-            Ok(d) => out.found.push((name, d)),
+            Ok(d) if known => out.found.push((name, d)),
+            Ok(d) if keepable(&name) => out.extra.push((name, d)),
+            // A name a zip writer would spell otherwise cannot be written
+            // back as it is: dropped and reported, so the first save keeps
+            // a copy of the file (§7).
+            Ok(_) => out
+                .damaged
+                .push(format!("{name}: its name cannot be written back as it is")),
             Err(why) => out.damaged.push(format!("{name}: {why}")),
         }
     }
     Ok(out)
+}
+
+/// Whether another tool's entry can be written back under the same name:
+/// printable ASCII, no backslash, not absolute, no `..` (§2). Zip writers
+/// spell other names otherwise. The writer also drops a name up to a
+/// colon, as a drive letter, and `.` parts, so a name is kept only when it
+/// leaves it as it is (2026-10-29, P6).
+fn keepable(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 255
+        && name.bytes().all(|b| b.is_ascii_graphic() || b == b' ')
+        && !name.contains('\\')
+        && !name.contains(':')
+        && !name.starts_with('/')
+        && !name
+            .split('/')
+            .any(|part| part == ".." || part == "." || part.is_empty())
+        && rawzip::path::ZipFilePath::from_str(name).as_str() == name
 }
 
 /// What a bundle's report says (docs/specs/bundle.md §7), as `.fdx` issues
@@ -286,18 +350,27 @@ pub fn read(bytes: &[u8]) -> Result<ReadOut, CommandError> {
         issues.push(issue(
             "bundle_entries",
             "kept",
+            format!("the entry \"{n}\" is a second copy of one, and is ignored"),
+        ));
+    }
+    for (n, _) in &e.extra {
+        issues.push(issue(
+            "bundle_entries",
+            "kept",
             format!(
-                "the entry \"{n}\" is not part of a bundle, or a second copy of one, and is ignored"
+                "the entry \"{n}\" is not part of a bundle; it is kept, and written back as it is"
             ),
         ));
     }
 
-    // meta.json: refuse a newer format; keep going without it.
-    let meta = e
+    // meta.json: refuse a newer format, judged on `format` and `v` alone,
+    // before anything else in it is read: a newer one may hold fields this
+    // version does not know (2026-10-28, review finding GP14). Then keep
+    // going without it if the rest cannot be read.
+    if let Some(m) = e
         .get(META)
-        .and_then(|m| serde_json::from_slice::<Meta>(m).ok())
-        .filter(|m| m.format == KIND);
-    if let Some(m) = &meta
+        .and_then(|m| serde_json::from_slice::<Version>(m).ok())
+        .filter(|m| m.format == KIND)
         && m.v > V
     {
         return Err(CommandError::new(
@@ -308,6 +381,10 @@ pub fn read(bytes: &[u8]) -> Result<ReadOut, CommandError> {
             ),
         ));
     }
+    let meta = e
+        .get(META)
+        .and_then(|m| serde_json::from_slice::<Meta>(m).ok())
+        .filter(|m| m.format == KIND);
     let mut doc_id = meta
         .as_ref()
         .and_then(|m| m.doc_id.clone())
@@ -332,13 +409,21 @@ pub fn read(bytes: &[u8]) -> Result<ReadOut, CommandError> {
         .ok_or_else(|| "document.json is missing".to_string())
         .and_then(|d| serde_json::from_slice::<Document>(d).map_err(|e| e.to_string()));
     let doc = match parsed {
-        Ok(mut doc) => {
+        Ok(mut doc) => 'doc: {
             let mut changes = table.clone().unwrap_or_default();
             let highest = doc
                 .blocks
                 .iter()
                 .flat_map(|b| b.change_ids().collect::<Vec<_>>())
                 .max();
+            // A mark past any real table is not a real project's: it would
+            // take that many stand-ins (2026-10-28, review findings GR2,
+            // CL4, GP12).
+            if let Some(h) = highest
+                && h.0 > crate::changes::MAX_CHANGES as u64
+            {
+                break 'doc Err(format!("a mark names {h}, past any change table"));
+            }
             if table.is_none() || highest.is_some_and(|h| changes.get(h).is_none()) {
                 if let Some(h) = highest {
                     changes.fill_to(h);
@@ -365,6 +450,11 @@ pub fn read(bytes: &[u8]) -> Result<ReadOut, CommandError> {
                     Some(Ok(t)) => t,
                     _ => Revisions::default(),
                 };
+                if let Some(h) = highest
+                    && h.0 > crate::revisions::MAX_SETS
+                {
+                    break 'doc Err(format!("a mark names {h}, past any revision table"));
+                }
                 if !readable || highest.is_some_and(|h| table.get(h).is_none()) {
                     if let Some(h) = highest {
                         table.fill_to(h.0);
@@ -384,7 +474,7 @@ pub fn read(bytes: &[u8]) -> Result<ReadOut, CommandError> {
         }
         Err(why) => Err(why),
     };
-    let (doc, warnings) = match doc {
+    let (mut doc, warnings) = match doc {
         Ok(doc) => (doc, Vec::new()),
         Err(why) => {
             // The readable copy, as a Fountain file.
@@ -393,6 +483,14 @@ pub fn read(bytes: &[u8]) -> Result<ReadOut, CommandError> {
                     "document.json cannot be used ({why}) and there is no script.fountain"
                 ))
             })?;
+            // A copy longer than any script is not read: parsing it would
+            // freeze the open (2026-10-28, review finding CL5).
+            let lines = script.iter().filter(|&&b| b == b'\n').count();
+            if lines > MAX_SCRIPT_LINES {
+                return Err(unreadable(format!(
+                    "document.json cannot be used ({why}), and script.fountain is {lines} lines long, more than any script"
+                )));
+            }
             let read = Fountain.read(script)?;
             issues.push(issue(
                 "bundle_document",
@@ -406,6 +504,7 @@ pub fn read(bytes: &[u8]) -> Result<ReadOut, CommandError> {
             (doc, read.warnings)
         }
     };
+    doc.extra_entries = e.extra;
     let repaired_issues: Vec<Value> = issues
         .iter()
         .filter(|i| i["class"] == "fixed" || i["class"] == "dropped")
@@ -476,6 +575,13 @@ impl Format for Bundle {
         // As the blocks stand (docs/specs/bundle.md §4).
         crate::format::Fdx.layout_form(doc)
     }
+}
+
+/// The entries another tool added to a bundle, kept as they were read (§2):
+/// recovery gives them to a document replayed from the journal, which does
+/// not hold them (docs/specs/journal.md, "Recovery on open").
+pub fn extra_entries(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
+    entries(bytes).map(|e| e.extra).unwrap_or_default()
 }
 
 /// The highest change id a document's marks name.

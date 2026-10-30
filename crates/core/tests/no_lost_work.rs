@@ -2,7 +2,9 @@
 //! overwritten unless it is copied aside first, and nothing is written
 //! before the checks that could refuse it (docs/specs/journal.md). Each
 //! test reproduces a finding from the review of phases 1–3, named in its
-//! title (docs/progress/review-fixes.md).
+//! title (docs/progress/review-fixes.md), or (2026-10-28, the section at
+//! the end) from the reviews of phases 4–5b
+//! (docs/progress/review-fixes-4-5b.md).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -949,4 +951,372 @@ fn f16_a_journal_with_newer_semantics_is_set_aside() {
     );
     assert_eq!(asides(dir.path(), "corrupt").len(), 1);
     d.discard();
+}
+
+// ---- The reviews of phases 4–5b (2026-10-28) ------------------------------
+
+fn untracked_agent() -> Author {
+    Author::agent("claude", None)
+}
+
+/// CL1, GP6: `coldopen mcp --untracked` records an agent's edits untracked.
+/// That switch is the session's, not the script's, so the app that
+/// recovers the journal does not have it; recovery takes each entry as it
+/// was recorded, and every edit comes back.
+#[test]
+fn cl1_untracked_agent_edits_recover_without_the_switch() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("s.fountain");
+    fs::write(&p, "INT. LAB - NIGHT\n\nRain falls.\n").unwrap();
+    let a = untracked_agent();
+    let mut d = Dispatcher::new(Options::default());
+    d.set_agent_tracking(Some(false));
+    ok(&mut d, &a, "doc.open", json!({"path": p}));
+    ok(
+        &mut d,
+        &a,
+        "block.insert",
+        json!({"type": "action", "text": "Thunder."}),
+    );
+    ok(
+        &mut d,
+        &a,
+        "text.insert",
+        json!({"id": "b_2", "at": 11, "text": " Hard."}),
+    );
+    ok(
+        &mut d,
+        &a,
+        "title.set",
+        json!({"key": "Title", "values": ["Storm"]}),
+    );
+    let before = ok(&mut d, &a, "doc.get", json!({}));
+    drop(d); // a crash
+
+    let mut app = Dispatcher::new(Options::default());
+    let r = ok(&mut app, &Author::writer(), "doc.open", json!({"path": p}));
+    assert_eq!(r["warnings"], json!([]), "{r}");
+    assert_eq!(r["recovered"]["commands"], 3, "{r}");
+    let after = ok(&mut app, &Author::writer(), "doc.get", json!({}));
+    assert_eq!(after["blocks"], before["blocks"]);
+    assert_eq!(after["title_page"], before["title_page"]);
+    assert!(asides(dir.path(), "corrupt").is_empty());
+    app.discard();
+
+    // A live agent still cannot opt out where agents are tracked.
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &a, "doc.open", json!({"path": p}));
+    let e = err(
+        &mut d,
+        &a,
+        "block.insert",
+        json!({"type": "action", "text": "x", "tracked": false}),
+    );
+    assert_eq!(e.code, "writer_only");
+    d.discard();
+}
+
+/// AR12 (part 1): reverting keeps `--untracked`, which belongs to the
+/// session, not to the file read again.
+#[test]
+fn ar12_revert_keeps_the_untracked_switch() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("s.fountain");
+    fs::write(&p, SCRIPT).unwrap();
+    let a = untracked_agent();
+    let mut d = Dispatcher::new(Options::default());
+    d.set_agent_tracking(Some(false));
+    ok(&mut d, &a, "doc.open", json!({"path": p}));
+    ok(&mut d, &Author::writer(), "doc.revert", json!({}));
+    let r = ok(
+        &mut d,
+        &a,
+        "block.insert",
+        json!({"type": "action", "text": "Thunder."}),
+    );
+    assert!(r.get("change").is_none(), "tracked after a revert: {r}");
+    d.discard();
+}
+
+/// CL2: a set-aside copy that replays only in part (here because an entry
+/// was damaged) restores with less work than it holds. The restore says
+/// so, and `recovered.list` shows how much of the copy replays.
+#[test]
+fn cl2_a_copy_that_replays_in_part_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = crashed_with_work(dir.path(), &Author::writer());
+    let jpath = journal::path_for(&p);
+    let mut lines = fs::read_to_string(&jpath).unwrap();
+    lines.push_str("{\"seq\":2,\"t\":0,\"command\":\"block.insert\",\"params\":{\"type\":\"action\",\"text\":\"Lost.\",\"tracked\":false},\"result\":{\"id\":\"b_99\"}}\n");
+    fs::write(&jpath, lines).unwrap();
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, &Author::writer(), "doc.open", json!({"path": p}));
+    let copy = r["warnings"][0]["details"]["copy"].clone();
+    assert!(copy.is_string(), "{r}");
+    d.discard();
+
+    let list = ok(
+        &mut d,
+        &Author::writer(),
+        "recovered.list",
+        json!({"path": p}),
+    );
+    let row = list["copies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["copy"] == copy)
+        .unwrap()
+        .clone();
+    assert_eq!(
+        (row["replayed"].clone(), row["entries"].clone()),
+        (json!(1), json!(2)),
+        "{row}"
+    );
+    assert!(row["problem"].is_string(), "{row}");
+
+    let target = dir.path().join("restored.fountain");
+    let r = ok(
+        &mut d,
+        &Author::writer(),
+        "recovered.restore",
+        json!({"copy": copy, "path": target}),
+    );
+    assert_eq!(r["warnings"][0]["code"], "journal_partial", "{r}");
+    assert_eq!(r["warnings"][0]["details"]["replayed"], 1, "{r}");
+    assert!(text(&mut d).contains(UNSAVED));
+    d.discard();
+}
+
+/// GP4: a restored copy is the writer's unsaved work in its journal's
+/// header. After a crash in which only an agent edited it, the agent still
+/// may not set it aside.
+#[test]
+fn gp4_a_restored_copy_stays_the_writers_after_agent_edits() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source.fountain");
+    let restored = dir.path().join("restored.fountain");
+    let w = Author::writer();
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &w, "doc.new", json!({"path": source}));
+    ok(
+        &mut d,
+        &w,
+        "block.insert",
+        json!({"type": "action", "text": "The writer's ending."}),
+    );
+    let close = ok(&mut d, &w, "doc.close", json!({"discard": true}));
+    let copy = close["warnings"][0]["details"]["copy"].clone();
+    ok(
+        &mut d,
+        &w,
+        "recovered.restore",
+        json!({"copy": copy, "path": restored}),
+    );
+    ok(
+        &mut d,
+        &agent(),
+        "block.insert",
+        json!({"type": "action", "text": "An agent's note."}),
+    );
+    drop(d); // a crash
+
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &agent(), "doc.open", json!({"path": restored}));
+    let e = err(&mut d, &agent(), "doc.close", json!({"discard": true}));
+    assert_eq!(e.code, "not_your_step", "{e}");
+    assert!(text(&mut d).contains("The writer's ending."));
+    d.discard();
+}
+
+/// GP5: a project made with `doc.new` and never saved exists only in its
+/// journal. Opening it again after a crash recovers it, as for Fountain;
+/// before, the missing file was read as an empty zip and the open failed.
+/// The same holds for .fdx.
+#[test]
+fn gp5_a_never_saved_project_or_fdx_recovers_its_journal() {
+    for name in ["never-saved.coldopen", "never-saved.fdx"] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(name);
+        let w = Author::writer();
+        let mut d = Dispatcher::new(Options::default());
+        ok(&mut d, &w, "doc.new", json!({"path": path}));
+        ok(
+            &mut d,
+            &w,
+            "block.insert",
+            json!({"type": "action", "text": "The door opens."}),
+        );
+        drop(d); // a crash
+        assert!(journal::path_for(&path).exists());
+        let mut d = Dispatcher::new(Options::default());
+        let r = ok(&mut d, &w, "doc.open", json!({"path": path}));
+        assert_eq!(r["recovered"]["commands"], 1, "{name}: {r}");
+        assert_eq!(r["repaired"], Value::Null, "{name}: {r}");
+        assert_eq!(
+            ok(&mut d, &w, "doc.get", json!({}))["blocks"][0]["text"],
+            "The door opens.",
+            "{name}"
+        );
+        // And it saves, which writes the file for the first time.
+        ok(&mut d, &w, "doc.save", json!({}));
+        assert!(path.exists(), "{name}");
+        d.discard();
+    }
+}
+
+/// GR12: turning tracking on is an edit, journaled, which a Fountain or
+/// .fdx file has nowhere to keep. A crash before the next save recovers
+/// it; before, the journal was started again from the file and the switch
+/// was gone, with no copy kept.
+#[test]
+fn gr12_a_tracking_switch_is_recovered_after_a_crash() {
+    for name in ["s.fountain", "s.fdx"] {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(name);
+        let w = Author::writer();
+        let mut d = Dispatcher::new(Options::default());
+        ok(&mut d, &w, "doc.new", json!({"path": p}));
+        ok(
+            &mut d,
+            &w,
+            "block.insert",
+            json!({"type": "action", "text": "Go."}),
+        );
+        ok(&mut d, &w, "doc.save", json!({}));
+        ok(&mut d, &w, "changes.track", json!({"writer": true}));
+        drop(d); // a crash, before any text edit
+
+        let mut d = Dispatcher::new(Options::default());
+        let r = ok(&mut d, &w, "doc.open", json!({"path": p}));
+        assert_eq!(r["recovered"]["commands"], 1, "{name}: {r}");
+        assert_eq!(
+            ok(&mut d, &w, "changes.track", json!({})),
+            json!({"writer": true, "agents": true}),
+            "{name}"
+        );
+        d.discard();
+    }
+}
+
+/// GP9: a project read again by `doc.revert` gets fresh block ids. Every
+/// reference to a block id moves with them: a pending move's place and the
+/// active revision set's starting points, as well as spacing and the .fdx
+/// store. Before, rejecting the move failed with `change_conflict`, and
+/// text put back kept its revision mark.
+#[test]
+fn gp9_revert_renumbers_move_anchors_and_revision_starts() {
+    let dir = tempfile::tempdir().unwrap();
+    let w = Author::writer();
+
+    let path = dir.path().join("moves.coldopen");
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &w, "doc.new", json!({"path": path}));
+    for h in ["INT. A - DAY", "INT. B - DAY", "INT. C - DAY"] {
+        ok(
+            &mut d,
+            &w,
+            "block.insert",
+            json!({"type": "scene_heading", "text": h}),
+        );
+    }
+    let moved = ok(
+        &mut d,
+        &w,
+        "scene.move",
+        json!({"id": "b_1", "tracked": true}),
+    );
+    ok(&mut d, &w, "doc.save", json!({}));
+    ok(&mut d, &w, "doc.revert", json!({}));
+    ok(&mut d, &w, "changes.reject", json!({"id": moved["change"]}));
+    let heads: Vec<Value> = ok(&mut d, &w, "doc.get", json!({}))["blocks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["text"].clone())
+        .collect();
+    assert_eq!(heads, ["INT. A - DAY", "INT. B - DAY", "INT. C - DAY"]);
+    d.discard();
+
+    let path = dir.path().join("base.coldopen");
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &w, "doc.new", json!({"path": path}));
+    ok(
+        &mut d,
+        &w,
+        "block.insert",
+        json!({"type": "action", "text": "The light dims."}),
+    );
+    ok(&mut d, &w, "revision.start", json!({"color": "Blue"}));
+    ok(
+        &mut d,
+        &w,
+        "block.set_text",
+        json!({"id": "b_1", "text": "The light brightens."}),
+    );
+    ok(&mut d, &w, "doc.save", json!({}));
+    ok(&mut d, &w, "doc.revert", json!({}));
+    let id = ok(&mut d, &w, "doc.get", json!({}))["blocks"][0]["id"].clone();
+    ok(
+        &mut d,
+        &w,
+        "block.set_text",
+        json!({"id": id, "text": "The light dims."}),
+    );
+    assert!(
+        !d.session().unwrap().doc.blocks[0].has_revisions(),
+        "text put back after a revert keeps its revision mark"
+    );
+    d.discard();
+}
+
+/// AR11 (part 1): replay compares the change ids a result names, at the
+/// top and in a batch's results, as journal.md ("What replay compares")
+/// says: later entries settle changes by those ids. A journal whose entry
+/// names another change than replay makes diverges there.
+#[test]
+fn ar11_replay_compares_change_ids() {
+    for batch in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("s.fountain");
+        fs::write(&p, SCRIPT).unwrap();
+        let w = Author::writer();
+        let mut d = Dispatcher::new(Options::default());
+        ok(&mut d, &w, "doc.open", json!({"path": p}));
+        let insert = json!({"type": "action", "text": "Rain again.", "tracked": true});
+        if batch {
+            ok(
+                &mut d,
+                &w,
+                "batch",
+                json!({"commands": [{"command": "block.insert", "params": insert}]}),
+            );
+        } else {
+            ok(&mut d, &w, "block.insert", insert);
+        }
+        drop(d); // a crash
+        let jpath = journal::path_for(&p);
+        let lines = fs::read_to_string(&jpath).unwrap();
+        assert_eq!(lines.matches("\"c_1\"").count(), if batch { 2 } else { 1 });
+        // Name another change in the entry's own result only.
+        let edited = if batch {
+            lines.replacen(
+                "\"results\":[{\"change\":\"c_1\"",
+                "\"results\":[{\"change\":\"c_7\"",
+                1,
+            )
+        } else {
+            lines.replacen("\"change\":\"c_1\"", "\"change\":\"c_7\"", 1)
+        };
+        assert_ne!(edited, lines);
+        fs::write(&jpath, edited).unwrap();
+        let mut d = Dispatcher::new(Options::default());
+        let r = ok(&mut d, &w, "doc.open", json!({"path": p}));
+        assert_eq!(
+            r["warnings"][0]["code"], "journal_partial",
+            "batch {batch}: {r}"
+        );
+        assert!(!asides(dir.path(), "diverged").is_empty(), "batch {batch}");
+        d.discard();
+    }
 }

@@ -184,6 +184,7 @@ It shows the caret block's kind, and what Enter and Tab would make it, from the 
   - Each section is a header, indented by its depth.
   - Each scene shows its number (`scene_number`, or its position), heading, start page and length in eighths (`scene.list`).
   - The scene holding the caret is highlighted.
+  - (2026-10-28, review finding AR10) A section's row is not a scene. Under a section, before the next heading, the caret's scene is the one before the section: "This scene" in Find and the status bar act on it. The section's own row is highlighted, and Up and Down in the navigator start from it. A section's row gets the change dot and revision mark for its own block and the blocks under it before the next scene. **(2026-10-30, from the project owner's manual test)** Alt+Up and Alt+Down move the selected row only when it is a scene, and do nothing on a section's row, as a section is not dragged: they moved the scene before it, which looked like the section moving the other way. The dot and mark on a section's row are drawn too; only the row's data had them.
 - **Moving around.** A click, or Enter on a selected row, moves the caret to the start of that heading.
 - **Reordering.** Dragging a scene and dropping it before another scene or section sends `scene.move` with `before`; dropping after the last scene sends it with no `before`. With the navigator focused, Alt+Up and Alt+Down move the selected scene one place, also through `scene.move`.
 
@@ -317,7 +318,7 @@ When an agent attaches to the open script through `coldopen mcp` (`docs/specs/mc
 - **Tracked by default** (2026-10-18). While the script's agent switch is on (the default), an agent's edits arrive as tracked changes under its name (`docs/specs/mcp.md` §6.1), in its color, and the writer settles them as §17 says. "Track agent edits" in the palette and in the status bar's agent menu turns the switch off or on for this script (`changes.track`, an undoable step). The status bar's agent text adds "· N to review" while the agent has pending changes.
 - **Margin marks.** Each block an agent changed without tracking gets a violet bar in the left margin. The bar stays until the writer edits that block, or the "Dismiss agent marks" action clears all of them. Tracked edits have their own marks (§17) and get no violet bar.
 - **Undo.** Agent steps appear in the undo history with their label, `<name> · <tool>`. Mod+Z undoes the newest step whoever made it. `app.undo_agent` undoes all the agent steps on top of the history, one `undo` each.
-- **Caret.** Agent edits never move the writer's caret except to keep it in the same text (§4).
+- **Caret.** Agent edits never move the writer's caret except to keep it in the same text (§4). (2026-10-28, review finding AR11) A `batch` keeps it there as its commands would one by one.
 
 ## 13. Reliability on screen
 
@@ -397,7 +398,7 @@ Added 2026-10-18 (phase 5a). Sources: `docs/spec.md` ("Revising", "Agents edit i
 
 - **A change bar.** Every line holding a mark gets a thin bar in the left margin, in its author's color: the line's first mark when there are several.
 - **Block marks** get a small label in the left margin, in the author's color: "New" for an inserted block, "Deleted" for a deleted one (its text is all struck), "Was Action" (the old type) for a retyped one, "Split" and "Joined" (with a struck ¶ at the end of the line before) for a split or joined block, and "Moved" on a moved scene heading. A deleted empty block, such as a page break, shows its label on an empty line.
-- **The navigator** strikes through a scene whose heading is a pending deletion, and marks a scene holding pending changes with a dot in its first author's color.
+- **The navigator** strikes through a scene whose heading is a pending deletion, and marks a scene holding pending changes with a dot in its first author's color. (2026-10-28) Since `scene.list` lists only the current text's scenes (review finding AR6), a struck scene's row shows its struck heading and no number, page or length, and the scenes after it are numbered without it.
 - **The hint bar** shows "Tracking your changes" while the writer's switch is on.
 
 ### 17.2 Settling changes
@@ -503,3 +504,4 @@ Added 2026-10-22 (phase 5b; `docs/specs/diff.md`).
 
 - **Compare with…** (palette) asks for a draft (.fountain, .fdx or .coldopen), then runs `diff` with the open script as A, as it stands now, and the draft as B. It opens a read-only view in place of the page area: B's pages with the changes marked as the diff PDF marks them, and a list of the changed scenes on the left, in place of the navigator. Up and Down choose a scene, Enter scrolls to it, "Save as PDF…" (Mod+Shift+E in the view) writes the diff PDF, and Esc closes the view. The open script is not changed, and nothing can be typed into the view. **Resolution (2026-10-26):** the pages are A with B brought in, as the diff PDF is (`docs/specs/diff.md` §4.3), so restyled blocks and changed attributes, which cannot be tracked, show in the list but not on the pages.
 - **Review a draft as changes…** (palette) asks for a draft and the name its changes should carry, prefilled with the file's name, then sends `changes.import` and opens the changes panel (§17.3). What could not be brought in as changes (styles, attributes, the title page) is listed in a notice, and the draft itself is never changed.
+- **Off the UI thread** (2026-10-28, review finding CL7). Both read and compare the draft on a worker thread, as a save is written (§11), so the editor never waits: a long script compared as one unit took seconds. Meanwhile the status bar says "Comparing with b.fdx… Esc stops.", the script can be edited, and Esc stops waiting; an answer that comes after that is let go. A draft brought in is planned on the script as it was when asked; if it was edited meanwhile, it is planned again, once. "Save as PDF…" in the view still writes on the UI thread.

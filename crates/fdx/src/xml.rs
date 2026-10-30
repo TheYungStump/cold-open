@@ -355,9 +355,14 @@ impl Builder<'_> {
         self.stack.get(2).and_then(|o| o.paragraph)
     }
 
-    /// Marks every open element as holding a structural repair.
+    /// Marks the open elements as holding a structural repair: the
+    /// innermost one, which passes the mark to its parent when it closes,
+    /// and every element leaves the stack through `close_top`, so all of
+    /// them are marked by the end, as before. Marking each of them at every
+    /// repair took time as nesting times repairs (2026-10-28, review
+    /// finding CL3).
     fn mark_repaired(&mut self) {
-        for o in &mut self.stack {
+        if let Some(o) = self.stack.last_mut() {
             o.node.repaired = true;
         }
     }

@@ -657,6 +657,462 @@ fn a_journal_from_before_phase_5a_replays_untracked() {
     d.discard();
 }
 
+// ---- Settling never removes what isn't part of the change ---------------
+//
+// The reviews of phases 4–5b (2026-10-28): GR1, GP1, AR1, GR3, GR4, AR4.
+
+/// Opens `text` as a Fountain script of its own.
+fn open_text(dir: &Path, text: &str) -> Dispatcher {
+    let p = dir.join("t.fountain");
+    fs::write(&p, text).unwrap();
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &writer(), "doc.open", json!({"path": p}));
+    d
+}
+
+/// GR1, GP1: the writer types into an agent's proposed block, untracked as
+/// writer tracking is by default. The agent's reject of its own insertion
+/// may not take the writer's words with it: by id it fails with
+/// `change_conflict` and changes nothing; by `all` the block stays pending.
+#[test]
+fn an_agents_reject_keeps_the_writers_words_in_its_block() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = open_text(dir.path(), "INT. ROOM - DAY\n\nShe waits.\n");
+    let r = ok(
+        &mut d,
+        &agent(),
+        "block.insert",
+        json!({"after": "b_2", "type": "action", "text": "She waits."}),
+    );
+    let (id, c) = (r["id"].clone(), r["change"].clone());
+    ok(
+        &mut d,
+        &writer(),
+        "text.insert",
+        json!({"id": id, "at": 10, "text": " by the door"}),
+    );
+    let before = blocks(&mut d);
+    let e = err(&mut d, &agent(), "changes.reject", json!({"id": c}));
+    assert_eq!(e.code, "change_conflict", "{e}");
+    assert_eq!(blocks(&mut d), before);
+    let r = ok(&mut d, &agent(), "changes.reject", json!({"all": true}));
+    assert_eq!(r, json!({"changes": [], "count": 0, "skipped": [c]}));
+    assert_eq!(blocks(&mut d), before);
+    assert_eq!(
+        block(&mut d, id.as_str().unwrap())["text"],
+        "She waits. by the door"
+    );
+    // The writer can still take the proposal, words and all.
+    ok(&mut d, &writer(), "changes.accept", json!({"id": c}));
+    assert_eq!(
+        texts(&mut d),
+        ["INT. ROOM - DAY", "She waits.", "She waits. by the door"]
+    );
+}
+
+/// AR1 (part 2): the same with the writer's own tracked block and their
+/// untracked words in it. Rejecting it settles nothing in that block.
+#[test]
+fn rejecting_a_block_keeps_untracked_words_typed_into_it() {
+    let mut d = Dispatcher::new(Options {
+        journal: false,
+        fsync: false,
+    });
+    ok(&mut d, &writer(), "doc.new", json!({}));
+    track_writer(&mut d);
+    ok(
+        &mut d,
+        &writer(),
+        "block.insert",
+        json!({"type": "action", "text": "First sentence."}),
+    );
+    ok(&mut d, &writer(), "changes.track", json!({"writer": false}));
+    ok(
+        &mut d,
+        &writer(),
+        "text.insert",
+        json!({"id": "b_1", "at": 15, "text": " Untracked writer sentence."}),
+    );
+    let before = blocks(&mut d);
+    let e = err(&mut d, &writer(), "changes.reject", json!({"id": "c_1"}));
+    assert_eq!(e.code, "change_conflict", "{e}");
+    let r = ok(&mut d, &writer(), "changes.reject", json!({"all": true}));
+    assert_eq!(r["skipped"], json!(["c_1"]), "{r}");
+    assert_eq!(blocks(&mut d), before);
+    assert_eq!(
+        before[0]["text"],
+        "First sentence. Untracked writer sentence."
+    );
+}
+
+/// AR1 (part 1): a later split of one's own inserted block is a split, not
+/// a second insertion, so rejecting it joins the second half back instead
+/// of deleting it.
+#[test]
+fn rejecting_a_split_of_ones_own_block_joins_it_back() {
+    let mut d = Dispatcher::new(Options {
+        journal: false,
+        fsync: false,
+    });
+    ok(&mut d, &writer(), "doc.new", json!({}));
+    track_writer(&mut d);
+    ok(
+        &mut d,
+        &writer(),
+        "block.insert",
+        json!({"type": "action", "text": "First sentence. Second sentence."}),
+    );
+    let r = ok(
+        &mut d,
+        &writer(),
+        "block.split",
+        json!({"id": "b_1", "at": 16}),
+    );
+    assert_eq!(r["change"], "c_2", "{r}");
+    assert_eq!(block(&mut d, "b_2")["change"], json!({"split": "c_2"}));
+    ok(&mut d, &writer(), "changes.reject", json!({"id": "c_2"}));
+    assert_eq!(texts(&mut d), ["First sentence. Second sentence."]);
+    assert_eq!(block(&mut d, "b_1")["change"], json!({"inserted": "c_1"}));
+    // A split at the end moves nothing: that is a new block, as before.
+    let r = ok(
+        &mut d,
+        &writer(),
+        "block.split",
+        json!({"id": "b_1", "at": 32}),
+    );
+    let new = r["id"].as_str().unwrap().to_string();
+    assert_eq!(
+        block(&mut d, &new)["change"],
+        json!({"inserted": r["change"]})
+    );
+}
+
+/// GR4: a retype of a page break, rejected after text was typed into the
+/// block, would empty it. It is a conflict instead, and the text stays.
+#[test]
+fn rejecting_a_retype_never_empties_text_typed_since() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = open_text(dir.path(), "INT. ROOM - DAY\n\nGo.\n");
+    track_writer(&mut d);
+    let r = ok(
+        &mut d,
+        &writer(),
+        "block.insert",
+        json!({"after": "b_2", "type": "page_break", "tracked": false}),
+    );
+    let id = r["id"].clone();
+    let r = ok(
+        &mut d,
+        &writer(),
+        "block.set_type",
+        json!({"id": id, "type": "action", "tracked": true}),
+    );
+    let c = r["change"].clone();
+    ok(
+        &mut d,
+        &writer(),
+        "text.insert",
+        json!({"id": id, "at": 0, "text": "Hello", "tracked": false}),
+    );
+    let before = blocks(&mut d);
+    let e = err(&mut d, &writer(), "changes.reject", json!({"id": c}));
+    assert_eq!(e.code, "change_conflict", "{e}");
+    let r = ok(&mut d, &writer(), "changes.reject", json!({"all": true}));
+    assert_eq!(r["skipped"], json!([c]), "{r}");
+    assert_eq!(blocks(&mut d), before);
+    assert_eq!(block(&mut d, id.as_str().unwrap())["text"], "Hello");
+    // Accepting the retype settles it.
+    ok(&mut d, &writer(), "changes.accept", json!({"id": c}));
+    assert!(changes(&mut d).is_empty());
+}
+
+/// GR3: a join accepted while the block before it waits to be deleted would
+/// put the joined text into a block that then goes. It is a conflict until
+/// the deletion is settled; then the join lands on the block kept before.
+#[test]
+fn a_join_onto_a_block_waiting_to_be_deleted_waits_for_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = open_text(
+        dir.path(),
+        "INT. KITCHEN - DAY\n\ndisappear\n\nINT. BEDROOM - DAY\n\nA lamp.\n",
+    );
+    let join = ok(&mut d, &agent(), "block.join", json!({"id": "b_3"}))["change"].clone();
+    let del = ok(&mut d, &agent(), "block.delete", json!({"id": "b_2"}))["change"].clone();
+    let before = blocks(&mut d);
+    let e = err(&mut d, &writer(), "changes.accept", json!({"id": join}));
+    assert_eq!(e.code, "change_conflict", "{e}");
+    assert_eq!(blocks(&mut d), before);
+    ok(&mut d, &writer(), "changes.accept", json!({"id": del}));
+    ok(&mut d, &writer(), "changes.accept", json!({"id": join}));
+    assert_eq!(
+        texts(&mut d),
+        ["INT. KITCHEN - DAYINT. BEDROOM - DAY", "A lamp."]
+    );
+    // Accepting both at once removes the deletion first, as before.
+    ok(&mut d, &writer(), "undo", json!({}));
+    ok(&mut d, &writer(), "undo", json!({}));
+    assert_eq!(blocks(&mut d), before);
+    let r = ok(&mut d, &writer(), "changes.accept", json!({"all": true}));
+    assert_eq!(r["skipped"], json!([]), "{r}");
+    assert_eq!(
+        texts(&mut d),
+        ["INT. KITCHEN - DAYINT. BEDROOM - DAY", "A lamp."]
+    );
+}
+
+/// AR4: a split whose join back has become impossible stays pending when
+/// settled by `all` or `scene`, listed only in `skipped`, so the writer
+/// can still accept it.
+#[test]
+fn a_split_that_cannot_join_back_stays_pending() {
+    let mut d = Dispatcher::new(Options {
+        journal: false,
+        fsync: false,
+    });
+    ok(&mut d, &writer(), "doc.new", json!({}));
+    ok(
+        &mut d,
+        &writer(),
+        "block.insert",
+        json!({"type": "action", "text": "First sentence. Second sentence."}),
+    );
+    track_writer(&mut d);
+    ok(
+        &mut d,
+        &writer(),
+        "block.split",
+        json!({"id": "b_1", "at": 16}),
+    );
+    ok(&mut d, &writer(), "changes.track", json!({"writer": false}));
+    ok(
+        &mut d,
+        &writer(),
+        "block.set_type",
+        json!({"id": "b_1", "type": "page_break"}),
+    );
+    let before = blocks(&mut d);
+    let r = ok(&mut d, &writer(), "changes.reject", json!({"all": true}));
+    assert_eq!(r, json!({"changes": [], "count": 0, "skipped": ["c_1"]}));
+    assert_eq!(blocks(&mut d), before);
+    assert_eq!(changes(&mut d).len(), 1);
+    ok(&mut d, &writer(), "changes.accept", json!({"id": "c_1"}));
+    assert!(changes(&mut d).is_empty());
+}
+
+/// P1 (found by the property test below, 2026-10-28): one agent deletes a
+/// word, another deletes the whole block, and the first withdraws its
+/// deletion. The word is now nobody's pending deletion, inside a deleted
+/// block. Accepting the block's deletion may not take it: the block stays,
+/// held, and the accepted form keeps it too.
+#[test]
+fn accepting_a_block_deletion_keeps_words_no_deletion_marks() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = open_text(dir.path(), "INT. SHED - NIGHT\n\nA lamp flickers.\n");
+    let b = Author::agent("agent-b", None);
+    let word = ok(
+        &mut d,
+        &agent(),
+        "text.delete",
+        json!({"id": "b_2", "from": 0, "to": 1}),
+    )["change"]
+        .clone();
+    let block = ok(&mut d, &b, "block.delete", json!({"id": "b_2"}))["change"].clone();
+    ok(&mut d, &agent(), "changes.reject", json!({"id": word}));
+    let form = serde_json::to_value(&d.session().unwrap().doc.accepted().blocks).unwrap();
+    assert_eq!(form[1]["text"], "A", "{form}");
+    let e = err(&mut d, &writer(), "changes.accept", json!({"id": block}));
+    assert_eq!(e.code, "change_conflict", "{e}");
+    let r = ok(&mut d, &writer(), "changes.accept", json!({"all": true}));
+    assert_eq!(r["skipped"], json!([block]), "{r}");
+    assert_eq!(block_text(&mut d, "b_2"), "A");
+    // Rejecting the deletion settles it.
+    ok(&mut d, &writer(), "changes.reject", json!({"id": block}));
+    assert_eq!(texts(&mut d), ["INT. SHED - NIGHT", "A lamp flickers."]);
+}
+
+fn block_text(d: &mut Dispatcher, id: &str) -> String {
+    block(d, id)["text"].as_str().unwrap_or("").to_string()
+}
+
+/// GR5 = GP7 + GP8: one change (a batch) that retyped a block twice, or
+/// moved scenes twice, is rejected step by step, newest first, so the
+/// document comes back as it was. Before, only the newest retype was
+/// undone, and moves were undone oldest first.
+#[test]
+fn rejecting_a_change_undoes_its_retypes_and_moves_newest_first() {
+    let dir = tempfile::tempdir().unwrap();
+
+    // Two retypes of one block.
+    let mut d = open_text(dir.path(), "A line.\n");
+    ok(
+        &mut d,
+        &writer(),
+        "block.set_attrs",
+        json!({"id": "b_1", "centered": true}),
+    );
+    let before = blocks(&mut d);
+    let r = ok(
+        &mut d,
+        &writer(),
+        "batch",
+        json!({"commands": [
+            {"command": "block.set_type", "params": {"id": "b_1", "type": "character", "tracked": true}},
+            {"command": "block.set_type", "params": {"id": "b_1", "type": "dialogue", "tracked": true}}
+        ]}),
+    );
+    ok(
+        &mut d,
+        &writer(),
+        "changes.reject",
+        json!({"id": r["change"]}),
+    );
+    assert_eq!(blocks(&mut d), before);
+    d.discard();
+
+    // Two moves of one scene.
+    let three = "INT. S - DAY\n\nsa\n\nINT. T - DAY\n\nta\n\nINT. U - DAY\n\nua\n";
+    let mut d = open_text(dir.path(), three);
+    let before = texts(&mut d);
+    let r = ok(
+        &mut d,
+        &writer(),
+        "batch",
+        json!({"commands": [
+            {"command": "scene.move", "params": {"id": "b_1", "tracked": true}},
+            {"command": "scene.move", "params": {"id": "b_1", "before": "b_5", "tracked": true}}
+        ]}),
+    );
+    assert_eq!(
+        texts(&mut d),
+        [
+            "INT. T - DAY",
+            "ta",
+            "INT. S - DAY",
+            "sa",
+            "INT. U - DAY",
+            "ua"
+        ]
+    );
+    ok(
+        &mut d,
+        &writer(),
+        "changes.reject",
+        json!({"id": r["change"]}),
+    );
+    assert_eq!(texts(&mut d), before);
+    d.discard();
+
+    // Moves of two scenes in one change: their order is recorded, so the
+    // reject undoes the second before the first, though the first moved
+    // scene now comes first in the document.
+    let mut d = open_text(dir.path(), three);
+    let r = ok(
+        &mut d,
+        &writer(),
+        "batch",
+        json!({"commands": [
+            {"command": "scene.move", "params": {"id": "b_1", "tracked": true}},
+            {"command": "scene.move", "params": {"id": "b_3", "tracked": true}}
+        ]}),
+    );
+    assert_eq!(
+        texts(&mut d),
+        [
+            "INT. U - DAY",
+            "ua",
+            "INT. S - DAY",
+            "sa",
+            "INT. T - DAY",
+            "ta"
+        ]
+    );
+    let marked = blocks(&mut d);
+    assert_eq!(marked[2]["change"]["moved"][0]["n"], 1, "{marked:?}");
+    assert_eq!(marked[4]["change"]["moved"][0]["n"], 2, "{marked:?}");
+    // A project holding that order is version 3, and reads back as it was.
+    let p = dir.path().join("moves.coldopen");
+    ok(&mut d, &writer(), "doc.save", json!({"path": p}));
+    let meta = coldopen_core::bundle::read(&fs::read(&p).unwrap()).unwrap();
+    assert_eq!(
+        serde_json::to_value(&meta.doc.blocks).unwrap(),
+        Value::Array(marked.clone())
+    );
+    assert_eq!(meta_v(&fs::read(&p).unwrap()), 3);
+    ok(
+        &mut d,
+        &writer(),
+        "changes.reject",
+        json!({"id": r["change"]}),
+    );
+    assert_eq!(texts(&mut d), before);
+    d.discard();
+}
+
+/// The `v` in a bundle's `meta.json`.
+fn meta_v(bytes: &[u8]) -> u64 {
+    let archive = rawzip::ZipArchive::from_slice(bytes).unwrap();
+    let mut list = archive.entries();
+    while let Some(e) = list.next_entry().unwrap() {
+        if e.file_path().as_ref() == b"meta.json" {
+            let raw = archive.get_entry(e.wayfinder()).unwrap().data().to_vec();
+            let data = miniz_oxide::inflate::decompress_to_vec(&raw).unwrap();
+            let v: Value = serde_json::from_slice(&data).unwrap();
+            return v["v"].as_u64().unwrap();
+        }
+    }
+    0
+}
+
+/// GR9: an agent's untracked retype or move of a block another author
+/// retyped or moved changes that author's proposal without touching its
+/// mark, so the check on other authors' marks did not see it. It is
+/// refused with `not_your_change`, tracked or not (§5.4).
+#[test]
+fn an_agents_untracked_retype_or_move_over_another_authors_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = open_text(
+        dir.path(),
+        "INT. ROOM - DAY\n\nGo.\n\nINT. HALL - DAY\n\nStop.\n",
+    );
+    track_writer(&mut d);
+    ok(
+        &mut d,
+        &writer(),
+        "block.set_type",
+        json!({"id": "b_2", "type": "character"}),
+    );
+    ok(
+        &mut d,
+        &writer(),
+        "scene.move",
+        json!({"id": "b_3", "before": "b_1"}),
+    );
+    ok(&mut d, &writer(), "changes.track", json!({"agents": false}));
+    let before = blocks(&mut d);
+    let e = err(
+        &mut d,
+        &agent(),
+        "block.set_type",
+        json!({"id": "b_2", "type": "action", "tracked": false}),
+    );
+    assert_eq!(e.code, "not_your_change", "{e}");
+    let e = err(
+        &mut d,
+        &agent(),
+        "scene.move",
+        json!({"id": "b_3", "tracked": false}),
+    );
+    assert_eq!(e.code, "not_your_change", "{e}");
+    assert_eq!(blocks(&mut d), before);
+    // A block nobody else marked is the agent's to change.
+    ok(
+        &mut d,
+        &agent(),
+        "block.set_type",
+        json!({"id": "b_4", "type": "character", "tracked": false}),
+    );
+}
+
 // ---- Properties ----------------------------------------------------------
 
 /// One edit, by one of three authors, described by positions.
@@ -808,17 +1264,24 @@ proptest! {
 
         // Accepting every change leaves the current text, with no marks,
         // exactly as the accepted form has it: joined blocks are joined
-        // (where they still can be), and deleted blocks go.
+        // (where they still can be), and deleted blocks go. A join that no
+        // longer can be stays pending, listed in `skipped` (2026-10-28), and
+        // the accepted form keeps its blocks apart as it is.
         let n = changes(&mut d).len();
         let form = serde_json::to_value(&d.session().unwrap().doc.accepted().blocks).unwrap();
         let r = run(&mut d, &writer(), "changes.accept", json!({"all": true}));
+        let skipped = match &r {
+            Ok(r) => r["skipped"].as_array().unwrap().clone(),
+            Err(_) => Vec::new(),
+        };
         if n > 0 {
             prop_assert!(r.is_ok());
         }
-        let accepted = blocks(&mut d);
-        prop_assert_eq!(&Value::Array(accepted.clone()), &form);
-        prop_assert!(changes(&mut d).is_empty());
-        prop_assert!(!accepted.iter().any(|b| b.get("change").is_some()));
+        let left: Vec<Value> = changes(&mut d).iter().map(|c| c["id"].clone()).collect();
+        prop_assert!(left.iter().all(|c| skipped.contains(c)), "{:?} not in {:?}", left, skipped);
+        let accepted = serde_json::to_value(&d.session().unwrap().doc.accepted().blocks).unwrap();
+        prop_assert_eq!(&accepted, &form);
+        let accepted = accepted.as_array().unwrap().clone();
         let expected: Vec<Value> = current
             .iter()
             .zip(&marked)
@@ -833,8 +1296,9 @@ proptest! {
         let current_text: String = current.iter().map(|b| b["text"].as_str().unwrap_or("").to_string()).collect();
         prop_assert_eq!(joined_text, current_text);
 
-        // Undo gives every mark back.
-        if n > 0 {
+        // Undo gives every mark back. An accept that settled nothing (every
+        // change held) made no step to undo.
+        if r.as_ref().is_ok_and(|r| r["count"] != 0) {
             ok(&mut d, &writer(), "undo", json!({}));
         }
         prop_assert_eq!(blocks(&mut d), marked.clone());
@@ -900,6 +1364,16 @@ proptest! {
         prop_assert_eq!(coldopen_core::fuzzing::changes(&data), Ok(()));
     }
 
+    /// Settling never removes text that is not part of what it settles
+    /// (docs/specs/changes.md §6, the reviews of phases 4–5b): random
+    /// tracked and untracked edits by three authors, then one more settle.
+    #[test]
+    fn settling_never_removes_text_outside_the_change(
+        data in proptest::collection::vec(any::<u8>(), 0..200)
+    ) {
+        prop_assert_eq!(coldopen_core::fuzzing::settle_keeps(&data), Ok(()));
+    }
+
     /// The `bundle_read` fuzz target's check, on stable: arbitrary bytes,
     /// and real bundles cut short or with a byte changed.
     #[test]
@@ -923,6 +1397,14 @@ proptest! {
         prop_assert_eq!(coldopen_core::fuzzing::bundle_read(&bytes), Ok(()));
         bytes.truncate(cut % (bytes.len() + 1));
         prop_assert_eq!(coldopen_core::fuzzing::bundle_read(&bytes), Ok(()));
+    }
+
+    /// The `bundle_read` fuzz target's crafted bundles, on stable: marks
+    /// naming absurd ids, entries declaring false sizes, newer versions
+    /// with new fields (the reviews of phases 4–5b: GR2, CL5, GP14).
+    #[test]
+    fn fuzz_hostile_bundle_check(data in proptest::collection::vec(any::<u8>(), 0..200)) {
+        prop_assert_eq!(coldopen_core::fuzzing::bundle_hostile(&data), Ok(()));
     }
 }
 
@@ -1009,5 +1491,273 @@ fn pages_show_changes_marked_and_a_pdf_can_print_them_either_way() {
         json!({"path": again, "changes": "accepted"}),
     );
     assert_eq!(fs::read(&again).unwrap(), fs::read(&clean).unwrap());
+    d.discard();
+}
+
+/// Found in passing while planning the fixes of the reviews of phases 4–5b
+/// (2026-10-28): a change that moves a scene and then splits the scene's
+/// last block is rejected back to the script it started from, whether the
+/// split moves text or not, and so is one that splits first. Before, the
+/// move was undone first and left the split-off block at the end, where
+/// the split's reject joined it to the last scene's last block.
+#[test]
+fn rejecting_a_move_then_a_split_of_the_moved_scene() {
+    let dir = tempfile::tempdir().unwrap();
+    let mv = json!({"command": "scene.move", "params": {"id": "b_1"}});
+    for (at, split_first) in [(9, false), (19, false), (9, true), (19, true)] {
+        let (mut d, _) = open(dir.path());
+        let before = blocks(&mut d);
+        let split = json!({"command": "block.split", "params": {"id": "b_4", "at": at}});
+        let commands = if split_first {
+            [split, mv.clone()]
+        } else {
+            [mv.clone(), split]
+        };
+        let r = ok(&mut d, &agent(), "batch", json!({ "commands": commands }));
+        assert_eq!(texts(&mut d)[0], "EXT. GARDEN - DAY");
+        ok(
+            &mut d,
+            &writer(),
+            "changes.reject",
+            json!({"id": r["change"]}),
+        );
+        assert_eq!(
+            blocks(&mut d),
+            before,
+            "split at {at}, first {split_first}: {:?}",
+            texts(&mut d)
+        );
+        d.discard();
+    }
+}
+
+// ---- Moving a scene back ------------------------------------------------
+//
+// docs/specs/changes.md §5.2 (2026-10-30, journal semantics 4): a move that
+// takes a scene back to exactly where it stood before the author's own
+// pending moves cancels them. Found in the project owner's manual test.
+
+/// The `moved` entries on a scene heading.
+fn moves(d: &mut Dispatcher, id: &str) -> Vec<Value> {
+    block(d, id)["change"]["moved"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn mv(d: &mut Dispatcher, by: &Author, id: &str, before: Option<&str>) -> Value {
+    let params = match before {
+        Some(b) => json!({"id": id, "before": b}),
+        None => json!({"id": id}),
+    };
+    ok(d, by, "scene.move", params)
+}
+
+/// The scene headings, in order.
+fn headings(d: &mut Dispatcher) -> Vec<String> {
+    texts(d).into_iter().filter(|t| t.contains(" - ")).collect()
+}
+
+/// The kitchen to the end and back: nothing is left to review, and undo
+/// and redo take the cancelled move back and forth.
+#[test]
+fn moving_a_scene_back_cancels_the_authors_own_move() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, _) = open(dir.path());
+    track_writer(&mut d);
+    let start = blocks(&mut d);
+    let r = mv(&mut d, &writer(), "b_1", None);
+    assert!(r["change"].is_string(), "{r}");
+    let moved = blocks(&mut d);
+    assert_eq!(moves(&mut d, "b_1").len(), 1);
+    let r = mv(&mut d, &writer(), "b_1", Some("b_5"));
+    assert!(r.get("change").is_none(), "nothing is left to review: {r}");
+    assert_eq!(blocks(&mut d), start);
+    assert!(changes(&mut d).is_empty(), "{:?}", changes(&mut d));
+    ok(&mut d, &writer(), "undo", json!({}));
+    assert_eq!(blocks(&mut d), moved);
+    ok(&mut d, &writer(), "redo", json!({}));
+    assert_eq!(blocks(&mut d), start);
+    d.discard();
+}
+
+/// Kitchen, garden, shed: the kitchen moved before the shed, then to the
+/// end. Back before the shed cancels only the second move; back before the
+/// garden, where it began, cancels both.
+#[test]
+fn moving_a_scene_back_cancels_the_moves_since_that_place() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, _) = open(dir.path());
+    track_writer(&mut d);
+    let start = blocks(&mut d);
+    mv(&mut d, &writer(), "b_1", Some("b_7"));
+    let first = blocks(&mut d);
+    mv(&mut d, &writer(), "b_1", None);
+    assert_eq!(moves(&mut d, "b_1").len(), 2);
+    mv(&mut d, &writer(), "b_1", Some("b_7"));
+    assert_eq!(blocks(&mut d), first);
+    let m = moves(&mut d, "b_1");
+    assert_eq!(m.len(), 1, "{m:?}");
+    assert_eq!(m[0]["before"], "b_5");
+    mv(&mut d, &writer(), "b_1", None);
+    let r = mv(&mut d, &writer(), "b_1", Some("b_5"));
+    assert!(r.get("change").is_none(), "{r}");
+    assert_eq!(blocks(&mut d), start);
+    d.discard();
+}
+
+/// Only the author's own moves cancel. The writer moving an agent's move
+/// back, the agent moving the writer's back, and the writer moving back
+/// past the agent's later move each add a move to review.
+#[test]
+fn moving_back_another_authors_move_is_a_change_of_its_own() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let (mut d, _) = open(dir.path());
+    track_writer(&mut d);
+    let start = headings(&mut d);
+    mv(&mut d, &agent(), "b_1", None);
+    let r = mv(&mut d, &writer(), "b_1", Some("b_5"));
+    assert!(r["change"].is_string(), "{r}");
+    assert_eq!(headings(&mut d), start);
+    assert_eq!(moves(&mut d, "b_1").len(), 2);
+    assert_eq!(changes(&mut d).len(), 2);
+    d.discard();
+
+    let (mut d, _) = open(dir.path());
+    track_writer(&mut d);
+    mv(&mut d, &writer(), "b_1", None);
+    let r = mv(&mut d, &agent(), "b_1", Some("b_5"));
+    assert!(r["change"].is_string(), "{r}");
+    assert_eq!(headings(&mut d), start);
+    assert_eq!(moves(&mut d, "b_1").len(), 2);
+    d.discard();
+
+    // The writer's move to the end, the agent's back before the shed, and
+    // the writer's back before the garden, where the writer's began.
+    let (mut d, _) = open(dir.path());
+    track_writer(&mut d);
+    mv(&mut d, &writer(), "b_1", None);
+    mv(&mut d, &agent(), "b_1", Some("b_7"));
+    let r = mv(&mut d, &writer(), "b_1", Some("b_5"));
+    assert!(r["change"].is_string(), "{r}");
+    assert_eq!(headings(&mut d), start);
+    assert_eq!(moves(&mut d, "b_1").len(), 3);
+    d.discard();
+}
+
+/// When the block a move names has moved too, or is gone, the scene's
+/// neighbours are not the ones it left: the move back is kept.
+#[test]
+fn a_move_back_whose_neighbour_moved_or_went_is_kept() {
+    let dir = tempfile::tempdir().unwrap();
+
+    // Kitchen before the shed (it stood before the garden), the garden to
+    // the end, then the kitchen before the garden again.
+    let (mut d, _) = open(dir.path());
+    track_writer(&mut d);
+    mv(&mut d, &writer(), "b_1", Some("b_7"));
+    mv(&mut d, &writer(), "b_5", None);
+    let r = mv(&mut d, &writer(), "b_1", Some("b_5"));
+    assert!(r["change"].is_string(), "{r}");
+    assert_eq!(moves(&mut d, "b_1").len(), 2);
+    d.discard();
+
+    // Kitchen to the end, the garden's heading deleted outright, then the
+    // kitchen back where the garden's scene began.
+    let (mut d, _) = open(dir.path());
+    track_writer(&mut d);
+    mv(&mut d, &writer(), "b_1", None);
+    ok(
+        &mut d,
+        &writer(),
+        "block.delete",
+        json!({"id": "b_5", "tracked": false}),
+    );
+    let r = mv(&mut d, &writer(), "b_1", Some("b_7"));
+    assert!(r["change"].is_string(), "{r}");
+    assert_eq!(moves(&mut d, "b_1").len(), 2);
+    d.discard();
+}
+
+/// Text edits in the scene stay pending when its move is cancelled.
+#[test]
+fn moving_a_scene_back_keeps_its_text_edits() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, _) = open(dir.path());
+    track_writer(&mut d);
+    mv(&mut d, &writer(), "b_1", None);
+    ok(
+        &mut d,
+        &writer(),
+        "text.insert",
+        json!({"id": "b_2", "at": 17, "text": " Then tea."}),
+    );
+    mv(&mut d, &writer(), "b_1", Some("b_5"));
+    assert!(moves(&mut d, "b_1").is_empty());
+    assert_eq!(texts(&mut d)[0], "INT. KITCHEN - DAY");
+    let b = block(&mut d, "b_2");
+    assert_eq!(b["text"], "Maya makes toast. Then tea.");
+    assert!(b["runs"][1]["ins"].is_string(), "{b}");
+    assert_eq!(changes(&mut d).len(), 1, "{:?}", changes(&mut d));
+    d.discard();
+}
+
+/// A cancelled move is in the journal like any other edit: after a crash
+/// the script recovers with nothing left to review but the text edit.
+#[test]
+fn a_cancelled_move_recovers_after_a_crash() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, p) = open(dir.path());
+    track_writer(&mut d);
+    mv(&mut d, &writer(), "b_1", None);
+    ok(
+        &mut d,
+        &writer(),
+        "text.insert",
+        json!({"id": "b_2", "at": 17, "text": " Then tea."}),
+    );
+    mv(&mut d, &writer(), "b_1", Some("b_5"));
+    let want = blocks(&mut d);
+    drop(d);
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, &writer(), "doc.open", json!({"path": p}));
+    assert_eq!(r["recovered"]["commands"], 4, "{r}");
+    assert_eq!(r["warnings"], json!([]), "{r}");
+    assert_eq!(blocks(&mut d), want);
+    assert!(moves(&mut d, "b_1").is_empty());
+    d.discard();
+}
+
+/// A journal of semantics 3 replays as that build wrote it: the move back
+/// is a second move, with a change of its own.
+#[test]
+fn a_semantics_3_journal_keeps_a_move_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, p) = open(dir.path());
+    track_writer(&mut d);
+    mv(&mut d, &writer(), "b_1", None);
+    drop(d);
+    let j = journal::path_for(&p);
+    let text = fs::read_to_string(&j).unwrap();
+    let mut lines: Vec<Value> = text
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    lines[0]["semantics"] = json!(3);
+    let mut back = lines.last().unwrap().clone();
+    assert_eq!(back["command"], "scene.move", "{back}");
+    back["seq"] = json!(back["seq"].as_u64().unwrap() + 1);
+    back["params"]["before"] = json!("b_5");
+    back["result"]["change"] = json!("c_2");
+    lines.push(back);
+    let out: String = lines.iter().map(|l| format!("{l}\n")).collect();
+    fs::write(&j, out).unwrap();
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, &writer(), "doc.open", json!({"path": p}));
+    assert_eq!(r["warnings"], json!([]), "{r}");
+    assert_eq!(texts(&mut d)[0], "INT. KITCHEN - DAY");
+    assert_eq!(moves(&mut d, "b_1").len(), 2);
+    assert_eq!(changes(&mut d).len(), 2);
     d.discard();
 }

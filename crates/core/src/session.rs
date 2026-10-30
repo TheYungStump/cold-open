@@ -57,6 +57,14 @@ impl Exec {
             ..Exec::default()
         }
     }
+
+    /// The semantics the command runs under: the journal's (or its last
+    /// marker's) while replaying, this version's for a live command. Rules
+    /// a later semantics changed keep their old form for older journals
+    /// (docs/specs/journal.md, "Header").
+    pub fn rules(&self) -> u32 {
+        self.semantics.unwrap_or(crate::journal::SEMANTICS)
+    }
 }
 
 /// Whether a keystroke command joins the typing step before it.
@@ -156,6 +164,9 @@ pub struct Session {
     /// `coldopen mcp --untracked` (docs/specs/mcp.md §6.1). Not document
     /// state; every edit journals the `tracked` it took.
     pub agent_tracking: Option<bool>,
+    /// The change each operation of the accept just planned settles, for
+    /// its marking (semantics 4).
+    settled_tags: Option<Vec<Option<ChangeId>>>,
     undo: Vec<Step>,
     redo: Vec<Step>,
     /// The laid-out document, refreshed when `rev` moves on.
@@ -271,6 +282,7 @@ impl Session {
             clock: Clock::default(),
             wall: wall_clock(),
             agent_tracking: None,
+            settled_tags: None,
             undo: Vec::new(),
             redo: Vec::new(),
             view: None,
@@ -524,16 +536,21 @@ impl Session {
         let elements = |start: usize, end: usize| {
             map.partition_point(|&b| b < start)..map.partition_point(|&b| b < end)
         };
+        // The current text's scenes and blocks: a pending deletion is not
+        // in the script being read (2026-10-28, review finding AR6).
         self.doc
-            .scenes()
+            .current_scenes()
             .iter()
             .enumerate()
             .map(|(k, s)| {
                 let range = elements(s.start, s.end);
                 let page = range.clone().find_map(|e| layout.first_page(e));
                 let eighths = layout.eighths(range);
-                let blocks = &self.doc.blocks[s.start..s.end];
-                let head = &blocks[0];
+                let head = &self.doc.blocks[s.start];
+                let blocks: Vec<&Block> = self.doc.blocks[s.start..s.end]
+                    .iter()
+                    .filter(|b| b.marks.deleted.is_none())
+                    .collect();
                 let synopsis = blocks
                     .iter()
                     .find(|b| b.element.kind == ElementKind::Synopsis)
@@ -678,13 +695,13 @@ impl Session {
         if let (Some(c), Value::Object(m)) = (ctx.change, &mut result) {
             m.insert("change".into(), json!(c));
         }
-        Ok((Some(self.apply_marking(tx, &cmd)), result, cmd))
+        Ok((Some(self.apply_marking(tx, &cmd, ex.rules())), result, cmd))
     }
 
     /// Applies an edit's operations. While the document has revision sets,
     /// an untracked edit or an accept is marked with the active set, and
     /// text it did not change keeps its marks (docs/specs/revisions.md §6).
-    fn apply_marking(&mut self, tx: Transaction, cmd: &Command) -> Transaction {
+    fn apply_marking(&mut self, tx: Transaction, cmd: &Command, rules: u32) -> Transaction {
         let untracked = cmd.tracked().is_some_and(|t| t != Some(true))
             || matches!(cmd, Command::TextStyle(_) | Command::BlockSetAttrs(_));
         let accept = matches!(cmd, Command::ChangesAccept(_));
@@ -692,13 +709,43 @@ impl Session {
             return tx.apply(&mut self.doc);
         }
         let active = self.doc.revisions.active;
+        let tags = self.settled_tags.take();
+        // With no set active, each accepted change is marked with the set
+        // it recorded, wherever it is accepted (docs/specs/revisions.md
+        // §6.3, semantics 4, review finding GP11): each run of operations
+        // settling one change is marked on its own.
+        if accept
+            && active.is_none()
+            && let Some(tags) = tags.filter(|t| t.len() == tx.0.len())
+        {
+            let mut inverse: Vec<Transaction> = Vec::new();
+            let mut ops = tx.0.into_iter().zip(tags).peekable();
+            while let Some((op, tag)) = ops.next() {
+                let mut run = vec![op];
+                while let Some((op, _)) = ops.next_if(|(_, t)| *t == tag) {
+                    run.push(op);
+                }
+                let rev = tag.and_then(|c| self.doc.changes.get(c).and_then(|e| e.rev));
+                inverse.push(revise::apply(
+                    Transaction(run),
+                    &mut self.doc,
+                    rules,
+                    |_| rev,
+                ));
+            }
+            return Transaction(inverse.into_iter().rev().flat_map(|t| t.0).collect());
+        }
         let before: std::collections::BTreeSet<ChangeId> = if accept && active.is_none() {
             self.doc.blocks.iter().flat_map(Block::change_ids).collect()
         } else {
             Default::default()
         };
-        revise::apply(tx, &mut self.doc, |doc| {
-            active.or_else(|| accept.then(|| revise::settled_rev(doc, &before)).flatten())
+        revise::apply(tx, &mut self.doc, rules, |doc| {
+            active.or_else(|| {
+                accept
+                    .then(|| crate::legacy::settled_rev(doc, &before))
+                    .flatten()
+            })
         })
     }
 
@@ -744,7 +791,13 @@ impl Session {
                 };
                 Ok(cmd.with_tracked(tracked))
             }
-            Some(Some(false)) if !ex.by.is_writer() && self.tracks(&ex.by) => {
+            // A live agent may not opt out. A journal entry is a record of
+            // an edit that was allowed when it was made, under a switch
+            // (`coldopen mcp --untracked`) that is not document state, so
+            // replay takes it as it stands (docs/specs/changes.md §7).
+            Some(Some(false))
+                if !ex.by.is_writer() && ex.semantics.is_none() && self.tracks(&ex.by) =>
+            {
                 Err(CommandError::new(
                     "writer_only",
                     "an agent's edits are tracked changes in this script; only the writer can turn that off (tracked: false)",
@@ -812,7 +865,7 @@ impl Session {
             match self.plan(&cmd, ex, ctx) {
                 Ok((tx, r)) => {
                     if !tx.is_empty() {
-                        inverses.push(self.apply_marking(tx, &cmd));
+                        inverses.push(self.apply_marking(tx, &cmd, ex.rules()));
                     }
                     results.push(r);
                     resolved.push(BatchItem::of(&cmd));
@@ -1164,30 +1217,38 @@ impl Session {
         let ctx = tracked.then_some(ctx);
         match cmd {
             Command::BlockInsert(p) => self.plan_insert(p, ctx),
-            Command::BlockSetType(p) => self.plan_set_type(p, ctx),
+            Command::BlockSetType(p) => self.plan_set_type(p, ctx, ex),
             Command::BlockSetText(p) => self.plan_set_text(p, ctx),
             Command::BlockSetAttrs(p) => self.plan_set_attrs(p),
             Command::BlockDelete(p) => self.plan_delete(p, ctx, &ex.by),
             Command::TextReplace(p) => self.plan_replace(p, ctx),
-            Command::SceneMove(p) => self.plan_move(p, ctx),
+            Command::SceneMove(p) => self.plan_move(p, ctx, ex),
             Command::TextInsert(p) => self.plan_text_insert(p, ctx),
             Command::TextDelete(p) => self.plan_text_delete(p, ctx),
             Command::TextStyle(p) => self.plan_text_style(p),
-            Command::BlockSplit(p) => self.plan_split(p, ctx),
+            Command::BlockSplit(p) => self.plan_split(p, ctx, ex.rules()),
             Command::BlockJoin(p) => self.plan_join(p, ctx),
-            Command::ChangesAccept(p) => self.plan_settle(Settle::Accept, p, &ex.by),
-            Command::ChangesReject(p) => self.plan_settle(Settle::Reject, p, &ex.by),
+            Command::ChangesAccept(p) => self.plan_settle(Settle::Accept, p, ex),
+            Command::ChangesReject(p) => self.plan_settle(Settle::Reject, p, ex),
             Command::ChangesTrack(p) => self.plan_track(p, &ex.by),
             Command::RevisionStart(p) => self.plan_revision_start(p, &ex.by, t),
             Command::RevisionEnd(_) => self.plan_revision_end(&ex.by, t),
             Command::RevisionColors(p) => self.plan_revision_colors(p, &ex.by),
             Command::RevisionClear(p) => self.plan_revision_clear(p, &ex.by),
-            Command::TitleSet(p) => {
-                crate::title::plan_set(&self.doc, p, &ex.by, self.tracks(&ex.by))
-            }
-            Command::TitleSetLines(p) => {
-                crate::title::plan_set_lines(&self.doc, p, &ex.by, self.tracks(&ex.by))
-            }
+            // As for `tracked: false` above: the refusal guards a live agent;
+            // a journaled title edit was allowed when it was made.
+            Command::TitleSet(p) => crate::title::plan_set(
+                &self.doc,
+                p,
+                &ex.by,
+                ex.semantics.is_none() && self.tracks(&ex.by),
+            ),
+            Command::TitleSetLines(p) => crate::title::plan_set_lines(
+                &self.doc,
+                p,
+                &ex.by,
+                ex.semantics.is_none() && self.tracks(&ex.by),
+            ),
             _ => Err(CommandError::new("invalid_request", "not an edit")),
         }
     }
@@ -1269,9 +1330,15 @@ impl Session {
         &mut self,
         p: &BlockSetType,
         ctx: Option<&mut TrackCtx>,
+        ex: &Exec,
     ) -> Result<(Transaction, Value), CommandError> {
         let index = self.index(p.id)?;
         self.refuse_pending(index)?;
+        if ctx.is_none() {
+            self.refuse_others_structure(ex, index, |m| {
+                m.retyped.iter().map(|r| r.change).collect()
+            })?;
+        }
         let old = self.doc.blocks[index].element.clone();
         let mut e = old.clone();
         e.kind = p.kind;
@@ -1512,11 +1579,28 @@ impl Session {
         &mut self,
         p: &SceneMove,
         ctx: Option<&mut TrackCtx>,
+        ex: &Exec,
     ) -> Result<(Transaction, Value), CommandError> {
-        let scene = self
+        let rules = ex.rules();
+        let mut scene = self
             .doc
             .scene(p.id)
             .ok_or(CommandError::scene_not_found(p.id))?;
+        // A longer range, up to `last`, never a shorter one.
+        if let Some(last) = p.last {
+            let l = self.index(last)?;
+            if l + 1 < scene.end {
+                return Err(CommandError::invalid_params(format!(
+                    "{last} is inside the scene; \"last\" may only take in more blocks"
+                )));
+            }
+            scene.end = l + 1;
+        }
+        if ctx.is_none() {
+            self.refuse_others_structure(ex, scene.start, |m| {
+                m.moved.iter().map(|r| r.change).collect()
+            })?;
+        }
         let target = match p.before {
             None => self.doc.blocks.len(),
             Some(b) => {
@@ -1547,18 +1631,48 @@ impl Session {
             target
         };
         let mut ops = Vec::new();
-        if let Some(ctx) = ctx {
+        let last = self.doc.blocks[scene.end - 1].id;
+        let back = match &ctx {
+            Some(ctx) if rules >= 4 => self.moved_back(ctx, scene.start, p.before, last),
+            _ => None,
+        };
+        if let Some(k) = back {
+            // Back where it stood before the author's own moves since
+            // entry `k`: they are cancelled, and nothing is left to review.
+            let mut marks = self.doc.blocks[scene.start].marks.clone();
+            marks.moved.truncate(k);
+            ops.push(Op::Mark {
+                index: scene.start,
+                marks,
+            });
+        } else if let Some(ctx) = ctx {
             // Where the scene stood: before the block after it, or at the
             // end; and the blocks it took. Each move is kept, so rejecting
             // undoes them in order.
             let was = self.doc.blocks.get(scene.end).map(|b| b.id);
-            let last = self.doc.blocks[scene.end - 1].id;
-            let mut marks = self.doc.blocks[scene.start].marks.clone();
             let c = ctx.change(&mut self.doc, None);
+            // A change that moves a second scene numbers its moves, so a
+            // reject can undo them newest first (docs/specs/changes.md
+            // §2.2). Its moves so far all sit on one heading, oldest first.
+            let heading = self.doc.blocks[scene.start].id;
+            let n = if rules >= 4 {
+                self.number_moves(c, heading, &mut ops)
+            } else {
+                None
+            };
+            let mut marks = self.doc.blocks[scene.start].marks.clone();
+            if let Some(Op::Mark { marks: m, .. }) = ops
+                .iter()
+                .rev()
+                .find(|op| matches!(op, Op::Mark { index, .. } if *index == scene.start))
+            {
+                marks = m.clone();
+            }
             marks.moved.push(Moved {
                 change: c,
                 before: was,
                 last,
+                n,
             });
             ops.push(Op::Mark {
                 index: scene.start,
@@ -1571,6 +1685,104 @@ impl Session {
             to,
         });
         Ok((Transaction(ops), json!({})))
+    }
+
+    /// The first of the author's own pending moves of the scene headed at
+    /// `start` that a move before `before` (or to the end), taking the
+    /// blocks up to `last`, takes it back from: that entry and those after
+    /// it are cancelled, rather than one more added. Only the heading's
+    /// newest entries made by this author count, and an entry whose
+    /// neighbour is gone or moved too never matches (docs/specs/changes.md
+    /// §5.2, 2026-10-30, journal semantics 4).
+    fn moved_back(
+        &self,
+        ctx: &TrackCtx,
+        start: usize,
+        before: Option<BlockId>,
+        last: BlockId,
+    ) -> Option<usize> {
+        let moved = &self.doc.blocks[start].marks.moved;
+        let own = moved
+            .iter()
+            .rev()
+            .take_while(|m| ctx.owns(&self.doc, m.change))
+            .count();
+        (moved.len() - own..moved.len()).find(|&k| {
+            moved[k].before == before
+                && moved[k..].iter().all(|m| m.last == last)
+                && before.is_none_or(|b| {
+                    self.doc
+                        .get(b)
+                        .is_some_and(|block| block.marks.moved.is_empty())
+                })
+        })
+    }
+
+    /// An agent's untracked retype or move of a block another author
+    /// retyped or moved would change that author's proposal and leave its
+    /// mark as it was, where the check on other authors' marks cannot see
+    /// it: it is refused (docs/specs/changes.md §5.4, semantics 4, review
+    /// finding GR9).
+    fn refuse_others_structure(
+        &self,
+        ex: &Exec,
+        index: usize,
+        changes: impl Fn(&BlockMarks) -> Vec<ChangeId>,
+    ) -> Result<(), CommandError> {
+        if ex.by.is_writer() || ex.rules() < 4 {
+            return Ok(());
+        }
+        let mine = ChangeBy::of(&ex.by);
+        let others = changes(&self.doc.blocks[index].marks)
+            .into_iter()
+            .any(|c| self.doc.changes.get(c).is_none_or(|e| e.by != mine));
+        if others {
+            return Err(track::not_your_change(
+                "another author retyped or moved this block, and that is pending",
+            ));
+        }
+        Ok(())
+    }
+
+    /// The number a new move of change `c`, of the scene headed by
+    /// `heading`, takes: `None` while the change has moved only this scene.
+    /// When it moves a second, its earlier moves are numbered first, in
+    /// the order they sit (one heading's, oldest first), as operations of
+    /// this edit.
+    fn number_moves(&self, c: ChangeId, heading: BlockId, ops: &mut Vec<Op>) -> Option<u32> {
+        let mine = |b: &Block| b.marks.moved.iter().filter(|m| m.change == c).count();
+        let elsewhere = self
+            .doc
+            .blocks
+            .iter()
+            .any(|b| b.id != heading && mine(b) > 0);
+        let numbered = self
+            .doc
+            .blocks
+            .iter()
+            .flat_map(|b| b.marks.moved.iter())
+            .filter(|m| m.change == c)
+            .filter_map(|m| m.n)
+            .max();
+        if let Some(top) = numbered {
+            return Some(top + 1);
+        }
+        if !elsewhere {
+            return None;
+        }
+        let mut next = 0u32;
+        for (index, b) in self.doc.blocks.iter().enumerate() {
+            if mine(b) == 0 {
+                continue;
+            }
+            let mut marks = b.marks.clone();
+            for m in marks.moved.iter_mut().filter(|m| m.change == c) {
+                next += 1;
+                m.n = Some(next);
+            }
+            ops.push(Op::Mark { index, marks });
+        }
+        Some(next + 1)
     }
 
     fn plan_text_insert(
@@ -1685,6 +1897,7 @@ impl Session {
         &mut self,
         p: &BlockSplit,
         ctx: Option<&mut TrackCtx>,
+        rules: u32,
     ) -> Result<(Transaction, Value), CommandError> {
         let index = self.index(p.id)?;
         self.refuse_pending(index)?;
@@ -1704,14 +1917,22 @@ impl Session {
         let id = self.doc.allocate_id().ok_or_else(ids_used_up)?;
         let mut block = Block::new(id, second);
         if let Some(ctx) = ctx {
-            let own_block = self.doc.blocks[index]
-                .marks
-                .inserted
-                .is_some_and(|c| self.own(ctx, c));
+            let inserted = self.doc.blocks[index].marks.inserted;
+            let own_block = inserted.is_some_and(|c| self.own(ctx, c));
             let c = ctx.change(&mut self.doc, None);
+            let empty = block.element.text.is_empty();
             // Nothing moves to the new block: it is a new block, as Enter at
-            // the end of a line makes (docs/specs/changes.md §5.2).
-            if block.element.text.is_empty() || own_block {
+            // the end of a line makes. Nor is a split of a block this very
+            // change inserted (in one batch): rejecting the change removes
+            // both. A later split of one's own new block that moves text is
+            // a split, so rejecting it joins the text back
+            // (docs/specs/changes.md §5.2, semantics 4).
+            let new_block = if rules >= 4 {
+                empty || (own_block && inserted == Some(c))
+            } else {
+                crate::legacy::split_is_insertion(empty, own_block)
+            };
+            if new_block {
                 block.marks.inserted = Some(c);
             } else {
                 block.marks.split = Some(c);
@@ -1769,8 +1990,9 @@ impl Session {
         &mut self,
         how: Settle,
         p: &ChangesSettle,
-        by: &Author,
+        ex: &Exec,
     ) -> Result<(Transaction, Value), CommandError> {
+        let by = &ex.by;
         if how == Settle::Accept && !by.is_writer() {
             return Err(CommandError::new(
                 "writer_only",
@@ -1824,14 +2046,22 @@ impl Session {
             (changes, blocks)
         };
         let sel = track::Selection { changes, blocks };
-        let out = track::settle(&self.doc, how, &sel);
+        // Journals of semantics 1 to 3 replay with the rules they were made
+        // under (docs/specs/journal.md, "Header").
+        let out = if ex.rules() >= 4 {
+            track::settle(&self.doc, how, &sel)
+        } else {
+            crate::legacy::settle(&self.doc, how, &sel)
+        };
+        // For the marking that follows (`apply_marking`).
+        self.settled_tags = (ex.rules() >= 4 && how == Settle::Accept).then(|| out.tags.clone());
         if let Some(id) = p.id
             && out.skipped.contains(&id)
         {
             return Err(CommandError::new(
                 "change_conflict",
                 format!(
-                    "{id} cannot be carried out as it stands: a scene it moved has lost its old place, or blocks it would join no longer can be; settle it the other way, or edit the script yourself"
+                    "{id} cannot be carried out as it stands: a scene it moved has lost its old place, blocks it would join no longer can be, or a block it would remove holds text that is not part of it; settle it the other way, or edit the script yourself"
                 ),
             )
             .with_details(json!({ "id": id })));

@@ -1,0 +1,66 @@
+{"id":1,"command":"doc.open","params":{"path":"lighthouse.fountain"}}
+{"id":2,"command":"changes.track","params":{"writer":true}}
+{"id":3,"command":"block.insert","params":{"after":"b_9","type":"action","text":"A bell rings."}}
+{"id":4,"command":"changes.track","params":{"writer":false}}
+{"id":5,"command":"text.insert","params":{"id":"b_10","at":13,"text":" Twice."}}
+{"id":6,"command":"changes.reject","params":{"id":"c_1"}}
+{"id":7,"command":"changes.track","params":{"writer":true}}
+{"id":8,"command":"block.insert","params":{"after":"b_9","type":"action","text":"First wave. Second wave."}}
+{"id":9,"command":"block.split","params":{"id":"b_11","at":12}}
+{"id":10,"command":"changes.reject","params":{"id":"c_3"}}
+{"id":11,"command":"changes.track","params":{"writer":false}}
+{"id":12,"command":"block.insert","params":{"after":"b_11","type":"page_break"}}
+{"id":13,"command":"changes.track","params":{"writer":true}}
+{"id":14,"command":"block.set_type","params":{"id":"b_13","type":"action"}}
+{"id":15,"command":"changes.track","params":{"writer":false}}
+{"id":16,"command":"text.insert","params":{"id":"b_13","at":0,"text":"Hello."}}
+{"id":17,"command":"changes.reject","params":{"id":"c_4"}}
+{"id":18,"command":"block.insert","params":{"after":"b_13","type":"action","text":"Kept line."}}
+{"id":19,"command":"block.insert","params":{"after":"b_14","type":"action","text":"disappear"}}
+{"id":20,"command":"block.insert","params":{"after":"b_15","type":"action","text":"Joined text."}}
+{"id":21,"command":"changes.track","params":{"writer":true}}
+{"id":22,"command":"block.join","params":{"id":"b_16"}}
+{"id":23,"command":"block.delete","params":{"id":"b_15"}}
+{"id":24,"command":"changes.accept","params":{"id":"c_5"}}
+{"id":25,"command":"changes.accept","params":{"id":"c_6"}}
+{"id":26,"command":"changes.track","params":{"writer":false}}
+{"id":27,"command":"block.insert","params":{"after":"b_14","type":"scene_heading","text":"INT. STAIRS - NIGHT"}}
+{"id":28,"command":"block.insert","params":{"after":"b_17","type":"action","text":"Step one. Step two."}}
+{"id":29,"command":"changes.track","params":{"writer":true}}
+{"id":30,"command":"block.split","params":{"id":"b_18","at":10}}
+{"id":31,"command":"changes.track","params":{"writer":false}}
+{"id":32,"command":"block.set_type","params":{"id":"b_18","type":"page_break"}}
+{"id":33,"command":"changes.reject","params":{"scene":"b_17"}}
+{"id":34,"command":"block.insert","params":{"after":"b_19","type":"action","text":"A line."}}
+{"id":35,"command":"block.set_attrs","params":{"id":"b_20","centered":true}}
+{"id":36,"command":"batch","params":{"commands":[{"command":"block.set_type","params":{"id":"b_20","type":"character","tracked":true}},{"command":"block.set_type","params":{"id":"b_20","type":"dialogue","tracked":true}}]}}
+{"id":37,"command":"changes.reject","params":{"id":"c_8"}}
+{"id":38,"command":"block.insert","params":{"after":"b_20","type":"scene_heading","text":"INT. S - DAY"}}
+{"id":39,"command":"block.insert","params":{"after":"b_21","type":"action","text":"sa"}}
+{"id":40,"command":"block.insert","params":{"after":"b_22","type":"scene_heading","text":"INT. T - DAY"}}
+{"id":41,"command":"block.insert","params":{"after":"b_23","type":"action","text":"ta"}}
+{"id":42,"command":"block.insert","params":{"after":"b_24","type":"scene_heading","text":"INT. U - DAY"}}
+{"id":43,"command":"block.insert","params":{"after":"b_25","type":"action","text":"ua"}}
+{"id":44,"command":"batch","params":{"commands":[{"command":"scene.move","params":{"id":"b_21","tracked":true}},{"command":"scene.move","params":{"id":"b_21","before":"b_25","tracked":true}}]}}
+{"id":45,"command":"changes.reject","params":{"id":"c_9"}}
+{"id":46,"command":"block.insert","params":{"after":"b_26","type":"action","text":"Go."}}
+{"id":47,"command":"block.set_attrs","params":{"id":"b_27","centered":true}}
+{"id":48,"command":"block.set_type","params":{"id":"b_27","type":"character","tracked":true}}
+{"id":49,"command":"revision.start","params":{"date":"2026-10-28"}}
+{"id":50,"command":"changes.accept","params":{"id":"c_10"}}
+{"id":51,"command":"block.set_type","params":{"id":"b_27","type":"action"}}
+{"id":52,"command":"block.set_attrs","params":{"id":"b_27","centered":true}}
+{"id":53,"command":"revision.end"}
+{"id":54,"command":"revision.start","params":{"date":"2026-10-28"}}
+{"id":55,"command":"text.insert","params":{"id":"b_2","at":0,"text":"Far off, ","tracked":true}}
+{"id":56,"command":"revision.end"}
+{"id":57,"command":"revision.start","params":{"date":"2026-10-29"}}
+{"id":58,"command":"text.insert","params":{"id":"b_9","at":0,"text":"Later, ","tracked":true}}
+{"id":59,"command":"revision.end"}
+{"id":60,"command":"revision.start","params":{"date":"2026-10-30"}}
+{"id":61,"command":"batch","params":{"commands":[{"command":"text.insert","params":{"id":"b_5","at":0,"text":"Oh, ","tracked":true}},{"command":"text.insert","params":{"id":"b_7","at":0,"text":"High, ","tracked":true}}]}}
+{"id":62,"command":"revision.end"}
+{"id":63,"command":"changes.accept","params":{"scene":"b_1"}}
+{"id":64,"command":"changes.accept","params":{"all":true}}
+{"id":65,"command":"doc.export"}
+{"id":66,"command":"doc.get"}

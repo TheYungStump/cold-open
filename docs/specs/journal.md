@@ -1,6 +1,6 @@
 # Crash journal and atomic saves
 
-- **Date:** 2026-10-13, updated 2026-10-15, 2026-10-16, 2026-10-18 and 2026-10-22 (phase 5b: `semantics` 3 and the revision table in the header)
+- **Date:** 2026-10-13, updated 2026-10-15, 2026-10-16, 2026-10-18, 2026-10-22 (phase 5b: `semantics` 3 and the revision table in the header) and 2026-10-28 (`semantics` 4 and semantics markers, from the reviews of phases 4–5b)
 - **Status:** implemented in `crates/core` (phases 1, 3 and 4, and the review fixes of 2026-10-16). Phase 5a (2026-10-18: `semantics` 2 and the `tracked` param, `doc_id`, the change data and how the header names it, bundles) is being implemented.
 - **Sources:** `docs/spec.md` (Reliability features, File formats), `CLAUDE.md` (Reliability), the phase 3 brief and its approved decisions (2026-10-15), the reviews of phases 1–3 (2026-10-15, listed in `docs/progress/review-fixes.md`; section "F18" there for the decisions at the end), the phase 4 brief and its decisions (2026-10-16, `docs/progress/phase-4.md`), the phase 5a brief and its decisions (2026-10-18, `docs/progress/phase-5a.md`), `docs/specs/changes.md`, `docs/specs/bundle.md`. No external material.
 
@@ -22,7 +22,7 @@
 | --- | --- |
 | `doc` | A full snapshot of the base document, with ids and `next_id`. This makes the journal self-contained: recovery works even if the script file was changed, damaged or deleted. |
 | `disk` | The length and FNV-1a 64-bit hash of the script file as last saved, or null if it has never been saved. It is used only to notice changes made by other programs. |
-| `semantics` | (2026-10-16) What replaying the entries means. It goes up whenever a command's replay changes meaning, because results alone cannot show that ("What replay compares"). Absent means 1. A journal with a higher number than this version knows is treated like an unreadable header: kept aside, never replayed. **2** since phase 5a (2026-10-18): edits can be tracked changes, and every edit entry says whether it is ("Entries"). **3** since phase 5b (2026-10-22): while a revision set is active, edits and `changes.accept` mark what they change (`docs/specs/revisions.md` §6). The active set is in the header's document and is changed only by journaled commands, so replay marks what the edits marked. Journals of semantics 1 and 2 have no revision sets, so they replay exactly as before. |
+| `semantics` | (2026-10-16) What replaying the entries means. It goes up whenever a command's replay changes meaning, because results alone cannot show that ("What replay compares"). Absent means 1. A journal with a higher number than this version knows is treated like an unreadable header: kept aside, never replayed. **2** since phase 5a (2026-10-18): edits can be tracked changes, and every edit entry says whether it is ("Entries"). **3** since phase 5b (2026-10-22): while a revision set is active, edits and `changes.accept` mark what they change (`docs/specs/revisions.md` §6). The active set is in the header's document and is changed only by journaled commands, so replay marks what the edits marked. Journals of semantics 1 and 2 have no revision sets, so they replay exactly as before. **4** since 2026-10-28 (the fixes of the reviews of phases 4–5b, `docs/progress/review-fixes-4-5b.md`): settling a change never removes text or blocks that are not part of it, a split of one's own inserted block that moves text is marked `split`, a change that retyped or moved a block twice is rejected step by step, an agent's untracked retype or move over another author's is refused, and accepting marks each change with its own revision set (`docs/specs/changes.md` §5, §6; `docs/specs/revisions.md` §6). Journals of semantics 1 to 3 replay with the rules they were written under, which the code keeps for them. |
 | `doc_id` | (2026-10-18, phase 5a) For a bundle, the document's identity (`docs/specs/bundle.md` §8). Absent for other formats. |
 | `changes`, `changes_ref` | (2026-10-18, phase 5a) The document's change table ("The change data"). For a bundle, `changes_ref` names it; for other formats, `changes` holds it. Both are absent when the table is empty. |
 | `host`, `path` | (2026-10-16) The computer's name and the script's canonical path when the header was written. Absent in older journals. |
@@ -80,7 +80,7 @@ The header holds one copy of the store, written at each save, as it already held
 | `merge` | Optional (2026-10-15). `true` when the command joined the undo step before it. Absent means false. |
 | `step` | `undo` and `redo` only, optional (2026-10-16). The step reversed: see "Undo and redo entries". |
 
-Only edits, `undo`, `redo`, `doc.saved` markers and (2026-10-21) `journal.adopted` markers are written. Queries, output commands and session commands are not. Replay stops at any other entry, so a damaged or hand-made journal can never make recovery write files.
+Only edits, `undo`, `redo`, `doc.saved` markers, (2026-10-21) `journal.adopted` markers and (2026-10-28) `journal.semantics` markers are written. Queries, output commands and session commands are not. Replay stops at any other entry, so a damaged or hand-made journal can never make recovery write files.
 
 **`doc.saved` markers** (2026-10-15). A marker records that a save of the document, as it stood at that point in the journal, was started:
 
@@ -98,6 +98,14 @@ Replay runs nothing for a marker. It only remembers the fingerprint, for `extern
 
 Replay runs nothing for it either. It remembers the newest one's `host` and `path`, which stand for the header's when recovery asks whether the journal is from somewhere else. Builds from before 2026-10-21 do not know this marker: they stop replay at it and keep the journal aside as a copy, so they recover the entries before it, and the copy holds the rest.
 
+**Semantics markers** (2026-10-28). A recovered journal goes on under its old header, so its header's `semantics` would also name what the entries made after the recovery mean. When the journal's semantics is older than this version's, `doc.open` therefore appends a marker once it has recovered it:
+
+```json
+{"seq":64,"t":1761650000000,"command":"journal.semantics","params":{"semantics":4},"result":{}}
+```
+
+Replay runs nothing for it. The entries before it replay with the header's semantics, and the entries after it with the marker's. A marker that names semantics this version does not know, or a lower number than the one in force, cannot be trusted, and replay stops there. It is one appended line, as an adoption marker is, so no crash point can cost the work; the next save starts the journal again under a header of this version's semantics anyway. Builds from before 2026-10-28 already keep aside a journal of semantics 4; one of older semantics with this marker in it, they replay up to the marker and keep the journal aside as a copy.
+
 **Undo and redo entries** (2026-10-16). Replay must reverse exactly the step the writer reversed, so each `undo` or `redo` entry says which step that was:
 
 - `"step": 7`: the step made by entry 7 of this journal (a typing group is named by the entry that began it). Replay checks that the step on top of its rebuilt history is that one; if not, it stops there, as for any other divergence.
@@ -108,7 +116,7 @@ A save also ends any typing group, so typing never joins a step across a journal
 **What replay compares** (2026-10-16). A replayed result must reproduce only what later entries depend on:
 
 - every id the recorded result names as `id`, at the top level or in a batch's `results` (later entries address blocks by these ids);
-- (2026-10-18) every change id it names as `change`, in the same places (later entries settle changes by these ids);
+- (2026-10-18) every change id it names as `change`, in the same places (later entries settle changes by these ids). Until 2026-10-28 the code compared only the ids, so a journal whose changes came out numbered differently replayed without a word (review finding AR11);
 - for `undo` and `redo`, the command name of the step reversed (`undone`, `redone`), and the step itself where the entry names it.
 
 **Replaying semantics 1** (2026-10-18). Journals written before phase 5a have no `tracked` in their entries. Their edits were never tracked, so replay reads an absent `tracked` as false in a journal whose header says `semantics` 1, whatever the document's switches say. The fixtures of phases 1–4 (`tests/fixtures/journal/`) therefore replay exactly as before. After such a journal is recovered, new entries are appended to it with `tracked` written, which replays the same way. In a semantics 2 journal, an edit entry without `tracked` stops replay, like any entry that cannot be trusted.
@@ -218,7 +226,7 @@ When `doc.open` finds a journal for the file:
    - A complete line that does not parse, or a `seq` out of order, stops replay at that point. The journal is copied aside, and a warning names how many entries were recovered.
    - If a replayed result does not reproduce the recorded one ("What replay compares"), replay stops at that entry, the journal is copied aside to `<journal>.diverged-<ms>`, and a warning is returned. The diverged entry's change is not kept (2026-10-16): the recovered document is exactly what the trusted entries before it give, which is what the journal is cut back to, so a later crash recovers the same document again.
 3. **Discard if asked.** With `recover: "discard"`, the journal is copied to `<journal>.discarded-<ms>`, and a fresh journal is started from the file.
-4. **Nothing to recover?** If the replayed document writes in the header's format (`format`, Fountain when absent) **without loss** and equals the file's bytes, open the file normally. A lossy write can produce the file's exact text while the document differs (for example, a scene heading retyped as a stray parenthetical), so a lossy write always recovers. (2026-10-18) Only losses of class `lost` count here. A `normalized` loss changes nothing that prints (`docs/specs/fountain.md` §10), and before phase 5a such writes reported no loss at all, so this check is unchanged. Pending tracked changes are a `lost` loss for Fountain and .fdx, so a journal holding them always recovers.
+4. **Nothing to recover?** If the replayed document writes in the header's format (`format`, Fountain when absent) **without loss** and equals the file's bytes, open the file normally. (2026-10-28) For Fountain and .fdx, the document must also have the tracking switches such a file opens with, the defaults: a switch the journal changed is work the file cannot hold (`docs/specs/changes.md` §4). A lossy write can produce the file's exact text while the document differs (for example, a scene heading retyped as a stray parenthetical), so a lossy write always recovers. (2026-10-18) Only losses of class `lost` count here. A `normalized` loss changes nothing that prints (`docs/specs/fountain.md` §10), and before phase 5a such writes reported no loss at all, so this check is unchanged. Pending tracked changes are a `lost` loss for Fountain and .fdx, so a journal holding them always recovers.
    - **No entries** (2026-10-16). Nothing is to recover when the file is the version the header's `disk` or a marker names, or holds the header's document as above. Otherwise the header is the only copy of the last save: the save's rename never reached the disk (a power cut), or another program changed the file and then Cold Open crashed. The header's document is then recovered, with `commands: 0` and `external_change: true`, and the writer decides. Before 2026-10-16, such a journal was overwritten without a word.
 5. **Otherwise, recover.** Open the replayed document as unsaved, with its undo history rebuilt, and report `recovered: {commands, external_change, last}`, where `last` is the newest replayed entry's `t`.
    - **Undo history.** It is rebuilt with each step's author and label. Entries marked `merge` join the step before them, exactly as they did when they were made.
@@ -226,6 +234,7 @@ When `doc.open` finds a journal for the file:
    - `commands` counts the commands replayed; markers are not counted. It is 0 when only the header was recovered.
 
 **A file that does not exist** (2026-10-15). If the script file is missing but a journal for it exists, as for a document created with `doc.new` that was never saved, the journal alone is recovered:
+- the file is not read (2026-10-28): its document stands as an empty one of its format, so a `.coldopen` or `.fdx` path, whose empty bytes are no file of that format, recovers like any other (review finding GP5);
 - the file's bytes count as empty in step 4;
 - `external_change` is false when the header's `disk` is null, and true otherwise, because a file that was once saved is now gone.
 
@@ -262,9 +271,12 @@ Added 2026-10-16 (phase 4). Set-aside copies hold work a writer may want back, s
 
 **Preview.** A journal copy is replayed exactly as recovery would replay it (steps 1 and 2 of "Recovery on open"), without touching the disk, and the document it reaches is shown. A damaged original is read as its script would be. A copy whose header cannot be read is listed as unreadable: it can be deleted, not restored.
 
+**A copy that replays in part** (2026-10-28, review finding CL2). A copy is often set aside because its replay stopped early, and this version may stop at the same entry. `recovered.list` gives each journal copy's `entries` (the commands it holds) and `replayed` (how many replay), with `problem` when they differ; the desktop app says "This copy restores 12 of its 15 changes". Restoring such a copy still restores what replays, and its result carries a `journal_partial` warning with `replayed` and `entries`, so a restore never brings back less without saying so.
+
 **Restore.** `recovered.restore` opens the copy's document as a new, unsaved script journaled at a path the caller gives (the app uses `Unsaved/`). The new journal's header holds that document with `unsaved: true` and no `disk`, so:
 
 - a crash before the first save recovers it, as a never-saved document is recovered ("A file that does not exist");
+- (2026-10-28) its document counts as the writer's work when it is recovered, whoever made the entries after it, so an agent cannot set it aside (`docs/specs/mcp.md` §6). Before, a restored copy that then took only an agent's edits was the agent's to discard (review finding GP4);
 - the app's start-up scan offers it as leftover work, as it does a journal with entries;
 - a save as anything writes a new file. Nothing is ever written over the copy, the script it came from, or that script's journal.
 

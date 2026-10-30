@@ -14,7 +14,6 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use coldopen_screenplay::{Element, ElementKind, Marks, RichText, Run, Style, words};
 
-use crate::changes::ChangeId;
 use crate::document::{Block, BlockId, Document};
 use crate::ops::{Op, Transaction};
 use crate::revisions::RevisionId;
@@ -104,6 +103,7 @@ impl Touched {
 pub fn apply(
     tx: Transaction,
     doc: &mut Document,
+    rules: u32,
     rev: impl FnOnce(&Document) -> Option<RevisionId>,
 ) -> Transaction {
     let mut t = Touched::default();
@@ -113,7 +113,7 @@ pub fn apply(
         inverse.push(op.apply(doc));
     }
     let rev = rev(doc);
-    for op in marking(doc, &t, rev) {
+    for op in marking(doc, &t, rev, rules) {
         inverse.push(op.apply(doc));
     }
     inverse.reverse();
@@ -180,6 +180,25 @@ fn present(b: &Block) -> bool {
 /// retype.
 fn distributed_kind(b: &Block) -> ElementKind {
     b.marks.retyped.first().map_or(b.element.kind, |r| r.from)
+}
+
+/// A block as the distributed draft had it, as far as its printing
+/// attributes go: a pending retype cleared some, which its oldest entry
+/// keeps (docs/specs/changes.md §2.2). Since semantics 4 (2026-10-28,
+/// review finding GR10); before, the block as it stood.
+fn distributed_element(b: &Block) -> coldopen_screenplay::Element {
+    let mut e = b.element.clone();
+    if let Some(r) = b.marks.retyped.first() {
+        if r.scene_number.is_some() {
+            e.scene_number = r.scene_number.clone();
+        }
+        e.dual |= r.dual;
+        e.centered |= r.centered;
+        if r.space_before.is_some() {
+            e.space_before = r.space_before;
+        }
+    }
+    e
 }
 
 /// The printing attributes of a block (docs/specs/revisions.md §6.1).
@@ -327,7 +346,7 @@ fn revs_for(
 }
 
 /// The operations that mark what the recorded edit changed.
-fn marking(doc: &Document, t: &Touched, rev: Option<RevisionId>) -> Vec<Op> {
+fn marking(doc: &Document, t: &Touched, rev: Option<RevisionId>, rules: u32) -> Vec<Op> {
     let mut ops = Vec::new();
     // Where each block is now.
     let index: BTreeMap<BlockId, usize> = doc
@@ -371,7 +390,11 @@ fn marking(doc: &Document, t: &Touched, rev: Option<RevisionId>) -> Vec<Op> {
                     None => {
                         let base = crate::revisions::BaseBlock {
                             kind: distributed_kind(old),
-                            element: old.element.clone(),
+                            element: if rules >= 4 {
+                                distributed_element(old)
+                            } else {
+                                old.element.clone()
+                            },
                             rev: old.rev,
                         };
                         ops.push(Op::RevBase {
@@ -385,8 +408,13 @@ fn marking(doc: &Document, t: &Touched, rev: Option<RevisionId>) -> Vec<Op> {
                     Some(base) => (base.kind, &base.element),
                     None => (distributed_kind(old), &old.element),
                 };
+                let now = if rules >= 4 {
+                    distributed_element(b)
+                } else {
+                    b.element.clone()
+                };
                 let same_block =
-                    from_kind == distributed_kind(b) && attributes(from) == attributes(&b.element);
+                    from_kind == distributed_kind(b) && attributes(from) == attributes(&now);
                 if !same_block {
                     whole.insert(i);
                 }
@@ -542,19 +570,6 @@ fn gap_at(
     let at = if last { cs.len() - 1 } else { 0 };
     revs[at] = Some(rev);
     texts.insert(k, with_revs(&text, &revs));
-}
-
-/// The newest revision set recorded by the changes an edit settled: those
-/// the blocks it touched named before, and no longer name. A change
-/// accepted with no set active is marked with it (docs/specs/revisions.md
-/// §6.3).
-pub fn settled_rev(doc: &Document, before: &BTreeSet<ChangeId>) -> Option<RevisionId> {
-    let still: BTreeSet<ChangeId> = doc.blocks.iter().flat_map(Block::change_ids).collect();
-    before
-        .iter()
-        .filter(|c| !still.contains(c))
-        .filter_map(|&c| doc.changes.get(c).and_then(|e| e.rev))
-        .max()
 }
 
 #[cfg(test)]

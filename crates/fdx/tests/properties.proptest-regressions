@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 957bc276b3dcfd7d95e6a8e8d0701bd7ab6487c17257144e4de139d4d6088ae4 # shrinks to which = Index(14254302238775562613), edits = [(Index(203831426228834825), 0, 0, 0)]
+cc 7edbb78b0c4ac7b37f017ca8d3ac1c5d04b7bd762a9193532cc6374829217b2b # shrinks to which = Index(2515465100960393403), edits = [(Index(5076990661542258881), 4, 0, 15), (Index(5137197765941348171), 4, 0, 39), (Index(4205215324746627926), 0, 0, 0), (Index(2428787848660343576), 4, 0, 1)]

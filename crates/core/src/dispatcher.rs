@@ -9,8 +9,9 @@ use serde_json::{Value, json};
 
 use crate::author::{Author, Clock};
 use crate::command::{
-    ChangesSettle, Class, Command, DocClose, DocNew, DocOpen, DocSave, ExportFile, ExportPdf,
-    FileRepair, Recover, RecoveredDelete, RecoveredList, RecoveredRestore, RevisionClear,
+    Batch, BatchItem, ChangesSettle, Class, Command, DocClose, DocNew, DocOpen, DocSave,
+    ExportFile, ExportPdf, FileRepair, Recover, RecoveredDelete, RecoveredList, RecoveredRestore,
+    RevisionClear,
 };
 use crate::document::Document;
 use crate::error::CommandError;
@@ -220,6 +221,9 @@ struct Replayed {
     foreign: Option<Value>,
     /// Warnings recovery adds, such as `change_data_missing`.
     notes: Vec<Value>,
+    /// The semantics the last trusted entries were replayed under: the
+    /// header's, or a marker's after it.
+    semantics: u32,
 }
 
 impl Replayed {
@@ -250,6 +254,8 @@ struct Replay {
     /// The computer and path of the newest adoption marker, which stand
     /// for the header's from there on.
     adopted: Option<(String, String)>,
+    /// The semantics in force: the header's, then each marker's.
+    semantics: u32,
 }
 
 /// A document written out for saving, before anything touches the disk.
@@ -624,12 +630,28 @@ impl Dispatcher {
             }
             Err(e) => return Err(CommandError::io(&path, &e)),
         };
+        // A file that was never saved is not read: its journal holds the
+        // document, and empty bytes are no project or .fdx file
+        // (2026-10-28, review finding GP5).
         let ReadOut {
             doc: disk_doc,
             style,
             mut warnings,
             repaired,
-        } = format.get().read(&bytes)?;
+        } = if missing {
+            ReadOut {
+                doc: Document {
+                    next_id: 1,
+                    doc_id: (format == FormatId::Bundle).then(crate::bundle::new_doc_id),
+                    ..Document::default()
+                },
+                style: SourceStyle::default(),
+                warnings: Vec::new(),
+                repaired: None,
+            }
+        } else {
+            format.get().read(&bytes)?
+        };
         let mut session = self.new_session(disk_doc.clone(), Some(path.clone()), format, style);
         let mut recovered = Value::Null;
 
@@ -701,6 +723,12 @@ impl Dispatcher {
                                     if r.foreign.is_some() {
                                         j.append_adopted().map_err(|e| jio(e, &j))?;
                                     }
+                                    // Its header still says what its entries
+                                    // mean; the ones made from now on mean
+                                    // what this version makes them mean.
+                                    if r.semantics < journal::SEMANTICS {
+                                        j.append_semantics().map_err(|e| jio(e, &j))?;
+                                    }
                                     recovered = json!({
                                         "commands": r.commands,
                                         "external_change": r.external_change,
@@ -770,6 +798,7 @@ impl Dispatcher {
             problem: read.problem.clone(),
             diverged: false,
             adopted: None,
+            semantics: read.header.semantics,
         };
         for (k, entry) in read.entries.iter().enumerate().take(limit) {
             if let Some(fp) = entry.saved_disk() {
@@ -784,13 +813,30 @@ impl Dispatcher {
                 r.valid_len = read.entry_end(k);
                 continue;
             }
+            // A semantics marker: the entries after it mean what that
+            // version made them mean (docs/specs/journal.md, "Semantics
+            // markers"). Markers only ever go up, to a version this one
+            // knows.
+            if let Some(n) = entry.semantics() {
+                if n < r.semantics || n > journal::SEMANTICS {
+                    r.problem = Some(format!(
+                        "entry {} says the entries after it mean semantics {n}, which this version cannot replay after semantics {}",
+                        entry.seq, r.semantics
+                    ));
+                    break;
+                }
+                r.semantics = n;
+                r.applied = k + 1;
+                r.valid_len = read.entry_end(k);
+                continue;
+            }
             let ex = Exec {
                 by: entry.by.clone().unwrap_or_default(),
                 merge: Merge::Recorded(entry.merge),
                 seq: Some(entry.seq),
                 step: entry.step.clone(),
                 t: Some(entry.t),
-                semantics: Some(read.header.semantics),
+                semantics: Some(r.semantics),
             };
             let outcome = Command::from_parts(&entry.command, entry.params.clone())
                 .map_err(|e| format!("entry {} cannot be read as a command: {e}", entry.seq))
@@ -880,6 +926,7 @@ impl Dispatcher {
             let trusted = self.replay(&read, path, (format, style), r.applied);
             r.session = trusted.session;
             r.adopted = trusted.adopted;
+            r.semantics = trusted.semantics;
         }
         let Replay {
             session: mut replay,
@@ -891,17 +938,29 @@ impl Dispatcher {
             valid_len,
             problem,
             adopted,
+            semantics,
             ..
         } = r;
 
+        // The bundle on disk holds what another tool added to it, which the
+        // journal does not; the same document takes it back (bundle.md §2).
+        if read.header.format == FormatId::Bundle && !missing && !elsewhere {
+            replay.doc.extra_entries = crate::bundle::extra_entries(disk_bytes);
+        }
         // The file already holds the replayed document only if writing it
         // is lossless and gives the same bytes. A lossy write can match the
         // file's text while the document differs, so it always recovers.
         // It is written in the format the header names, so recovery compares
-        // like with like.
+        // like with like. A Fountain or .fdx file cannot hold the tracking
+        // switches, so a document that has them otherwise than such a file
+        // opens with is not in it either: a switch is a journaled edit, and
+        // writing it out loses nothing that prints (2026-10-28, review
+        // finding GR12).
         let in_file = |doc: &Document| {
             let written = read.header.format.get().write(doc, style);
-            !written.is_lossy() && written.bytes == disk_bytes
+            !written.is_lossy()
+                && written.bytes == disk_bytes
+                && (read.header.format == FormatId::Bundle || doc.tracking.is_default())
         };
         let external_change = elsewhere
             || if missing {
@@ -921,8 +980,10 @@ impl Dispatcher {
             !in_file(&replay.doc)
         };
         // Work in the header alone has no author; it is treated as the
-        // writer's, which is the cautious choice.
-        writer |= commands == 0;
+        // writer's, which is the cautious choice. So is a header that is
+        // itself unsaved work, a restored copy, whoever made the entries
+        // after it (2026-10-28, review finding GP4).
+        writer |= commands == 0 || read.header.unsaved;
         replay.journal = None;
         // A journal this computer took over at this path is its own.
         let (host, at) = match &adopted {
@@ -944,6 +1005,7 @@ impl Dispatcher {
             recover,
             external_change,
             writer,
+            semantics,
         }))
     }
 
@@ -966,26 +1028,67 @@ impl Dispatcher {
         }
         let opts = self.opts;
         let durability = self.durability();
-        refuse_while_saving(
-            self.session
-                .as_ref()
-                .ok_or_else(CommandError::no_document)?,
-        )?;
-        let accepted = self.accept_for_save(&p)?;
         let session = self
             .session
             .as_ref()
             .ok_or_else(CommandError::no_document)?;
-        let Rendered {
-            target,
-            format,
-            mut bytes,
-            losses,
-        } = Self::render(session, &p)?;
+        refuse_while_saving(session)?;
+        // Every check that can refuse the save runs before anything
+        // changes: a refused save leaves the script, its journal and the
+        // target as they were, and makes no copy (docs/specs/commands.md,
+        // `doc.save`; review findings CL6, AR3).
+        let (target, format) = save_target(session.path.as_deref(), &p)?;
         let same_file = session
             .path
             .as_ref()
             .is_some_and(|old| same_path(old, &target));
+        if same_file {
+            refuse_if_changed(session, &target, p.overwrite)?;
+        } else if !p.overwrite && target.exists() {
+            return Err(exists(&target));
+        }
+        // A lossy save without `allow_lossy` is refused before the target
+        // is claimed. One with it accepts first, and is rendered after.
+        let accepting = acceptance_needed(session, &p, format);
+        let rendered = if accepting {
+            None
+        } else {
+            Some(Self::render(session, &p)?)
+        };
+        // Save as: the target's lock is taken, and its journal judged,
+        // before anything is written (docs/specs/journal.md, "Saving").
+        let claimed = if opts.journal && !same_file {
+            Some(self.claim_target(&target, format, durability)?)
+        } else {
+            None
+        };
+        // The empty journal a refused or failed save made is not needed.
+        let release = |claimed: Option<(Journal, bool)>| {
+            if let Some((j, true)) = claimed {
+                let _ = j.delete();
+            }
+        };
+        let accepted = match self.accept_for_save(&p) {
+            Ok(w) => w,
+            Err(e) => {
+                release(claimed);
+                return Err(e);
+            }
+        };
+        let session = self
+            .session
+            .as_ref()
+            .ok_or_else(CommandError::no_document)?;
+        let rendered = match rendered.map_or_else(|| Self::render(session, &p), Ok) {
+            Ok(r) => r,
+            Err(e) => {
+                release(claimed);
+                return Err(e);
+            }
+        };
+        let Rendered {
+            mut bytes, losses, ..
+        } = rendered;
         // A bundle first written at a path gets an identity of its own
         // (docs/specs/bundle.md §8); a save in place keeps it.
         let new_id = (format == FormatId::Bundle
@@ -996,20 +1099,8 @@ impl Dispatcher {
             doc.doc_id = Some(id.clone());
             bytes = format.get().write(&doc, session.style).bytes;
         }
-        if same_file {
-            refuse_if_changed(session, &target, p.overwrite)?;
-        } else if !p.overwrite && target.exists() {
-            return Err(exists(&target));
-        }
         let original = if same_file && session.damaged {
             keep_original(&target)?
-        } else {
-            None
-        };
-        // Save as: the target's lock is taken, and its journal judged,
-        // before anything is written (docs/specs/journal.md, "Saving").
-        let claimed = if opts.journal && !same_file {
-            Some(self.claim_target(&target, format, durability)?)
         } else {
             None
         };
@@ -1071,11 +1162,12 @@ impl Dispatcher {
     /// (docs/specs/commands.md, `doc.save`, 2026-10-21): the document takes
     /// the form the file will hold, as a converting save does. The version
     /// with its changes marked is set aside first, as a Recovered version
-    /// (docs/specs/journal.md), then every pending change is accepted as
-    /// one undoable step, journaled like any other. The same holds for
-    /// revision sets and marks (docs/specs/revisions.md §9), reset as one
-    /// more step. Returns the warnings that say so, none when the save
-    /// keeps everything or there is nothing to take out.
+    /// (docs/specs/journal.md), then every pending change is accepted and
+    /// revision sets and marks are reset (docs/specs/revisions.md §9), as
+    /// one undoable step, journaled like any other (2026-10-28). The caller
+    /// has run every check that can refuse the save. Returns the warnings
+    /// that say so, none when the save keeps everything or there is nothing
+    /// to take out.
     fn accept_for_save(&mut self, p: &DocSave) -> Result<Vec<Value>, CommandError> {
         let Some(session) = self.session.as_mut() else {
             return Ok(Vec::new());
@@ -1086,15 +1178,11 @@ impl Dispatcher {
             (None, Some(t)) => FormatId::for_path(t),
             (None, None) => None,
         };
-        // A bundle keeps the marks; a format that is not known fails when
-        // the save renders, as before.
+        let Some(format) = format.filter(|&f| acceptance_needed(session, p, f)) else {
+            return Ok(Vec::new());
+        };
         let changes = session.doc.has_changes();
         let revisions = session.doc.has_revision_data();
-        if !p.allow_lossy || format.is_none_or(|f| f == FormatId::Bundle) || !(changes || revisions)
-        {
-            return Ok(Vec::new());
-        }
-        let count = session.doc.pending().len();
         let sets = session.doc.revisions.sets.len();
         let marked = session
             .doc
@@ -1111,24 +1199,46 @@ impl Dispatcher {
             }
             None => None,
         };
-        let name = format.map_or("this format", |f| f.title());
-        let mut warnings = Vec::new();
+        let name = format.title();
+        let mut commands = Vec::new();
         if changes {
-            let accept = Command::ChangesAccept(ChangesSettle {
+            commands.push(BatchItem::of(&Command::ChangesAccept(ChangesSettle {
                 all: true,
                 ..ChangesSettle::default()
-            });
-            session.execute_with(&accept, &Exec::by(self.writer.clone()))?;
-            warnings.push(accepted_warning(name, count, copy.as_deref()));
+            })));
         }
         if revisions {
             // Accepting may have marked text: the reset takes it out too.
-            let clear = Command::RevisionClear(RevisionClear {
+            commands.push(BatchItem::of(&Command::RevisionClear(RevisionClear {
                 all: true,
                 sets: true,
                 ..RevisionClear::default()
-            });
-            session.execute_with(&clear, &Exec::by(self.writer.clone()))?;
+            })));
+        }
+        let label = match (changes, revisions) {
+            (true, true) => "Accept changes and clear revisions",
+            (true, false) => "Accept all changes",
+            _ => "Clear revisions",
+        };
+        let step = Command::Batch(Batch {
+            commands,
+            label: Some(label.into()),
+        });
+        let r = session.execute_with(&step, &Exec::by(self.writer.clone()))?;
+        let mut warnings = Vec::new();
+        if changes {
+            let a = &r["results"][0];
+            let count = a["count"].as_u64().unwrap_or(0) as usize;
+            let mut w = accepted_warning(name, count, copy.as_deref());
+            // A change that cannot be accepted as it stands stays pending
+            // (docs/specs/changes.md §6), and the file holds it accepted
+            // as far as it can be.
+            if a["skipped"].as_array().is_some_and(|s| !s.is_empty()) {
+                w["details"]["skipped"] = a["skipped"].clone();
+            }
+            warnings.push(w);
+        }
+        if revisions {
             warnings.push(cleared_warning(name, sets, marked, copy.as_deref()));
         }
         Ok(warnings)
@@ -1210,6 +1320,16 @@ impl Dispatcher {
             ));
         };
         refuse_while_saving(session)?;
+        // "Save anyway": what could refuse the save is checked before the
+        // acceptance changes anything (review findings CL6, AR3). The
+        // worker checks the file again; a change in the milliseconds
+        // between is a failed write, which undo answers.
+        if let Ok((_, format)) = save_target(Some(&path), p)
+            && acceptance_needed(session, p, format)
+        {
+            refuse_if_changed(session, &path, p.overwrite)?;
+        }
+        save_target(Some(&path), p)?;
         let notes = self.accept_for_save(p)?.into_iter().collect();
         let session = self
             .session
@@ -1455,25 +1575,60 @@ impl Dispatcher {
         if !by.is_writer() {
             return Err(writer_only("bring a draft in as changes"));
         }
+        let job = self.import_prepare(&p)?;
+        self.import_apply(job.plan())
+    }
+
+    /// Step 1 of `changes.import` off the UI thread (docs/specs/diff.md §6,
+    /// 2026-10-28): the checks, and a copy of what the planning needs. The
+    /// caller runs [`ImportJob::plan`] on any thread, which reads the draft
+    /// and compares, and hands the outcome to [`Dispatcher::import_apply`].
+    /// `changes.import` runs the three in a row, after its writer-only
+    /// check; a front end that calls these runs for the writer.
+    pub fn import_prepare(
+        &self,
+        p: &crate::command::ChangesImport,
+    ) -> Result<ImportJob, CommandError> {
+        let session = self
+            .session
+            .as_ref()
+            .ok_or_else(CommandError::no_document)?;
+        refuse_pending_import(session)?;
+        let path = PathBuf::from(&p.path);
+        let name = p
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .map_or_else(|| crate::diff::default_name(&path), str::to_string);
+        Ok(ImportJob {
+            doc: session.doc.clone(),
+            format: session.format,
+            path,
+            name,
+            session: session.id(),
+            rev: session.rev,
+        })
+    }
+
+    /// Step 3 of `changes.import`: the planned edits applied, as one tracked
+    /// batch by a writer of the draft's name, if the script is still the
+    /// one they were planned on. One that changed meanwhile fails with
+    /// `import_stale`, and the caller plans again.
+    pub fn import_apply(&mut self, planned: PlannedImport) -> Result<Value, CommandError> {
         let session = self
             .session
             .as_mut()
             .ok_or_else(CommandError::no_document)?;
-        if session.doc.has_changes() {
+        if session.id() != planned.session || session.rev != planned.rev {
             return Err(CommandError::new(
-                "change_pending",
-                "this script has tracked changes waiting; accept or reject them before bringing in a draft",
+                "import_stale",
+                "the script changed while the draft was being compared; bring it in again",
             ));
         }
-        let path = PathBuf::from(&p.path);
-        let (b_doc, b_format) = crate::diff::read_draft(&path)?;
-        let name = p
-            .name
-            .map(|n| n.trim().to_string())
-            .filter(|n| !n.is_empty())
-            .unwrap_or_else(|| crate::diff::default_name(&path));
-        let (items, skipped) =
-            crate::diff::import_edits(&session.doc, session.format, &b_doc, b_format);
+        refuse_pending_import(session)?;
+        let name = planned.name;
+        let (items, skipped) = planned.planned?;
         if items.is_empty() {
             return Ok(json!({ "change": null, "edits": 0, "skipped": skipped }));
         }
@@ -1719,14 +1874,26 @@ impl Dispatcher {
         let copies: Vec<Value> = crate::recovered::of_script(&script)
             .iter()
             .map(|c| {
-                json!({
+                let mut row = json!({
                     "copy": c.copy.display().to_string(),
                     "script": c.script.display().to_string(),
                     "kind": c.kind,
                     "at": c.at,
                     "unread": false,
                     "readable": crate::recovered::readable(c),
-                })
+                });
+                // How much of a journal copy a restore brings back
+                // (docs/specs/commands.md, `recovered.list`, 2026-10-28).
+                if c.kind != crate::recovered::Kind::Original
+                    && let Ok(r) = crate::recovered::read_counted(c)
+                {
+                    row["entries"] = json!(r.entries);
+                    row["replayed"] = json!(r.replayed);
+                    if let Some(p) = r.problem {
+                        row["problem"] = json!(p);
+                    }
+                }
+                row
             })
             .collect();
         Ok(json!({ "copies": copies }))
@@ -1753,13 +1920,31 @@ impl Dispatcher {
             ));
         }
         let format = FormatId::for_path(&path).ok_or_else(|| unsupported(&path))?;
-        let (doc, _) = crate::recovered::read(&copy).map_err(|why| {
+        let read = crate::recovered::read_counted(&copy).map_err(|why| {
             CommandError::new(
                 "copy_unreadable",
                 format!("{} cannot be read: {why}", copy.copy.display()),
             )
             .with_details(json!({ "copy": copy.copy.display().to_string() }))
         })?;
+        // A copy that replays only in part restores with less work than it
+        // holds, which the writer must be told (2026-10-28).
+        let mut warnings = Vec::new();
+        if let Some(why) = &read.problem {
+            warnings.push(json!({
+                "code": "journal_partial",
+                "message": format!(
+                    "only {} of the copy's {} changes could be brought back; {why}; the copy is kept as it is",
+                    read.replayed, read.entries
+                ),
+                "details": {
+                    "copy": copy.copy.display().to_string(),
+                    "replayed": read.replayed,
+                    "entries": read.entries,
+                },
+            }));
+        }
+        let doc = read.doc;
         let mut journal = None;
         if self.opts.journal {
             let (mut j, contents) = open_journal(&path, format, self.durability())?;
@@ -1789,7 +1974,7 @@ impl Dispatcher {
             "format": format.name(),
             "blocks": session.doc.blocks.len(),
             "scenes": session.doc.scenes().len(),
-            "warnings": [],
+            "warnings": warnings,
         });
         self.session = Some(session);
         Ok(result)
@@ -1897,6 +2082,8 @@ impl Dispatcher {
         let mut fresh = Session::new(doc, Some(path.clone()), format, style);
         fresh.damaged = repaired.is_some();
         fresh.clock = clock;
+        // `coldopen mcp --untracked` holds for the session, revert or not.
+        fresh.agent_tracking = session.agent_tracking;
         fresh.journal = session.journal.take();
         fresh.rev = session.rev + 1;
         fresh.disk = Some(Fingerprint::of(&bytes));
@@ -2052,8 +2239,18 @@ fn recovered_copy(path: &str) -> Result<crate::recovered::Copy, CommandError> {
 
 /// The document a journal copy holds, replayed as recovery replays it,
 /// and the format its header names; nothing on disk is touched.
-pub(crate) fn replay_copy(script: &Path, contents: &[u8]) -> Result<(Document, FormatId), String> {
-    let format = journal::read(contents)?.header.format;
+pub(crate) fn replay_copy(
+    script: &Path,
+    contents: &[u8],
+) -> Result<crate::recovered::Read, String> {
+    let read = journal::read(contents)?;
+    let format = read.header.format;
+    // Commands, not markers: what `recovered.commands` counts on open.
+    let entries = read
+        .entries
+        .iter()
+        .filter(|e| e.saved_disk().is_none() && e.adopted().is_none() && e.semantics().is_none())
+        .count();
     match Dispatcher::default().assess(
         script,
         format,
@@ -2062,7 +2259,13 @@ pub(crate) fn replay_copy(script: &Path, contents: &[u8]) -> Result<(Document, F
         (&[], true),
     ) {
         Assessment::Unreadable(why) => Err(why),
-        Assessment::Replayed(r) => Ok((r.session.doc, format)),
+        Assessment::Replayed(r) => Ok(crate::recovered::Read {
+            doc: r.session.doc,
+            format,
+            entries,
+            replayed: r.commands,
+            problem: r.problem,
+        }),
     }
 }
 
@@ -2083,17 +2286,18 @@ fn refuse_document_or_journal(open: Option<&Path>, target: &Path) -> Result<(), 
     Ok(())
 }
 
-/// Keeps a copy of a repaired file as it is, before the first save over it
-/// (docs/specs/journal.md, "Damaged originals"). A file that has gone has
-/// nothing to keep.
-/// Writes a document out for saving and checks it can be saved, without
-/// touching the disk: to `p.path`, or to `own`, the document's own path.
-fn render_doc(
-    doc: &Document,
-    style: SourceStyle,
-    own: Option<&Path>,
-    p: &DocSave,
-) -> Result<Rendered, CommandError> {
+/// Whether a save must accept pending changes or clear revision data
+/// first: "Save anyway" (`allow_lossy`) to a format that cannot hold them.
+fn acceptance_needed(session: &Session, p: &DocSave, format: FormatId) -> bool {
+    p.allow_lossy
+        && format != FormatId::Bundle
+        && (session.doc.has_changes() || session.doc.has_revision_data())
+}
+
+/// Where a save writes, and in which format: `p.path`, or `own`, the
+/// document's own path; `p.format`, or the path's. Checked before anything
+/// is written or changed.
+fn save_target(own: Option<&Path>, p: &DocSave) -> Result<(PathBuf, FormatId), CommandError> {
     let target = match (&p.path, own) {
         (Some(p), _) => PathBuf::from(p),
         (None, Some(p)) => p.to_path_buf(),
@@ -2109,7 +2313,10 @@ fn render_doc(
             let f = f.to_ascii_lowercase();
             CommandError::new(
                 "unsupported_format",
-                format!("\"{f}\" is not a supported format in this version; use \"fountain\""),
+                // Every format a save can write (2026-10-28, review finding AR12).
+                format!(
+                    "\"{f}\" is not a supported format in this version; use \"fountain\", \"fdx\" or \"coldopen\""
+                ),
             )
         })?,
         None => FormatId::for_path(&target).ok_or_else(|| unsupported(&target))?,
@@ -2129,7 +2336,18 @@ fn render_doc(
             ),
         ));
     }
+    Ok((target, format))
+}
 
+/// Writes a document out for saving and checks it can be saved, without
+/// touching the disk: to `p.path`, or to `own`, the document's own path.
+fn render_doc(
+    doc: &Document,
+    style: SourceStyle,
+    own: Option<&Path>,
+    p: &DocSave,
+) -> Result<Rendered, CommandError> {
+    let (target, format) = save_target(own, p)?;
     let written = format.get().write(doc, style);
     let mut losses = crate::session::losses_json(doc, &written.losses);
     // The file is written as UTF-8, which other programs show wrongly
@@ -2160,6 +2378,9 @@ fn render_doc(
     })
 }
 
+/// Keeps a copy of a repaired file as it is, before the first save over it
+/// (docs/specs/journal.md, "Damaged originals"). A file that has gone has
+/// nothing to keep.
 fn keep_original(target: &Path) -> Result<Option<PathBuf>, CommandError> {
     let bytes = match fs::read(target) {
         Ok(b) => b,
@@ -2275,7 +2496,9 @@ fn refuse_while_saving(session: &Session) -> Result<(), CommandError> {
 /// asked for.
 fn reproduces(recorded: &Value, replayed: &Value) -> bool {
     let same = |r: &Value, q: &Value, key: &str| r.get(key).is_none_or(|v| q.get(key) == Some(v));
-    if !["id", "undone", "redone"]
+    // Later entries address blocks by the ids results name, and settle
+    // changes by the change ids (2026-10-28, review finding AR11).
+    if !["id", "change", "undone", "redone"]
         .iter()
         .all(|k| same(recorded, replayed, k))
     {
@@ -2287,7 +2510,11 @@ fn reproduces(recorded: &Value, replayed: &Value) -> bool {
             .get("results")
             .and_then(Value::as_array)
             .is_some_and(|qs| {
-                rs.len() == qs.len() && rs.iter().zip(qs).all(|(r, q)| same(r, q, "id"))
+                rs.len() == qs.len()
+                    && rs
+                        .iter()
+                        .zip(qs)
+                        .all(|(r, q)| same(r, q, "id") && same(r, q, "change"))
             }),
     }
 }
@@ -2371,6 +2598,53 @@ fn exists(target: &Path) -> CommandError {
         ),
     )
     .with_details(json!({ "path": target.display().to_string() }))
+}
+
+/// A draft is brought in only over a script with no tracked changes
+/// waiting (docs/specs/diff.md §6).
+fn refuse_pending_import(session: &Session) -> Result<(), CommandError> {
+    if session.doc.has_changes() {
+        return Err(CommandError::new(
+            "change_pending",
+            "this script has tracked changes waiting; accept or reject them before bringing in a draft",
+        ));
+    }
+    Ok(())
+}
+
+/// What `changes.import` plans with, taken from the session
+/// ([`Dispatcher::import_prepare`]).
+pub struct ImportJob {
+    doc: Document,
+    format: FormatId,
+    path: PathBuf,
+    name: String,
+    session: u64,
+    rev: u64,
+}
+
+/// An import planned: its edits, or why there are none.
+#[derive(Clone, Debug)]
+pub struct PlannedImport {
+    session: u64,
+    rev: u64,
+    name: String,
+    planned: Result<(Vec<BatchItem>, Vec<Value>), CommandError>,
+}
+
+impl ImportJob {
+    /// Step 2, on any thread: reads the draft and plans the edits that
+    /// bring it in. Touches nothing but the draft's file.
+    pub fn plan(self) -> PlannedImport {
+        let planned = crate::diff::read_draft(&self.path)
+            .map(|(b, fb)| crate::diff::import_edits(&self.doc, self.format, &b, fb));
+        PlannedImport {
+            session: self.session,
+            rev: self.rev,
+            name: self.name,
+            planned,
+        }
+    }
 }
 
 /// Some choices are the writer's to make, never an agent's: an agent would
@@ -2499,6 +2773,16 @@ mod tests {
             json!({"results": [{"id": "b_6"}]})
         ));
         assert!(!r(json!({"results": [{}]}), json!({"results": []})));
+        // Change ids, at the top and in a batch's results (2026-10-28).
+        assert!(r(json!({"change": "c_2"}), json!({"change": "c_2"})));
+        assert!(!r(json!({"change": "c_2"}), json!({"change": "c_3"})));
+        assert!(!r(json!({"change": "c_2"}), json!({})));
+        assert!(!r(
+            json!({"results": [{"change": "c_2"}]}),
+            json!({"results": [{"change": "c_3"}]})
+        ));
+        // An older entry that names none asks for none.
+        assert!(r(json!({}), json!({"change": "c_1"})));
     }
 
     /// Review finding F10, through the dispatcher: a journal that a failed

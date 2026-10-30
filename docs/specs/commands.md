@@ -150,16 +150,17 @@ Notes on each command:
   - Saves atomically.
   - `path` is "save as". A path where another file already is fails with `already_exists` unless `overwrite` is true (2026-10-16): "save as" never replaces a file by accident, and every `.txt` counts as a script. The target's lock is taken, and its crash journal judged, before anything is written (2026-10-16; `docs/specs/journal.md`, "Saving"): a target open in another process fails with `doc_locked`, and one whose journal holds unsaved work fails with `unsaved_changes`. A refused save writes nothing.
   - `format` is `"fountain"`, (2026-10-16) `"fdx"` or (2026-10-18) `"coldopen"`. It is inferred from the path's extension when omitted. A save in place writes the format the document was opened in or last saved as, which the session remembers, and `doc.open` reports it as `format`. An .fdx file therefore saves back to .fdx. Saving as a bundle loses nothing, so it is the way to keep tracked changes, ids and everything else a script holds.
-  - **Converting** (2026-10-16). "Save as" to a path of another format converts: the document is written in the target's format, and from then on the session is in that format. What the target format cannot hold is listed as losses before anything is written, as below. Once written, the document takes the form the new format holds, so later saves do not ask again: saved as Fountain, it drops the .fdx store and page format and its title lines become title-page keys (`docs/specs/fountain.md` §11); saved as .fdx, its title-page keys become title lines (`docs/specs/fdx.md` §14.3). None of these is changed by an undoable command, so undo is unaffected. An explicit `format` that disagrees with a path whose extension names another format fails with `unsupported_format`.
+  - **Converting** (2026-10-16). "Save as" to a path of another format converts: the document is written in the target's format, and from then on the session is in that format. What the target format cannot hold is listed as losses before anything is written, as below. Once written, the document takes the form the new format holds, so later saves do not ask again: saved as Fountain, it drops the .fdx store and page format, its spacing overrides become the blank lines written (2026-10-28), and its title lines become title-page keys (`docs/specs/fountain.md` §11); saved as .fdx, its title-page keys become title lines (`docs/specs/fdx.md` §14.3). None of these is changed by an undoable command, so undo is unaffected. An explicit `format` that disagrees with a path whose extension names another format fails with `unsupported_format`.
   - **A repaired .fdx file** (2026-10-16). The first save in place of a document whose `doc.open` reported `repaired` first keeps a copy of the damaged file as it was (`docs/specs/journal.md`, "Damaged originals"), and an `original_kept` warning in the result names it. If the copy cannot be made, the save fails with `io_error` and writes nothing.
   - If the format cannot hold something in the document (`docs/specs/fountain.md` §9, `docs/specs/fdx.md` §15), the save fails with `lossy_format` and lists the losses, unless `allow_lossy` is true. A file read as Windows-1252 and about to be written as UTF-8 counts as a loss too (`reencoded`, 2026-10-16; `docs/specs/journal.md`, "Encoding"). Only a writer may pass `allow_lossy` (2026-10-16); from an agent it fails with `writer_only`. Only losses of class `lost` refuse a save ("Losses" below, 2026-10-18).
   - **Saving pending changes away** (2026-10-21, decided with the project's owner after the phase 5a manual test). A save with `allow_lossy` to Fountain or .fdx of a document with pending tracked changes (`tracked_changes`) leaves the document in the form the file holds, as converting does above. The steps run in this order:
+    0. (2026-10-28) Every check that can refuse the save runs first: the target and its format (`no_path`, `unsupported_format`), `already_exists`, `file_changed`, and for "save as" the target's lock (`doc_locked`) and journal (`unsaved_changes`). A refused save changes nothing: the document keeps its marks, its journal takes no entry, and no copy is made (review findings CL6, AR3).
     1. The version with its changes marked is set aside as a Recovered version: the journal is copied to `<journal>.marked-<ms>` (`docs/specs/journal.md`, "Recovered versions").
-    2. Every pending change is accepted, as `changes.accept` with `all` does: one undoable step by the writer, journaled like any other.
+    2. Every pending change is accepted, as `changes.accept` with `all` does, and any revision data is reset (below): one undoable step by the writer, journaled like any other, as a `batch`.
     3. The save goes ahead with the accepted document, so its result lists no `tracked_changes` loss.
 
-    A `changes_accepted` warning says so: `details` gives `count`, the changes accepted, and `copy`, the copy's path (left out when the session keeps no journal). Undo brings the marks back, unsaved. Should the save then fail, as with `file_changed`, the acceptance stays; undo takes it back. A save as a bundle keeps every mark, so it accepts nothing.
-  - **Saving revision marks away** (2026-10-22). The same holds for revision data (`revision_marks`, `docs/specs/revisions.md` §9). After step 2, the revision table and every revision mark are reset to the default, as one more undoable step by the writer ("Clear revisions"). A `revisions_cleared` warning gives `sets` and `blocks`, and the copy of step 1, which is made once for both.
+    A `changes_accepted` warning says so: `details` gives `count`, the changes accepted, and `copy`, the copy's path (left out when the session keeps no journal). A change that cannot be accepted as it stands stays pending (`docs/specs/changes.md` §6), listed in `details.skipped`, and the file holds the script accepted as far as it can be. Undo brings the marks back, unsaved. Only a write that fails after the checks, as on a full disk, leaves the acceptance in place; undo takes it back. A save as a bundle keeps every mark, so it accepts nothing.
+  - **Saving revision marks away** (2026-10-22). The same holds for revision data (`revision_marks`, `docs/specs/revisions.md` §9). In step 2, the revision table and every revision mark are reset to the default too, in the same undoable step (2026-10-28: "Accept changes and clear revisions", or "Clear revisions" with no changes pending; before, it was a second step). A `revisions_cleared` warning gives `sets` and `blocks`, and the copy of step 1, which is made once for both.
   - Saving in place over a file that another program changed since this session last read or wrote it fails with `file_changed` (2026-10-16; `docs/specs/journal.md`, "Saving"). `overwrite: true` replaces it anyway. Only a writer may pass `overwrite`; from an agent it fails with `writer_only`.
   - While a save off the UI thread is being written, `doc.save` fails with `save_in_progress` (2026-10-16; `docs/specs/journal.md`, "One save at a time"). Try again when it has finished.
 - **`doc.close`**
@@ -167,7 +168,7 @@ Notes on each command:
   - With `discard`, unsaved changes are kept in a copy of the journal, which a `journal_discarded` warning names (2026-10-16; `docs/specs/journal.md`, "Closing").
   - An agent's `discard` fails with `not_your_step` when the document holds a writer's recovered work (2026-10-16; `docs/specs/mcp.md` §6). The same holds for an agent's `doc.revert`, and for its `doc.open` with `recover: "discard"`.
 - **`doc.revert`** (2026-10-15)
-  - Throws away unsaved changes and the undo history, and reads the document's file again. The blocks read get fresh ids ("Ids" above).
+  - Throws away unsaved changes and the undo history, and reads the document's file again. The blocks read get fresh ids ("Ids" above), and so does everything in the document that names a block: paragraph spacing, the .fdx store, a pending move's place (`before`, `last`) and the active revision set's starting points (2026-10-28, review finding GP9).
   - The journal is never deleted by a revert: if the document has unsaved changes or the journal holds entries, it is copied aside to `<journal>.discarded-<ms>` first, then started again from the file. (2026-10-16: "unsaved changes" covers a recovered journal header with no entries, `docs/specs/journal.md` recovery step 4.)
   - Fails with `no_path` for an untitled document, and with `io_error` if the file cannot be read; the open document is unchanged in both cases.
   - The desktop app's recovery dialog uses it for Discard.
@@ -177,6 +178,7 @@ Notes on each command:
   - The new journal's header is marked as holding unsaved work, so a crash before the first save recovers it and the app offers it at start-up (`docs/specs/journal.md`, "Recovered versions").
   - Writer-only: an agent gets `writer_only`, and over the app's agent link `not_allowed_attached`.
   - A copy that cannot be read fails with `copy_unreadable`.
+  - A journal copy that replays only in part is restored as far as it replays, with a `journal_partial` warning whose `details` give `replayed` and `entries` (2026-10-28; `docs/specs/journal.md`, "Recovered versions").
 
 Opening or creating a document while another is open first closes the open one. If that one has unsaved changes, the request fails with `unsaved_changes`.
 
@@ -193,7 +195,7 @@ Opening or creating a document while another is open first closes the open one. 
 | `text.complete` | `id`, `at` | `{context, from, to, items: [{text, count}]}` |
 | `history.list` | — | `{undo: [{command, label, by}], redo: [...]}` |
 | `changes.list` | `scene?` | `{changes: [{id, by, t, kinds, blocks, scene, inserted, deleted}]}` |
-| `recovered.list` | `path?` | `{copies: [{copy, script, kind, at, unread, readable}]}` |
+| `recovered.list` | `path?` | `{copies: [{copy, script, kind, at, unread, readable, entries?, replayed?, problem?}]}` |
 | `revision.list` | — | `{active, colors, sets: [{id, color, label, date, started, ended, blocks, pages}]}` (2026-10-22) |
 | `title.get` | — | `{form, keys, lines}` (2026-10-22) |
 | `report.scenes` | — | `{scenes: [...]}` (2026-10-22, `docs/specs/reports.md` §4.1) |
@@ -232,6 +234,7 @@ Pages come from laying out the document in its format's form with its page forma
   - Lists the set-aside copies (`docs/specs/journal.md`, "Recovered versions") of the script at `path`, or of the open document without it, newest first.
   - `copy` is the copy's path; `script` the script it belongs to; `kind` is `discarded`, `corrupt`, `diverged`, `original` (a damaged .fdx file kept before a repaired save) or (2026-10-21) `marked` (the version with its tracked changes marked, kept before a save accepted them, `doc.save`); `at` is when it was made, in milliseconds since the Unix epoch, from its name.
   - `readable` says whether the copy can be restored. `unread` is reserved for front ends that track which copies a writer has been shown, and is false here.
+  - (2026-10-28) A journal copy also gives `entries`, the commands it holds, and `replayed`, how many of them replay, with `problem` saying why replay stopped when it stops early: restoring it brings back only what replays (`docs/specs/journal.md`, "Recovered versions").
 
 - **`changes.list`** (2026-10-18) lists the pending tracked changes, in document order, as `docs/specs/changes.md` §8 describes. With `scene`, only those with a mark in that scene.
 
@@ -244,6 +247,7 @@ For `scene.list`:
 - `words` counts words in its printing blocks.
 - `page` is the body page the scene's heading prints on, counting from 1 after the title page; null if nothing prints.
 - `eighths` is the scene's length in eighths of a page (`docs/specs/layout.md` §10); 9 means one and one-eighth pages.
+- (2026-10-28, review finding AR6) Scenes are those of the current text (`docs/specs/changes.md` §2): a heading or section whose deletion is pending neither starts nor ends one, and `blocks`, `words` and `synopsis` read only blocks that are not pending deletions. Structural commands (`scene.move` and the rest) still treat a pending-deleted heading as a heading, as their journals replay.
 
 ### Edits
 
@@ -255,7 +259,7 @@ For `scene.list`:
 | `block.set_attrs` | `id`, `scene_number?`, `dual?`, `centered?`, `depth?`, `space_before?` | `{}` |
 | `block.delete` | `id` | `{}` |
 | `text.replace` | `find`, `with`, `scope?` or `at?`, `match_case?` | `{count, blocks}` |
-| `scene.move` | `id`, `before?` | `{}` |
+| `scene.move` | `id`, `before?`, `last?` | `{}` |
 | `text.insert` | `id`, `at`, `text`, `style?`, `after_deleted?` | `{}` |
 | `text.delete` | `id`, `from`, `to` | `{}` |
 | `text.style` | `id`, `from`, `to`, `bold?`, `italic?`, `underline?` | `{}` |
@@ -296,6 +300,7 @@ Notes on each command:
   - `at` (2026-10-15) is `{"id", "from"}`: only the match starting at offset `from` in that block is replaced. If no match starts there, nothing changes and `count` is 0. `at` and `scope` together fail with `invalid_params`.
 - **`scene.move`**
   - Moves a scene (its heading and body) before the scene or section given in `before`, or to the end when `before` is omitted.
+  - (2026-10-28) `last` names the last block to move, at or after the scene's own last block, so the move can take in what follows it: a section, a heading without a setting, more scenes. A `last` inside the scene fails with `invalid_params`. `changes.import` uses it to move a diff unit whole (`docs/specs/diff.md` §6).
 
 The keystroke commands below (2026-10-15) are what the desktop editor sends for every key. Any client may use them. Offsets follow "Positions in text" above.
 

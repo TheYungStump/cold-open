@@ -673,6 +673,11 @@ pub struct SceneMove {
     pub id: BlockId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub before: Option<BlockId>,
+    /// The last block to move, at or after the scene's own last block;
+    /// by default the scene's last block (2026-10-28). `changes.import`
+    /// moves a whole diff unit with it (docs/specs/diff.md §6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last: Option<BlockId>,
     /// Record the edit as a tracked change (docs/specs/changes.md §7).
     /// Absent: the document's tracking switch for the author decides.
     #[serde(default, skip_serializing_if = "Option::is_none")]

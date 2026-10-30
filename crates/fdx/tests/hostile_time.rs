@@ -141,3 +141,17 @@ fn deep_nesting_again_and_again() {
         )
     });
 }
+
+/// CL3 (the reviews of phases 4–5b, 2026-10-28): elements nested past the
+/// depth limit, each with a character the reader must repair. Every repair
+/// marked every element still open, so the time grew as nesting times
+/// repairs: 320 KB took 7.6 s.
+#[test]
+fn deep_nesting_with_repairs() {
+    grows_linearly("nesting with repairs", 5_000, |n| {
+        format!(
+            "<?xml version=\"1.0\"?><FinalDraft DocumentType=\"Script\" Version=\"5\"><Content>{}",
+            "<a>\u{1}".repeat(n)
+        )
+    });
+}

@@ -556,3 +556,193 @@ fn a_save_with_an_edit_during_it_never_cuts_the_journal() {
     assert_eq!(fs::read_to_string(&p).unwrap(), text(&mut d));
     d.shutdown();
 }
+
+// ---- "Save anyway": a refused save changes nothing (2026-10-28) ----------
+//
+// The reviews of phases 4–5b, CL6 and AR3: a save with `allow_lossy` to
+// Fountain or .fdx accepts every pending change and clears revision data
+// first. That acceptance used to happen before the checks that could then
+// refuse the save, with a `.marked` copy made and two undo steps.
+
+fn run(
+    d: &mut Dispatcher,
+    by: &Author,
+    command: &str,
+    params: Value,
+) -> Result<Value, CommandError> {
+    d.execute_as(Command::from_parts(command, params).unwrap(), by)
+}
+
+/// A script with an agent's pending change and an active revision set.
+fn marked_script(dir: &Path) -> (Dispatcher, PathBuf) {
+    let p = script(dir);
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, "doc.open", json!({"path": p}));
+    run(
+        &mut d,
+        &Author::agent("claude", None),
+        "block.insert",
+        json!({"type": "action", "text": "Thunder."}),
+    )
+    .unwrap();
+    ok(&mut d, "revision.start", json!({"date": "2026-10-28"}));
+    (d, p)
+}
+
+/// What the script holds that the save would take out, and the copies
+/// set aside beside it.
+fn state(d: &mut Dispatcher, dir: &Path) -> (Value, Value, Vec<String>) {
+    let marked: Vec<String> = fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|n| n.contains(".marked-"))
+        .collect();
+    (
+        ok(d, "changes.list", json!({})),
+        ok(d, "revision.list", json!({})),
+        marked,
+    )
+}
+
+/// CL6, AR3: `already_exists`, `doc_locked`, `unsaved_changes`,
+/// `file_changed` and a format that disagrees with the path each refuse a
+/// "Save anyway" before anything changes.
+#[test]
+fn a_refused_save_anyway_changes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, p) = marked_script(dir.path());
+    let before = state(&mut d, dir.path());
+    assert_eq!(before.0["changes"].as_array().unwrap().len(), 1);
+    assert!(before.2.is_empty());
+
+    // already_exists
+    let other = dir.path().join("other.fountain");
+    fs::write(&other, "EXT. ROOF - DAY\n\nWind.\n").unwrap();
+    let e = run(
+        &mut d,
+        &Author::writer(),
+        "doc.save",
+        json!({"path": other, "allow_lossy": true}),
+    )
+    .unwrap_err();
+    assert_eq!(e.code, "already_exists", "{e}");
+    assert_eq!(state(&mut d, dir.path()), before);
+
+    // doc_locked: the target is open in another process.
+    let held = dir.path().join("held.fountain");
+    fs::write(&held, "INT. HALL - DAY\n").unwrap();
+    let mut other_app = Dispatcher::new(Options::default());
+    ok(&mut other_app, "doc.open", json!({"path": held}));
+    let e = run(
+        &mut d,
+        &Author::writer(),
+        "doc.save",
+        json!({"path": held, "allow_lossy": true, "overwrite": true}),
+    )
+    .unwrap_err();
+    assert_eq!(e.code, "doc_locked", "{e}");
+    assert_eq!(state(&mut d, dir.path()), before);
+    other_app.discard();
+
+    // unsaved_changes: the target's last session crashed with work.
+    let crashed = dir.path().join("crashed.fountain");
+    fs::write(&crashed, "INT. CELLAR - NIGHT\n").unwrap();
+    let mut gone = Dispatcher::new(Options::default());
+    ok(&mut gone, "doc.open", json!({"path": crashed}));
+    ok(
+        &mut gone,
+        "block.insert",
+        json!({"type": "action", "text": "Unsaved."}),
+    );
+    drop(gone);
+    let e = run(
+        &mut d,
+        &Author::writer(),
+        "doc.save",
+        json!({"path": crashed, "allow_lossy": true, "overwrite": true}),
+    )
+    .unwrap_err();
+    assert_eq!(e.code, "unsaved_changes", "{e}");
+    assert_eq!(state(&mut d, dir.path()), before);
+
+    // A format that disagrees with the path.
+    let e = run(
+        &mut d,
+        &Author::writer(),
+        "doc.save",
+        json!({"path": dir.path().join("x.fdx"), "format": "fountain", "allow_lossy": true}),
+    )
+    .unwrap_err();
+    assert_eq!(e.code, "unsupported_format", "{e}");
+    assert_eq!(state(&mut d, dir.path()), before);
+
+    // file_changed: another program changed the script, in place.
+    fs::write(&p, "INT. LAB - NIGHT\n\nRain. Changed outside.\n").unwrap();
+    let e = run(
+        &mut d,
+        &Author::writer(),
+        "doc.save",
+        json!({"allow_lossy": true}),
+    )
+    .unwrap_err();
+    assert_eq!(e.code, "file_changed", "{e}");
+    assert_eq!(state(&mut d, dir.path()), before);
+    // The same through a save off the UI thread.
+    let e = d
+        .save_prepare(&DocSave {
+            allow_lossy: true,
+            ..DocSave::default()
+        })
+        .unwrap_err();
+    assert_eq!(e.code, "file_changed", "{e}");
+    assert_eq!(state(&mut d, dir.path()), before);
+    d.discard();
+}
+
+/// AR3: accepting the changes and clearing the revisions are one step,
+/// which one undo takes back.
+#[test]
+fn save_anyway_is_one_undo_step() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, _) = marked_script(dir.path());
+    let before = state(&mut d, dir.path());
+    let r = ok(&mut d, "doc.save", json!({"allow_lossy": true}));
+    let codes: Vec<&str> = r["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|w| w["code"].as_str().unwrap())
+        .collect();
+    assert_eq!(codes, ["changes_accepted", "revisions_cleared"], "{r}");
+    let after = state(&mut d, dir.path());
+    assert_eq!(after.0["changes"], json!([]));
+    assert_eq!(after.1["sets"], json!([]));
+    assert_eq!(after.2.len(), 1, "one marked copy");
+    let u = ok(&mut d, "undo", json!({}));
+    assert_eq!(u["label"], "Accept changes and clear revisions", "{u}");
+    let undone = state(&mut d, dir.path());
+    assert_eq!((undone.0, undone.1), (before.0, before.1));
+    d.discard();
+}
+
+/// AR12 part 2 (the reviews of phases 4–5b, 2026-10-28): an unknown format
+/// is refused with a message naming the three Cold Open saves, not only
+/// Fountain (Antigravity's reproduction).
+#[test]
+fn an_unknown_format_names_every_format() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, "doc.new", json!({}));
+    let e = run(
+        &mut d,
+        &Author::writer(),
+        "doc.save",
+        json!({"path": dir.path().join("out.fountain"), "format": "bogus"}),
+    )
+    .unwrap_err();
+    assert_eq!(e.code, "unsupported_format", "{e}");
+    for name in ["\"fountain\"", "\"fdx\"", "\"coldopen\""] {
+        assert!(e.message.contains(name), "{e}");
+    }
+    d.discard();
+}

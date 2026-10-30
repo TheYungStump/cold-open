@@ -123,6 +123,116 @@ pub fn bundle_read(data: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// Builds a bundle from `data` the way a crafted file would be made, and
+/// reads it (the reviews of phases 4–5b: GR2, CL5, GP14). The bytes choose
+/// the change and revision set a mark names, small, at or just past each
+/// limit, or anywhere in `u64`; whether `meta.json` claims a newer version
+/// with a field this one does not know; and the size `script.fountain`
+/// declares against what it holds. Besides what [`bundle_read`] checks, no
+/// table is filled past its limit, nor past a few thousand stand-ins for a
+/// mark past it.
+pub fn bundle_hostile(data: &[u8]) -> Result<(), String> {
+    use crate::changes::MAX_CHANGES;
+    use crate::revisions::MAX_SETS;
+
+    fn id(class: u8, raw: &[u8], max: u64) -> u64 {
+        let mut b = [0u8; 8];
+        b[..raw.len()].copy_from_slice(raw);
+        let n = u64::from_le_bytes(b);
+        match class % 4 {
+            0 => n % 2_000,
+            1 => max + 1 + n % 2,
+            2 => n.max(max + 1),
+            _ => u64::MAX - n % 2,
+        }
+    }
+    let byte = |i: usize| data.get(i).copied().unwrap_or(0);
+    let raw = |i: usize| &data[i.min(data.len())..(i + 8).min(data.len())];
+    let change = id(byte(0), raw(1), MAX_CHANGES as u64);
+    let rev = (byte(9) % 5 != 0).then(|| id(byte(9), raw(10), MAX_SETS));
+    let newer = byte(18) % 4 == 0;
+    let declared = |len: usize| match byte(19) % 4 {
+        0 => len as u64,
+        1 => len as u64 / 2,
+        2 => len as u64 + 1,
+        _ => u64::from(u32::from_le_bytes([byte(20), byte(21), byte(22), byte(23)])),
+    };
+    let script = data.get(24..).unwrap_or_default();
+
+    let mut block = json!({"id": "b_1", "type": "action", "text": "x", "change": {"inserted": format!("c_{change}")}});
+    if let Some(r) = rev {
+        block["rev"] = json!(format!("r_{r}"));
+    }
+    let mut meta = json!({
+        "format": "coldopen-bundle",
+        "v": if newer { 9 } else if rev.is_some() { 2 } else { 1 },
+        "app": "0.1.0",
+        "doc_id": "x",
+    });
+    if newer {
+        meta["new_field"] = json!(true);
+    }
+    let entries: [(&str, Vec<u8>); 3] = [
+        ("meta.json", meta.to_string().into_bytes()),
+        (
+            "document.json",
+            json!({"blocks": [block], "next_id": 2})
+                .to_string()
+                .into_bytes(),
+        ),
+        ("script.fountain", script.to_vec()),
+    ];
+    let mut bytes = Vec::new();
+    let mut zw = rawzip::ZipArchiveWriter::new(&mut bytes);
+    for (name, data) in entries {
+        let script = name == "script.fountain";
+        let method = if script {
+            rawzip::CompressionMethod::DEFLATE
+        } else {
+            rawzip::CompressionMethod::STORE
+        };
+        let (mut entry, _) = zw
+            .new_file(name)
+            .compression_method(method)
+            .start()
+            .map_err(|e| e.to_string())?;
+        let packed = if script {
+            miniz_oxide::deflate::compress_to_vec(&data, 1)
+        } else {
+            data.clone()
+        };
+        std::io::Write::write_all(&mut entry, &packed).map_err(|e| e.to_string())?;
+        let size = if script {
+            declared(data.len())
+        } else {
+            data.len() as u64
+        };
+        entry
+            .finish(rawzip::DataDescriptorOutput::new(
+                rawzip::crc32(&data),
+                size,
+            ))
+            .map_err(|e| e.to_string())?;
+    }
+    zw.finish().map_err(|e| e.to_string())?;
+
+    match crate::bundle::read(&bytes) {
+        Ok(_) if newer => return Err("a newer bundle was read".into()),
+        Ok(read) => {
+            let changes = read.doc.changes.len() as u64;
+            let sets = read.doc.revisions.sets.len() as u64;
+            let past = change > MAX_CHANGES as u64 || rev.is_some_and(|r| r > MAX_SETS);
+            if changes > MAX_CHANGES as u64 || sets > MAX_SETS || (past && changes > 2_000) {
+                return Err(format!(
+                    "a mark naming c_{change} and {rev:?} filled {changes} changes and {sets} sets"
+                ));
+            }
+        }
+        Err(_) => {}
+    }
+    bundle_read(&bytes)
+}
+
 /// The script the `changes` check edits.
 const CHANGES_SCRIPT: &str = "INT. KITCHEN - DAY\n\nMaya makes toast.\n\nMAYA\nBreakfast is ready.\n\nEXT. GARDEN - DAY\n\nTheo waters plants.\n\nINT. SHED - NIGHT\n\nA lamp flickers.\n";
 
@@ -290,8 +400,9 @@ fn run_edits(d: &mut Dispatcher, data: &[u8], revisions: bool) -> Result<(), Str
 /// edits by a writer and two agents, settling by id, scene and all, and
 /// undo and redo (docs/specs/changes.md). It must never panic; after every
 /// step the document keeps the model rules and every mark names a change
-/// the table has; accepting every change leaves no mark, and undoing that
-/// gives the marks back.
+/// the table has; accepting every change leaves no mark but those of the
+/// changes it lists as skipped (2026-10-28), the accepted form is what it
+/// was, and undoing that gives the marks back.
 pub fn changes(data: &[u8]) -> Result<(), String> {
     let mut d = script_session();
     run_edits(&mut d, data, false)?;
@@ -306,15 +417,143 @@ pub fn changes(data: &[u8]) -> Result<(), String> {
         if accepted["ok"] != true {
             return Err(format!("accepting every change failed: {accepted}"));
         }
-        if s.doc.has_changes() {
-            return Err("accepting every change left marks".into());
+        let skipped = &accepted["result"]["skipped"];
+        if s.doc
+            .pending()
+            .iter()
+            .any(|c| !skipped.as_array().is_some_and(|k| k.contains(&json!(c))))
+        {
+            return Err("accepting every change left marks it did not list as skipped".into());
         }
-        if s.doc.blocks != before.accepted().blocks {
+        if s.doc.accepted().blocks != before.accepted().blocks {
             return Err("accepting every change is not the accepted form".into());
         }
-        d.handle(&json!({ "command": "undo" }));
+        // An accept that settled nothing (every change held) made no step.
+        if accepted["result"]["count"] != 0 {
+            d.handle(&json!({ "command": "undo" }));
+        }
         if d.session().map(|s| &s.doc.blocks) != Some(&before.blocks) {
             return Err("undoing an accept does not give the marks back".into());
+        }
+    }
+    Ok(())
+}
+
+/// Settling never removes text that is not part of the change
+/// (docs/specs/changes.md §6, 2026-10-28). After the edits arbitrary bytes
+/// describe (tracked and untracked, by a writer and two agents), the last
+/// four bytes describe one more settle: accepting or rejecting one change,
+/// a scene or all, by any author who may. Every character of text that
+/// settle may not take away (anything but the settled changes' insertions
+/// on a reject, or their deletions on an accept) is still in the document
+/// afterwards, wherever joins and moves put it; and a refused settle
+/// changes nothing.
+pub fn settle_keeps(data: &[u8]) -> Result<(), String> {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use coldopen_screenplay::Run;
+
+    use crate::changes::{ChangeBy, ChangeId};
+    use crate::document::BlockId;
+
+    let (edits, last) = data.split_at(data.len().saturating_sub(4));
+    let mut d = script_session();
+    run_edits(&mut d, edits, false)?;
+    let Some(before) = d.session().map(|s| s.doc.clone()) else {
+        return Err("the document went away".into());
+    };
+    let [how, who, n, m] = [0, 1, 2, 3].map(|i| last.get(i).copied().unwrap_or(0));
+    let accept = how % 2 == 0;
+    let authors = authors();
+    // Only the writer accepts.
+    let by = if accept {
+        &authors[0]
+    } else {
+        &authors[usize::from(who) % authors.len()]
+    };
+    let pending = before.pending();
+    let heads: Vec<BlockId> = before
+        .blocks
+        .iter()
+        .filter(|b| b.element.kind == coldopen_screenplay::ElementKind::SceneHeading)
+        .map(|b| b.id)
+        .collect();
+    let mine = ChangeBy::of(by);
+    let own = |c: &ChangeId| by.is_writer() || before.changes.get(*c).is_some_and(|e| e.by == mine);
+    let (params, picked, scope): (Value, BTreeSet<ChangeId>, Option<BTreeSet<BlockId>>) = match (
+        n % 3,
+        pending.get(usize::from(m) % pending.len().max(1)),
+        heads.get(usize::from(m) % heads.len().max(1)),
+    ) {
+        (0, Some(&c), _) => (json!({ "id": c }), [c].into(), None),
+        (1, _, Some(&h)) => {
+            let s = before
+                .scene(h)
+                .ok_or_else(|| format!("{h} is a heading with no scene"))?;
+            let ids = before.blocks[s.start..s.end].iter().map(|b| b.id).collect();
+            (
+                json!({ "scene": h }),
+                pending.iter().copied().filter(own).collect(),
+                Some(ids),
+            )
+        }
+        _ => (
+            json!({ "all": true }),
+            pending.iter().copied().filter(own).collect(),
+            None,
+        ),
+    };
+    let count =
+        |doc: &Document, keep: &dyn Fn(BlockId, &coldopen_screenplay::Marks, bool) -> bool| {
+            let mut out: BTreeMap<char, usize> = BTreeMap::new();
+            for b in &doc.blocks {
+                let deleted = b.marks.deleted.is_some_and(|c| picked.contains(&c));
+                for r in b.element.text.runs() {
+                    if let Run::Text { text, marks, .. } = r
+                        && keep(b.id, marks, deleted)
+                    {
+                        for ch in text.chars() {
+                            *out.entry(ch).or_insert(0) += 1;
+                        }
+                    }
+                }
+            }
+            out
+        };
+    let required = count(&before, &|id, marks, deleted| {
+        let in_scope = scope.as_ref().is_none_or(|s| s.contains(&id));
+        let may_go = in_scope
+            && if accept {
+                marks.del.is_some_and(|c| picked.contains(&c)) || (deleted && marks.del.is_some())
+            } else {
+                marks.ins.is_some_and(|c| picked.contains(&c))
+            };
+        !may_go
+    });
+    let name = if accept {
+        "changes.accept"
+    } else {
+        "changes.reject"
+    };
+    let Ok(cmd) = Command::from_parts(name, params.clone()) else {
+        return Ok(());
+    };
+    let r = d.execute_as(cmd, by);
+    let Some(after) = d.session().map(|s| s.doc.clone()) else {
+        return Err("the document went away".into());
+    };
+    if r.is_err() {
+        if after.blocks != before.blocks {
+            return Err(format!("a refused {name} {params} changed the document"));
+        }
+        return Ok(());
+    }
+    let have = count(&after, &|_, _, _| true);
+    for (ch, n) in &required {
+        if have.get(ch).copied().unwrap_or(0) < *n {
+            return Err(format!(
+                "{name} {params} by {by:?} removed text that is not part of what it settled ({ch:?})"
+            ));
         }
     }
     Ok(())
@@ -434,6 +673,15 @@ pub fn diff(data: &[u8]) -> Result<(), String> {
     };
     let left = result(&unspaced(&s.doc), &unspaced(&b));
     for scene in left["scenes"].as_array().into_iter().flatten() {
+        // Compared again, only blocks that could not be tracked differ: no
+        // scene is moved, added or deleted (2026-10-28, review finding
+        // GP10).
+        if scene["op"] != "changed" {
+            return Err(format!(
+                "after accepting the import, a scene is still {}",
+                scene["op"]
+            ));
+        }
         for block in scene["blocks"].as_array().into_iter().flatten() {
             if block["op"] != "restyled" && block["op"] != "attributes" {
                 return Err(format!(

@@ -33,7 +33,7 @@ A bundle is a zip archive (APPNOTE.TXT) holding these entries, each at most once
 
 **Rules for writers.**
 
-- Entries are compressed with deflate (method 8) or stored (method 0). No encryption, no directories, no other entries.
+- Entries are compressed with deflate (method 8) or stored (method 0). No encryption, no directories, no other entries of Cold Open's own.
 - Names are the ASCII names above.
 
 **Cold Open's own writer**, which other tools need not copy:
@@ -42,6 +42,7 @@ A bundle is a zip archive (APPNOTE.TXT) holding these entries, each at most once
 - **The readable copy** is written by the Fountain writer's quick path (`coldopen_fountain::write_text`). It gives the same text as a Fountain save but doesn't read the text back to find losses, which a copy that is never read back doesn't need (§6). A test checks the bytes are the same.
 - **Times.** No entry records a time: the date and time fields are zero and there is no timestamp extra field, so the time a file was saved never changes its bytes. Tools that show a time show the format's earliest.
 - **No extra fields** and no archive comment.
+- **Another tool's entries** (2026-10-28), kept as the reader found them (below), are written after its own, unchanged and in the order read, deflated like the rest.
 
 The same document therefore always gives the same bytes. **Resolution:** a newer miniz_oxide could compress differently. That changes only the bytes, never what a reader gets, and would at most make recovery offer a journal whose work the file already holds.
 
@@ -49,9 +50,10 @@ The same document therefore always gives the same bytes. **Resolution:** a newer
 
 - Entries are found through the central directory.
 - An entry's CRC-32 and size must match what is read; an entry that fails is treated as damaged (§7).
-- No entry may be larger than 256 MiB once inflated, and an archive may hold at most 64 entries. A larger one is damaged, so a crafted file cannot exhaust memory.
+- No entry may be larger than 16 MiB once inflated (256 MiB before 2026-10-28), nor all of them together larger than 64 MiB, and an archive may hold at most 64 entries. An entry inflates no further than the size it declares. A larger one is damaged, so a crafted file cannot exhaust memory or time: before, a 33 KB file inflated to 32 MiB of script and took 15 s to open (review finding CL5).
+- (2026-10-28) A `script.fountain` read in place of `document.json` (§7) must have at most 250,000 lines, ten times a long feature's; a longer one is not read, and the bundle is refused with `unsupported_format`.
 - A second entry with the same name is ignored, with a report.
-- An entry with another name is ignored, with a report. A save then writes the bundle without it and lists it as a loss (`bundle_entries`), so nothing a newer tool added vanishes without a question.
+- An entry with another name, which another tool added, is kept (2026-10-28, decided with the project's owner after review finding GP3): it is reported, and a save writes it back unchanged. It is not in `document.json` or the journal's header; recovery takes it from the bundle on disk when that bundle is the same document (§8). Converting the project to Fountain or .fdx, which have no place for it, lists it as a loss (`bundle_entries`), so it is never dropped without a question. Only a name that writes back as it is can be kept: printable ASCII with no backslash or colon, not absolute, with no empty, `.` or `..` part (the colon and `.` part since 2026-10-29: zip writers take a colon as a drive letter and drop the name up to it, finding P6); an entry with any other name is dropped and reported (`bundle_entry`, dropped), so the first save keeps a copy of the file (§7). Before, this paragraph promised that loss on every save, and the writer dropped such entries with none.
 
 ## 3. `meta.json`
 
@@ -62,9 +64,11 @@ The same document therefore always gives the same bytes. **Resolution:** a newer
 | Field | Meaning |
 | --- | --- |
 | `format` | Always `"coldopen-bundle"`. |
-| `v` | The bundle format's version, 1 or 2. A bundle with a higher `v` was made by a newer Cold Open; it is refused with `unsupported_format` rather than read in part and saved over. |
+| `v` | The bundle format's version, 1, 2 or (2026-10-28) 3. A bundle with a higher `v` was made by a newer Cold Open; it is refused with `unsupported_format` rather than read in part and saved over. (2026-10-28, review finding GP14) `format` and `v` are read before the rest of `meta.json`, so a newer file's fields this version does not know never hide its version. |
 
 **Version 2** (2026-10-22, phase 5b). A bundle whose revision table is not the default (`docs/specs/revisions.md` §3) is written as version 2. It holds `revisions.json`, and its `document.json` may hold revision marks (`rev` in text runs and on blocks). Every other bundle is still written as version 1, byte for byte as before. **Resolution:** a phase 5a build reading a version 2 bundle as version 1 would find fields it does not know in `document.json`, fall back to `script.fountain` (§7), and lose every mark on its next save. The higher `v` makes it refuse the file instead. Version 2 readers take both versions.
+
+**Version 3** (2026-10-28, the reviews of phases 4–5b). A bundle whose marks number a change's moves (`n` in a `moved` entry, `docs/specs/changes.md` §2.2) is written as version 3. A version 2 reader would refuse the field, read the readable copy instead, and lose every mark; a version 3 reader takes all three. Everything else is written as before.
 | `app` | The version of the app that wrote the file. Informational. |
 | `doc_id` | The document's identity, apart from its path (§8). |
 
@@ -80,7 +84,7 @@ The document, exactly as the crash journal's header holds it (`docs/specs/journa
 | `page_format`, `title_lines`, `spacing`, `fdx` | As in the journal header: the page and element settings, positioned title lines, paragraph spacing by block id, and the .fdx passthrough store. Each is absent when empty. |
 | `tracking` | The tracking switches, `{"writer": bool, "agents": bool}` (`docs/specs/changes.md` §4). Absent means the defaults. |
 
-The document must pass the checks a journal header's document passes (`docs/specs/journal.md`, recovery step 1): unique ids below `next_id`, every block keeping the model rules, a valid page format, and spacing inside the page body. In addition, every mark must name a change in `changes.json`.
+The document must pass the checks a journal header's document passes (`docs/specs/journal.md`, recovery step 1): unique ids below `next_id`, every block keeping the model rules, a valid page format, and spacing inside the page body. In addition, every mark must name a change in `changes.json`. (2026-10-28, review findings GR7, GP13) The .fdx store's kept paragraphs each have blocks, are stored under their first block, and name only ids below `next_id`, as do its loose children's anchors.
 
 **Layout.** A bundle prints its blocks as they stand, as an .fdx document does, with its own page format, title lines and spacing (`docs/specs/layout.md` §4.8). **Resolution:** not in Fountain's normal form, since the bundle keeps exactly what was written. A document read from Fountain is already in normal form, so its pages do not change when it becomes a bundle.
 
@@ -128,10 +132,11 @@ Cold Open's reader recovers what it can and reports the rest in `doc.open`'s `re
 | `meta.json` with a `v` above 1 | Nothing: `unsupported_format`, so a newer file is never saved over. | |
 | `document.json` missing, unreadable, or failing the checks of §4 | `script.fountain` read as a Fountain file. Ids are numbered from `b_1`, and changes and switches are lost. | `bundle_document` (dropped) |
 | Both of those, or `script.fountain` missing too | Nothing: `unsupported_format`. | |
-| `changes.json` missing or unreadable, or missing entries a mark names | The document with its marks. Each change the table lacks gets the author `{"kind": "writer", "name": "Unknown"}` and time 0, so the writer can still accept or reject it. | `bundle_changes` (fixed) |
+| `changes.json` missing or unreadable, or missing entries a mark names | The document with its marks. Each change the table lacks gets the author `{"kind": "writer", "name": "Unknown"}` and time 0, so the writer can still accept or reject it. (2026-10-28, review findings GR2, CL4, GP12) A mark naming a change past 10,000,000, which a journal header may not name either, or a set past 10,000, is no real project's and would take that many stand-ins: `document.json` then fails its checks, as the next row says. | `bundle_changes` (fixed) |
 | (2026-10-22) In a version 2 bundle, `revisions.json` missing or unreadable, or missing sets a mark names | The document with its revision marks. Each set the table lacks gets the color "Unknown", the label "Unknown Rev.", the date 1900-01-01 and time 0, and no set is active. The default colors are used. | `bundle_revisions` (fixed) |
 | An entry that fails its CRC or size check | As if that entry were missing. | |
-| A duplicate or unknown entry | It is ignored. | `bundle_entries` (kept) |
+| A duplicate entry | It is ignored. | `bundle_entries` (kept) |
+| (2026-10-28) An entry with another name | It is kept and written back (§2). | `bundle_entries` (kept) |
 
 ## 8. `doc_id`
 

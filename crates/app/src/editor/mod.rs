@@ -319,6 +319,16 @@ impl Editor {
     /// Keeps the caret on the same text after a command applied by someone
     /// else, such as an agent (editor.md §12).
     pub fn follow(&mut self, cmd: &Command, result: &Value) {
+        // A batch's commands, in order, each with its own result
+        // (2026-10-28, review finding AR11).
+        if let Command::Batch(b) = cmd {
+            for (k, item) in b.commands.iter().enumerate() {
+                if let Ok(c) = Command::from_parts(&item.command, item.params.clone()) {
+                    self.follow(&c, &result["results"][k]);
+                }
+            }
+            return;
+        }
         for c in [&mut self.caret, &mut self.anchor] {
             match cmd {
                 // Text inserted at the caret's offset goes before struck text

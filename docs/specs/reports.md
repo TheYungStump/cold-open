@@ -22,7 +22,7 @@ A **speaker** is read from a character block's current text (`docs/specs/changes
 1. **The name** is the text before the first `(`, trimmed. A name with nothing before its `(` is empty, and such a block has no speaker.
 2. **The extensions** are the text inside each pair of brackets after the name, trimmed and upper-cased, in order: `MAYA (V.O.) (CONT'D)` has the extensions `V.O.` and `CONT'D`. An unclosed bracket runs to the end of the text.
 3. **The key** compares speakers. It is the name in upper case (Unicode mapping), with runs of whitespace as one space and `’` read as `'`. `Maya`, `MAYA` and `MAYA (O.S.)` are one speaker.
-4. **The continued marker** is an extension that reads, in upper case with `’` as `'`, as `CONT'D`, `CONTD` or the page format's continued string (`docs/specs/layout.md` §7.5). Layout uses this to decide whether to add `(CONT'D)`; reports ignore it.
+4. **The continued marker** is an extension that reads, in upper case with `’` as `'`, as `CONT'D`, `CONTD` or the page format's continued string (`docs/specs/layout.md` §7.5). Layout uses this to decide whether to add `(CONT'D)`; reports ignore it. (2026-10-28, review finding AR9) An extension is read without its brackets, so the continued string is compared without them too: with `(CONTINUED)`, the extension `CONTINUED` is the marker. Layout looks for it in the whole printed name, brackets and all.
 5. **A dual-dialogue character** (`dual`) is a speaker like any other.
 
 ## 3. Scene headings
@@ -49,6 +49,8 @@ The editor's completion (`docs/specs/editor.md` §6) offers locations and times 
 ## 4. The reports
 
 Each report is a query, with no params, laid out as `scene.list` lays the document out (its print form with pending changes marked, `docs/specs/changes.md` §9), so its pages are the pages on screen.
+
+(2026-10-28, review finding AR6) The reports read the current text, as §2 and §3 do: their scenes are `scene.list`'s, so a heading or section whose deletion is pending neither starts nor ends one, and a pending-deleted block inside a speech neither ends it nor counts.
 
 ### 4.1 `report.scenes`
 

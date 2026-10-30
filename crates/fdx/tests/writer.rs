@@ -285,3 +285,113 @@ fn the_files_newline_and_indentation_are_followed() {
         text.replace("Fog on the rails.", "Fog on the rails. A horn.")
     );
 }
+
+/// GR8 (the reviews of phases 4–5b, 2026-10-28): a heading read after a
+/// `StartsNewPage` break, written again without that break, keeps its scene
+/// properties. The store keys its paragraph by the break's id; the writer
+/// finds it by the heading's.
+#[test]
+fn a_kept_heading_keeps_its_parts_without_its_page_break() {
+    let text = file(
+        "\n    <Paragraph Type=\"Action\">\n      <Text>Before.</Text>\n    </Paragraph>\n    <Paragraph Type=\"Scene Heading\" StartsNewPage=\"Yes\">\n      <SceneProperties Length=\"1/8\" Page=\"2\" Title=\"\"/>\n      <Text>INT. LAB - NIGHT</Text>\n    </Paragraph>\n    <Paragraph Type=\"Action\">\n      <Text>Rain.</Text>\n    </Paragraph>",
+    );
+    let doc = read(text.as_bytes()).unwrap();
+    let kinds: Vec<_> = doc.script.elements.iter().map(|e| e.kind).collect();
+    assert_eq!(kinds[1], ElementKind::PageBreak, "{kinds:?}");
+    let elements: Vec<(u64, Element)> = doc
+        .script
+        .elements
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| e.kind != ElementKind::PageBreak)
+        .map(|(i, e)| (i as u64 + 1, e.clone()))
+        .collect();
+    let out = rewrite(&doc, &elements).text;
+    assert!(out.contains("SceneProperties"), "{out}");
+    assert!(!out.contains("StartsNewPage"), "{out}");
+}
+
+/// P2 (found while fixing GR8, 2026-10-28): an unedited kept first
+/// speaker was copied as it was even when the next speaker was made its
+/// dual partner, so the dual block was never written and the second
+/// speaker was reported `dual_unpaired`.
+#[test]
+fn a_kept_first_speaker_joins_a_new_dual_block() {
+    let text = file(
+        "\n    <Paragraph Type=\"Character\" Custom=\"keep\">\n      <Text>ADA</Text>\n    </Paragraph>\n    <Paragraph Type=\"Dialogue\">\n      <Text>Wait.</Text>\n    </Paragraph>\n    <Paragraph Type=\"Character\">\n      <Text>BEN</Text>\n    </Paragraph>\n    <Paragraph Type=\"Dialogue\">\n      <Text>Go.</Text>\n    </Paragraph>",
+    );
+    let doc = read(text.as_bytes()).unwrap();
+    let mut elements: Vec<(u64, Element)> = doc
+        .script
+        .elements
+        .iter()
+        .enumerate()
+        .map(|(i, e)| (i as u64 + 1, e.clone()))
+        .collect();
+    elements[2].1.dual = true;
+    let out = rewrite(&doc, &elements);
+    assert!(out.text.contains("<DualDialogue>"), "{}", out.text);
+    assert!(out.losses.is_empty(), "{:?}", out.losses);
+    assert!(out.text.contains("Custom=\"keep\""), "{}", out.text);
+}
+
+/// P3 (found while fixing GR8, 2026-10-28): the first paragraph's
+/// `StartsNewPage="Yes"` makes no break, since nothing comes before it
+/// (§6.5). Copied as it was after a paragraph is added before it, it would
+/// make one when the file is read again.
+#[test]
+fn a_first_paragraphs_break_does_not_appear_when_something_comes_before_it() {
+    let text = file(
+        "\n    <Paragraph Type=\"Action\" StartsNewPage=\"Yes\" Custom=\"keep\">\n      <Text>Dawn.</Text>\n    </Paragraph>\n    <Paragraph Type=\"Action\">\n      <Text>Rain.</Text>\n    </Paragraph>",
+    );
+    let doc = read(text.as_bytes()).unwrap();
+    assert!(
+        !doc.script
+            .elements
+            .iter()
+            .any(|e| e.kind == ElementKind::PageBreak)
+    );
+    let mut elements: Vec<(u64, Element)> =
+        vec![(10, Element::new(ElementKind::Action, "Before."))];
+    elements.extend(
+        doc.script
+            .elements
+            .iter()
+            .enumerate()
+            .map(|(i, e)| (i as u64 + 1, e.clone())),
+    );
+    let out = rewrite(&doc, &elements).text;
+    let back = read(out.as_bytes()).unwrap();
+    let kinds: Vec<ElementKind> = back.script.elements.iter().map(|e| e.kind).collect();
+    assert!(!kinds.contains(&ElementKind::PageBreak), "{kinds:?}\n{out}");
+    assert!(out.contains("Custom=\"keep\""), "{out}");
+}
+
+/// GR7 = GP13 (the reviews of phases 4–5b, 2026-10-28): a kept paragraph
+/// with no blocks, which only a hand-edited project or journal can hold,
+/// matched every group, and the writer copied it without moving on, for
+/// ever. The writer now always moves forward (Grok's probe).
+#[test]
+fn an_empty_kept_paragraph_never_stops_the_writer() {
+    let text =
+        file("\n    <Paragraph Type=\"Action\">\n      <Text>Rain.</Text>\n    </Paragraph>");
+    let doc = read(text.as_bytes()).unwrap();
+    let mut kept = doc.kept.clone();
+    let blocks = doc.blocks();
+    kept.paragraphs.insert(
+        blocks[0].id,
+        coldopen_fdx::KeptParagraph {
+            text: String::new(),
+            verbatim: true,
+            blocks: Vec::new(),
+        },
+    );
+    let out = write(&Doc {
+        blocks,
+        format: &doc.format,
+        title_lines: &doc.title_lines,
+        kept: Some(&kept),
+        declare_utf8: false,
+    });
+    assert!(out.text.contains("Rain."), "{}", out.text);
+}

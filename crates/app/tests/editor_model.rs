@@ -315,3 +315,38 @@ fn deleting_a_whole_word_takes_one_space() {
         }
     }
 }
+
+/// AR11 part 2 (the reviews of phases 4–5b, 2026-10-28): the caret keeps
+/// its place through an agent's batch as through the same commands one by
+/// one. A batch that inserts before the caret, then splits its block
+/// before it, leaves the caret on the same character, in the new block.
+#[test]
+fn the_caret_follows_an_agents_batch() {
+    let (mut d, mut e) = new_script();
+    let id = d.session().unwrap().doc.blocks[0].id;
+    d.execute(
+        Command::from_parts(
+            "text.insert",
+            json!({"id": id, "at": 0, "text": "Rain falls."}),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    // After "falls".
+    e.caret = coldopen_app::editor::Caret::at(id, 10);
+    let batch = Command::from_parts(
+        "batch",
+        json!({"commands": [
+            {"command": "text.insert", "params": {"id": id, "at": 0, "text": "Cold "}},
+            {"command": "block.split", "params": {"id": id, "at": 5}},
+        ]}),
+    )
+    .unwrap();
+    let by = coldopen_core::Author::agent("test", None);
+    let result = d.execute_as(batch.clone(), &by).unwrap();
+    e.follow(&batch, &result);
+    let doc = &d.session().unwrap().doc;
+    assert_eq!(e.caret.block, doc.blocks[1].id, "{result}");
+    let text = doc.blocks[1].element.text.plain_text();
+    assert_eq!(&text[..e.caret.offset], "Rain falls", "{text:?}");
+}

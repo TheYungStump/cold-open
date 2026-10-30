@@ -107,13 +107,17 @@ pub fn comparison_form(doc: &Document, fountain: bool) -> Form {
         }
     }
     let (norm, map) = coldopen_fountain::normalize_with_map(&script);
+    // Exact when the normal form changed nothing: compared with the
+    // elements as coerced for Fountain, not the blocks, so a Shot or
+    // General block does not make it inexact (2026-10-28, review finding
+    // AR7).
     let exact = norm.elements.len() == doc.blocks.len()
         && map.iter().enumerate().all(|(i, &s)| s == i)
         && norm
             .elements
             .iter()
-            .zip(&doc.blocks)
-            .all(|(e, b)| same_element(e, &b.element));
+            .zip(&script.elements)
+            .all(|(e, f)| same_element(e, f));
     let ids = map
         .iter()
         .map(|&s| {
@@ -297,9 +301,12 @@ pub fn import_edits(
         .edits
         .iter()
         .map(|e| match *e {
-            Edit::Move { unit, before } => item(
+            Edit::Move { unit, before, last } => item(
                 "scene.move",
-                with_before(json!({ "id": id(unit), "tracked": true }), before.map(id)),
+                with_before(
+                    json!({ "id": id(unit), "last": id(last), "tracked": true }),
+                    before.map(id),
+                ),
             ),
             Edit::Delete { a } => item("block.delete", json!({ "id": id(a), "tracked": true })),
             Edit::Retype { a, b } => item(

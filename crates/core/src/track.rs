@@ -7,7 +7,7 @@ use coldopen_screenplay::{ElementKind, Marks, RichText, Run, Settle, Style};
 use serde_json::{Value, json};
 
 use crate::author::Author;
-use crate::changes::{ChangeBy, ChangeId};
+use crate::changes::{ChangeBy, ChangeId, Retyped};
 use crate::document::{Block, BlockId, Document};
 use crate::error::CommandError;
 use crate::ops::Op;
@@ -401,61 +401,104 @@ pub struct Selection {
 /// What settling leaves, as operations on the document and the result.
 pub struct Settled {
     pub ops: Vec<Op>,
+    /// For each operation, the change it settles, so an accept with no set
+    /// active can mark each with the set its change recorded
+    /// (docs/specs/revisions.md §6.3, 2026-10-28).
+    pub tags: Vec<Option<ChangeId>>,
     pub settled: Vec<ChangeId>,
     pub skipped: Vec<ChangeId>,
 }
 
 /// Plans accepting or rejecting the selected changes. The document is not
 /// changed: the operations are worked out on a copy.
+///
+/// Settling never removes text or blocks that are not part of the change
+/// (docs/specs/changes.md §6; journal semantics 4). A change's marks in a
+/// block that cannot settle cleanly are held: the settle is planned again
+/// with them left as they are, until nothing more is held, and the change
+/// is listed as skipped.
 pub fn settle(doc: &Document, how: Settle, sel: &Selection) -> Settled {
+    let mut held: BTreeSet<(ChangeId, BlockId)> = BTreeSet::new();
+    loop {
+        let (out, more) = settle_holding(doc, how, sel, &held);
+        // Each pass holds at least one more pair, of which there are
+        // finitely many, so this ends.
+        if more.is_empty() {
+            return out;
+        }
+        held.extend(more);
+    }
+}
+
+/// One pass of [`settle`]: the plan with the `held` marks left as they
+/// are, and the marks found that cannot settle cleanly and are not held
+/// yet.
+fn settle_holding(
+    doc: &Document,
+    how: Settle,
+    sel: &Selection,
+    held: &BTreeSet<(ChangeId, BlockId)>,
+) -> (Settled, BTreeSet<(ChangeId, BlockId)>) {
     let mut work = doc.clone();
     let mut ops = Vec::new();
-    let picked = |c: ChangeId| sel.changes.contains(&c);
+    let mut tags: Vec<Option<ChangeId>> = Vec::new();
+    // The operations added since the tags were last filled settle `c`.
+    let fill = |tags: &mut Vec<Option<ChangeId>>, ops: &Vec<Op>, c: ChangeId| {
+        tags.resize(ops.len(), Some(c));
+    };
     let in_scope = |id: BlockId| sel.blocks.as_ref().is_none_or(|s| s.contains(&id));
-    let mut settled: BTreeSet<ChangeId> = BTreeSet::new();
-    let mut skipped = Vec::new();
+    // Whether change `c`'s marks in block `id` are settled.
+    let settles = |c: ChangeId, id: BlockId| {
+        sel.changes.contains(&c) && in_scope(id) && !held.contains(&(c, id))
+    };
+    let mut more = BTreeSet::new();
+    let mut skipped: BTreeSet<ChangeId> = held.iter().map(|&(c, _)| c).collect();
 
-    // 1. Text marks, and block marks that only come off, in any order.
+    // 1. Text marks, and block marks that only come off, in any order:
+    // one change at a time, so each operation settles one change.
     for index in 0..work.blocks.len() {
-        let b = &work.blocks[index];
-        if !in_scope(b.id) {
+        let id = work.blocks[index].id;
+        if !in_scope(id) {
             continue;
         }
-        for c in b.change_ids() {
-            if picked(c) {
-                settled.insert(c);
+        let here: BTreeSet<ChangeId> = work.blocks[index]
+            .change_ids()
+            .filter(|&c| settles(c, id))
+            .collect();
+        for c in here {
+            let b = &work.blocks[index];
+            let text = b.element.text.settle(how, &|x| x == c);
+            if text != b.element.text {
+                let mut e = b.element.clone();
+                e.text = text;
+                apply(&mut work, Op::Replace { index, element: e }, &mut ops);
             }
-        }
-        let text = b.element.text.settle(how, &picked);
-        if text != b.element.text {
-            let mut e = b.element.clone();
-            e.text = text;
-            apply(&mut work, Op::Replace { index, element: e }, &mut ops);
-        }
-        let mut m = work.blocks[index].marks.clone();
-        let off = |c: &Option<ChangeId>| c.is_some_and(picked);
-        match how {
-            Settle::Accept => {
-                if off(&m.inserted) {
-                    m.inserted = None;
+            let mut m = work.blocks[index].marks.clone();
+            let off = |x: &Option<ChangeId>| *x == Some(c);
+            match how {
+                Settle::Accept => {
+                    if off(&m.inserted) {
+                        m.inserted = None;
+                    }
+                    m.retyped.retain(|r| r.change != c);
+                    if off(&m.split) {
+                        m.split = None;
+                    }
+                    m.moved.retain(|r| r.change != c);
                 }
-                m.retyped.retain(|r| !picked(r.change));
-                if off(&m.split) {
-                    m.split = None;
-                }
-                m.moved.retain(|r| !picked(r.change));
-            }
-            Settle::Reject => {
-                if off(&m.deleted) {
-                    m.deleted = None;
-                }
-                if off(&m.joined) {
-                    m.joined = None;
+                Settle::Reject => {
+                    if off(&m.deleted) {
+                        m.deleted = None;
+                    }
+                    if off(&m.joined) {
+                        m.joined = None;
+                    }
                 }
             }
-        }
-        if m != work.blocks[index].marks {
-            apply(&mut work, Op::Mark { index, marks: m }, &mut ops);
+            if m != work.blocks[index].marks {
+                apply(&mut work, Op::Mark { index, marks: m }, &mut ops);
+            }
+            fill(&mut tags, &ops, c);
         }
     }
 
@@ -463,22 +506,24 @@ pub fn settle(doc: &Document, how: Settle, sel: &Selection) -> Settled {
         Settle::Accept => {
             // 2. Deleted blocks go, then joined blocks join the block kept
             // before them, as the accepted form joins them.
-            remove_where(&mut work, &mut ops, &|b| {
-                in_scope(b.id) && b.marks.deleted.is_some_and(picked)
+            remove_deleted(&mut work, &mut ops, &mut tags, &mut more, &|b| {
+                b.marks.deleted.filter(|&c| settles(c, b.id))
             });
-            skipped.extend(join_where(&mut work, &mut ops, &|b| {
-                in_scope(b.id) && b.marks.joined.is_some_and(picked)
-            }));
+            join_where(&mut work, &mut ops, &mut tags, &mut more, &|b| {
+                b.marks.joined.filter(|&c| settles(c, b.id))
+            });
         }
         Settle::Reject => {
             // 2. Structure is put back change by change, newest first, as
-            // undo would: each change's moves, then its inserted blocks,
-            // then its splits, then its retypes. A later change that
-            // reshaped a scene is undone before an earlier move of it.
+            // undo would: each change's splits, then its moves, then its
+            // inserted blocks, then its retypes. A later change that
+            // reshaped a scene is undone before an earlier move of it. A
+            // split goes first because a move's record does not cover a
+            // block split off after it, which would otherwise be left
+            // behind and joined to the wrong block (2026-10-29).
             let mut structural: Vec<ChangeId> = work
                 .blocks
                 .iter()
-                .filter(|b| in_scope(b.id))
                 .flat_map(|b| {
                     let m = &b.marks;
                     [m.inserted, m.split]
@@ -486,37 +531,55 @@ pub fn settle(doc: &Document, how: Settle, sel: &Selection) -> Settled {
                         .flatten()
                         .chain(m.moved.iter().map(|x| x.change))
                         .chain(m.retyped.iter().map(|x| x.change))
+                        .filter(|&c| settles(c, b.id))
                         .collect::<Vec<_>>()
                 })
-                .filter(|&c| picked(c))
                 .collect();
             structural.sort_unstable_by(|a, b| b.cmp(a));
             structural.dedup();
             for c in structural {
-                if !undo_moves(&mut work, &mut ops, c, &in_scope) {
-                    skipped.push(c);
-                }
-                remove_where(&mut work, &mut ops, &|b| {
-                    in_scope(b.id) && b.marks.inserted == Some(c)
+                let here = |id: BlockId| settles(c, id);
+                join_where(&mut work, &mut ops, &mut tags, &mut more, &|b| {
+                    b.marks.split.filter(|&x| x == c && here(b.id))
                 });
-                skipped.extend(join_where(&mut work, &mut ops, &|b| {
-                    in_scope(b.id) && b.marks.split == Some(c)
-                }));
-                restore_retypes(&mut work, &mut ops, c, &in_scope);
+                if !undo_moves(&mut work, &mut ops, c, &here) {
+                    skipped.insert(c);
+                }
+                remove_inserted(&mut work, &mut ops, &mut more, c, &here);
+                restore_retypes(&mut work, &mut ops, &mut more, c, &here);
+                fill(&mut tags, &ops, c);
             }
         }
     }
 
-    let skipped_set: BTreeSet<ChangeId> = skipped.iter().copied().collect();
-    let settled = settled
-        .into_iter()
-        .filter(|c| !skipped_set.contains(c) || has_other_marks(doc, *c))
+    // A change is settled when this took any of its marks away.
+    let (was, now) = (mark_counts(doc), mark_counts(&work));
+    let settled = was
+        .iter()
+        .filter(|&(c, n)| sel.changes.contains(c) && now.get(c).copied().unwrap_or(0) < *n)
+        .map(|(&c, _)| c)
         .collect();
-    Settled {
-        ops,
-        settled,
-        skipped,
+    let more: BTreeSet<_> = more.difference(held).copied().collect();
+    (
+        Settled {
+            ops,
+            tags,
+            settled,
+            skipped: skipped.into_iter().collect(),
+        },
+        more,
+    )
+}
+
+/// How many marks each change has: its runs in text and its block marks.
+fn mark_counts(doc: &Document) -> BTreeMap<ChangeId, usize> {
+    let mut out = BTreeMap::new();
+    for b in &doc.blocks {
+        for c in b.change_ids() {
+            *out.entry(c).or_insert(0) += 1;
+        }
     }
+    out
 }
 
 /// Applies an operation to the working copy and keeps it.
@@ -525,36 +588,92 @@ fn apply(work: &mut Document, op: Op, ops: &mut Vec<Op>) {
     let _ = op.apply(work);
 }
 
-/// Removes every block `which` picks, from the last to the first.
-fn remove_where(work: &mut Document, ops: &mut Vec<Op>, which: &dyn Fn(&Block) -> bool) {
+/// Removes every block whose deletion `which` names, from the last to the
+/// first. The deletions are already out of its text, so a block that still
+/// holds text holds text that is not part of the change, as when an earlier
+/// deletion inside it was rejected: that block stays, and is held.
+fn remove_deleted(
+    work: &mut Document,
+    ops: &mut Vec<Op>,
+    tags: &mut Vec<Option<ChangeId>>,
+    held: &mut BTreeSet<(ChangeId, BlockId)>,
+    which: &dyn Fn(&Block) -> Option<ChangeId>,
+) {
     for index in (0..work.blocks.len()).rev() {
-        if which(&work.blocks[index]) {
+        let b = &work.blocks[index];
+        let Some(c) = which(b) else {
+            continue;
+        };
+        if printed(&b.element.text) {
+            held.insert((c, b.id));
+        } else {
+            apply(work, Op::Remove { index }, ops);
+            tags.resize(ops.len(), Some(c));
+        }
+    }
+}
+
+/// Whether text holds anything that prints: a text run, marked or not.
+pub fn printed(text: &RichText) -> bool {
+    text.runs()
+        .iter()
+        .any(|r| matches!(r, Run::Text { text, .. } if !text.is_empty()))
+}
+
+/// Removes the blocks change `c` inserted, from the last to the first. Its
+/// text in them is already out, so a block that still holds text holds
+/// someone's work that is not part of the change: untracked text, or
+/// another change's insertion. That block stays, and is held. Notes and
+/// boneyard carry no marks, so they cannot be told from the change's own;
+/// they go with the block.
+fn remove_inserted(
+    work: &mut Document,
+    ops: &mut Vec<Op>,
+    held: &mut BTreeSet<(ChangeId, BlockId)>,
+    c: ChangeId,
+    here: &dyn Fn(BlockId) -> bool,
+) {
+    for index in (0..work.blocks.len()).rev() {
+        let b = &work.blocks[index];
+        if b.marks.inserted != Some(c) || !here(b.id) {
+            continue;
+        }
+        if printed(&b.element.text) {
+            held.insert((c, b.id));
+        } else {
             apply(work, Op::Remove { index }, ops);
         }
     }
 }
 
-/// Joins every block `which` picks to the block before it, from the first
-/// to the last, so a run of joined blocks gathers into the block before it
-/// as the accepted form gathers them. A block with nothing before it, or
-/// whose join would break a model rule (the block before it has since
-/// become a note, say), stays as it is: its join mark goes, and its change
-/// is returned as skipped.
+/// Joins every block `which` picks, for the change it names, to the block
+/// before it, from the first to the last, so a run of joined blocks gathers
+/// into the block before it as the accepted form gathers them. A block with
+/// nothing before it, whose join would break a model rule (the block before
+/// it has since become a note, say), or whose block before it waits to be
+/// deleted, stays as it is, and is held with its mark pending
+/// (docs/specs/changes.md §6).
 fn join_where(
     work: &mut Document,
     ops: &mut Vec<Op>,
-    which: &dyn Fn(&Block) -> bool,
-) -> Vec<ChangeId> {
-    let mut skipped = Vec::new();
+    tags: &mut Vec<Option<ChangeId>>,
+    held: &mut BTreeSet<(ChangeId, BlockId)>,
+    which: &dyn Fn(&Block) -> Option<ChangeId>,
+) {
     let mut index = 0;
     while index < work.blocks.len() {
-        if !which(&work.blocks[index]) {
+        let Some(c) = which(&work.blocks[index]) else {
             index += 1;
             continue;
-        }
-        let merged = index.checked_sub(1).and_then(|p| {
-            crate::changes::joined(&work.blocks[p].element, &work.blocks[index].element.text)
-        });
+        };
+        // A block waiting to be deleted would take the joined text with it
+        // when its deletion is accepted (docs/specs/changes.md §6).
+        let merged = index
+            .checked_sub(1)
+            .filter(|&p| work.blocks[p].marks.deleted.is_none())
+            .and_then(|p| {
+                crate::changes::joined(&work.blocks[p].element, &work.blocks[index].element.text)
+            });
         if let Some(prev) = merged {
             apply(
                 work,
@@ -565,15 +684,12 @@ fn join_where(
                 ops,
             );
             apply(work, Op::Remove { index }, ops);
+            tags.resize(ops.len(), Some(c));
         } else {
-            let mut marks = work.blocks[index].marks.clone();
-            skipped.extend(marks.joined.take());
-            skipped.extend(marks.split.take());
-            apply(work, Op::Mark { index, marks }, ops);
+            held.insert((c, work.blocks[index].id));
             index += 1;
         }
     }
-    skipped
 }
 
 /// Moves the scenes change `c` moved back to where they stood. Returns
@@ -585,7 +701,10 @@ fn undo_moves(
     c: ChangeId,
     in_scope: &dyn Fn(BlockId) -> bool,
 ) -> bool {
-    let moves: Vec<(BlockId, Option<BlockId>, BlockId)> = work
+    // Newest first (docs/specs/changes.md §6): by their numbers when the
+    // change moved more than one scene, otherwise one heading's, from the
+    // last.
+    let mut moves: Vec<(BlockId, crate::changes::Moved, usize)> = work
         .blocks
         .iter()
         .filter(|b| in_scope(b.id))
@@ -593,13 +712,16 @@ fn undo_moves(
             b.marks
                 .moved
                 .iter()
-                .filter(|mv| mv.change == c)
-                .map(|mv| (b.id, mv.before, mv.last))
+                .enumerate()
+                .filter(|(_, mv)| mv.change == c)
+                .map(|(k, mv)| (b.id, mv.clone(), k))
                 .collect::<Vec<_>>()
         })
         .collect();
+    moves.sort_by(|a, b| b.1.n.cmp(&a.1.n).then(b.2.cmp(&a.2)));
     let mut all = true;
-    for (heading, before, last) in moves {
+    for (heading, mv, _) in moves {
+        let (before, last) = (mv.before, mv.last);
         let Some(start) = work.index_of(heading) else {
             all = false;
             continue;
@@ -632,7 +754,9 @@ fn undo_moves(
         };
         let index = scene.start;
         let mut marks = work.blocks[index].marks.clone();
-        marks.moved.retain(|mv| mv.change != c);
+        if let Some(k) = marks.moved.iter().rposition(|m| *m == mv) {
+            marks.moved.remove(k);
+        }
         apply(work, Op::Mark { index, marks }, ops);
         if target != scene.start && target != scene.end {
             let len = scene.end - scene.start;
@@ -655,10 +779,37 @@ fn undo_moves(
     all
 }
 
+/// An element given back the type and kept attributes one retype took.
+fn restored(e: &coldopen_screenplay::Element, r: &Retyped) -> coldopen_screenplay::Element {
+    let mut e = e.clone();
+    e.kind = r.from;
+    e.clear_inapplicable();
+    if r.from == ElementKind::SceneHeading {
+        e.scene_number = r.scene_number.clone();
+    }
+    if r.from == ElementKind::Character {
+        e.dual = r.dual;
+    }
+    if r.from == ElementKind::Action {
+        e.centered = r.centered;
+    }
+    if r.from == ElementKind::Section && r.depth > 0 {
+        e.depth = r.depth;
+    }
+    if !r.from.is_transparent() && r.space_before.is_some() {
+        e.space_before = r.space_before;
+    }
+    e
+}
+
 /// Gives the blocks change `c` retyped their type and kept attributes back.
+/// A block whose old type would drop text or styles it holds now (a page
+/// break holds no text, a note no styles), typed since the retype, is held
+/// instead (docs/specs/changes.md §6).
 fn restore_retypes(
     work: &mut Document,
     ops: &mut Vec<Op>,
+    held: &mut BTreeSet<(ChangeId, BlockId)>,
     c: ChangeId,
     in_scope: &dyn Fn(BlockId) -> bool,
 ) {
@@ -667,33 +818,29 @@ fn restore_retypes(
         if !in_scope(b.id) {
             continue;
         }
-        let Some(r) = b
+        // Each of the change's retypes, newest first, as undo would
+        // (docs/specs/changes.md §5.2). Any that would drop text holds the
+        // block, and none is undone.
+        let mine: Vec<Retyped> = b
             .marks
             .retyped
             .iter()
-            .rev()
-            .find(|r| r.change == c)
+            .filter(|r| r.change == c)
             .cloned()
-        else {
+            .collect();
+        if mine.is_empty() {
             continue;
-        };
+        }
         let mut e = b.element.clone();
-        e.kind = r.from;
-        e.clear_inapplicable();
-        if r.from == ElementKind::SceneHeading {
-            e.scene_number = r.scene_number.clone();
+        let mut drops = false;
+        for r in mine.iter().rev() {
+            let text = e.text.clone();
+            e = restored(&e, r);
+            drops |= e.text != text;
         }
-        if r.from == ElementKind::Character {
-            e.dual = r.dual;
-        }
-        if r.from == ElementKind::Action {
-            e.centered = r.centered;
-        }
-        if r.from == ElementKind::Section && r.depth > 0 {
-            e.depth = r.depth;
-        }
-        if !r.from.is_transparent() && r.space_before.is_some() {
-            e.space_before = r.space_before;
+        if drops {
+            held.insert((c, b.id));
+            continue;
         }
         let mut marks = b.marks.clone();
         marks.retyped.retain(|x| x.change != c);
@@ -702,21 +849,6 @@ fn restore_retypes(
         }
         apply(work, Op::Mark { index, marks }, ops);
     }
-}
-
-/// Whether change `c` marks anything besides a move.
-fn has_other_marks(doc: &Document, c: ChangeId) -> bool {
-    doc.blocks.iter().any(|b| {
-        crate::changes::text_ids(&b.element.text).any(|x| x == c)
-            || [
-                b.marks.inserted,
-                b.marks.deleted,
-                b.marks.split,
-                b.marks.joined,
-            ]
-            .contains(&Some(c))
-            || b.marks.retyped.iter().any(|r| r.change == c)
-    })
 }
 
 // ---- Listing ---------------------------------------------------------------

@@ -5,6 +5,7 @@
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use coldopen_core::{BlockId, Document, View};
 use iced::widget::{button, column, container, row, scrollable, space, text, text_input};
@@ -49,6 +50,58 @@ pub struct CompareView {
     marked: BTreeSet<usize>,
 }
 
+/// A comparison worked out off the UI thread (2026-10-28, review finding
+/// CL7): what the compare view shows.
+pub struct Compared {
+    b: PathBuf,
+    result: Value,
+    doc: Document,
+    view: View,
+}
+
+/// What a worker hands back, taken once. It may hold a layout, which is
+/// neither cloned nor printed, so it travels in a shared slot.
+pub struct Handoff<T>(Arc<Mutex<Option<T>>>);
+
+impl<T> Clone for Handoff<T> {
+    fn clone(&self) -> Self {
+        Handoff(Arc::clone(&self.0))
+    }
+}
+
+impl<T> std::fmt::Debug for Handoff<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Handoff")
+    }
+}
+
+impl<T> Handoff<T> {
+    fn new(t: T) -> Self {
+        Handoff(Arc::new(Mutex::new(Some(t))))
+    }
+
+    fn take(&self) -> Option<T> {
+        self.0.lock().ok().and_then(|mut slot| slot.take())
+    }
+}
+
+/// A comparison or an import being worked out off the UI thread: the
+/// status bar says so, and Esc stops waiting for it.
+pub struct Working {
+    pub token: u64,
+    pub what: String,
+}
+
+/// A planned import, back from its worker.
+#[derive(Clone, Debug)]
+pub struct ImportPlanned {
+    token: u64,
+    planned: Handoff<coldopen_core::PlannedImport>,
+    path: PathBuf,
+    name: String,
+    again: bool,
+}
+
 /// What the compare view and the import question send.
 #[derive(Clone, Debug)]
 pub enum CompareInput {
@@ -60,32 +113,78 @@ pub enum CompareInput {
 }
 
 impl App {
-    /// "Compare with…": the open script against the draft at `path`.
+    /// A new token for work off the UI thread, and the status bar's words
+    /// for it.
+    fn start_work(&mut self, what: String) -> u64 {
+        self.jobs += 1;
+        self.working = Some(Working {
+            token: self.jobs,
+            what,
+        });
+        self.jobs
+    }
+
+    /// Whether the answer of the work numbered `token` is still awaited;
+    /// if so, it is not any more.
+    fn finish_work(&mut self, token: u64) -> bool {
+        if self.working.as_ref().is_some_and(|w| w.token == token) {
+            self.working = None;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// "Compare with…": the open script against the draft at `path`. The
+    /// draft is read, compared and laid out on a worker thread, as a save
+    /// is written (2026-10-28, review finding CL7), so the editor never
+    /// waits for it.
     pub(super) fn compare_open(&mut self, path: PathBuf) -> Task<Message> {
         let Some(s) = self.d.session() else {
             return Task::none();
         };
-        let (b, fb) = match coldopen_core::diff::read_draft(&path) {
-            Ok(x) => x,
-            Err(e) => {
-                self.banners.push(e.message.into());
+        let (doc, format, own) = (s.doc.clone(), s.format, s.path.clone());
+        let token = self.start_work(format!("Comparing with {}…", super::view::file_name(&path)));
+        let (tx, rx) = iced::futures::channel::oneshot::channel();
+        let spawned = std::thread::Builder::new()
+            .name("compare".into())
+            .spawn(move || {
+                let _ = tx.send(compare_draft(&doc, format, own, path));
+            });
+        if let Err(e) = spawned {
+            self.working = None;
+            self.banners.push(e.to_string().into());
+            return Task::none();
+        }
+        Task::perform(rx, move |r| {
+            let r = r.unwrap_or_else(|_| Err("the comparison stopped before it finished".into()));
+            Message::Compared(token, Handoff::new(r))
+        })
+    }
+
+    /// A comparison back from its worker: the compare view opens, unless
+    /// the writer stopped waiting for it.
+    pub(super) fn compared(
+        &mut self,
+        token: u64,
+        out: Handoff<Result<Compared, String>>,
+    ) -> Task<Message> {
+        if !self.finish_work(token) {
+            return Task::none();
+        }
+        let Compared {
+            b: path,
+            result,
+            doc,
+            view,
+        } = match out.take() {
+            Some(Ok(c)) => c,
+            Some(Err(why)) => {
+                self.banners.push(why.into());
                 return Task::none();
             }
+            None => return Task::none(),
         };
-        let named = |doc, format, path| coldopen_core::diff::Named { doc, format, path };
-        let result = coldopen_core::diff::result(
-            &named(&s.doc, s.format, s.path.as_deref()),
-            &named(&b, fb, Some(path.as_path())),
-        );
-        let name = coldopen_core::diff::default_name(&path);
-        let doc = match coldopen_core::diff::marked(&s.doc, s.format, &b, fb, &name) {
-            Ok(d) => d,
-            Err(e) => {
-                self.banners.push(e.message.into());
-                return Task::none();
-            }
-        };
-        let view = View::with_format(&doc, 0, s.format);
         let rows = rows(&result, &doc);
         let summary = result["text"]
             .as_str()
@@ -192,10 +291,71 @@ impl App {
         let Some(Prompt::ImportName { path, name }) = self.prompt.take() else {
             return Task::none();
         };
-        let params = json!({ "path": path.display().to_string(), "name": name.trim() });
-        let Some(r) = self.run("changes.import", params) else {
+        self.import_start(path, name.trim().to_string(), false)
+    }
+
+    /// Plans bringing the draft in on a worker thread (2026-10-28, review
+    /// finding CL7); the edits are applied when they come back.
+    fn import_start(&mut self, path: PathBuf, name: String, again: bool) -> Task<Message> {
+        let p = coldopen_core::command::ChangesImport {
+            path: path.display().to_string(),
+            name: Some(name.clone()),
+        };
+        let job = match self.d.import_prepare(&p) {
+            Ok(j) => j,
+            Err(e) => {
+                self.banners.push(e.message.into());
+                return Task::none();
+            }
+        };
+        let token = self.start_work(format!("Comparing with {}…", super::view::file_name(&path)));
+        let (tx, rx) = iced::futures::channel::oneshot::channel();
+        let spawned = std::thread::Builder::new()
+            .name("import".into())
+            .spawn(move || {
+                let _ = tx.send(job.plan());
+            });
+        if let Err(e) = spawned {
+            self.working = None;
+            self.banners.push(e.to_string().into());
+            return Task::none();
+        }
+        Task::perform(rx, move |planned| match planned {
+            Ok(planned) => Message::ImportPlanned(ImportPlanned {
+                token,
+                planned: Handoff::new(planned),
+                path: path.clone(),
+                name: name.clone(),
+                again,
+            }),
+            Err(_) => Message::Compared(
+                token,
+                Handoff::new(Err("the comparison stopped before it finished".into())),
+            ),
+        })
+    }
+
+    /// The planned edits, back from the worker: applied as one tracked
+    /// change, unless the writer stopped waiting. A script edited
+    /// meanwhile is planned again, once.
+    pub(super) fn import_planned(&mut self, p: ImportPlanned) -> Task<Message> {
+        if !self.finish_work(p.token) {
+            return Task::none();
+        }
+        let Some(planned) = p.planned.take() else {
             return Task::none();
         };
+        let r = match self.d.import_apply(planned) {
+            Ok(r) => r,
+            Err(e) if e.code == "import_stale" && !p.again => {
+                return self.import_start(p.path, p.name, true);
+            }
+            Err(e) => {
+                self.banners.push(e.message.into());
+                return Task::none();
+            }
+        };
+        let name = p.name;
         let skipped = r["skipped"].as_array().map_or(0, Vec::len);
         let message = match (r["change"].is_null(), skipped) {
             (true, 0) => "The draft says what this script says: nothing to bring in.".to_string(),
@@ -207,10 +367,9 @@ impl App {
                     "differences are"
                 }
             ),
-            (false, 0) => format!("Brought in {} as changes.", name.trim()),
+            (false, 0) => format!("Brought in {name} as changes."),
             (false, n) => format!(
-                "Brought in {} as changes. {n} {} in styles, attributes or the title page could not be tracked and were left out.",
-                name.trim(),
+                "Brought in {name} as changes. {n} {} in styles, attributes or the title page could not be tracked and were left out.",
                 if n == 1 { "difference" } else { "differences" }
             ),
         };
@@ -456,4 +615,30 @@ fn rows(result: &Value, doc: &Document) -> Vec<CompareRow> {
             }
         })
         .collect()
+}
+
+/// The draft at `path` compared with the open script as it was when asked,
+/// marked and laid out: the compare view's content, worked out on a worker
+/// thread.
+fn compare_draft(
+    doc: &Document,
+    format: coldopen_core::FormatId,
+    own: Option<PathBuf>,
+    path: PathBuf,
+) -> Result<Compared, String> {
+    let (b, fb) = coldopen_core::diff::read_draft(&path).map_err(|e| e.message)?;
+    let named = |doc, format, path| coldopen_core::diff::Named { doc, format, path };
+    let result = coldopen_core::diff::result(
+        &named(doc, format, own.as_deref()),
+        &named(&b, fb, Some(path.as_path())),
+    );
+    let name = coldopen_core::diff::default_name(&path);
+    let marked = coldopen_core::diff::marked(doc, format, &b, fb, &name).map_err(|e| e.message)?;
+    let view = View::with_format(&marked, 0, format);
+    Ok(Compared {
+        b: path,
+        result,
+        doc: marked,
+        view,
+    })
 }

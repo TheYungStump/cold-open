@@ -200,9 +200,17 @@ fn pretty(v: &Value) -> String {
     serde_json::to_string_pretty(v).unwrap_or_default()
 }
 
-/// One scene, heading to the next heading or section, as Fountain.
+/// One scene, heading to the next heading or section, as Fountain: in the
+/// accepted form `coldopen://doc/fountain` has, without pending deletions
+/// (2026-10-28, review finding AR8).
 fn scene_fountain(doc: &Value, id: &str) -> Option<String> {
     let blocks: Vec<Block> = serde_json::from_value(doc["blocks"].clone()).ok()?;
+    let blocks = Document {
+        blocks,
+        ..Document::default()
+    }
+    .accepted()
+    .blocks;
     let start = blocks
         .iter()
         .position(|b| b.id.to_string() == id && b.element.kind == ElementKind::SceneHeading)?;
@@ -455,5 +463,50 @@ impl Drop for ColdOpen {
         {
             b.shutdown();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use coldopen_core::{Author, Command, Dispatcher, Options};
+
+    use super::*;
+
+    /// AR8 (the reviews of phases 4–5b, 2026-10-28): a scene is read in its
+    /// accepted form, as `coldopen://doc/fountain` is, so text whose
+    /// deletion is pending is not in it (Antigravity's reproduction).
+    #[test]
+    fn a_scene_reads_without_pending_deletions() {
+        let mut d = Dispatcher::new(Options {
+            journal: false,
+            fsync: false,
+        });
+        let mut run = |by: &Author, command: &str, params: Value| {
+            d.execute_as(Command::from_parts(command, params).unwrap(), by)
+                .unwrap_or_else(|e| panic!("{command}: {e}"))
+        };
+        let writer = Author::writer();
+        let agent = Author::agent("test", None);
+        run(&writer, "doc.new", json!({}));
+        run(
+            &writer,
+            "block.insert",
+            json!({"type": "scene_heading", "text": "INT. OFFICE - DAY"}),
+        );
+        run(
+            &writer,
+            "block.insert",
+            json!({"after": "b_1", "type": "action", "text": "Alice old words."}),
+        );
+        run(
+            &agent,
+            "text.replace",
+            json!({"find": "old", "with": "new"}),
+        );
+        let doc = run(&writer, "doc.get", json!({}));
+        let whole = run(&writer, "doc.export", json!({}));
+        let scene = scene_fountain(&doc, "b_1").unwrap();
+        assert_eq!(scene, "INT. OFFICE - DAY\n\nAlice new words.\n");
+        assert_eq!(scene, whole["text"]);
     }
 }

@@ -64,6 +64,10 @@ pub enum Edit {
     Move {
         unit: usize,
         before: Option<usize>,
+        /// The unit's last element, so the whole unit moves: sections and
+        /// headings without a setting are part of it (§3.1), and what a
+        /// comparison left out between it and the next unit goes with it.
+        last: usize,
     },
     Delete {
         a: usize,
@@ -455,16 +459,44 @@ fn greedy(
 
 /// The pairs, by A's order, that lie in the longest run increasing in B
 /// too (§3.2 step 4). Ties go to the pairs that come first in A.
+///
+/// Each pair's run is the longest one ending in it: one more than the best
+/// of the earlier pairs lower in B, the first of them on a tie. The best of
+/// those is read from a tree indexed by B's position, so this takes
+/// n log n, not n² (2026-10-29: anchoring reuses it for thousands of
+/// blocks, §3.3 step 3).
 fn in_order(pairs: &[(usize, usize)]) -> Vec<bool> {
     let n = pairs.len();
     let mut len = vec![1usize; n];
     let mut prev = vec![usize::MAX; n];
+    let mut ranks: Vec<usize> = pairs.iter().map(|p| p.1).collect();
+    ranks.sort_unstable();
+    ranks.dedup();
+    // A Fenwick tree over B's positions: each node holds the longest run,
+    // and the first pair ending one, among the positions it covers. Pairs
+    // go in in A's order, so a later pair replaces a node only when longer.
+    let mut tree: Vec<(usize, usize)> = vec![(0, usize::MAX); ranks.len() + 1];
+    let better = |x: (usize, usize), y: (usize, usize)| x.0 > y.0 || (x.0 == y.0 && x.1 < y.1);
     for i in 0..n {
-        for j in 0..i {
-            if pairs[j].1 < pairs[i].1 && len[j] + 1 > len[i] {
-                len[i] = len[j] + 1;
-                prev[i] = j;
+        let r = ranks.partition_point(|&v| v < pairs[i].1);
+        let mut best = (0, usize::MAX);
+        let mut k = r;
+        while k > 0 {
+            if better(tree[k], best) {
+                best = tree[k];
             }
+            k &= k - 1;
+        }
+        if best.0 > 0 {
+            len[i] = best.0 + 1;
+            prev[i] = best.1;
+        }
+        let mut k = r + 1;
+        while k < tree.len() {
+            if len[i] > tree[k].0 {
+                tree[k] = (len[i], i);
+            }
+            k += k & k.wrapping_neg();
         }
     }
     let mut keep = vec![false; n];
@@ -643,6 +675,7 @@ fn plan(
     rows: &BTreeMap<usize, Vec<Row>>,
 ) -> Vec<Edit> {
     let first = |i: usize| ua[i].blocks[0];
+    let last = |i: usize| ua.get(i + 1).map_or(ea.len(), |u| u.blocks[0]) - 1;
     let next_scene =
         |j: usize| (j + 1..ub.len()).find_map(|k| partner_of_b.get(&k).map(|&(i, _)| first(i)));
     let mut edits = Vec::new();
@@ -653,6 +686,7 @@ fn plan(
                 edits.push(Edit::Move {
                     unit: first(i),
                     before: next,
+                    last: last(i),
                 });
             }
             next = Some(first(i));
@@ -817,7 +851,7 @@ fn compare_blocks(
     let key = |els: &[Element], i: usize| (els[i].kind, els[i].text.plain_text());
     let ka: Vec<(ElementKind, String)> = xa.iter().map(|&i| key(ea, i)).collect();
     let kb: Vec<(ElementKind, String)> = xb.iter().map(|&i| key(eb, i)).collect();
-    let aligned = align(&ka, &kb);
+    let aligned = align_blocks(&ka, &kb, 0);
     let mut out = Vec::new();
     let mut rows = Vec::new();
     let (mut pa, mut pb) = (0, 0);
@@ -868,6 +902,86 @@ fn align<T: PartialEq>(a: &[T], b: &[T]) -> Vec<(usize, usize)> {
         .collect()
 }
 
+/// Blocks aligned (§3.3 steps 1 and 3): the common start and end, then the
+/// longest common sequence between. Past the pair bound, the middle is
+/// anchored on the blocks whose kind and text occur once in each draft's
+/// middle, those in the longest run increasing in both, and aligned again
+/// between the anchors (2026-10-28, review findings GR11, CL7). `depth`
+/// bounds that.
+fn align_blocks<T: Ord>(a: &[T], b: &[T], depth: u32) -> Vec<(usize, usize)> {
+    let start = a.iter().zip(b).take_while(|(x, y)| x == y).count();
+    let end = a[start..]
+        .iter()
+        .rev()
+        .zip(b[start..].iter().rev())
+        .take_while(|(x, y)| x == y)
+        .count();
+    let (ma, mb) = (&a[start..a.len() - end], &b[start..b.len() - end]);
+    let middle = match words::common(ma, mb) {
+        Some(m) => m,
+        None if depth < MAX_ANCHOR_DEPTH => anchored(ma, mb, depth),
+        None => Vec::new(),
+    };
+    (0..start)
+        .map(|k| (k, k))
+        .chain(middle.into_iter().map(|(i, j)| (i + start, j + start)))
+        .chain((0..end).map(|k| (a.len() - end + k, b.len() - end + k)))
+        .collect()
+}
+
+/// How deep anchoring may go before a middle is left unaligned.
+const MAX_ANCHOR_DEPTH: u32 = 32;
+
+/// The middle of two long block lists aligned on their unique blocks.
+fn anchored<T: Ord>(a: &[T], b: &[T], depth: u32) -> Vec<(usize, usize)> {
+    // For each key: how often it occurs in A, where, and the same in B.
+    let mut seen: BTreeMap<&T, (usize, usize, usize, usize)> = BTreeMap::new();
+    for (i, x) in a.iter().enumerate() {
+        let e = seen.entry(x).or_insert((0, 0, 0, 0));
+        e.0 += 1;
+        e.1 = i;
+    }
+    for (j, y) in b.iter().enumerate() {
+        if let Some(e) = seen.get_mut(y) {
+            e.2 += 1;
+            e.3 = j;
+        }
+    }
+    let mut pairs: Vec<(usize, usize)> = seen
+        .values()
+        .filter(|e| e.0 == 1 && e.2 == 1)
+        .map(|e| (e.1, e.3))
+        .collect();
+    pairs.sort_unstable();
+    let keep = in_order(&pairs);
+    let anchors: Vec<(usize, usize)> = pairs
+        .into_iter()
+        .zip(keep)
+        .filter_map(|(p, k)| k.then_some(p))
+        .collect();
+    if anchors.is_empty() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let (mut pa, mut pb) = (0, 0);
+    for (i, j) in anchors
+        .into_iter()
+        .chain(std::iter::once((a.len(), b.len())))
+    {
+        let between = align_blocks(&a[pa..i], &b[pb..j], depth + 1);
+        out.extend(between.into_iter().map(|(x, y)| (x + pa, y + pb)));
+        if i < a.len() {
+            out.push((i, j));
+        }
+        (pa, pb) = (i + 1, j + 1);
+    }
+    out
+}
+
+/// The most pairs of blocks a gap is scored for (§3.3 step 3, 2026-10-28):
+/// past it, its blocks are deleted and added.
+const MAX_GAP_PAIRS: usize = 250_000;
+
 /// The unaligned blocks between two aligned ones (§3.3 step 2): pairs by
 /// similarity, the same kind first, and the rest added or deleted. Deleted
 /// blocks come before added ones, each in its draft's order.
@@ -892,28 +1006,33 @@ fn gap(
         .iter()
         .map(|&j| word_list(&eb[j].text.plain_text()))
         .collect();
-    let pairs = greedy(ga.len(), gb.len(), true, |x, y| {
-        let (e, f) = (&ea[ga[x]], &eb[gb[y]]);
-        // A page break pairs only with a page break, and a note or
-        // boneyard block only with one of those: nothing else can become
-        // one without losing its text or styles (2026-10-26).
-        if (e.kind == ElementKind::PageBreak) != (f.kind == ElementKind::PageBreak)
-            || e.kind.is_raw_text() != f.kind.is_raw_text()
-        {
-            return None;
-        }
-        let s = if e.text.plain_text() == f.text.plain_text() {
-            1.0
-        } else if wa[x].is_empty() && wb[y].is_empty() {
-            // No words on either side, and different text: nothing to
-            // say they are the same block.
-            0.0
-        } else {
-            block_similarity(&wa[x], &wb[y])
-        };
-        // The same kind wins a tie.
-        (s >= SIMILAR).then_some(s + if e.kind == f.kind { 1e-9 } else { 0.0 })
-    });
+    let bounded = ga.len().saturating_mul(gb.len()) <= MAX_GAP_PAIRS;
+    let pairs = if !bounded {
+        Vec::new()
+    } else {
+        greedy(ga.len(), gb.len(), true, |x, y| {
+            let (e, f) = (&ea[ga[x]], &eb[gb[y]]);
+            // A page break pairs only with a page break, and a note or
+            // boneyard block only with one of those: nothing else can become
+            // one without losing its text or styles (2026-10-26).
+            if (e.kind == ElementKind::PageBreak) != (f.kind == ElementKind::PageBreak)
+                || e.kind.is_raw_text() != f.kind.is_raw_text()
+            {
+                return None;
+            }
+            let s = if e.text.plain_text() == f.text.plain_text() {
+                1.0
+            } else if wa[x].is_empty() && wb[y].is_empty() {
+                // No words on either side, and different text: nothing to
+                // say they are the same block.
+                0.0
+            } else {
+                block_similarity(&wa[x], &wb[y])
+            };
+            // The same kind wins a tie.
+            (s >= SIMILAR).then_some(s + if e.kind == f.kind { 1e-9 } else { 0.0 })
+        })
+    };
     let paired_a: BTreeSet<usize> = pairs.iter().map(|p| p.0).collect();
     let paired_b: BTreeMap<usize, usize> = pairs.iter().map(|&(x, y)| (y, x)).collect();
     for (x, &i) in ga.iter().enumerate() {
@@ -1128,4 +1247,47 @@ fn compare_lines(a: &[TitleLine], b: &[TitleLine]) -> Vec<TitleOp> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+
+    /// `in_order` as it was written first, in n²: the reference for the
+    /// faster one.
+    fn in_order_quadratic(pairs: &[(usize, usize)]) -> Vec<bool> {
+        let n = pairs.len();
+        let mut len = vec![1usize; n];
+        let mut prev = vec![usize::MAX; n];
+        for i in 0..n {
+            for j in 0..i {
+                if pairs[j].1 < pairs[i].1 && len[j] + 1 > len[i] {
+                    len[i] = len[j] + 1;
+                    prev[i] = j;
+                }
+            }
+        }
+        let mut keep = vec![false; n];
+        let Some(best) = len.iter().copied().max() else {
+            return keep;
+        };
+        let mut at = len.iter().position(|&l| l == best).unwrap_or(usize::MAX);
+        while at != usize::MAX {
+            keep[at] = true;
+            at = prev[at];
+        }
+        keep
+    }
+
+    proptest! {
+        /// The same pairs kept, ties included: positions repeat in B, and
+        /// in A, so many runs share the longest length.
+        #[test]
+        fn in_order_keeps_what_the_quadratic_search_kept(
+            mut pairs in proptest::collection::vec((0usize..12, 0usize..12), 0..60)
+        ) {
+            pairs.sort_unstable();
+            prop_assert_eq!(super::in_order(&pairs), in_order_quadratic(&pairs));
+        }
+    }
 }

@@ -130,6 +130,38 @@ struct Carry<'k> {
     read: Option<Element>,
     read_spacing: Option<Pt>,
     read_broke: bool,
+    /// The paragraph was read nested in a dual-dialogue block.
+    nested: bool,
+}
+
+/// Where each block finds the kept paragraph it was read as, ordinary or
+/// nested in dual dialogue, so a group whose shape changed still carries
+/// what each of its paragraphs held (§14.4, 2026-10-28).
+#[derive(Default)]
+pub(crate) struct Sources<'k> {
+    by_block: BTreeMap<u64, &'k KeptParagraph>,
+}
+
+impl<'k> Sources<'k> {
+    fn of(kept: &'k Kept) -> Sources<'k> {
+        let mut by_block = BTreeMap::new();
+        for kp in kept.paragraphs.values() {
+            for b in kp.blocks.iter().filter(|b| b.element.kind.is_printing()) {
+                by_block.insert(b.id, kp);
+            }
+        }
+        Sources { by_block }
+    }
+
+    /// What block `id` carries from the paragraph it was read as.
+    fn carry(&self, id: u64) -> Option<Carry<'k>> {
+        let c = Carry::of(self.by_block.get(&id)?)?;
+        if c.para.child("DualDialogue").is_some() {
+            c.nested_for(id)
+        } else {
+            Some(c)
+        }
+    }
 }
 
 impl<'k> Carry<'k> {
@@ -154,37 +186,53 @@ impl<'k> Carry<'k> {
             read,
             read_spacing,
             read_broke,
+            nested: false,
         })
     }
 
-    /// The carries of a kept dual-dialogue block's nested paragraphs, one
-    /// for each printing block, when the shape still lines up.
-    fn nested(&self, count: usize) -> Option<Vec<Carry<'k>>> {
+    /// The carry of the nested paragraph of a kept dual-dialogue block that
+    /// was read as block `id`: nested paragraphs and printing blocks are
+    /// paired in order, as the reader made them (§6.6).
+    fn nested_for(&self, id: u64) -> Option<Carry<'k>> {
         let dd = self.para.child("DualDialogue")?;
-        let nested: Vec<&Node> = dd.children_named("Paragraph").collect();
-        let printing: Vec<&crate::kept::KeptBlock> = self
+        let (k, b) = self
             .kept
             .blocks
             .iter()
             .filter(|b| b.element.kind.is_printing())
-            .collect();
-        if nested.len() != count || printing.len() != count {
-            return None;
-        }
-        Some(
-            nested
-                .into_iter()
-                .zip(printing)
-                .map(|(n, b)| Carry {
-                    kept: self.kept,
-                    text: self.text.clone(),
-                    para: n.clone(),
-                    read: Some(b.element.clone()),
-                    read_spacing: b.spacing,
-                    read_broke: false,
-                })
-                .collect(),
-        )
+            .enumerate()
+            .find(|(_, b)| b.id == id)?;
+        let n = dd.children_named("Paragraph").nth(k)?;
+        Some(Carry {
+            kept: self.kept,
+            text: self.text.clone(),
+            para: n.clone(),
+            read: Some(b.element.clone()),
+            read_spacing: b.spacing,
+            read_broke: false,
+            nested: true,
+        })
+    }
+
+    /// The outer paragraph's own parts that only a dual-dialogue block has
+    /// a place for: attributes beyond its type and the inline layout ones,
+    /// and children beyond `DualDialogue` and `Text`.
+    fn outer_parts(&self) -> bool {
+        const LAYOUT: [&str; 9] = [
+            "Alignment",
+            "FirstIndent",
+            "Leading",
+            "LeftIndent",
+            "RightIndent",
+            "SpaceBefore",
+            "Spacing",
+            "StartsNewPage",
+            "Type",
+        ];
+        self.para.attrs.iter().any(|(k, _)| !LAYOUT.contains(&k.as_str()))
+            || self.para.children.iter().any(|ch| {
+                matches!(ch, Child::Element(n) if !matches!(n.name.as_str(), "DualDialogue" | "Text"))
+            })
     }
 }
 
@@ -193,6 +241,9 @@ pub(crate) struct Gen<'a> {
     format: &'a PageFormat,
     pub(crate) out: String,
     pub(crate) losses: Vec<Loss>,
+    /// A printing paragraph has been written into `Content`, so a
+    /// `StartsNewPage="Yes"` from here on makes a page break (§6.5).
+    printed: bool,
 }
 
 impl<'a> Gen<'a> {
@@ -202,6 +253,7 @@ impl<'a> Gen<'a> {
             format,
             out: String::new(),
             losses: Vec::new(),
+            printed: false,
         }
     }
 
@@ -222,8 +274,15 @@ impl<'a> Gen<'a> {
     }
 
     /// Writes one group (§14.1, §14.7), carrying what an edited kept
-    /// paragraph held (§14.4).
-    pub(crate) fn group(&mut self, blocks: &[Blk<'_>], lead: &str, carry: Option<&KeptParagraph>) {
+    /// paragraph held (§14.4): the group's own, or, where the group changed
+    /// shape, the paragraph each block was read as (`sources`).
+    pub(crate) fn group(
+        &mut self,
+        blocks: &[Blk<'_>],
+        lead: &str,
+        carry: Option<&KeptParagraph>,
+        sources: &Sources<'_>,
+    ) {
         let mut starts_page = false;
         let mut k = 0;
         while k < blocks.len() && !blocks[k].element.kind.is_printing() {
@@ -248,16 +307,38 @@ impl<'a> Gen<'a> {
             // Breaks with nothing after them print nothing (§14.7).
             return;
         }
-        // Only a paragraph of the same shape carries anything (§14.4): a
-        // dual-dialogue wrapper's attributes are not a speech's.
+        // A dual-dialogue wrapper's attributes are not a speech's (§14.4).
+        // When the group changed shape, each paragraph carries from the
+        // paragraph its block was read as, ordinary or nested.
         let dual = rest.len() > 1;
-        let carry = carry
-            .and_then(Carry::of)
-            .filter(|c| c.para.child("DualDialogue").is_some() == dual);
+        let own = carry.and_then(Carry::of);
+        let own_dual = own
+            .as_ref()
+            .is_some_and(|c| c.para.child("DualDialogue").is_some());
         if dual {
-            self.dual(rest, starts_page, lead, carry.as_ref());
+            let outer = own.filter(|_| own_dual);
+            self.dual(rest, starts_page, lead, outer.as_ref(), sources);
         } else {
-            self.paragraph(rest[0], starts_page, lead, 2, carry.as_ref());
+            let b = rest[0];
+            let c = match own {
+                Some(c) if !own_dual => Some(c),
+                Some(c) => {
+                    // The dual-dialogue block this was the first speaker of
+                    // is no more: what only its wrapper could hold is lost.
+                    // A wrapper the reader could not read as two speakers
+                    // (§6.6, `dual_dialogue_shape`) never was one.
+                    if c.outer_parts() && c.kept.blocks.iter().any(|k| k.element.dual) {
+                        self.loss(
+                            b.id,
+                            "kept_parts",
+                            "attributes or elements the dual-dialogue block held have no place in ordinary speeches and are left out",
+                        );
+                    }
+                    sources.carry(b.id)
+                }
+                None => sources.carry(b.id),
+            };
+            self.paragraph(b, starts_page, lead, 2, c.as_ref());
         }
     }
 
@@ -320,7 +401,7 @@ impl<'a> Gen<'a> {
         let mut children: Vec<(usize, String)> = Vec::new();
         let mut run_attrs = None;
         if let Some(c) = carry {
-            self.carry_paragraph(c, b, starts_page, &mut attrs, &mut children);
+            self.carry_paragraph(c, b, starts_page, depth, &mut attrs, &mut children);
             run_attrs = Some(c);
         }
         attrs.sort_by(|a, b| a.0.cmp(&b.0));
@@ -391,6 +472,7 @@ impl<'a> Gen<'a> {
         c: &Carry<'_>,
         b: Blk<'_>,
         starts_page: bool,
+        depth: usize,
         attrs: &mut Vec<(String, String)>,
         children: &mut Vec<(usize, String)>,
     ) {
@@ -429,7 +511,14 @@ impl<'a> Gen<'a> {
             let keep = match k.as_str() {
                 "Alignment" => read.is_some_and(|r| r.centered == e.centered) && !e.centered,
                 "SpaceBefore" => read_spacing == b.spacing && self.spacing(b).is_none(),
-                "StartsNewPage" => read_broke == starts_page && !starts_page,
+                // A nested paragraph takes no break (§6.6): only one read
+                // nested carries what it had.
+                "StartsNewPage" => {
+                    (depth == 2 || c.nested)
+                        && read_broke == starts_page
+                        && !starts_page
+                        && !(depth == 2 && self.printed && v == "Yes")
+                }
                 "Number" => same_kind && e.kind != ElementKind::SceneHeading,
                 "Type" => same_kind && type_of_kind(e.kind) != v.as_str(),
                 _ => true,
@@ -463,6 +552,7 @@ impl<'a> Gen<'a> {
         starts_page: bool,
         lead: &str,
         carry: Option<&Carry<'_>>,
+        sources: &Sources<'_>,
     ) {
         let space = self.format.elements.character.space_before;
         let mut attrs: Vec<(String, String)> = vec![("SpaceBefore".into(), space.to_string())];
@@ -473,7 +563,17 @@ impl<'a> Gen<'a> {
         let mut extra_children: Vec<(usize, String)> = Vec::new();
         if let Some(c) = carry {
             for (k, v) in &c.para.attrs {
-                if !matches!(k.as_str(), "SpaceBefore" | "StartsNewPage" | "Type") {
+                let keep = match k.as_str() {
+                    "SpaceBefore" | "Type" => false,
+                    // As for any paragraph (§14.4): carried while the page
+                    // break before the block is as it was read (review
+                    // finding CL8).
+                    "StartsNewPage" => {
+                        c.read_broke == starts_page && !starts_page && !(self.printed && v == "Yes")
+                    }
+                    _ => true,
+                };
+                if keep {
                     attrs.push((k.clone(), v.clone()));
                 }
             }
@@ -483,22 +583,6 @@ impl<'a> Gen<'a> {
                 {
                     extra_children.push((0, crate::kept::element_text(&c.text, n)));
                 }
-            }
-            let nested_attrs = c.para.child("DualDialogue").is_some_and(|dd| {
-                dd.children_named("Paragraph").any(|p| {
-                    p.children_named("Text")
-                        .any(|t| t.attrs.iter().any(|(k, _)| k != "Style"))
-                })
-            });
-            if nested_attrs
-                && c.nested(blocks.len()).is_none()
-                && let Some(first) = blocks.first()
-            {
-                self.loss(
-                    first.id,
-                    "run_attributes",
-                    "fonts, colors or revision marks on the edited dual dialogue are not kept",
-                );
             }
         }
         attrs.sort_by(|a, b| a.0.cmp(&b.0));
@@ -516,10 +600,14 @@ impl<'a> Gen<'a> {
         self.out.push_str(&self.indent(3));
         self.out.push_str("<DualDialogue>");
         let nested_lead = format!("{nl}{}", self.indent(4));
-        let nested = carry.and_then(|c| c.nested(blocks.len()));
-        for (j, b) in blocks.iter().enumerate() {
-            let c = nested.as_ref().and_then(|n| n.get(j));
-            self.paragraph(*b, false, &nested_lead, 4, c);
+        // Each speech carries the nested paragraph it was read as, by its
+        // block, whatever was added to or taken from the block; a speech
+        // that was an ordinary paragraph carries that.
+        for b in blocks {
+            let c = carry
+                .and_then(|c| c.nested_for(b.id))
+                .or_else(|| sources.carry(b.id));
+            self.paragraph(*b, false, &nested_lead, 4, c.as_ref());
         }
         self.out.push_str(&nl);
         self.out.push_str(&self.indent(3));
@@ -557,21 +645,35 @@ impl<'a> Gen<'a> {
             }
         }
         emit(&mut self.out, 0, &mut loose);
+        let anchors = anchors(kept);
+        let sources = Sources::of(kept);
         let mut i = 0;
         while i < blocks.len() {
-            let first = blocks[i].id;
-            let kp = kept.paragraphs.get(&first);
+            let group = group_end(blocks, i);
+            let kp = blocks[i..group]
+                .iter()
+                .find(|b| b.element.kind.is_printing())
+                .and_then(|b| anchors.get(&b.id).copied());
+            // The kept text, while the paragraph's blocks are as they were
+            // read, start where this group starts, and take in at least the
+            // whole group; otherwise the group is generated, carrying what
+            // the paragraph held (§13.3).
             let end = match kp {
-                Some(kp) if kp.verbatim && unchanged(kp, &blocks[i..]) => {
+                Some(kp)
+                    if kp.verbatim
+                        && kp.blocks.len() >= group - i
+                        && unchanged(kp, &blocks[i..])
+                        && !(self.printed && breaks_only_later(kp)) =>
+                {
                     self.out.push_str(&kp.text);
                     i + kp.blocks.len()
                 }
                 _ => {
-                    let end = group_end(blocks, i);
-                    self.group(&blocks[i..end], &lead, kp);
-                    end
+                    self.group(&blocks[i..group], &lead, kp, &sources);
+                    group
                 }
             };
+            self.printed |= blocks[i..end].iter().any(|b| b.element.kind.is_printing());
             for b in &blocks[i..end] {
                 emit(&mut self.out, b.id, &mut loose);
             }
@@ -831,7 +933,7 @@ impl<'a> Gen<'a> {
         let mut i = 0;
         while i < blocks.len() {
             let end = group_end(blocks, i);
-            self.group(&blocks[i..end], &lead, None);
+            self.group(&blocks[i..end], &lead, None, &Sources::default());
             i = end;
         }
         self.out
@@ -1031,6 +1133,36 @@ impl<'a> Gen<'a> {
 type RunOut = (String, Style, Vec<(String, String)>);
 
 /// Whether the blocks from here on are exactly a kept paragraph's (§13.3).
+/// The kept paragraphs by their anchor: the first of their blocks that is
+/// not a page break, which is the paragraph's own (§13.3, 2026-10-28). The
+/// store keys a paragraph by its group's first block, which is the page
+/// break `StartsNewPage` put before it, when there is one; but the break is
+/// a block of its own. Deleting it, adding one, or moving the paragraph's
+/// scene away from it must not part the paragraph from its block, or hand
+/// its kept parts to whatever comes after the break (review findings GR8,
+/// GP2).
+fn anchors(kept: &Kept) -> BTreeMap<u64, &KeptParagraph> {
+    kept.paragraphs
+        .values()
+        .filter_map(|kp| {
+            kp.blocks
+                .iter()
+                .find(|b| b.element.kind != ElementKind::PageBreak)
+                .map(|b| (b.id, kp))
+        })
+        .collect()
+}
+
+/// Whether a kept paragraph says `StartsNewPage="Yes"` though no break was
+/// read before it: it came first, where the attribute makes no break
+/// (§6.5). Anywhere later, it would make one the document does not have
+/// (2026-10-28).
+fn breaks_only_later(kp: &KeptParagraph) -> bool {
+    kp.text.contains("StartsNewPage")
+        && Carry::of(kp)
+            .is_some_and(|c| !c.read_broke && c.para.attr("StartsNewPage") == Some("Yes"))
+}
+
 fn unchanged(kp: &KeptParagraph, blocks: &[Blk<'_>]) -> bool {
     kp.blocks.len() <= blocks.len()
         && kp

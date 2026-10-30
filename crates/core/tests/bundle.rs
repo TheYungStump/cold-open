@@ -281,3 +281,336 @@ fn doc_new_at_a_bundle_path_starts_a_project() {
     assert_eq!(e.code, "unsupported_format");
     d.shutdown();
 }
+
+// ---- The reviews of phases 4–5b (2026-10-28) ------------------------------
+
+/// A bundle with the usual entries and one another tool added.
+fn with_extra_entry(dir: &Path) -> PathBuf {
+    let p = dir.join("extra.coldopen");
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &Author::writer(), "doc.new", json!({"path": p}));
+    ok(
+        &mut d,
+        &Author::writer(),
+        "block.insert",
+        json!({"type": "action", "text": "Rain."}),
+    );
+    ok(&mut d, &Author::writer(), "doc.save", json!({}));
+    d.shutdown();
+    let bytes = fs::read(&p).unwrap();
+    let archive = rawzip::ZipArchive::from_slice(&bytes).unwrap();
+    let mut parts: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut list = archive.entries();
+    while let Some(e) = list.next_entry().unwrap() {
+        let name = String::from_utf8_lossy(e.file_path().as_ref()).into_owned();
+        let raw = archive.get_entry(e.wayfinder()).unwrap().data().to_vec();
+        let data = miniz_oxide::inflate::decompress_to_vec(&raw).unwrap();
+        parts.push((name, data));
+    }
+    parts.push((
+        "notes.json".into(),
+        br#"{"notes":["Keep the opening scene."]}"#.to_vec(),
+    ));
+    let mut out = Vec::new();
+    let mut zw = rawzip::ZipArchiveWriter::new(&mut out);
+    for (name, data) in &parts {
+        let (mut entry, _) = zw
+            .new_file(name)
+            .compression_method(rawzip::CompressionMethod::STORE)
+            .start()
+            .unwrap();
+        std::io::Write::write_all(&mut entry, data).unwrap();
+        entry
+            .finish(rawzip::DataDescriptorOutput::new(
+                rawzip::crc32(data),
+                data.len() as u64,
+            ))
+            .unwrap();
+    }
+    zw.finish().unwrap();
+    fs::write(&p, out).unwrap();
+    p
+}
+
+fn entry_names(bytes: &[u8]) -> Vec<String> {
+    let archive = rawzip::ZipArchive::from_slice(bytes).unwrap();
+    let mut names = Vec::new();
+    let mut list = archive.entries();
+    while let Some(e) = list.next_entry().unwrap() {
+        names.push(String::from_utf8_lossy(e.file_path().as_ref()).into_owned());
+    }
+    names
+}
+
+/// GP3: an entry another tool added to a project is kept: saving writes it
+/// back, unchanged, after Cold Open's own; so does a crash and recovery.
+/// Converting to Fountain asks first, with a `bundle_entries` loss.
+#[test]
+fn gp3_another_tools_entries_are_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = with_extra_entry(dir.path());
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &Author::writer(), "doc.open", json!({"path": p}));
+    ok(
+        &mut d,
+        &Author::writer(),
+        "block.insert",
+        json!({"type": "action", "text": "Wind."}),
+    );
+    ok(&mut d, &Author::writer(), "doc.save", json!({}));
+    let names = entry_names(&fs::read(&p).unwrap());
+    assert_eq!(
+        names.last().map(String::as_str),
+        Some("notes.json"),
+        "{names:?}"
+    );
+
+    // A crash: the recovered document still writes it back.
+    ok(
+        &mut d,
+        &Author::writer(),
+        "block.insert",
+        json!({"type": "action", "text": "Hail."}),
+    );
+    drop(d);
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, &Author::writer(), "doc.open", json!({"path": p}));
+    assert_eq!(r["recovered"]["commands"], 1, "{r}");
+    ok(&mut d, &Author::writer(), "doc.save", json!({}));
+    assert!(entry_names(&fs::read(&p).unwrap()).contains(&"notes.json".to_string()));
+
+    // Converting leaves it out only when asked.
+    let f = dir.path().join("extra.fountain");
+    let e = d
+        .execute(Command::from_parts("doc.save", json!({"path": f})).unwrap())
+        .unwrap_err();
+    assert_eq!(e.code, "lossy_format", "{e}");
+    assert!(
+        format!("{:?}", e.details).contains("bundle_entries"),
+        "{:?}",
+        e.details
+    );
+    d.discard();
+}
+
+/// A one-block bundle whose block is marked with change `c`, or revision
+/// set `r`, and has no table for it: as a few hundred bytes a crafted file
+/// can be.
+fn sparse(change: &str, rev: Option<&str>) -> Vec<u8> {
+    let mut block =
+        json!({"id": "b_1", "type": "action", "text": "x", "change": {"inserted": change}});
+    if let Some(r) = rev {
+        block["rev"] = json!(r);
+    }
+    let doc = json!({"blocks": [block], "next_id": 2});
+    let meta = format!(
+        "{{\"format\":\"coldopen-bundle\",\"v\":{},\"app\":\"0.1.0\",\"doc_id\":\"x\"}}",
+        if rev.is_some() { 2 } else { 1 }
+    );
+    let mut out = Vec::new();
+    let mut zw = rawzip::ZipArchiveWriter::new(&mut out);
+    for (name, data) in [
+        ("meta.json", meta.into_bytes()),
+        ("document.json", serde_json::to_vec(&doc).unwrap()),
+        ("script.fountain", b"x\n".to_vec()),
+    ] {
+        let (mut entry, _) = zw
+            .new_file(name)
+            .compression_method(rawzip::CompressionMethod::STORE)
+            .start()
+            .unwrap();
+        std::io::Write::write_all(&mut entry, &data).unwrap();
+        entry
+            .finish(rawzip::DataDescriptorOutput::new(
+                rawzip::crc32(&data),
+                data.len() as u64,
+            ))
+            .unwrap();
+    }
+    zw.finish().unwrap();
+    out
+}
+
+/// GR2 = CL4 = GP12: a mark naming a change, or a revision set, the bundle
+/// has no table for is given a stand-in, and so is every id below it. An id
+/// past what the journal ever accepts (10,000,000 changes; 10,000 sets) is
+/// not a real project's: `document.json` counts as damaged, and the project
+/// opens from its readable copy, at once. Before, `c_18446744073709551614`
+/// ran until memory ran out.
+#[test]
+fn gr2_a_mark_naming_an_absurd_id_is_not_filled_up_to() {
+    for bytes in [
+        sparse("c_10000001", None),
+        sparse("c_18446744073709551614", None),
+        sparse("c_1", Some("r_10001")),
+        sparse("c_1", Some("r_18446744073709551614")),
+    ] {
+        let start = std::time::Instant::now();
+        let r = coldopen_core::bundle::read(&bytes).unwrap();
+        assert!(start.elapsed() < std::time::Duration::from_secs(2));
+        assert!(r.doc.changes.len() <= 1, "{}", r.doc.changes.len());
+        assert!(r.doc.revisions.sets.len() <= 1);
+        let codes = r.repaired.unwrap()["issues"].to_string();
+        assert!(codes.contains("bundle_document"), "{codes}");
+    }
+    // Within the limits, the stand-ins are made as before.
+    let r = coldopen_core::bundle::read(&sparse("c_1000", None)).unwrap();
+    assert_eq!(r.doc.changes.len(), 1000);
+}
+
+/// GR7 = GP13: a project whose .fdx store holds a kept paragraph with no
+/// blocks, or one not stored under its first block, or naming an id at or
+/// past `next_id`, fails `Document::check`, so it opens from its readable
+/// copy instead of reaching the writer (Astra's probe, as a bundle).
+#[test]
+fn gr7_a_kept_paragraph_with_no_blocks_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("s.fdx");
+    fs::write(
+        &p,
+        "<?xml version=\"1.0\"?>\n<FinalDraft>\n  <Content>\n    <Paragraph Type=\"Action\" Custom=\"x\">\n      <Text>Rain.</Text>\n    </Paragraph>\n  </Content>\n</FinalDraft>\n",
+    )
+    .unwrap();
+    let mut d = Dispatcher::new(Options::default());
+    ok(&mut d, &Author::writer(), "doc.open", json!({"path": p}));
+    let doc = d.session().unwrap().doc.clone();
+    d.discard();
+    let key = *doc.fdx.as_ref().unwrap().paragraphs.keys().next().unwrap();
+    for broken in 0..3 {
+        let mut doc = doc.clone();
+        let kept = doc.fdx.as_mut().unwrap();
+        let kp = kept.paragraphs.get_mut(&key).unwrap();
+        match broken {
+            0 => kp.blocks.clear(),
+            1 => kp.blocks[0].id = 7,
+            _ => {
+                let mut extra = kp.blocks[0].clone();
+                extra.id = 99;
+                kp.blocks.push(extra);
+            }
+        }
+        assert!(doc.check().is_err(), "case {broken}");
+        let read = coldopen_core::bundle::read(&coldopen_core::bundle::write(&doc)).unwrap();
+        let issues = read.repaired.expect("repaired")["issues"].to_string();
+        assert!(
+            issues.contains("bundle_document"),
+            "case {broken}: {issues}"
+        );
+    }
+}
+
+/// A bundle whose only usable part is a `script.fountain` of `lines`
+/// lines, deflated: a few kilobytes that inflate a thousand times over.
+fn bomb(lines: usize, declared: Option<u64>) -> Vec<u8> {
+    let script = "A.\n\n".repeat(lines / 2).into_bytes();
+    let mut out = Vec::new();
+    let mut zw = rawzip::ZipArchiveWriter::new(&mut out);
+    for (name, data) in [
+        ("document.json", b"{".to_vec()),
+        ("script.fountain", script),
+    ] {
+        let (mut entry, _) = zw
+            .new_file(name)
+            .compression_method(rawzip::CompressionMethod::DEFLATE)
+            .start()
+            .unwrap();
+        let packed = miniz_oxide::deflate::compress_to_vec(&data, 9);
+        std::io::Write::write_all(&mut entry, &packed).unwrap();
+        entry
+            .finish(rawzip::DataDescriptorOutput::new(
+                rawzip::crc32(&data),
+                declared.unwrap_or(data.len() as u64),
+            ))
+            .unwrap();
+    }
+    zw.finish().unwrap();
+    out
+}
+
+/// CL5 (the reviews of phases 4–5b, 2026-10-28): a crafted project can't
+/// freeze an open. An entry inflates only to the size it declares, entries
+/// may inflate to 16 MiB each, and a readable copy of more than 250,000
+/// lines is not read. Before, a 33 KB file took 15 s and made 8.4 million
+/// blocks.
+#[test]
+fn cl5_a_crafted_project_opens_or_is_refused_quickly() {
+    for (lines, declared) in [
+        // 32 MiB of script: past the entry limit.
+        (16_777_216, None),
+        // Within it, but far too many lines for a script.
+        (2_000_000, None),
+        // An entry that inflates past what it declares.
+        (2_000_000, Some(64)),
+    ] {
+        let bytes = bomb(lines, declared);
+        let start = std::time::Instant::now();
+        let r = coldopen_core::bundle::read(&bytes);
+        let took = start.elapsed();
+        assert!(r.is_err(), "{lines} lines");
+        assert!(
+            took < std::time::Duration::from_secs(3),
+            "{lines} lines: {took:?}"
+        );
+    }
+    // A real script's length still opens from its copy.
+    let r = coldopen_core::bundle::read(&bomb(20_000, None)).unwrap();
+    assert_eq!(r.doc.blocks.len(), 10_000);
+}
+
+/// GP14 (the reviews of phases 4–5b, 2026-10-28): a newer bundle's
+/// `meta.json` with a field this version does not know is still refused
+/// as newer. Before, the unknown field made the whole of `meta.json`
+/// unreadable, so the version was never looked at, and the file opened.
+#[test]
+fn gp14_a_newer_version_with_a_new_field_is_refused() {
+    let mut out = Vec::new();
+    let mut zw = rawzip::ZipArchiveWriter::new(&mut out);
+    for (name, data) in [
+        (
+            "meta.json",
+            br#"{"format":"coldopen-bundle","v":4,"app":"future","new_field":true}"#.to_vec(),
+        ),
+        (
+            "document.json",
+            br#"{"blocks":[{"id":"b_1","type":"action","text":"x"}],"next_id":2}"#.to_vec(),
+        ),
+        ("changes.json", br#"{"v":1,"changes":[]}"#.to_vec()),
+        ("script.fountain", b"x\n".to_vec()),
+    ] {
+        let (mut entry, _) = zw
+            .new_file(name)
+            .compression_method(rawzip::CompressionMethod::STORE)
+            .start()
+            .unwrap();
+        std::io::Write::write_all(&mut entry, &data).unwrap();
+        entry
+            .finish(rawzip::DataDescriptorOutput::new(
+                rawzip::crc32(&data),
+                data.len() as u64,
+            ))
+            .unwrap();
+    }
+    zw.finish().unwrap();
+    let e = coldopen_core::bundle::read(&out).map(|_| ()).unwrap_err();
+    assert_eq!(e.code, "unsupported_format", "{e}");
+}
+
+/// P6 (found by the bundle property at 4,096 cases, 2026-10-29): another
+/// tool's entry is kept only under a name the zip writer leaves as it is.
+/// A name holding a colon, which writers drop up to as a drive letter, or
+/// a `.` part, was kept and came back as another name ("script.fo:ntain"
+/// as "ntain"), so the project read back differently.
+#[test]
+fn p6_an_entry_is_kept_only_under_a_name_that_writes_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let bytes = fs::read(with_extra_entry(dir.path())).unwrap();
+    for name in ["notes:json", "n/./s.json", "n//es.json", "../es.json"] {
+        let mut b = bytes.clone();
+        let mut at = 0;
+        while let Some(k) = b[at..].windows(10).position(|w| w == b"notes.json") {
+            b[at + k..at + k + 10].copy_from_slice(name.as_bytes());
+            at += k + 10;
+        }
+        assert_eq!(coldopen_core::fuzzing::bundle_read(&b), Ok(()), "{name}");
+    }
+}

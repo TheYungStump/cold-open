@@ -1,6 +1,6 @@
 # Track changes
 
-- **Date:** 2026-10-18, updated 2026-10-26 (§5.1, §5.2: what fuzzing the import found)
+- **Date:** 2026-10-18, updated 2026-10-26 (§5.1, §5.2: what fuzzing the import found) and 2026-10-28 (§5.2, §6: the fixes of the reviews of phases 4–5b, journal semantics 4)
 - **Status:** implemented in phase 5a, in `crates/screenplay` (marks in text runs), `crates/core` (block marks, the change table, tracked edits, settling), `crates/layout` (marked pages) and `crates/app`. Phase 5b (2026-10-22) adds the revision set an entry was made under (§3) and `changes.import` (`docs/specs/diff.md` §6).
 - **Sources:**
   - `docs/spec.md`: "Revising", "Reliability features" item 6 (track changes), "Agents edit in the open", and the pain point it answers (added text colored, deleted text not tracked).
@@ -56,7 +56,7 @@ A block can carry one mark of each of these kinds (any number of `retyped` and `
 | `retyped` | `{"retyped": [{"change": "c_7", "from": "action", "scene_number": "4"}]}` | The block's type was changed from `from`, once for each entry, oldest first. The attributes a retype cleared (`scene_number`, `dual`, `centered`, `depth`, `space_before`) are kept in its entry, so rejecting it gives them back. |
 | `split` | `{"split": "c_8"}` | The block was split off the end of the block before it. |
 | `joined` | `{"joined": "c_9"}` | The block is to be joined to the block before it. It stays a block of its own until the change is accepted. |
-| `moved` | `{"moved": [{"change": "c_10", "before": "b_40", "last": "b_33"}]}` | On a scene heading: the scene was moved, once for each entry. Before the move it stood before `b_40`, or at the end when `before` is null, and the move took the blocks up to `last`. |
+| `moved` | `{"moved": [{"change": "c_10", "before": "b_40", "last": "b_33"}]}` | On a scene heading: the scene was moved, once for each entry. Before the move it stood before `b_40`, or at the end when `before` is null, and the move took the blocks up to `last`. (2026-10-28) Once a change has moved a second scene, each of its moves carries `n`, its place among the change's moves counted from 1, since nothing else records their order across scenes. |
 
 A block's marks are written together, as in `{"change": {"inserted": "c_5", "retyped": {...}}}`, and the field is absent when the block has none.
 
@@ -94,6 +94,7 @@ The document has two switches, kept with it in a bundle and in the crash journal
 
 - `changes.track` changes them (§8). It is an edit: undoable and journaled. Only the writer may send it.
 - **Resolution:** a Fountain or .fdx file has nowhere to keep the switches, so it opens with the defaults. Saving it is not a loss: the switches change nothing that prints, and the brief's rule is about the script's content.
+- **Until the next save** (2026-10-28, review finding GR12), a switch changed in a Fountain or .fdx script is unsaved work like any edit: a crash before that save recovers it from the journal. Before, recovery found the replayed document written out byte for byte equal to the file, opened the file, and started the journal again, so the switch was gone with no copy kept.
 
 ## 5. Tracked edits
 
@@ -135,11 +136,20 @@ Here *the author* is the edit's author (`docs/specs/commands.md`, "Authors and u
 - **`block.split`.**
   - At the end of the text, with nothing moving to the new block, the new block is an insertion, marked `inserted`. This is what Enter at the end of a line sends.
   - Anywhere else, the new block is marked `split`, and the text it takes keeps its marks.
-  - A split of the author's own pending inserted block makes another inserted block.
+  - A split of the author's own pending inserted block, made in the change that inserted it (as in one `batch`), makes another inserted block: rejecting the change removes both.
+  - **(2026-10-28, journal semantics 4)** A later split of the author's own pending inserted block that moves text is marked `split`, like any other, so rejecting it joins the text back. Before, it made another inserted block, and rejecting the split deleted the text it had taken, which was the first change's (review finding AR1).
 - **`block.join`.**
   - The author's own pending inserted block, whose only mark is that insertion, is joined outright, its text keeping its marks.
   - Any other block is marked `joined` and stays a block of its own. The result's `id` and `at` name the end of the block before it, where an editor puts the caret.
-- **`scene.move`.** The scene heading is marked `moved`, with the block the scene stood before and the last block the move took. Every move is kept as its own entry, oldest first, so rejecting undoes them in turn.
+- **`scene.move`.**
+  - The scene heading is marked `moved`, with the block the scene stood before and the last block the move took. Every move is kept as its own entry, oldest first, so rejecting undoes them in turn.
+  - **Moving a scene back (2026-10-30, journal semantics 4; decided with the project's owner after a manual test).** A move that takes the scene back to exactly where it stood before the author's own pending moves of it cancels them, instead of adding an entry, as a backspace over the author's own insertion takes it back (§5.1). Moving a scene and moving it back had left a change with nothing to review.
+    - The entries considered are the heading's newest, back to the first made by another author. An entry matches when the move puts the scene before the block it names (or at the end, when it names none), the move takes the same blocks (it and every later entry name the move's last block), and the block it names is not itself marked `moved`.
+    - The oldest matching entry and every entry after it are removed. The move records into no change, so its result has no `change`.
+    - Another author's moves never cancel. An agent moving the writer's moved scene back, or the writer moving an agent's back, adds an entry, which stays to be accepted or rejected; so does the author's own move back past another author's later move.
+    - When the block an entry names is gone, or is itself moved, the scene's neighbours are no longer the ones it left, so the move is kept as a change.
+    - Text edits in the scene are not affected, and undo puts the cancelled entries back.
+    - Journals of semantics 1 to 3 replay as before, adding an entry for every move.
 
 ### 5.3 Which change an edit records into
 
@@ -156,7 +166,7 @@ One undo step creates at most one change, and an agent's tool call is one undo s
 | Error | When |
 | --- | --- |
 | `change_pending` | Any edit of a block marked `deleted`, except settling it, or an untracked `block.delete` by the writer (which removes it outright). `details` give `id` and `change`. |
-| `not_your_change` | An agent's edit, tracked or not, that would remove or change another author's mark, such as an untracked delete over the writer's pending insertion, or a retype of a block the writer has retyped. Tracked edits never remove another author's marks; they add their own beside them, so they are refused only where a block holds one mark of a kind (`retyped`, `moved`). |
+| `not_your_change` | An agent's edit, tracked or not, that would remove or change another author's mark, such as an untracked delete over the writer's pending insertion, or a retype of a block the writer has retyped. Tracked edits never remove another author's marks; they add their own beside them, so they are refused only where a block holds one mark of a kind (`retyped`, `moved`). (2026-10-28, semantics 4, review finding GR9) An agent's untracked retype of a block, or move of a scene, that another author retyped or moved is refused too: it changes that author's proposal while leaving its mark as it was. |
 
 Writers are never refused for whose marks an edit touches: the writer may edit anything.
 
@@ -168,20 +178,25 @@ Writers are never refused for whose marks an edit touches: the writer may edit a
 | --- | --- | --- |
 | `ins` | The mark comes off. | The text is removed. |
 | `del` | The text is removed. | The mark comes off. |
-| `inserted` | The mark comes off. | The block is removed. |
+| `inserted` | The mark comes off. | The block is removed, unless it holds text that is not part of the change (below). |
 | `deleted` | The block is removed. | The mark comes off (its text's `del` marks of that change come off too). |
 | `retyped` | The mark comes off. | The block gets its type and kept attributes back. |
 | `split` | The mark comes off. | The block is joined back to the block before it. |
 | `joined` | The block is joined to the block before it. | The mark comes off. |
 | `moved` | The mark comes off. | The scene moves back before `before`, or to the end when it is null. |
 
+- **Never what isn't part of the change** (2026-10-28, from the reviews of phases 4–5b; journal semantics 4). Accepting or rejecting a change never removes text or blocks that are not part of it. A mark that cannot settle cleanly is left as it is. By `id`, the settle fails with `change_conflict` and changes nothing. By `scene` or `all`, the change's marks in that block stay pending, everything else settles, and the change is listed in the result's `skipped`, not in `changes`. Journals of semantics 1 to 3 replay with the rules before this (`docs/specs/journal.md`).
+  - **An inserted block holding other text.** Rejecting an insertion takes the change's text out of its block, then removes the block only when no printed text is left in it. Text typed into it untracked, or another change's insertion, keeps the block, with the change's marks in it pending: the writer can accept it, or delete that text and reject it again. Before, the block went with the other text in it, so an agent's reject of its own block could take the writer's words (review findings GR1, GP1, AR1). **Resolution:** notes and boneyard inside the block carry no marks (§10), so they cannot be told from the change's own; they go with the block.
+  - **A deleted block holding other text.** Accepting a block's deletion takes the pending deletions out of its text, then removes the block only when no printed text is left in it. Text in it that no deletion marks, as when an earlier deletion inside it was rejected after the block was deleted, keeps the block, held. The accepted form (§9) keeps such a block too. Found by the property test of this rule (2026-10-28).
+  - **A retype whose old type cannot hold the block's text.** Rejecting a retype gives the block its old type back. When that type would drop text or styles the block holds now, typed since the retype (a page break holds no text, a note no styles), the retype is held instead (review finding GR4). §5.2's refusal of 2026-10-26 stops a retype that drops text when it is made; this covers text added after it.
+  - **A join onto a block waiting to be deleted.** Accepting a join, or rejecting a split, whose block before is a pending deletion would put the text into a block that goes when that deletion is accepted. It is held until the deletion is settled (review finding GR3). Accepting both at once still works: deleted blocks go first, and the join lands on the block kept before.
 - **By scene** settles the marks inside that scene's blocks only. A change that also has marks elsewhere stays pending there.
 - **Order.** Text marks are settled first; their order does not matter.
   - **Accepting** then removes deleted blocks, from the last to the first, and only then joins joined blocks, from the first to the last, each to the block kept before it, as the accepted form does (§9).
-  - **Rejecting** then puts structure back change by change, newest first, as undo would: for each change, its moves are undone, its inserted blocks removed, its splits joined back and its retypes restored. A later change that reshaped a scene is therefore undone before an earlier move of that scene.
+  - **Rejecting** then puts structure back change by change, newest first, as undo would: for each change, its splits are joined back, its moves undone, its inserted blocks removed and its retypes restored. (2026-10-29) Splits come first: a move's record does not cover a block split off after it, so undoing the move first left that block behind, and joining it back then put its text on the end of another scene (found while fixing the reviews of phases 4–5b, P5). When the split came first, the move takes the scene as it now stands, as it does whenever its last block is gone. A later change that reshaped a scene is therefore undone before an earlier move of that scene. (2026-10-28, journal semantics 4; review findings GR5, GP7, GP8) Within a change, its moves are undone newest first, by `n` when they have one, each taking away only its own entry; and a block's retypes newest first, each giving back what it took. Before, only the newest retype was undone, and moves were undone oldest first, so a change that retyped or moved twice came back only part way.
   - The same document and request always give the same result.
 - **A move whose place is gone.** When the block a moved scene stood before no longer exists, or no longer starts a scene or section, the move cannot be undone. Rejecting it by `id` fails with `change_conflict` and changes nothing; by `scene` or `all`, the other changes settle and the move stays pending, listed in the result's `skipped`.
-- **A join that is no longer possible** (2026-10-18). A join is checked when it is proposed, as an untracked join is, but the block before can change afterwards: it may become a note, which cannot hold styled text. Accepting such a join, or rejecting a split whose join back is no longer possible, keeps both blocks as they are. By `id` it fails with `change_conflict`; by `scene` or `all` the mark comes off and the change is listed in `skipped`. The accepted form (§9) keeps the blocks apart the same way. Found by the `changes` fuzz check.
+- **A join that is no longer possible** (2026-10-18). A join is checked when it is proposed, as an untracked join is, but the block before can change afterwards: it may become a note, which cannot hold styled text. Accepting such a join, or rejecting a split whose join back is no longer possible, keeps both blocks as they are. By `id` it fails with `change_conflict`; by `scene` or `all` the mark stays pending and the change is listed in `skipped`, so it can still be settled the other way. The accepted form (§9) keeps the blocks apart the same way. Found by the `changes` fuzz check. (2026-10-28, journal semantics 4: before, the mark came off, and a change whose only mark it was was listed in both `changes` and `skipped`, review finding AR4. `changes` lists only changes of which something was settled.)
 - **Undo.** Settling is an edit: one undo step, journaled, and undo gives every mark back.
 
 **Who may settle what** (decided with the project's owner, 2026-10-18):
@@ -189,7 +204,7 @@ Writers are never refused for whose marks an edit touches: the writer may edit a
 | Author | Accept | Reject |
 | --- | --- | --- |
 | Writer | any change | any change |
-| Agent | nothing (`writer_only`) | only its own changes. By `id`, another author's change fails with `not_your_change`. By `scene` or `all`, only its own are settled. A reject that would remove text or a block holding another author's work (another author's insertion inside the agent's inserted block, say) fails with `not_your_change`. |
+| Agent | nothing (`writer_only`) | only its own changes. By `id`, another author's change fails with `not_your_change`. By `scene` or `all`, only its own are settled. A reject that would remove or change another author's mark fails with `not_your_change`. A block holding text that is not part of the change is never removed at all, for anyone (above). |
 
 These rules are enforced in core by author, as the rules for `allow_lossy` and `overwrite` are, so they hold over the app's agent link and inside `coldopen mcp` alike.
 
@@ -199,6 +214,7 @@ These rules are enforced in core by author, as the rules for `allow_lossy` and `
 
 - **Resolved before it runs.** When it is absent, it is filled in from the document's switches: `tracking.writer` for a writer, `tracking.agents` for an agent. The filled-in value is journaled with the command, inside a `batch` too, so every edit in a journal says whether it was tracked (`docs/specs/journal.md`, "Entries"). This is why tracking needed a new `semantics` number: it changes what these commands mean on replay.
 - **Agents cannot opt out.** An agent's `tracked: false` while `tracking.agents` is on fails with `writer_only`. An agent may always ask for `tracked: true`. A writer may give either.
+- **Replay takes the record** (2026-10-28, review findings CL1, GP6). The refusal above guards a live agent. A journal entry with an agent's `tracked: false` records an edit that was allowed when it was made: under `coldopen mcp --untracked` (`docs/specs/mcp.md` §6.1), whose switch is not document state, so the session that replays it may not have it. Replay applies the entry as it stands, and so it does an agent's title edit (§10). Before, recovering such a journal stopped at its first agent edit, and every edit from there on was set aside.
 - **`text.style`, `block.set_attrs` and `changes.*`** take no `tracked`: they are never tracked.
 - **The result** of a tracked edit names its change: `{"id": "b_9", "change": "c_4"}`. A batch names it at the top and in each edit's result. Replay compares it, as it compares ids (`docs/specs/journal.md`, "What replay compares").
 - **The change's time** is the journal entry's `t` on replay, which the dispatcher writes from the same clock reading it gave the change.
@@ -236,7 +252,7 @@ A document with pending changes has two print forms:
 
 **Writing other formats.** Fountain and .fdx cannot hold marks, so they are written from the accepted form, and a save or export reports a `tracked_changes` loss through the usual question (`docs/specs/commands.md`, "Losses"). A bundle keeps everything (`docs/specs/bundle.md`).
 
-**Resolution: after "Save anyway".** A save that wrote the accepted form leaves the open script as it was, marks included, so the writer can still review and undo; but the file is now the record. Reopening the file, after a close or after a crash, gives the file's text, as for any other loss the writer accepted (`docs/specs/journal.md`, "Nothing to recover?": the file is the version the journal's header names). Rewriting the open document into its accepted form on such a save would change its blocks under the undo history, so it is not done.
+**Resolution: after "Save anyway"** (2026-10-18, replaced 2026-10-21, refined 2026-10-28). Since phase 5a's manual test, a save with `allow_lossy` to Fountain or .fdx leaves the open script in the form the file holds: once every check that could refuse the save has passed, the version with its changes marked is set aside as a Recovered version, and every pending change is accepted, as one undoable step (`docs/specs/commands.md`, `doc.save`). Reopening the file gives the file's text. Before 2026-10-21 the open script kept its marks after such a save, so it and the file differed.
 
 **Resolution: no .fdx mapping.** No publicly shared .fdx file we have shows how marked runs are stored (`docs/specs/fdx.md` §11), so the clean room gives us nothing to write them from. If one turns up, mapping them becomes its own task.
 
@@ -249,7 +265,7 @@ A document with pending changes has two print forms:
 ## 11. Testing
 
 - **Property tests** (`crates/core/tests/changes.rs`). Starting from a document with no marks, random tracked edits by random authors, then:
-  - accepting all leaves each block's text equal to its current text before, with no marks;
+  - accepting all leaves each block's text equal to its current text before, with no marks but those of the changes it lists as `skipped` (2026-10-28);
   - rejecting all gives back the document before the tracked edits, apart from ids handed out;
   - undo gives every mark back.
 - **Fuzzing.** The `changes` fuzz target runs random edits, settles and undos on random documents and checks the model rules and that settling never panics (`fuzz/fuzz_targets/changes.rs`).

@@ -200,6 +200,22 @@ fn plain_form(doc: &Document) -> Option<(Document, Vec<Loss>)> {
     Some((plain, losses))
 }
 
+/// A Fountain or .fdx file has no place for the entries another tool added
+/// to a bundle (docs/specs/bundle.md §2).
+fn extra_entries_loss(doc: &Document) -> Option<Loss> {
+    let n = doc.extra_entries.len();
+    (n > 0).then(|| {
+        Loss::lost(
+            None,
+            "bundle_entries",
+            format!(
+                "{n} entr{} another program added to the project cannot be kept",
+                if n == 1 { "y" } else { "ies" }
+            ),
+        )
+    })
+}
+
 /// A document written out.
 pub struct Written {
     pub bytes: Vec<u8>,
@@ -278,6 +294,7 @@ impl Format for Fountain {
             .map(|l| Loss::lost(l.element, l.code, l.message))
             .collect();
         all.append(&mut losses);
+        all.extend(extra_entries_loss(doc));
         all.extend(accepted.into_iter().flat_map(|(_, l)| l));
         all.extend(written.normalized.into_iter().map(|l| Loss {
             element: l.element,
@@ -313,6 +330,29 @@ pub(crate) fn fountain_text(doc: &Document) -> Vec<u8> {
 /// The script a document writes as Fountain, with what Fountain cannot hold
 /// of a document read from .fdx (docs/specs/fountain.md §11). A Fountain
 /// document has none of it, so it writes exactly as before.
+/// The spacing overrides Fountain writes, as blank lines of the document's
+/// line height: each printing block's index, its nearest whole number of
+/// lines, and whether that is exact (docs/specs/fountain.md §11).
+fn spacing_lines(doc: &Document) -> Vec<(usize, u8, bool)> {
+    let line = doc
+        .page_format
+        .as_deref()
+        .map_or(PageFormat::default().line_height, |f| f.line_height)
+        .0
+        .max(1);
+    doc.spacing
+        .iter()
+        .filter_map(|(id, pt)| {
+            let i = doc.index_of(*id)?;
+            if !doc.blocks[i].element.kind.is_printing() {
+                return None;
+            }
+            let lines = u8::try_from((pt.0.max(0) + line / 2) / line).unwrap_or(u8::MAX);
+            Some((i, lines, pt.0 % line == 0))
+        })
+        .collect()
+}
+
 fn fountain_script(doc: &Document) -> (Script, Vec<Loss>) {
     let mut script = doc.to_script();
     let mut losses = Vec::new();
@@ -327,23 +367,9 @@ fn fountain_script(doc: &Document) -> (Script, Vec<Loss>) {
             "the page and element settings are not kept; Fountain always prints with the default format",
         ));
     }
-    let line = doc
-        .page_format
-        .as_deref()
-        .map_or(PageFormat::default().line_height, |f| f.line_height)
-        .0
-        .max(1);
-    for (id, pt) in &doc.spacing {
-        let Some(i) = doc.index_of(*id) else {
-            continue;
-        };
-        let e = &mut script.elements[i];
-        if !e.kind.is_printing() {
-            continue;
-        }
-        let lines = u8::try_from((pt.0.max(0) + line / 2) / line).unwrap_or(u8::MAX);
-        e.space_before = Some(lines);
-        if pt.0 % line != 0 {
+    for (i, lines, whole) in spacing_lines(doc) {
+        script.elements[i].space_before = Some(lines);
+        if !whole {
             losses.push(Loss::lost(
                 Some(i),
                 "paragraph_spacing",
@@ -383,13 +409,22 @@ fn fountain_script(doc: &Document) -> (Script, Vec<Loss>) {
 /// "Converting"). None of these parts is changed by an undoable command.
 pub fn adopt(doc: &mut Document, format: FormatId) {
     // The identity belongs to a bundle; another file is another document.
+    // So do the entries another tool added to it.
     if format != FormatId::Bundle {
         doc.doc_id = None;
+        doc.extra_entries.clear();
     }
     match format {
         // A bundle holds everything.
         FormatId::Bundle => {}
         FormatId::Fountain => {
+            // The spacing becomes the blank lines the file was written with,
+            // measured before the page format goes (2026-10-28, review
+            // finding AR5).
+            for (i, lines, _) in spacing_lines(doc) {
+                doc.blocks[i].element.space_before = Some(lines);
+            }
+            doc.spacing.clear();
             doc.fdx = None;
             doc.page_format = None;
             if doc.title_page.is_empty() && !doc.title_lines.is_empty() {
@@ -557,6 +592,7 @@ impl Format for Fdx {
         let doc = accepted.as_ref().map_or(doc, |(d, _)| d);
         let format = doc.page_format.as_deref().cloned().unwrap_or_default();
         let mut losses: Vec<Loss> = accepted.iter().flat_map(|(_, l)| l.clone()).collect();
+        losses.extend(extra_entries_loss(doc));
         // A Fountain title page is written as the lines it prints as
         // (docs/specs/fdx.md §14.3).
         let converted;

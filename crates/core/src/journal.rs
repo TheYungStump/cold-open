@@ -22,13 +22,18 @@ pub const VERSION: u32 = 1;
 /// What replaying entries means. Bumped whenever a command's replay
 /// changes meaning; a journal with a higher number is kept aside, never
 /// replayed (docs/specs/journal.md, "Header").
-pub const SEMANTICS: u32 = 3;
+pub const SEMANTICS: u32 = 4;
 /// The command name of a save marker (docs/specs/journal.md).
 pub const SAVED: &str = "doc.saved";
 /// The command name of the marker that makes a journal from somewhere else
 /// this computer's, once the writer has recovered it (docs/specs/journal.md,
 /// "A journal from somewhere else", 2026-10-21).
 pub const ADOPTED: &str = "journal.adopted";
+/// The command name of the marker that says the entries after it mean this
+/// version's semantics: appended when a journal of older semantics is
+/// recovered and goes on (docs/specs/journal.md, "Semantics markers",
+/// 2026-10-28).
+pub const RULES: &str = "journal.semantics";
 
 /// `.script.fountain.coldopen-journal` next to `script.fountain`.
 pub fn path_for(doc: &Path) -> PathBuf {
@@ -164,6 +169,15 @@ impl Entry {
         }
         let field = |k: &str| Some(self.params.get(k)?.as_str()?.to_string());
         Some((field("host")?, field("path")?))
+    }
+
+    /// The semantics a semantics marker names, or `None` for any other
+    /// entry.
+    pub fn semantics(&self) -> Option<u32> {
+        if self.command != RULES {
+            return None;
+        }
+        u32::try_from(self.params.get("semantics")?.as_u64()?).ok()
     }
 }
 
@@ -479,6 +493,27 @@ impl Journal {
         self.write_entry(&entry)
     }
 
+    /// Appends a marker saying the entries after it mean this version's
+    /// semantics: a journal of older semantics was recovered and goes on,
+    /// and its header still names what its earlier entries mean
+    /// (docs/specs/journal.md, "Semantics markers"). One appended line, as
+    /// for an adoption marker, so no crash point can cost the work.
+    pub fn append_semantics(&mut self) -> io::Result<()> {
+        let entry = Entry {
+            seq: self.seq + 1,
+            t: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as u64),
+            command: RULES.into(),
+            params: serde_json::json!({ "semantics": SEMANTICS }),
+            result: serde_json::json!({}),
+            by: None,
+            merge: false,
+            step: None,
+        };
+        self.write_entry(&entry)
+    }
+
     /// Entries written since the header.
     pub fn entries(&self) -> u64 {
         self.seq
@@ -568,9 +603,7 @@ pub struct ReadBack {
     entry_ends: Vec<u64>,
 }
 
-/// More changes than any real script could hold: a header naming more is
-/// damaged.
-const MAX_CHANGES: usize = 10_000_000;
+use crate::changes::MAX_CHANGES;
 
 impl ReadBack {
     /// Takes a bundle's change table for the one the header names, when

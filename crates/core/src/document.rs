@@ -181,6 +181,12 @@ pub struct Document {
     /// Kept in `meta.json` and the journal header, not in the JSON.
     #[serde(skip)]
     pub doc_id: Option<String>,
+    /// Entries another tool added to the bundle the document was read
+    /// from, by name, kept to write back (docs/specs/bundle.md §2,
+    /// 2026-10-28). Not in the JSON: recovery takes them from the bundle on
+    /// disk.
+    #[serde(skip)]
+    pub extra_entries: Vec<(String, Vec<u8>)>,
 }
 
 /// A scene derived from the block list.
@@ -232,8 +238,12 @@ impl Document {
     }
 
     /// Numbers the blocks again from `first`, for a document read back into
-    /// a session that has already handed out ids below it. `None` if the
-    /// ids would run out.
+    /// a session that has already handed out ids below it, and every
+    /// reference to a block id with them: spacing, the .fdx store, pending
+    /// moves' places and the active revision set's starting points
+    /// (2026-10-28, review finding GP9). An id no block has keeps its
+    /// number, which is never handed out again. `None` if the ids would
+    /// run out.
     pub fn renumbered_from(mut self, first: u64) -> Option<Document> {
         let mut next = first;
         let mut spacing = BTreeMap::new();
@@ -248,10 +258,21 @@ impl Document {
             next = next.checked_add(1)?;
         }
         self.spacing = spacing;
+        let map = |old: u64| ids.get(&old).copied().unwrap_or(old);
+        let block = |old: BlockId| BlockId(map(old.0));
         if let Some(kept) = self.fdx.take() {
-            let map = |old: u64| ids.get(&old).copied().unwrap_or(old);
             self.fdx = Some(Box::new(kept.renumbered(&map)));
         }
+        for b in &mut self.blocks {
+            for m in &mut b.marks.moved {
+                m.before = m.before.map(block);
+                m.last = block(m.last);
+            }
+        }
+        self.revisions.base = std::mem::take(&mut self.revisions.base)
+            .into_iter()
+            .map(|(id, base)| (block(id), base))
+            .collect();
         self.next_id = next.max(first);
         (self.next_id < u64::MAX).then_some(self)
     }
@@ -333,10 +354,29 @@ impl Document {
                 return Err("a title line's space above is outside the page body".into());
             }
         }
-        if let Some(kept) = &self.fdx
-            && kept.paragraphs.keys().any(|&id| id >= self.next_id)
-        {
-            return Err("the .fdx store names a block id not below next_id".into());
+        if let Some(kept) = &self.fdx {
+            // Every kept paragraph has blocks and is stored under its first
+            // (docs/specs/fdx.md §13.1): an empty one matched every group
+            // and stopped the writer (2026-10-28, review findings GR7,
+            // GP13).
+            for (&key, kp) in &kept.paragraphs {
+                let Some(first) = kp.blocks.first() else {
+                    return Err(format!(
+                        "the .fdx store keeps a paragraph {key} with no blocks"
+                    ));
+                };
+                if first.id != key {
+                    return Err(format!(
+                        "the .fdx store keeps a paragraph under {key}, not its first block"
+                    ));
+                }
+                if kp.blocks.iter().any(|b| b.id >= self.next_id) {
+                    return Err("the .fdx store names a block id not below next_id".into());
+                }
+            }
+            if kept.loose.iter().any(|l| l.after >= self.next_id) {
+                return Err("the .fdx store names a block id not below next_id".into());
+            }
         }
         Ok(())
     }
@@ -362,20 +402,34 @@ impl Document {
     }
 
     /// Scenes in order. A scene runs from its heading to the next heading
-    /// or section.
+    /// or section. Structural commands use these, as journals replay them.
     pub fn scenes(&self) -> Vec<Scene> {
+        self.scenes_of(|_| true)
+    }
+
+    /// The scenes of the current text (docs/specs/changes.md §2): a heading
+    /// or section whose deletion is pending neither starts nor ends one.
+    /// What the writer reads uses these: `scene.list` and the reports
+    /// (2026-10-28, review finding AR6).
+    pub fn current_scenes(&self) -> Vec<Scene> {
+        self.scenes_of(|b| b.marks.deleted.is_none())
+    }
+
+    /// Scenes whose headings and ends are the blocks `counts` accepts.
+    fn scenes_of(&self, counts: impl Fn(&Block) -> bool) -> Vec<Scene> {
         let mut out = Vec::new();
         let n = self.blocks.len();
         for (i, b) in self.blocks.iter().enumerate() {
-            if b.element.kind != ElementKind::SceneHeading {
+            if b.element.kind != ElementKind::SceneHeading || !counts(b) {
                 continue;
             }
             let end = (i + 1..n)
                 .find(|&j| {
+                    let b = &self.blocks[j];
                     matches!(
-                        self.blocks[j].element.kind,
+                        b.element.kind,
                         ElementKind::SceneHeading | ElementKind::Section
-                    )
+                    ) && counts(b)
                 })
                 .unwrap_or(n);
             out.push(Scene { start: i, end });
