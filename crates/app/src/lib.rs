@@ -6,6 +6,7 @@
     deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
 )]
 
+pub mod about;
 pub mod actions;
 pub mod app;
 pub mod editor;

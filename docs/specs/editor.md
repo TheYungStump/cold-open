@@ -519,7 +519,8 @@ Added 2026-10-30 (phase 6a; `docs/specs/release.md`, `docs/specs/bench.md`).
     - the version and commit (`docs/specs/release.md` §9), the build's target, and the renderer drawing the window;
     - a link to the source code at that commit;
     - **Copy version info** (C), which puts those lines on the clipboard for a bug report.
-  - **Licenses**, in a scrolling list of sections, each opened with Enter: Cold Open (GPL-3.0-or-later, with the notice), the format and layout libraries (MIT or Apache-2.0), the fonts (SIL OFL 1.1), and third-party crates (`release.md` §10).
+  - **Licenses**, in four tabs: Cold Open (GPL-3.0-or-later, with the notice), the format libraries (MIT or Apache-2.0), the fonts (SIL OFL 1.1), and third-party crates (`release.md` §10). Tab and Shift+Tab change tabs. Each license scrolls in its own area, drawn a line at a time, so the long third-party list scrolls as fast as a short one.
+  - Esc or Enter closes the sheet.
   - **Room for 6b:** rows for the user guide and for sending feedback appear when the build names their addresses. 6a's builds name neither, so neither row shows.
   - Links open in the system's browser.
 - **Measure performance…** (palette): the bench (`docs/specs/bench.md` §2).

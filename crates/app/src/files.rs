@@ -353,6 +353,27 @@ impl Dialogs {
 
 /// A chosen path, with `ext` added when the writer typed a name without
 /// one.
+/// Opens a web address in the system's browser (editor.md §22), or a
+/// folder in its file manager.
+pub fn open_link(target: &str) -> std::io::Result<()> {
+    let mut cmd = if cfg!(windows) {
+        let mut c = std::process::Command::new("explorer");
+        c.arg(target);
+        c
+    } else if cfg!(target_os = "macos") {
+        let mut c = std::process::Command::new("open");
+        c.arg(target);
+        c
+    } else {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(target);
+        c
+    };
+    // Explorer exits with 1 even when it opened the page, so only a
+    // failure to start counts.
+    cmd.spawn().map(|_| ())
+}
+
 pub fn with_extension(path: PathBuf, ext: &str) -> PathBuf {
     if path.extension().is_some() {
         path

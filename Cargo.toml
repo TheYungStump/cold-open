@@ -60,8 +60,11 @@ rawzip = "0.5.2"
 # The desktop app (docs/spec.md: iced, chosen in phase 1). Only the
 # tiny-skia CPU renderer by default; the `gpu` feature of coldopen-app adds
 # wgpu for comparison builds.
-iced = { version = "0.14", default-features = false, features = ["tiny-skia", "x11", "wayland", "smol", "advanced", "linux-theme-detection"] }
+iced = { version = "0.14", default-features = false, features = ["tiny-skia", "x11", "wayland", "smol", "advanced", "linux-theme-detection", "sysinfo"] }
 iced_test = "0.14"
+# `sysinfo` (2026-10-30, phase 6a; 127 KB on Windows) tells the About sheet and
+# the bench which renderer and GPU draw the window, and the CPU and OS they run
+# on (docs/specs/bench.md §4).
 # Already part of iced; named directly so the app can run itself headless
 # (user interface, tasks) for tests and the gate driver.
 iced_runtime = "0.14"

@@ -16,6 +16,7 @@ use iced::widget::scrollable;
 use iced::{Subscription, Task, Theme};
 use serde_json::{Value, json};
 
+mod about_sheet;
 mod agents;
 mod bench;
 mod changes;
@@ -141,6 +142,14 @@ pub enum Message {
     ReportScrolled(scrollable::Viewport),
     /// The report view's Close button.
     ReportClose,
+    /// The About sheet's tabs, its license text scrolled, "Copy version
+    /// info", and a link clicked (editor.md §22).
+    AboutTab(crate::about::AboutTab),
+    AboutScrolled(scrollable::Viewport),
+    CopyVersionInfo,
+    OpenLink(String),
+    /// What the system says draws the window: its adapter and backend.
+    SystemInfo(Option<(String, String)>),
     /// The title page sheet's fields and buttons (editor.md §19).
     Title(title::TitleInput),
     /// The compare view and the import question (editor.md §21).
@@ -409,6 +418,10 @@ pub struct App {
     pub missing: std::collections::BTreeSet<PathBuf>,
     pub export: Option<ExportForm>,
     pub sheet: Option<Sheet>,
+    /// The About sheet's tab and scrolling (editor.md §22).
+    about: about_sheet::AboutState,
+    /// The adapter and backend drawing the window, once the system says.
+    graphics: Option<(String, String)>,
     /// Scripts with unsaved work from an earlier session (editor.md §11).
     pub leftover: Vec<PathBuf>,
     /// The agent link server, while agent access is on and a script is
@@ -534,6 +547,8 @@ impl App {
             missing: std::collections::BTreeSet::new(),
             export: None,
             sheet: None,
+            about: about_sheet::AboutState::default(),
+            graphics: None,
             leftover: Vec::new(),
             link: None,
             link_path: None,
@@ -584,7 +599,10 @@ impl App {
         } else {
             Task::none()
         };
-        (app, task)
+        // Which renderer and GPU draw the window, for the About sheet.
+        let info = iced::system::information()
+            .map(|i| Message::SystemInfo(Some((i.graphics_adapter, i.graphics_backend))));
+        (app, Task::batch([task, info]))
     }
 
     /// An editor for a document just opened or created, with the writer's
@@ -1285,6 +1303,23 @@ impl App {
                 self.after_change(false)
             }
             Message::ReportRow(i) => self.reports_go(i),
+            Message::AboutTab(t) => self.about_tab(t),
+            Message::AboutScrolled(v) => {
+                self.about_scrolled(v);
+                Task::none()
+            }
+            Message::CopyVersionInfo => self.copy_version_info(),
+            Message::OpenLink(url) => {
+                if let Err(e) = crate::files::open_link(&url) {
+                    self.banners
+                        .push(format!("Couldn't open {url}: {e}").into());
+                }
+                Task::none()
+            }
+            Message::SystemInfo(g) => {
+                self.graphics = g;
+                Task::none()
+            }
             Message::Title(input) => self.title_input(input),
             Message::Compare(input) => self.compare_input(input),
             Message::RecentChecked { checked, missing } => {
@@ -1782,6 +1817,12 @@ impl App {
             return t;
         }
         if let Some(sheet) = self.sheet {
+            if sheet == Sheet::About
+                && !esc
+                && let Some(t) = self.about_key(kp)
+            {
+                return t;
+            }
             if esc || enter {
                 self.sheet = None;
             } else if sheet == Sheet::History && cmd && ch == "z" {
@@ -2122,7 +2163,7 @@ impl App {
             "app.compare" => return self.ask(Ask::Compare),
             "app.review_draft" => return self.ask(Ask::ReviewDraft),
             "app.about" => {
-                self.sheet = Some(Sheet::About);
+                self.about_open();
                 scroll = false;
             }
             "app.agent_access" => {
