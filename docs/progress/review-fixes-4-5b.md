@@ -88,10 +88,18 @@ Each finding gets a test made from the reviewer's reproduction. It is run before
 For the project owner, on copies in `C:\ColdOpenTest`, never the files in `corpus/`. Build the branch first: `cargo build --release -p coldopen-app -p coldopen-cli`.
 
 1. **Item 6 (CL1, GP6): an untracked agent session is recovered.** Copy a short script to `C:\ColdOpenTest\untracked.fountain`. From an MCP client, run `coldopen mcp --untracked --no-attach --doc C:\ColdOpenTest\untracked.fountain` and have the agent replace a word. End the process without saving. Open the file in the app and recover. Expected: the new word is there, with no change mark, and nothing is reported missing.
-2. **Item 22 (GR6): a moved scene comes in with its section.** Make two copies of a script with a `# Section` line and a `= synopsis` before one of its scenes. In the second copy, move that section, synopsis and scene after a later scene. Open the first copy, use "Review a draft as changes…" with the second, accept all, then Compare with the second. Expected: no differences, and the section sits before its scene.
+2. **Item 22 (GR6): a moved scene comes in with its section.** Make two copies of a script in which one scene holds a `# Section` line, a `= synopsis` and a line of action after its own lines. In the second copy, move that whole scene past two later scenes. Open the first copy, use "Review a draft as changes…" with the second, accept all, then Compare with the second. Expected: the scene moves with its section, synopsis and last line, and the comparison finds no differences. (Corrected 2026-10-30: a section *above* a heading belongs to the scene before it in a comparison, `docs/specs/diff.md` §3.1, so the first wording did not test GR6; see Deferred.)
 3. **Item 24 (GR11, CL7): a long comparison keeps the app responsive.** Take a long script (a copy of Big Fish exported to Fountain, or one written with forced `.HEADINGS`) and a copy with a few scenes swapped. Compare the two. Expected: the status bar says it is comparing, the page still scrolls and takes typing, Esc stops waiting, and the result shows within a couple of seconds.
-4. **Item 34 (AR10): sections in the navigator.** In a script with `# Act Two` between two scenes, put the caret on a line under the section. Expected: the status bar names the scene before the section; Find with "This scene" and Replace All replaces only in that scene, with no error; with your changes tracked, typing under the section puts a dot on the section's row; with the navigator focused, Alt+Down moves the scene before the section.
+4. **Item 34 (AR10): sections in the navigator.** In a script with `# Act Two` between two scenes, put the caret on a line under the section. Expected: the status bar names the scene before the section; Find with "This scene" and Replace All replaces only in that scene, with no error; with your changes tracked, typing under the section puts a dot on the section's row; with the navigator focused, Alt+Down on the section's row moves nothing, and on a scene's row moves that scene (since M2).
 5. **Item 35 (AR11): an agent's batch keeps the caret.** Attach an agent (`coldopen mcp` from Claude Code) to a script open in the app. Put the caret in the middle of a speech. Ask the agent to use the `batch` tool to insert a word earlier in that speech and split it before the caret. Expected: the caret stays on the same character, now in the new block.
+
+**Results (2026-10-30, the project owner, on the release build of the branch, Windows 11): all five pass.**
+
+- **1:** passed. The agent's part was played by a script over `coldopen mcp --untracked --no-attach`, killed after one `text_replace`; the app recovered "cocoa" with no mark and no warning. The phase 5b build, given the same journal, recovered nothing (`journal_partial`, `writer_only` on entry 1).
+- **2:** passed, with the corrected drafts. Through the CLI, the phase 5b build left 2 scenes added and 2 deleted after accepting; this branch leaves no differences.
+- **3:** passed, on Big Fish against a copy with scenes swapped and moved, and on Big Fish with every heading forced to action (one unit of about 2,000 blocks) against an edited copy: both showed at once, with no freeze.
+- **4:** found M1, M2 and M3 (in the table); passed after their fixes, including moving a scene and back with tracking on.
+- **5:** passed. An agent script attached to the open script and sent one `batch` (an insertion and a split before the caret); the caret stayed before the same character, in the new block.
 
 ## Decisions
 
@@ -145,5 +153,6 @@ Decided while working (the project's owner asked for a list rather than question
 
 - **"New Act" breaks that come from an element's settings** rather than an inline attribute (decision 21): no corpus file edits one, and the fix needs those settings in the generator.
 - **"Save as PDF…" from the compare view** still lays out and writes on the UI thread (decision 28).
+- **A section above a heading belongs to the scene before it in a comparison** (`docs/specs/diff.md` §3.1, phase 5b). Moving "section, synopsis and scene" together therefore reads in Compare and "Review a draft as changes" as the section leaving one scene and joining another (short scenes may even read as added and deleted), not as one moved scene; the accepted result is still right. Noticed in manual test 2; the project owner chose to keep it for now and perhaps revisit it.
 
 Not in scope and left alone, as planned: Claude's two style notes, and Grok's compatibility note about journals no merged build wrote.
