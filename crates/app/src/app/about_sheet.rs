@@ -19,6 +19,8 @@ const LINE_H: f32 = 15.0;
 const SPARE: usize = 10;
 /// The license area's height.
 const AREA_H: f32 = 320.0;
+/// The widest a license line is drawn before it wraps, in characters.
+const WRAP: usize = 80;
 /// The license area's scrolling id.
 pub(super) const ABOUT_TEXT: &str = "about-text";
 
@@ -36,7 +38,7 @@ impl AboutState {
     fn new(tab: AboutTab) -> AboutState {
         AboutState {
             tab,
-            lines: tab.text().lines().map(str::to_string).collect(),
+            lines: tab.text().lines().flat_map(|l| wrap(l, WRAP)).collect(),
             offset: 0.0,
         }
     }
@@ -177,10 +179,7 @@ impl App {
             scrollable(lines)
                 .id(ABOUT_TEXT)
                 .on_scroll(Message::AboutScrolled)
-                .direction(scrollable::Direction::Both {
-                    vertical: scrollable::Scrollbar::default(),
-                    horizontal: scrollable::Scrollbar::default(),
-                })
+                .width(Length::Fill)
                 .height(Length::Fixed(AREA_H)),
             hint(
                 pal,
@@ -189,5 +188,44 @@ impl App {
         ]
         .spacing(10)
         .into()
+    }
+}
+
+/// A line cut at spaces into lines of at most `width` characters, keeping
+/// its indent; a word longer than that stays whole.
+fn wrap(line: &str, width: usize) -> Vec<String> {
+    if line.chars().count() <= width {
+        return vec![line.to_string()];
+    }
+    let indent: String = line.chars().take_while(|c| *c == ' ').collect();
+    let mut out = Vec::new();
+    let mut cur = indent.clone();
+    for word in line.split_whitespace() {
+        let fits = cur.chars().count() + 1 + word.chars().count() <= width;
+        if cur.trim().is_empty() {
+            cur.push_str(word);
+        } else if fits {
+            cur.push(' ');
+            cur.push_str(word);
+        } else {
+            out.push(std::mem::replace(&mut cur, format!("{indent}{word}")));
+        }
+    }
+    out.push(cur);
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wrap;
+
+    #[test]
+    fn long_lines_wrap_at_spaces() {
+        assert_eq!(wrap("short", 10), vec!["short"]);
+        assert_eq!(
+            wrap("  one two three four", 10),
+            vec!["  one two", "  three", "  four"]
+        );
+        assert_eq!(wrap("abcdefghijklmno x", 10), vec!["abcdefghijklmno", "x"]);
     }
 }

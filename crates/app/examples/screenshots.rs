@@ -272,6 +272,15 @@ fn main() {
         let _ = app.update(Message::ReportTab(1));
         shot(&app, &out, &format!("{name}-reports"));
         app.reports = None;
+        // About and Measure performance (editor.md §22).
+        let _ = app.update(Message::Action("app.about".into()));
+        shot(&app, &out, &format!("{name}-about"));
+        let _ = app.update(Message::AboutTab(coldopen_app::about::AboutTab::ThirdParty));
+        shot(&app, &out, &format!("{name}-about-third-party"));
+        app.sheet = None;
+        let _ = app.update(Message::Action("app.bench".into()));
+        shot(&app, &out, &format!("{name}-bench"));
+        let _ = app.update(Message::BenchClose);
         // The title page sheet (editor.md §19), keys and then lines.
         let _ = app.update(Message::Action("app.title_page".into()));
         shot(&app, &out, &format!("{name}-title-keys"));

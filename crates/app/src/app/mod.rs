@@ -25,6 +25,7 @@ mod compare;
 mod copies;
 mod file_ops;
 mod recent;
+mod report_lines;
 mod reports;
 mod revisions;
 mod router;
