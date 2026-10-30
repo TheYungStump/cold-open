@@ -75,6 +75,18 @@ Every budget passed except the report view's scrolling (p95 32.7 ms):
 
 After the fix, the report view scrolls in 7.2 ms a frame (p95 10.3 ms) at 1920×1080 on the CPU renderer, against 11.2 ms for the pages.
 
+### Package sizes (CI, 09c45a1 and d6128dd; budget 15,000,000 bytes each)
+
+| Package | Bytes |
+| --- | --- |
+| Windows x64 installer / zip | 8,196,848 / 10,314,810 |
+| Windows ARM64 installer / zip | 7,569,488 / 9,570,319 |
+| macOS Apple Silicon dmg | 7,546,295 |
+| macOS Intel dmg | 8,913,885 |
+| macOS universal dmg (not shipped) | 15,218,928: over by 1.5%, so the packaging step made the two above (release.md §2) |
+| Linux x86-64 .deb / AppImage / Flatpak | 8,782,284 / 12,167,672 / 7,278,624 |
+| Linux ARM64 .deb / AppImage / Flatpak | 7,441,076 / 11,295,240 / 6,388,280 |
+
 ### CI: the full bench in the budgets job (3b581d4, 2026-10-30)
 
 The reports are in `docs/progress/phase-6a-bench/`. CI's runners are shared virtual machines: Linux asserts the budgets listed in `docs/specs/bench.md` §5, and the rest are reported.
