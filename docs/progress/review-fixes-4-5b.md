@@ -57,6 +57,7 @@ Each finding gets a test made from the reviewer's reproduction. It is run before
 | CI | P7 (found by CI on macOS, PR run 40829425290): the GR11 anchoring chose its anchors in order with the n² search written for scene pairs, so a long unit still had a quadratic step; the growth test saw 621 ms for 4,800 blocks against 60 ms for 1,200 (10.3 times, limit 9) | fixed: the same run with the same ties, found in n log n with a Fenwick tree. Before, locally in a debug build: 9,600 blocks took 20.7 times as long as 1,200, and the growth test, now over 8 times the blocks with a limit of 14, failed; after, 8.1 times | `diff/tests/perf.rs` `a_long_unit_is_compared_in_bounded_time`; `diff/src/lib.rs` `in_order_keeps_what_the_quadratic_search_kept` (checked against the old search, ties included) | "Choose the diff's anchors in order in n log n" (107deeb) |
 | Manual | M1 (the project owner's manual test 4, 2026-10-30): with tracking on, typing under a section showed no dot on the section's row. AR10 gave the row its dot, but the navigator drew dots only on scene rows | fixed: a section's row draws its dot and revision mark. Before: the AR10 test, now checking the frame's pixels, failed with "no dot is drawn on the section's row" | `app/tests/changes.rs` `ar10_a_section_row_is_not_a_scene` | "Draw a section's change dot, and move only a selected scene" (5bc2cdc) |
 | Manual | M2 (the same test): Alt+Down on a section's row moved the scene before the section, which looked like the section moving up | fixed: Alt+Up and Alt+Down move the selected row only when it is a scene, and do nothing on a section's row, as a section is not dragged. Before: the lab scene went to the end | `app/tests/changes.rs` `ar10_a_section_row_is_not_a_scene` | the same commit (5bc2cdc) |
+| Manual | M3 (the same test; the rule decided by the project owner, 2026-10-30): with tracking on, moving a scene and moving it back left a move to review, though nothing had changed | fixed (semantics 4, unreleased): a tracked move that puts a scene back where it stood before the author's own newest pending moves, with the same blocks, cancels them. Another author's moves, and a move whose neighbour has gone or moved, stay as changes; undo puts the cancelled moves back; semantics 1 to 3 replay as before. Before: the kitchen moved to the end and back kept its `moved` entry and its change | `core/tests/changes.rs` `moving_a_scene_back_cancels_the_authors_own_move`, `moving_a_scene_back_cancels_the_moves_since_that_place`, `moving_back_another_authors_move_is_a_change_of_its_own`, `a_move_back_whose_neighbour_moved_or_went_is_kept`, `moving_a_scene_back_keeps_its_text_edits`, `a_cancelled_move_recovers_after_a_crash`, `a_semantics_3_journal_keeps_a_move_back` (the first two, the text edits and the recovery failed before; the other three guard what must not cancel, and passed before as after) | "Cancel the author's own moves when a scene is moved back" (23596fb) |
 
 ## Checks per group
 
@@ -79,6 +80,8 @@ Each finding gets a test made from the reviewer's reproduction. It is run before
 - **CI** (2026-10-29): the PR's first run failed one job, the macOS test, on the GR11 growth test (P7). After its fix: `cargo fmt --check`, clippy of the workspace and `cargo test --workspace` (no failures), the diff crate's property at 20,000 cases in release, and the end-to-end diff budget, all passing locally.
 
 - **Manual test fixes** (2026-10-30, Windows 11): `cargo fmt --check`, clippy of the workspace and of the app for Linux and macOS, and `cargo test --workspace` (no failures, the crash gate included).
+
+- **Moving a scene back** (2026-10-30, Windows 11): `cargo fmt --check`, clippy of the workspace and of core for Linux and macOS, `cargo test --workspace` (no failures, the crash gate and `old_journals.rs` included), and the changes properties at 1,024 cases in release.
 
 ## Manual tests
 
@@ -136,6 +139,7 @@ Decided while working (the project's owner asked for a list rather than question
 37. **AR10: "This scene" under a section is the scene before it**, as Antigravity proposed, rather than nothing. The navigator's highlight stays on the section's row, so Up and Down keep working from it.
 38. **AR11: a batch is followed item by item** with `result["results"][k]`; a nested batch recurses.
 39. **P5 changes semantics 4 only.** Semantics 4 is new on this branch and no build has written it, so its rules can still change; journals of 1 to 3 replay through `legacy.rs` as before.
+40. **M3 changes semantics 4 only**, as P5 did (decision 39). An entry matches by the block the scene stood before, as the project owner put it ("same neighbours as the first record's anchors"), and the oldest matching entry of the author's newest run is the one cancelled from, so a move back to where it all began cancels every one of them.
 
 ## Deferred
 
