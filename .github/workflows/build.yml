@@ -19,7 +19,8 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   # The commit every program names (release.md §9).
-  COLDOPEN_COMMIT: ${{ github.sha }}
+  # A pull request builds a merge commit; name the branch's head instead.
+  COLDOPEN_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
 
 defaults:
   run:
@@ -283,10 +284,10 @@ jobs:
       - name: Packaging tools and the window's libraries
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq dpkg-dev flatpak flatpak-builder desktop-file-utils \
+          sudo apt-get install -y -qq dpkg-dev flatpak desktop-file-utils \
             appstream xvfb libxkbcommon-x11-0 libxcursor1 libxi6 libxrandr2 libx11-xcb1
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user -y --noninteractive flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08
+          flatpak install --user -y --noninteractive flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08 org.flatpak.Builder
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }} -p coldopen-app -p coldopen-cli
       - name: .deb, AppImage and Flatpak

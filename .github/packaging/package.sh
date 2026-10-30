@@ -60,7 +60,8 @@ windows_stage() {
 }
 
 windows_pack() {
-  local arch=$1 stage=dist/stage/windows-$arch
+  local arch=$1
+  local stage=dist/stage/windows-$arch
   local zipdir=dist/stage/zip-$arch/"Cold Open"
   rm -rf "dist/stage/zip-$arch"
   mkdir -p "$zipdir"
@@ -236,7 +237,9 @@ linux_flatpak() {
   cp "$here"/icon/png/*.png "$work/files/icons/"
   licenses "$work/files/licenses"
   cp "$here/linux/$id.yml" "$work/"
-  (cd "$work" && flatpak-builder --user --force-clean --disable-rofiles-fuse \
+  # The builder from Flathub: the one Ubuntu 22.04 ships calls
+  # appstream-compose, which the 25.08 SDK no longer has.
+  (cd "$work" && flatpak run org.flatpak.Builder --user --force-clean --disable-rofiles-fuse \
     --repo=repo build "$id.yml" >/dev/null)
   flatpak build-bundle --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo \
     "$work/repo" "dist/ColdOpen-$version-$arch.flatpak" "$id"

@@ -81,4 +81,11 @@ Pending: CI's Linux and macOS bench reports, the owner's Windows report, and the
 
 ## Checks
 
-Pending the final run.
+- **Local, 2026-10-30 (Windows 11, 3b581d4's code):**
+  - `cargo test --workspace --locked`: 753 tests, none failing. That includes the crash, typing and agent gates, `old_journals.rs`, and the bench sheet's run of the real bench (`COLDOPEN_BENCH_TEST=1`).
+  - `cargo fmt --check` and `cargo clippy --workspace --all-targets -- -D warnings`, plus clippy of the app for Linux and macOS.
+- **Corpus and reference, with the corpus required (release build):**
+  - Every corpus .fdx file writes back byte for byte, and title edits check out on 34 files.
+  - The reference gate gives phase 4's numbers. Big Fish: wraps 100.0%, resynced breaks 97.4% (max Δ 2 lines), pages 120/120, scene starts 99.5%. The other two reference scripts: 100% on every measure.
+- **Fuzzing:** the workflow, run by hand on the branch (41094779485), ten minutes per target. Result pending.
+- **CI:** pending the run on the final commit.
