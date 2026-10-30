@@ -381,14 +381,42 @@ fn locked(path: &Path) -> CommandError {
     .with_details(json!({ "path": path.display().to_string() }))
 }
 
+/// Errors that mean the folder can't take a new file: read-only, or no
+/// permission (which is also how Windows and sync clients refuse).
+fn unwritable(e: &std::io::Error) -> bool {
+    matches!(
+        e.kind(),
+        std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::ReadOnlyFilesystem
+    )
+}
+
+fn folder_read_only(path: &Path) -> CommandError {
+    let folder = path.parent().unwrap_or(path);
+    CommandError::new(
+        "folder_read_only",
+        format!(
+            "{} can't be written, so {} has no crash journal there and was not opened;              copy it to a folder you can write to, or open it in the Cold Open app,              which opens a copy",
+            folder.display(),
+            path.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+        ),
+    )
+    .with_details(json!({ "path": path.display().to_string() }))
+}
+
 fn open_journal(
     path: &Path,
     format: FormatId,
     durability: Durability,
 ) -> Result<(Journal, Vec<u8>), CommandError> {
     let jpath = journal::path_for(path);
+    let existed = jpath.exists();
     let (mut j, contents) = Journal::open_locked(&jpath, durability).map_err(|e| match e {
         OpenError::Locked => locked(path),
+        // No journal can be made beside the script, so it is not opened:
+        // what the writer typed would have nowhere to go (2026-10-30,
+        // docs/specs/journal.md, "A folder that can't be written"). A
+        // journal already there may hold work, and stays an io_error.
+        OpenError::Io(e) if !existed && unwritable(&e) => folder_read_only(path),
         OpenError::Io(e) => CommandError::io(&jpath, &e),
     })?;
     j.set_identity(Some(this_host().to_string()), Some(canonical(path)));

@@ -251,6 +251,7 @@ Because such a journal is the only copy of the work, `doc.new` never starts over
 - **The CLI and MCP server** return the error. Its message says to copy the script somewhere writable, or to open it in the app.
 - **An existing journal** that can be read but not written is still `io_error`. It may hold work, and it is left as it is.
 - **`doc.new`** at a path in such a folder fails with `folder_read_only` the same way.
+- **Save as** (`doc.save` with a path) into such a folder fails with `folder_read_only` too, before anything is written, since the journal moves with the script. The app says so, and the script keeps its own file.
 
 ## Damaged originals
 

@@ -50,12 +50,13 @@ pub const CHANGED_EVERY: Duration = Duration::from_millis(50);
 /// `~/.local/share/coldopen/run` elsewhere. `COLDOPEN_HOME`, when set, puts
 /// it at `<COLDOPEN_HOME>/run`, as the app's other folders.
 pub fn run_dir() -> Option<std::path::PathBuf> {
+    run_dir_in(&|name| std::env::var_os(name))
+}
+
+/// [`run_dir`] with the environment given, for tests of a first start.
+pub fn run_dir_in(get: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Option<std::path::PathBuf> {
     use std::path::PathBuf;
-    let env = |name: &str| {
-        std::env::var_os(name)
-            .filter(|v| !v.is_empty())
-            .map(PathBuf::from)
-    };
+    let env = |name: &str| get(name).filter(|v| !v.is_empty()).map(PathBuf::from);
     if let Some(home) = env("COLDOPEN_HOME") {
         return Some(home.join("run"));
     }

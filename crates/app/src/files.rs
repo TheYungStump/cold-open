@@ -21,22 +21,23 @@ pub struct Dirs {
     pub run: PathBuf,
 }
 
-fn env(name: &str) -> Option<PathBuf> {
-    std::env::var_os(name)
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-}
-
 impl Dirs {
     /// The folders for this OS and user. `COLDOPEN_HOME`, when set, puts
     /// all three under one folder, for tests and portable use.
     pub fn find() -> Option<Dirs> {
+        Dirs::find_in(&|name| std::env::var_os(name))
+    }
+
+    /// [`Dirs::find`] with the environment given, for tests of a first
+    /// start (docs/specs/release.md §6).
+    pub fn find_in(get: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Option<Dirs> {
+        let env = |name: &str| get(name).filter(|v| !v.is_empty()).map(PathBuf::from);
         if let Some(home) = env("COLDOPEN_HOME") {
             return Some(Dirs::under(&home));
         }
         // The run folder is shared with `coldopen mcp`, so both use the
         // same rule.
-        let run = coldopen_link::run_dir()?;
+        let run = coldopen_link::run_dir_in(get)?;
         if cfg!(windows) {
             let roaming = env("APPDATA")?;
             let local = env("LOCALAPPDATA").unwrap_or_else(|| roaming.clone());
@@ -383,6 +384,30 @@ pub fn with_extension(path: PathBuf, ext: &str) -> PathBuf {
 }
 
 /// The next free `Untitled-<n>.fountain` in `Unsaved/` (editor.md §11).
+/// A free name in `Unsaved/` for a copy of `script`: `<script> (<what>).<ext>`,
+/// or `(<what> 2)` and so on when that is taken, with no journal either.
+pub fn copy_path(dirs: &Dirs, script: &Path, what: &str) -> Option<PathBuf> {
+    let dir = dirs.unsaved();
+    let stem = script.file_stem().map_or_else(
+        || "Script".to_string(),
+        |s| s.to_string_lossy().into_owned(),
+    );
+    let ext = script.extension().map_or_else(
+        || "fountain".to_string(),
+        |e| e.to_string_lossy().into_owned(),
+    );
+    (1..1000)
+        .map(|n| {
+            let name = if n == 1 {
+                format!("{stem} ({what}).{ext}")
+            } else {
+                format!("{stem} ({what} {n}).{ext}")
+            };
+            dir.join(name)
+        })
+        .find(|p| !p.exists() && !coldopen_core::journal::path_for(p).exists())
+}
+
 pub fn next_untitled(dirs: &Dirs) -> PathBuf {
     let dir = dirs.unsaved();
     for n in 1.. {

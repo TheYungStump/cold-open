@@ -336,25 +336,7 @@ impl App {
     /// Where a restored copy goes: `Unsaved/<script> (restored).<ext>`,
     /// numbered when that is taken.
     pub(super) fn restore_path(&self, copy: &Copy) -> Option<PathBuf> {
-        let dir = self.dirs.as_ref()?.unsaved();
-        let stem = copy.script.file_stem().map_or_else(
-            || "Restored".to_string(),
-            |s| s.to_string_lossy().into_owned(),
-        );
-        let ext = copy.script.extension().map_or_else(
-            || "fountain".to_string(),
-            |e| e.to_string_lossy().into_owned(),
-        );
-        (1..1000)
-            .map(|n| {
-                let name = if n == 1 {
-                    format!("{stem} (restored).{ext}")
-                } else {
-                    format!("{stem} (restored {n}).{ext}")
-                };
-                dir.join(name)
-            })
-            .find(|p| !p.exists() && !coldopen_core::journal::path_for(p).exists())
+        crate::files::copy_path(self.dirs.as_ref()?, &copy.script, "restored")
     }
 
     /// The start-up clean-up (journal.md, "Recovered versions"): copies

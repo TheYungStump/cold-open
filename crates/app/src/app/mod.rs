@@ -766,6 +766,26 @@ impl App {
                 });
                 return;
             }
+            // A folder that can't be written: the script opens as a copy in
+            // Unsaved/, journaled there (editor.md §22).
+            Err(e) if e.code == "folder_read_only" => match self.copy_to_unsaved(path) {
+                Ok(copy) => {
+                    let folder = path.parent().unwrap_or(path);
+                    self.banners.push(
+                            format!(
+                                "{} can't be written, so this is a copy. Save as… to keep it somewhere else.",
+                                folder.display()
+                            )
+                            .into(),
+                        );
+                    self.open_with(&copy, recover);
+                    return;
+                }
+                Err(why) => {
+                    self.banners.push(format!("{} {why}", e.message).into());
+                    None
+                }
+            },
             Err(e) => {
                 self.banners.push(e.message.into());
                 None
@@ -795,6 +815,21 @@ impl App {
             None if self.d.session().is_none() => self.new_script(),
             None => {}
         }
+    }
+
+    /// Copies a script into `Unsaved/` under a free name, for a script
+    /// whose own folder can't be written.
+    fn copy_to_unsaved(&self, path: &Path) -> Result<PathBuf, String> {
+        let dirs = self
+            .dirs
+            .as_ref()
+            .ok_or("There's no folder for a copy either.")?;
+        std::fs::create_dir_all(dirs.unsaved())
+            .map_err(|e| format!("A copy couldn't be made: {e}"))?;
+        let copy =
+            crate::files::copy_path(dirs, path, "copy").ok_or("A copy couldn't be named.")?;
+        std::fs::copy(path, &copy).map_err(|e| format!("A copy couldn't be made: {e}"))?;
+        Ok(copy)
     }
 
     fn save_settings(&mut self) {
