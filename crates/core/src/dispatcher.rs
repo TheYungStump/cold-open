@@ -1769,7 +1769,7 @@ impl Dispatcher {
         Ok(PdfJob {
             doc: session.doc.clone(),
             format: session.format,
-            style: session.style.clone(),
+            style: session.style,
             target,
             params: p,
         })
