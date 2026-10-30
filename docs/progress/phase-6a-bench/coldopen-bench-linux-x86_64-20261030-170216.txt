@@ -1,0 +1,32 @@
+Cold Open bench: 0.1.0-alpha.1 (1c1ef2a4d99e), x86_64-unknown-linux-gnu
+When: 2026-10-30T17:02:16Z (UTC)
+Machine: linux (Linux (Ubuntu 24.04) (7.0.0-1017-azure)), AMD EPYC 9V45 96-Core Processor, 2 cores, 16 GiB
+Screen: 1920x1080 at 1x
+Renderer by default: tiny-skia
+Script: synthetic feature script, seed 1, 119 pages
+
+Open a 120-page script                         median 16.3 ms  under 200 ms   PASS
+Full repagination                              median 11.0 ms  under 50 ms    PASS
+Journal write per edit                         p95 0.010 ms    under 1 ms     PASS
+Save on the UI thread, Fountain                p95 0.870 ms    under 4 ms     PASS
+Whole save, Fountain                           median 10.9 ms  under 50 ms    PASS
+Save on the UI thread, .fdx                    p95 0.860 ms    under 4 ms     PASS
+Whole save, .fdx                               median 2.9 ms   under 50 ms    PASS
+Save on the UI thread, project                 p95 1.0 ms      under 4 ms     PASS
+Whole save, project                            median 8.0 ms   under 50 ms    PASS
+Cold start                                     median 40.5 ms  under 1000 ms  PASS
+Keystroke to screen (tiny-skia)                p95 4.4 ms      under 16 ms    PASS
+Scrolling the report view (tiny-skia)          p95 5.2 ms      under 16 ms    PASS
+Memory with a feature script open (tiny-skia)  53 MiB          under 150 MB   PASS
+
+For comparison:
+  keystroke_headless (tiny-skia): median 21.3 ms, p95 22.4 ms
+  edit_and_repaginate: median 3.2 ms, p95 3.5 ms
+  fsync: median 0.2 ms, p95 0.2 ms
+  save_whole_fountain_p95: median 10.9 ms, p95 36.8 ms
+  save_whole_fdx_p95: median 2.9 ms, p95 3.2 ms
+  save_whole_project_p95: median 8.0 ms, p95 8.6 ms
+  scrolling_pages (tiny-skia): median 7.4 ms, p95 7.8 ms
+  typing_windowed_wgpu_could_not_start (wgpu): median 0.0 ms, p95 0.0 ms
+
+Every budget passed.

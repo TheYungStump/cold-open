@@ -1,0 +1,35 @@
+Cold Open bench: 0.1.0-alpha.1 (1c1ef2a4d99e), aarch64-apple-darwin
+When: 2026-10-30T17:12:40Z (UTC)
+Machine: macos (macOS 26.6.2 (25.6.0)), Apple M1 (Virtual), 3 cores, 7 GiB
+GPU: Apple Paravirtual device
+Screen: 1024x768 at 1x
+Renderer by default: wgpu
+Script: synthetic feature script, seed 1, 119 pages
+
+Open a 120-page script                     median 34.8 ms   under 200 ms   PASS
+Full repagination                          median 19.5 ms   under 50 ms    PASS
+Journal write per edit                     p95 0.040 ms     under 1 ms     PASS
+Save on the UI thread, Fountain            p95 10.2 ms      under 4 ms     MISS
+Whole save, Fountain                       median 19.8 ms   under 50 ms    PASS
+Save on the UI thread, .fdx                p95 2.4 ms       under 4 ms     PASS
+Whole save, .fdx                           median 8.8 ms    under 50 ms    PASS
+Save on the UI thread, project             p95 2.9 ms       under 4 ms     PASS
+Whole save, project                        median 21.3 ms   under 50 ms    PASS
+Cold start                                 median 812.5 ms  under 1000 ms  PASS
+Keystroke to screen (Metal)                p95 15.8 ms      under 16 ms    PASS
+Scrolling the report view (Metal)          p95 13.5 ms      under 16 ms    PASS
+Memory with a feature script open (Metal)  137 MiB          under 150 MB   PASS
+
+For comparison:
+  keystroke_headless (tiny-skia): median 30.9 ms, p95 37.0 ms
+  edit_and_repaginate: median 5.2 ms, p95 7.5 ms
+  fsync: median 0.8 ms, p95 1.0 ms
+  save_whole_fountain_p95: median 19.8 ms, p95 34.3 ms
+  save_whole_fdx_p95: median 8.8 ms, p95 13.3 ms
+  save_whole_project_p95: median 21.3 ms, p95 73.3 ms
+  scrolling_pages (Metal): median 7.0 ms, p95 40.7 ms
+  typing_windowed (tiny-skia): median 25.7 ms, p95 39.4 ms
+  scrolling_windowed (tiny-skia): median 18.6 ms, p95 28.2 ms
+  reports_windowed (tiny-skia): median 10.2 ms, p95 17.6 ms
+
+1 budget missed, 0 budgets not measured.

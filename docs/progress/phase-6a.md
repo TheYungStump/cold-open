@@ -75,9 +75,28 @@ Every budget passed except the report view's scrolling (p95 32.7 ms):
 
 After the fix, the report view scrolls in 7.2 ms a frame (p95 10.3 ms) at 1920×1080 on the CPU renderer, against 11.2 ms for the pages.
 
-### CI and real machines
+### CI: the full bench in the budgets job (3b581d4, 2026-10-30)
 
-Pending: CI's Linux and macOS bench reports, the owner's Windows report, and the Mac tester's.
+The reports are in `docs/progress/phase-6a-bench/`. CI's runners are shared virtual machines: Linux asserts the budgets listed in `docs/specs/bench.md` §5, and the rest are reported.
+
+| Budget | Linux (EPYC, 2 cores, xvfb) | Windows (EPYC, 2 cores, no GPU) | macOS (virtual M1, 3 cores, Metal) | Limit |
+| --- | --- | --- | --- | --- |
+| Open | 16.3 ms | 46.1 ms | 34.8 ms | 200 ms |
+| Repagination | 11.0 ms | 22.4 ms | 19.5 ms | 50 ms |
+| Journal write (p95) | 0.010 ms | 0.020 ms | 0.040 ms | 1 ms |
+| Save on the UI thread (p95: Fountain, .fdx, project) | 0.87, 0.86, 1.0 ms | 1.2, 0.89, 1.1 ms | **10.2**, 2.4, 2.9 ms | 4 ms |
+| Whole save (median) | 10.9, 2.9, 8.0 ms | 30.7, 21.5, 25.2 ms | 19.8, 8.8, 21.3 ms | 50 ms |
+| Cold start | 40.5 ms | 164 ms | 813 ms | 1 s |
+| Keystroke to screen (p95) | 4.4 ms (CPU) | 8.2 ms (CPU) | 15.8 ms (Metal) | 16 ms |
+| Report view scrolling (p95) | 5.2 ms (CPU) | 7.4 ms (CPU) | 13.5 ms (Metal) | 16 ms |
+| Memory | 53 MiB | 74 MiB | 137 MiB | 150 MB |
+
+- **Linux and Windows pass every budget.** The report view scrolled at 50 and 81 ms a frame on these runners before the fix.
+- **macOS misses one:** a Fountain save's UI-thread time, p95 10.2 ms. That is the slowest of 21 saves on a 3-core virtual machine, whose median was well under 4 ms. The quick run in the packaging job missed more (cold start 1.4 s, keystroke 23.6 ms with Metal) on a runner busy installing. The Mac tester's report, on a real Mac, is the gate.
+
+### Real machines
+
+Pending: the owner's Windows report and the Mac tester's.
 
 ## Checks
 

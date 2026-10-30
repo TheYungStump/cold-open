@@ -1,0 +1,35 @@
+Cold Open bench: 0.1.0-alpha.1 (1c1ef2a4d99e), x86_64-pc-windows-msvc
+When: 2026-10-30T17:10:17Z (UTC)
+Machine: windows (Windows Server 2025 Datacenter (26100)), AMD EPYC 9V45 96-Core Processor, 2 cores, 16 GiB
+GPU: Microsoft Basic Render Driver
+Screen: 1024x768 at 1x
+Renderer by default: tiny-skia
+Script: synthetic feature script, seed 1, 119 pages
+
+Open a 120-page script                         median 46.1 ms   under 200 ms   PASS
+Full repagination                              median 22.4 ms   under 50 ms    PASS
+Journal write per edit                         p95 0.020 ms     under 1 ms     PASS
+Save on the UI thread, Fountain                p95 1.2 ms       under 4 ms     PASS
+Whole save, Fountain                           median 30.7 ms   under 50 ms    PASS
+Save on the UI thread, .fdx                    p95 0.890 ms     under 4 ms     PASS
+Whole save, .fdx                               median 21.5 ms   under 50 ms    PASS
+Save on the UI thread, project                 p95 1.1 ms       under 4 ms     PASS
+Whole save, project                            median 25.2 ms   under 50 ms    PASS
+Cold start                                     median 163.6 ms  under 1000 ms  PASS
+Keystroke to screen (tiny-skia)                p95 8.2 ms       under 16 ms    PASS
+Scrolling the report view (tiny-skia)          p95 7.4 ms       under 16 ms    PASS
+Memory with a feature script open (tiny-skia)  74 MiB           under 150 MB   PASS
+
+For comparison:
+  keystroke_headless (tiny-skia): median 21.4 ms, p95 21.9 ms
+  edit_and_repaginate: median 4.9 ms, p95 5.3 ms
+  fsync: median 4.0 ms, p95 7.4 ms
+  save_whole_fountain_p95: median 30.7 ms, p95 37.0 ms
+  save_whole_fdx_p95: median 21.5 ms, p95 36.8 ms
+  save_whole_project_p95: median 25.2 ms, p95 32.9 ms
+  scrolling_pages (tiny-skia): median 8.5 ms, p95 10.4 ms
+  typing_windowed (Dx12): median 37.1 ms, p95 44.4 ms
+  scrolling_windowed (Dx12): median 30.5 ms, p95 34.8 ms
+  reports_windowed (Dx12): median 32.6 ms, p95 34.5 ms
+
+Every budget passed.
