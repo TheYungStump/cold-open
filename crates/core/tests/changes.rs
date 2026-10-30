@@ -1530,3 +1530,234 @@ fn rejecting_a_move_then_a_split_of_the_moved_scene() {
         d.discard();
     }
 }
+
+// ---- Moving a scene back ------------------------------------------------
+//
+// docs/specs/changes.md §5.2 (2026-10-30, journal semantics 4): a move that
+// takes a scene back to exactly where it stood before the author's own
+// pending moves cancels them. Found in the project owner's manual test.
+
+/// The `moved` entries on a scene heading.
+fn moves(d: &mut Dispatcher, id: &str) -> Vec<Value> {
+    block(d, id)["change"]["moved"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn mv(d: &mut Dispatcher, by: &Author, id: &str, before: Option<&str>) -> Value {
+    let params = match before {
+        Some(b) => json!({"id": id, "before": b}),
+        None => json!({"id": id}),
+    };
+    ok(d, by, "scene.move", params)
+}
+
+/// The scene headings, in order.
+fn headings(d: &mut Dispatcher) -> Vec<String> {
+    texts(d).into_iter().filter(|t| t.contains(" - ")).collect()
+}
+
+/// The kitchen to the end and back: nothing is left to review, and undo
+/// and redo take the cancelled move back and forth.
+#[test]
+fn moving_a_scene_back_cancels_the_authors_own_move() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, _) = open(dir.path());
+    track_writer(&mut d);
+    let start = blocks(&mut d);
+    let r = mv(&mut d, &writer(), "b_1", None);
+    assert!(r["change"].is_string(), "{r}");
+    let moved = blocks(&mut d);
+    assert_eq!(moves(&mut d, "b_1").len(), 1);
+    let r = mv(&mut d, &writer(), "b_1", Some("b_5"));
+    assert!(r.get("change").is_none(), "nothing is left to review: {r}");
+    assert_eq!(blocks(&mut d), start);
+    assert!(changes(&mut d).is_empty(), "{:?}", changes(&mut d));
+    ok(&mut d, &writer(), "undo", json!({}));
+    assert_eq!(blocks(&mut d), moved);
+    ok(&mut d, &writer(), "redo", json!({}));
+    assert_eq!(blocks(&mut d), start);
+    d.discard();
+}
+
+/// Kitchen, garden, shed: the kitchen moved before the shed, then to the
+/// end. Back before the shed cancels only the second move; back before the
+/// garden, where it began, cancels both.
+#[test]
+fn moving_a_scene_back_cancels_the_moves_since_that_place() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, _) = open(dir.path());
+    track_writer(&mut d);
+    let start = blocks(&mut d);
+    mv(&mut d, &writer(), "b_1", Some("b_7"));
+    let first = blocks(&mut d);
+    mv(&mut d, &writer(), "b_1", None);
+    assert_eq!(moves(&mut d, "b_1").len(), 2);
+    mv(&mut d, &writer(), "b_1", Some("b_7"));
+    assert_eq!(blocks(&mut d), first);
+    let m = moves(&mut d, "b_1");
+    assert_eq!(m.len(), 1, "{m:?}");
+    assert_eq!(m[0]["before"], "b_5");
+    mv(&mut d, &writer(), "b_1", None);
+    let r = mv(&mut d, &writer(), "b_1", Some("b_5"));
+    assert!(r.get("change").is_none(), "{r}");
+    assert_eq!(blocks(&mut d), start);
+    d.discard();
+}
+
+/// Only the author's own moves cancel. The writer moving an agent's move
+/// back, the agent moving the writer's back, and the writer moving back
+/// past the agent's later move each add a move to review.
+#[test]
+fn moving_back_another_authors_move_is_a_change_of_its_own() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let (mut d, _) = open(dir.path());
+    track_writer(&mut d);
+    let start = headings(&mut d);
+    mv(&mut d, &agent(), "b_1", None);
+    let r = mv(&mut d, &writer(), "b_1", Some("b_5"));
+    assert!(r["change"].is_string(), "{r}");
+    assert_eq!(headings(&mut d), start);
+    assert_eq!(moves(&mut d, "b_1").len(), 2);
+    assert_eq!(changes(&mut d).len(), 2);
+    d.discard();
+
+    let (mut d, _) = open(dir.path());
+    track_writer(&mut d);
+    mv(&mut d, &writer(), "b_1", None);
+    let r = mv(&mut d, &agent(), "b_1", Some("b_5"));
+    assert!(r["change"].is_string(), "{r}");
+    assert_eq!(headings(&mut d), start);
+    assert_eq!(moves(&mut d, "b_1").len(), 2);
+    d.discard();
+
+    // The writer's move to the end, the agent's back before the shed, and
+    // the writer's back before the garden, where the writer's began.
+    let (mut d, _) = open(dir.path());
+    track_writer(&mut d);
+    mv(&mut d, &writer(), "b_1", None);
+    mv(&mut d, &agent(), "b_1", Some("b_7"));
+    let r = mv(&mut d, &writer(), "b_1", Some("b_5"));
+    assert!(r["change"].is_string(), "{r}");
+    assert_eq!(headings(&mut d), start);
+    assert_eq!(moves(&mut d, "b_1").len(), 3);
+    d.discard();
+}
+
+/// When the block a move names has moved too, or is gone, the scene's
+/// neighbours are not the ones it left: the move back is kept.
+#[test]
+fn a_move_back_whose_neighbour_moved_or_went_is_kept() {
+    let dir = tempfile::tempdir().unwrap();
+
+    // Kitchen before the shed (it stood before the garden), the garden to
+    // the end, then the kitchen before the garden again.
+    let (mut d, _) = open(dir.path());
+    track_writer(&mut d);
+    mv(&mut d, &writer(), "b_1", Some("b_7"));
+    mv(&mut d, &writer(), "b_5", None);
+    let r = mv(&mut d, &writer(), "b_1", Some("b_5"));
+    assert!(r["change"].is_string(), "{r}");
+    assert_eq!(moves(&mut d, "b_1").len(), 2);
+    d.discard();
+
+    // Kitchen to the end, the garden's heading deleted outright, then the
+    // kitchen back where the garden's scene began.
+    let (mut d, _) = open(dir.path());
+    track_writer(&mut d);
+    mv(&mut d, &writer(), "b_1", None);
+    ok(
+        &mut d,
+        &writer(),
+        "block.delete",
+        json!({"id": "b_5", "tracked": false}),
+    );
+    let r = mv(&mut d, &writer(), "b_1", Some("b_7"));
+    assert!(r["change"].is_string(), "{r}");
+    assert_eq!(moves(&mut d, "b_1").len(), 2);
+    d.discard();
+}
+
+/// Text edits in the scene stay pending when its move is cancelled.
+#[test]
+fn moving_a_scene_back_keeps_its_text_edits() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, _) = open(dir.path());
+    track_writer(&mut d);
+    mv(&mut d, &writer(), "b_1", None);
+    ok(
+        &mut d,
+        &writer(),
+        "text.insert",
+        json!({"id": "b_2", "at": 17, "text": " Then tea."}),
+    );
+    mv(&mut d, &writer(), "b_1", Some("b_5"));
+    assert!(moves(&mut d, "b_1").is_empty());
+    assert_eq!(texts(&mut d)[0], "INT. KITCHEN - DAY");
+    let b = block(&mut d, "b_2");
+    assert_eq!(b["text"], "Maya makes toast. Then tea.");
+    assert!(b["runs"][1]["ins"].is_string(), "{b}");
+    assert_eq!(changes(&mut d).len(), 1, "{:?}", changes(&mut d));
+    d.discard();
+}
+
+/// A cancelled move is in the journal like any other edit: after a crash
+/// the script recovers with nothing left to review but the text edit.
+#[test]
+fn a_cancelled_move_recovers_after_a_crash() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, p) = open(dir.path());
+    track_writer(&mut d);
+    mv(&mut d, &writer(), "b_1", None);
+    ok(
+        &mut d,
+        &writer(),
+        "text.insert",
+        json!({"id": "b_2", "at": 17, "text": " Then tea."}),
+    );
+    mv(&mut d, &writer(), "b_1", Some("b_5"));
+    let want = blocks(&mut d);
+    drop(d);
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, &writer(), "doc.open", json!({"path": p}));
+    assert_eq!(r["recovered"]["commands"], 4, "{r}");
+    assert_eq!(r["warnings"], json!([]), "{r}");
+    assert_eq!(blocks(&mut d), want);
+    assert!(moves(&mut d, "b_1").is_empty());
+    d.discard();
+}
+
+/// A journal of semantics 3 replays as that build wrote it: the move back
+/// is a second move, with a change of its own.
+#[test]
+fn a_semantics_3_journal_keeps_a_move_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut d, p) = open(dir.path());
+    track_writer(&mut d);
+    mv(&mut d, &writer(), "b_1", None);
+    drop(d);
+    let j = journal::path_for(&p);
+    let text = fs::read_to_string(&j).unwrap();
+    let mut lines: Vec<Value> = text
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    lines[0]["semantics"] = json!(3);
+    let mut back = lines.last().unwrap().clone();
+    assert_eq!(back["command"], "scene.move", "{back}");
+    back["seq"] = json!(back["seq"].as_u64().unwrap() + 1);
+    back["params"]["before"] = json!("b_5");
+    back["result"]["change"] = json!("c_2");
+    lines.push(back);
+    let out: String = lines.iter().map(|l| format!("{l}\n")).collect();
+    fs::write(&j, out).unwrap();
+    let mut d = Dispatcher::new(Options::default());
+    let r = ok(&mut d, &writer(), "doc.open", json!({"path": p}));
+    assert_eq!(r["warnings"], json!([]), "{r}");
+    assert_eq!(texts(&mut d)[0], "INT. KITCHEN - DAY");
+    assert_eq!(moves(&mut d, "b_1").len(), 2);
+    assert_eq!(changes(&mut d).len(), 2);
+    d.discard();
+}

@@ -141,7 +141,15 @@ Here *the author* is the edit's author (`docs/specs/commands.md`, "Authors and u
 - **`block.join`.**
   - The author's own pending inserted block, whose only mark is that insertion, is joined outright, its text keeping its marks.
   - Any other block is marked `joined` and stays a block of its own. The result's `id` and `at` name the end of the block before it, where an editor puts the caret.
-- **`scene.move`.** The scene heading is marked `moved`, with the block the scene stood before and the last block the move took. Every move is kept as its own entry, oldest first, so rejecting undoes them in turn.
+- **`scene.move`.**
+  - The scene heading is marked `moved`, with the block the scene stood before and the last block the move took. Every move is kept as its own entry, oldest first, so rejecting undoes them in turn.
+  - **Moving a scene back (2026-10-30, journal semantics 4; decided with the project's owner after a manual test).** A move that takes the scene back to exactly where it stood before the author's own pending moves of it cancels them, instead of adding an entry, as a backspace over the author's own insertion takes it back (§5.1). Moving a scene and moving it back had left a change with nothing to review.
+    - The entries considered are the heading's newest, back to the first made by another author. An entry matches when the move puts the scene before the block it names (or at the end, when it names none), the move takes the same blocks (it and every later entry name the move's last block), and the block it names is not itself marked `moved`.
+    - The oldest matching entry and every entry after it are removed. The move records into no change, so its result has no `change`.
+    - Another author's moves never cancel. An agent moving the writer's moved scene back, or the writer moving an agent's back, adds an entry, which stays to be accepted or rejected; so does the author's own move back past another author's later move.
+    - When the block an entry names is gone, or is itself moved, the scene's neighbours are no longer the ones it left, so the move is kept as a change.
+    - Text edits in the scene are not affected, and undo puts the cancelled entries back.
+    - Journals of semantics 1 to 3 replay as before, adding an entry for every move.
 
 ### 5.3 Which change an edit records into
 

@@ -1631,12 +1631,25 @@ impl Session {
             target
         };
         let mut ops = Vec::new();
-        if let Some(ctx) = ctx {
+        let last = self.doc.blocks[scene.end - 1].id;
+        let back = match &ctx {
+            Some(ctx) if rules >= 4 => self.moved_back(ctx, scene.start, p.before, last),
+            _ => None,
+        };
+        if let Some(k) = back {
+            // Back where it stood before the author's own moves since
+            // entry `k`: they are cancelled, and nothing is left to review.
+            let mut marks = self.doc.blocks[scene.start].marks.clone();
+            marks.moved.truncate(k);
+            ops.push(Op::Mark {
+                index: scene.start,
+                marks,
+            });
+        } else if let Some(ctx) = ctx {
             // Where the scene stood: before the block after it, or at the
             // end; and the blocks it took. Each move is kept, so rejecting
             // undoes them in order.
             let was = self.doc.blocks.get(scene.end).map(|b| b.id);
-            let last = self.doc.blocks[scene.end - 1].id;
             let c = ctx.change(&mut self.doc, None);
             // A change that moves a second scene numbers its moves, so a
             // reject can undo them newest first (docs/specs/changes.md
@@ -1672,6 +1685,37 @@ impl Session {
             to,
         });
         Ok((Transaction(ops), json!({})))
+    }
+
+    /// The first of the author's own pending moves of the scene headed at
+    /// `start` that a move before `before` (or to the end), taking the
+    /// blocks up to `last`, takes it back from: that entry and those after
+    /// it are cancelled, rather than one more added. Only the heading's
+    /// newest entries made by this author count, and an entry whose
+    /// neighbour is gone or moved too never matches (docs/specs/changes.md
+    /// §5.2, 2026-10-30, journal semantics 4).
+    fn moved_back(
+        &self,
+        ctx: &TrackCtx,
+        start: usize,
+        before: Option<BlockId>,
+        last: BlockId,
+    ) -> Option<usize> {
+        let moved = &self.doc.blocks[start].marks.moved;
+        let own = moved
+            .iter()
+            .rev()
+            .take_while(|m| ctx.owns(&self.doc, m.change))
+            .count();
+        (moved.len() - own..moved.len()).find(|&k| {
+            moved[k].before == before
+                && moved[k..].iter().all(|m| m.last == last)
+                && before.is_none_or(|b| {
+                    self.doc
+                        .get(b)
+                        .is_some_and(|block| block.marks.moved.is_empty())
+                })
+        })
     }
 
     /// An agent's untracked retype or move of a block another author
