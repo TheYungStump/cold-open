@@ -10,4 +10,4 @@ Categories=Office;WordProcessor;
 Keywords=screenplay;script;fountain;fdx;screenwriting;
 MimeType=text/x-fountain;application/x-fdx;application/x-coldopen;
 StartupNotify=true
-StartupWMClass=coldopen-app
+StartupWMClass=io.github.theyungstump.coldopen

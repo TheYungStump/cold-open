@@ -556,3 +556,84 @@ mod tests {
         assert_eq!(s.zoom, 3.0);
     }
 }
+
+/// "Install the command-line tool" (docs/specs/release.md §3.3): a link
+/// named `coldopen` to `cli`, in the first of `dirs` that exists and can be
+/// written, else in the last, made if need be. Never replaces a `coldopen`
+/// that isn't a link to a Cold Open bundle's (or to `cli`). Returns the
+/// link, and whether its folder is on `path`.
+#[cfg(unix)]
+pub fn install_cli(
+    cli: &Path,
+    dirs: &[PathBuf],
+    path: &std::ffi::OsStr,
+) -> Result<(PathBuf, bool), String> {
+    let writable = |d: &Path| {
+        let probe = d.join(".coldopen-probe");
+        let ok = std::fs::write(&probe, b"").is_ok();
+        let _ = std::fs::remove_file(&probe);
+        ok
+    };
+    let dir = match dirs.iter().find(|d| d.is_dir() && writable(d)) {
+        Some(d) => d.clone(),
+        None => {
+            let d = dirs.last().ok_or("no folder to put it in")?.clone();
+            std::fs::create_dir_all(&d).map_err(|e| format!("{}: {e}", d.display()))?;
+            d
+        }
+    };
+    let link = dir.join("coldopen");
+    match std::fs::read_link(&link) {
+        Ok(old)
+            if old == cli
+                || old
+                    .to_string_lossy()
+                    .contains(".app/Contents/MacOS/coldopen") =>
+        {
+            std::fs::remove_file(&link).map_err(|e| format!("{}: {e}", link.display()))?;
+        }
+        Ok(_) => {
+            return Err(format!(
+                "{} is another program's; it was left alone",
+                link.display()
+            ));
+        }
+        Err(_) if link.symlink_metadata().is_ok() => {
+            return Err(format!(
+                "{} is another program's; it was left alone",
+                link.display()
+            ));
+        }
+        Err(_) => {}
+    }
+    std::os::unix::fs::symlink(cli, &link).map_err(|e| format!("{}: {e}", link.display()))?;
+    let on_path = std::env::split_paths(path).any(|p| p == dir);
+    Ok((link, on_path))
+}
+
+#[cfg(all(test, unix))]
+mod install_cli_tests {
+    use super::*;
+
+    #[test]
+    fn the_link_goes_in_the_first_writable_folder_and_is_replaced_not_clobbered() {
+        let t = tempfile::tempdir().unwrap();
+        let cli = t.path().join("Cold Open.app/Contents/MacOS/coldopen");
+        std::fs::create_dir_all(cli.parent().unwrap()).unwrap();
+        std::fs::write(&cli, b"").unwrap();
+        let missing = t.path().join("usr-local-bin");
+        let local = t.path().join(".local/bin");
+        let path = std::env::join_paths([&local]).unwrap();
+        let (link, on_path) = install_cli(&cli, &[missing.clone(), local.clone()], &path).unwrap();
+        assert_eq!(link, local.join("coldopen"));
+        assert!(on_path);
+        assert_eq!(std::fs::read_link(&link).unwrap(), cli);
+        // Again: our own link is replaced.
+        install_cli(&cli, &[missing, local.clone()], &path).unwrap();
+        // Someone else's file is left alone.
+        std::fs::remove_file(&link).unwrap();
+        std::fs::write(&link, b"theirs").unwrap();
+        assert!(install_cli(&cli, std::slice::from_ref(&local), &path).is_err());
+        assert_eq!(std::fs::read(&link).unwrap(), b"theirs");
+    }
+}

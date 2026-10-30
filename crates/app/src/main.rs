@@ -37,8 +37,14 @@ fn app() -> iced::Result {
         size: iced::Size::new(1280.0, 860.0),
         // The close button asks about unsaved changes first.
         exit_on_close_request: false,
+        icon: coldopen_app::icon::window_icon(),
         ..iced::window::Settings::default()
     };
+    // Wayland finds the desktop entry, and its icon, by this id.
+    #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "openbsd"))]
+    {
+        window.platform_specific.application_id = coldopen_app::icon::APP_ID.to_string();
+    }
     // The self-driving benchmark's window (docs/progress/phase-3.md).
     if let Some((w, h)) = std::env::var("COLDOPEN_BENCH_SIZE")
         .ok()

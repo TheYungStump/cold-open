@@ -817,6 +817,47 @@ impl App {
         }
     }
 
+    /// "Install the command-line tool" (macOS; docs/specs/release.md §3.3):
+    /// links the bundle's `coldopen` into `/usr/local/bin` or
+    /// `~/.local/bin`, and says how to reach it.
+    fn install_cli(&mut self) {
+        #[cfg(unix)]
+        {
+            let cli = std::env::current_exe()
+                .ok()
+                .and_then(|e| e.parent().map(|d| d.join("coldopen")))
+                .filter(|c| c.is_file());
+            let Some(cli) = cli else {
+                self.banners
+                    .push("The command-line tool isn't beside the app in this build.".into());
+                return;
+            };
+            let home = std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_default();
+            let dirs = [PathBuf::from("/usr/local/bin"), home.join(".local/bin")];
+            let path = std::env::var_os("PATH").unwrap_or_default();
+            match crate::files::install_cli(&cli, &dirs, &path) {
+                Ok((link, true)) => self.banners.push(
+                    format!("Installed: coldopen is at {}. Open a new terminal to use it.", link.display())
+                        .into(),
+                ),
+                Ok((link, false)) => self.banners.push(
+                    format!(
+                        "Installed coldopen at {}. Add its folder to PATH: echo 'export PATH=\"{}:$PATH\"' >> ~/.zprofile",
+                        link.display(),
+                        link.parent().map_or_else(String::new, |p| p.display().to_string())
+                    )
+                    .into(),
+                ),
+                Err(e) => self.banners.push(format!("Couldn't install coldopen: {e}").into()),
+            }
+        }
+        #[cfg(not(unix))]
+        self.banners
+            .push("On this system the installer puts coldopen on PATH.".into());
+    }
+
     /// Copies a script into `Unsaved/` under a free name, for a script
     /// whose own folder can't be written.
     fn copy_to_unsaved(&self, path: &Path) -> Result<PathBuf, String> {
@@ -2258,6 +2299,10 @@ impl App {
             }
             "app.bench" => {
                 self.bench_open();
+                scroll = false;
+            }
+            "app.install_cli" => {
+                self.install_cli();
                 scroll = false;
             }
             "app.agent_access" => {

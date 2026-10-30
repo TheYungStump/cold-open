@@ -101,6 +101,10 @@ pub const APP_ACTIONS: &[ActionInfo] = &[
         title: "Measure performance",
     },
     ActionInfo {
+        name: "app.install_cli",
+        title: "Install the command-line tool",
+    },
+    ActionInfo {
         name: "edit.cut",
         title: "Cut",
     },
@@ -394,8 +398,13 @@ pub fn known(name: &str) -> bool {
 
 /// Everything the palette lists: (name, title).
 pub fn all() -> Vec<(&'static str, &'static str)> {
-    let mut v: Vec<(&'static str, &'static str)> =
-        APP_ACTIONS.iter().map(|a| (a.name, a.title)).collect();
+    let mut v: Vec<(&'static str, &'static str)> = APP_ACTIONS
+        .iter()
+        // The other packages put the CLI on PATH themselves
+        // (docs/specs/release.md §4).
+        .filter(|a| a.name != "app.install_cli" || cfg!(target_os = "macos"))
+        .map(|a| (a.name, a.title))
+        .collect();
     for n in Command::NAMES {
         v.push((n, command_title(n)));
     }

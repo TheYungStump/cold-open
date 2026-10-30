@@ -43,6 +43,9 @@ miniz_oxide.workspace = true
 # Deflates that list at build time (build.rs).
 miniz_oxide.workspace = true
 
+[target.'cfg(windows)'.build-dependencies]
+winresource.workspace = true
+
 [dev-dependencies]
 iced_test.workspace = true
 coldopen-link.workspace = true

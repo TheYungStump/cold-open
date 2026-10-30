@@ -24,4 +24,32 @@ fn main() {
         None => Vec::new(),
     };
     std::fs::write(out.join("third-party.deflate"), packed).expect("write OUT_DIR");
+    windows_resources();
 }
+
+/// The icon and version details Explorer shows for the .exe
+/// (docs/specs/release.md §3.1).
+#[cfg(windows)]
+fn windows_resources() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return;
+    }
+    let icon = "../../.github/packaging/icon/coldopen.ico";
+    println!("cargo:rerun-if-changed={icon}");
+    let version = std::env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION");
+    let mut res = winresource::WindowsResource::new();
+    res.set_icon(icon)
+        .set("ProductName", "Cold Open")
+        .set("FileDescription", "Cold Open")
+        .set("CompanyName", "The Cold Open contributors")
+        .set("LegalCopyright", "GPL-3.0-or-later")
+        .set("OriginalFilename", "Cold Open.exe")
+        .set("ProductVersion", &version)
+        .set("FileVersion", &version);
+    if let Err(e) = res.compile() {
+        panic!("the Windows resources: {e}");
+    }
+}
+
+#[cfg(not(windows))]
+fn windows_resources() {}

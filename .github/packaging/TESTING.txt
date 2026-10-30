@@ -1,31 +1,65 @@
-Cold Open: test build
-=====================
+Cold Open @VERSION@
+==========================
 
-This is an unsigned build made by CI, for testing. It is not a release.
-Your scripts are plain Fountain or .fdx files, so nothing you write here
-is locked in.
+Cold Open is a free, open-source screenwriting app. It reads and writes
+Fountain and .fdx files, and it journals every keystroke, so a crash costs
+you nothing. Your scripts are plain files: nothing you write here is
+locked in.
 
-In this folder:
-- the app: "Cold Open.exe" (Windows), "Cold Open.app" (macOS) or
-  coldopen-app (Linux);
-- coldopen: the command-line tool, which also runs the MCP server for
-  AI agents (coldopen mcp);
-- licenses: Cold Open (GPL-3.0-or-later) and its two fonts (SIL OFL 1.1).
+This is an alpha, for testers. It is not signed by Apple or Microsoft yet,
+so your system warns you the first time you start it (see below).
+
+Source code: https://github.com/TheYungStump/cold-open
+Licenses: the "licenses" folder (Cold Open is GPL-3.0-or-later).
 
 
 Starting it
 -----------
 
-Windows: double-click "Cold Open.exe". Windows SmartScreen may say
-"Windows protected your PC", because the build is not signed. Click
-"More info", then "Run anyway".
+Windows: run the installer, or unzip the zip anywhere and double-click
+"Cold Open.exe". SmartScreen may say "Windows protected your PC", because
+the build isn't signed: click "More info", then "Run anyway". The
+installer needs no administrator rights.
 
-macOS: right-click "Cold Open.app", choose Open, then Open again. If
-macOS says the app is damaged or can't be checked, run this in Terminal
-and try again:
-    xattr -dr com.apple.quarantine "/path/to/Cold Open.app"
+macOS: open the .dmg and drag Cold Open to Applications. The first time,
+macOS refuses it, because it isn't notarized. Open System Settings >
+Privacy & Security, scroll to the message about Cold Open, and click
+"Open Anyway". (On macOS 12 to 14 you can also Control-click the app and
+choose Open.) If macOS says the app is damaged, run this in Terminal, then
+try again:
+    xattr -dr com.apple.quarantine "/Applications/Cold Open.app"
 
-Linux: run ./coldopen-app. It needs X11 or Wayland, and libxkbcommon.
+Linux: install the .deb (sudo apt install ./cold-open_*.deb), or make the
+AppImage executable and run it, or install the Flatpak:
+    flatpak install --user ColdOpen-*.flatpak
+The Flatpak can open scripts in your home folder. For another drive, run
+    flatpak override --user --filesystem=/path/to/drive io.github.theyungstump.coldopen
+
+
+The command-line tool
+---------------------
+
+coldopen converts, exports, compares and repairs scripts, and runs an MCP
+server for AI agents (coldopen mcp). Type coldopen --help for the list.
+
+- Windows installer: it's on your PATH; open a new terminal.
+- Windows zip: it's next to Cold Open.exe.
+- macOS: choose "Install the command-line tool" in the app's palette
+  (Ctrl+K or Cmd+K), or link it yourself:
+    ln -s "/Applications/Cold Open.app/Contents/MacOS/coldopen" ~/.local/bin/coldopen
+- .deb: /usr/bin/coldopen.
+- AppImage: run it as  ./ColdOpen-*.AppImage cli --help , or make a link
+  named coldopen to the AppImage.
+- Flatpak: flatpak run --command=coldopen io.github.theyungstump.coldopen
+
+
+Measuring performance
+---------------------
+
+"Measure performance" in the palette (or  coldopen bench  in a terminal)
+runs for about two minutes and writes two small files to your Downloads
+folder. They hold your computer's model names and the times, and nothing
+else. Please send them to us.
 
 
 What to try
@@ -42,23 +76,15 @@ What to try
    recovered. If it was never saved, the app offers it at start-up.
    Nothing that was on screen should be missing.
 4. Let an AI agent edit the open script. With Claude Code:
-       claude mcp add coldopen -- "/full/path/to/coldopen" mcp
+       claude mcp add coldopen -- coldopen mcp
    Then ask it to open the script you have open in the app and make a
    change. You see the edit appear, a violet bar marks the changed block,
-   and Ctrl+Z (Cmd+Z) undoes it. The status bar shows the agent while it
-   is connected, with Disconnect and a switch to turn agent access off.
+   and Ctrl+Z (Cmd+Z) undoes it.
 5. Export a PDF: Ctrl+Shift+E (Cmd+Shift+E).
-6. Open an .fdx file, edit it, save it with Ctrl+S and open it again:
-   it stays an .fdx file and nothing in it should be lost, including
-   what Cold Open doesn't show. Save as converts between Fountain and
-   .fdx by the extension you choose, and asks first about anything the
-   other format can't hold. "Save a copy as .fdx" and "Save a copy as
-   Fountain" are in the palette. A damaged .fdx file opens with a report
-   of what was repaired; "Repair an .fdx file" in the palette writes a
-   repaired copy and never changes the original.
-7. Recovered versions (palette, start screen, or the button in the
-   message after "Don't save"): changes Cold Open set aside instead of
-   deleting, with a preview. Restore opens one as a new script.
+6. Open an .fdx file, edit it, save it and open it again: it stays an
+   .fdx file, and nothing in it should be lost.
+7. Recovered versions (palette, or the start screen): changes Cold Open
+   set aside instead of deleting. Restore opens one as a new script.
 
 
 Settings and files
@@ -70,19 +96,19 @@ element flow) live in:
 - macOS: ~/Library/Application Support/Cold Open
 - Linux: ~/.config/coldopen
 
-Scripts you haven't saved yet live in an "Unsaved" folder next to them
-(%LOCALAPPDATA%\Cold Open\Unsaved on Windows), with a crash journal.
+Scripts you haven't saved yet live in an "Unsaved" folder
+(%LOCALAPPDATA%\Cold Open\Unsaved on Windows, ~/.local/share/coldopen on
+Linux), with a crash journal. Uninstalling leaves these alone.
 
-Drawing: Cold Open draws with the CPU on Windows and Linux and with the
-GPU on macOS. On a 4K screen the GPU is smoother; the CPU uses far less
-memory. Switch in the palette ("Draw with the GPU" or "Draw with the
-CPU"); it takes effect at the next start.
+A script in a folder Cold Open can't write to opens as a copy in
+"Unsaved"; use Save as to keep it somewhere else.
 
 
 Reporting a problem
 -------------------
 
-Say which system you used, what you did, and what you expected. If work
-went missing, look in Recovered versions first. Keep the "Unsaved" folder
-and any ".coldopen-journal" files next to your script (hidden on
-Windows): they hold what was typed.
+Say which system you used, what you did, and what you expected. "Copy
+version info" in About (palette) copies the version for you. If work went
+missing, look in Recovered versions first. Keep the "Unsaved" folder and
+any ".coldopen-journal" files next to your script (hidden on Windows):
+they hold what was typed.
