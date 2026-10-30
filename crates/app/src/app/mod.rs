@@ -165,6 +165,11 @@ pub enum Message {
     Compare(compare::CompareInput),
     /// A comparison worked out off the UI thread, by its token.
     Compared(u64, compare::Handoff<Result<compare::Compared, String>>),
+    /// A diff PDF written off the UI thread, or why not.
+    ComparePdfWritten(PathBuf, Result<(), String>),
+    /// The script's PDF exported off the UI thread: what `export.pdf`
+    /// returned, or why it failed.
+    Exported(PathBuf, Result<Value, String>),
     /// An import planned off the UI thread.
     ImportPlanned(compare::ImportPlanned),
     /// The worker's answer about the recent files: those it checked, and
@@ -421,6 +426,9 @@ pub struct App {
     /// A comparison or import being worked out off the UI thread
     /// (editor.md §21).
     pub working: Option<compare::Working>,
+    /// The PDF being written off the UI thread, the script's or a diff's,
+    /// by name (editor.md §11, §21).
+    pub pdf_writing: Option<String>,
     /// Numbers that work, so a stopped one's answer is let go.
     jobs: u64,
     /// Recent files found to be gone, as last checked (editor.md §11).
@@ -559,6 +567,7 @@ impl App {
             title_sheet: None,
             compare: None,
             working: None,
+            pdf_writing: None,
             jobs: 0,
             missing: std::collections::BTreeSet::new(),
             export: None,
@@ -1294,6 +1303,14 @@ impl App {
             Message::Chosen(ask, path) => self.chosen(ask, path),
             Message::Rendered(r) => self.rendered(r),
             Message::Compared(token, out) => self.compared(token, out),
+            Message::Exported(path, r) => {
+                self.exported(path, r);
+                Task::none()
+            }
+            Message::ComparePdfWritten(target, r) => {
+                self.compare_pdf_written(target, r);
+                Task::none()
+            }
             Message::ImportPlanned(p) => self.import_planned(p),
             Message::Saved(r) => self.saved(r),
             Message::Reply(r) => self.reply(r),

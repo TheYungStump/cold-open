@@ -900,7 +900,8 @@ impl App {
         let working = self
             .working
             .as_ref()
-            .map(|w| format!("{} Esc stops.", w.what));
+            .map(|w| format!("{} Esc stops.", w.what))
+            .or_else(|| self.pdf_writing.as_ref().map(|n| format!("Saving {n}…")));
         let (journal, jcolor) = match self.d.journal_status() {
             _ if self.saving.is_some() => ("Saving…".to_string(), pal.text_quiet),
             Some(st) if st.error.is_some() => ("Not protected".to_string(), pal.danger),

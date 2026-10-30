@@ -104,6 +104,97 @@ impl PreparedSave {
 /// (docs/specs/journal.md, "Saving off the UI thread"): a snapshot of the
 /// document and what the save needs to know about the session.
 #[derive(Clone, Debug)]
+/// An `export.pdf` ready to lay out and write on any thread
+/// ([`Dispatcher::export_pdf_prepare`]).
+pub struct PdfJob {
+    doc: Document,
+    format: FormatId,
+    style: SourceStyle,
+    target: PathBuf,
+    params: ExportPdf,
+}
+
+impl PdfJob {
+    /// Where the PDF goes.
+    pub fn target(&self) -> &Path {
+        &self.target
+    }
+
+    /// Lays the copy out, writes the PDF atomically, and returns what
+    /// `export.pdf` returns.
+    pub fn run(self) -> Result<Value, CommandError> {
+        let PdfJob {
+            doc,
+            format,
+            style,
+            target,
+            params: p,
+        } = self;
+        let session = Session::new(doc, None, format, style);
+        let options = coldopen_layout::Options {
+            scene_numbers: p.scene_numbers,
+            no_title_page: !p.title_page,
+            ..Default::default()
+        };
+        let (layout, map) = session.layout_as(&options, p.changes);
+        let fonts = coldopen_layout::Fonts::new()
+            .map_err(|e| CommandError::new("internal_error", format!("bundled fonts: {e}")))?;
+        let title = session.doc.title_page.get("title").map(|f| {
+            f.values
+                .iter()
+                .map(|v| v.plain_text())
+                .collect::<Vec<_>>()
+                .join(" ")
+        });
+        let out = coldopen_layout::pdf::write(
+            &layout,
+            &fonts,
+            &coldopen_layout::pdf::PdfOptions {
+                watermark: p.watermark.clone(),
+                title,
+                change_slots: session.doc.change_slots(),
+                revision_fills: match p.revision_pages {
+                    crate::command::RevisionPages::White => Default::default(),
+                    crate::command::RevisionPages::Colored => session
+                        .doc
+                        .revisions
+                        .sets
+                        .iter()
+                        .map(|s| (s.id.0, crate::revisions::shades(&s.color).paper))
+                        .collect(),
+                },
+            },
+        )
+        .map_err(|e| CommandError::new("internal_error", e.to_string()))?;
+        io::atomic_write(&target, &out.bytes).map_err(|e| CommandError::io(&target, &e))?;
+
+        let mut warnings: Vec<Value> = Vec::new();
+        for w in &out.warnings {
+            let message = match w.code {
+                "missing_glyph" => {
+                    "the bundled font has no glyph for these characters; they print as a box"
+                }
+                _ => "the bundled font has no glyph for these accents; they are left out",
+            };
+            warnings.push(json!({ "code": w.code, "message": message, "chars": w.chars }));
+        }
+        for d in &layout.diagnostics {
+            let id = d
+                .element
+                .and_then(|e| map.get(e))
+                .and_then(|&b| session.doc.blocks.get(b))
+                .map(|b| b.id);
+            warnings.push(json!({ "code": d.code, "message": d.message, "id": id }));
+        }
+        Ok(json!({
+            "path": target.display().to_string(),
+            "pages": out.pages,
+            "bytes": out.bytes.len(),
+            "warnings": warnings,
+        }))
+    }
+}
+
 pub struct SaveJob {
     doc: Document,
     style: SourceStyle,
@@ -1542,23 +1633,7 @@ impl Dispatcher {
             b_format,
             &crate::diff::default_name(&b_path),
         )?;
-        let marked = Session::new(doc, None, a_format, SourceStyle::default());
-        let (layout, _) = marked.layout_as(
-            &coldopen_layout::Options::default(),
-            crate::changes::PrintForm::Marked,
-        );
-        let fonts = coldopen_layout::Fonts::new()
-            .map_err(|e| CommandError::new("internal_error", format!("bundled fonts: {e}")))?;
-        let written = coldopen_layout::pdf::write(
-            &layout,
-            &fonts,
-            &coldopen_layout::pdf::PdfOptions {
-                change_slots: marked.doc.change_slots(),
-                ..Default::default()
-            },
-        )
-        .map_err(|e| CommandError::new("internal_error", e.to_string()))?;
-        io::atomic_write(&target, &written.bytes).map_err(|e| CommandError::io(&target, &e))?;
+        crate::diff::write_marked_pdf(doc, a_format, &target)?;
         out["pdf"] = json!(target.display().to_string());
         Ok(out)
     }
@@ -1650,6 +1725,14 @@ impl Dispatcher {
     }
 
     fn export_pdf(&mut self, p: ExportPdf, by: &Author) -> Result<Value, CommandError> {
+        self.export_pdf_prepare(p, by)?.run()
+    }
+
+    /// `export.pdf` in two steps (2026-10-30, phase 6a), as a save is: the
+    /// checks and a copy of the document here, then [`PdfJob::run`] on any
+    /// thread, which lays it out and writes it. The desktop app runs the
+    /// job on a worker, so a long script's export never holds typing.
+    pub fn export_pdf_prepare(&self, p: ExportPdf, by: &Author) -> Result<PdfJob, CommandError> {
         if p.overwrite && !by.is_writer() {
             return Err(writer_only("replace an existing file"));
         }
@@ -1683,67 +1766,13 @@ impl Dispatcher {
         if !p.overwrite && target.exists() {
             return Err(exists(&target));
         }
-        let options = coldopen_layout::Options {
-            scene_numbers: p.scene_numbers,
-            no_title_page: !p.title_page,
-            ..Default::default()
-        };
-        let (layout, map) = session.layout_as(&options, p.changes);
-        let fonts = coldopen_layout::Fonts::new()
-            .map_err(|e| CommandError::new("internal_error", format!("bundled fonts: {e}")))?;
-        let title = session.doc.title_page.get("title").map(|f| {
-            f.values
-                .iter()
-                .map(|v| v.plain_text())
-                .collect::<Vec<_>>()
-                .join(" ")
-        });
-        let out = coldopen_layout::pdf::write(
-            &layout,
-            &fonts,
-            &coldopen_layout::pdf::PdfOptions {
-                watermark: p.watermark.clone(),
-                title,
-                change_slots: session.doc.change_slots(),
-                revision_fills: match p.revision_pages {
-                    crate::command::RevisionPages::White => Default::default(),
-                    crate::command::RevisionPages::Colored => session
-                        .doc
-                        .revisions
-                        .sets
-                        .iter()
-                        .map(|s| (s.id.0, crate::revisions::shades(&s.color).paper))
-                        .collect(),
-                },
-            },
-        )
-        .map_err(|e| CommandError::new("internal_error", e.to_string()))?;
-        io::atomic_write(&target, &out.bytes).map_err(|e| CommandError::io(&target, &e))?;
-
-        let mut warnings: Vec<Value> = Vec::new();
-        for w in &out.warnings {
-            let message = match w.code {
-                "missing_glyph" => {
-                    "the bundled font has no glyph for these characters; they print as a box"
-                }
-                _ => "the bundled font has no glyph for these accents; they are left out",
-            };
-            warnings.push(json!({ "code": w.code, "message": message, "chars": w.chars }));
-        }
-        for d in &layout.diagnostics {
-            let id = d
-                .element
-                .and_then(|e| map.get(e))
-                .and_then(|&b| session.doc.blocks.get(b))
-                .map(|b| b.id);
-            warnings.push(json!({ "code": d.code, "message": d.message, "id": id }));
-        }
-        Ok(json!({
-            "path": target.display().to_string(),
-            "pages": out.pages,
-            "bytes": out.bytes.len(),
-            "warnings": warnings,
-        }))
+        Ok(PdfJob {
+            doc: session.doc.clone(),
+            format: session.format,
+            style: session.style.clone(),
+            target,
+            params: p,
+        })
     }
 
     /// `export.fdx` and `export.fountain`: a copy of the document in that
