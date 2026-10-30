@@ -92,6 +92,10 @@ tokio = { version = "1", default-features = false, features = ["rt", "sync", "ma
 # desktop portal on Linux (no GTK) and the system dialogs elsewhere.
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 
+# The bench's machine probe (docs/specs/bench.md §4): the OS, CPU and memory.
+# Already in the tree through iced's `sysinfo` feature, at this version.
+sysinfo = { version = "0.33", default-features = false, features = ["system"] }
+
 # Dev-only.
 proptest = "1.5"
 tempfile = "3.10"

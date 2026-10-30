@@ -97,6 +97,10 @@ pub const APP_ACTIONS: &[ActionInfo] = &[
         title: "About Cold Open and licenses",
     },
     ActionInfo {
+        name: "app.bench",
+        title: "Measure performance",
+    },
+    ActionInfo {
         name: "edit.cut",
         title: "Cut",
     },

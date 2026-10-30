@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.theyungstump.coldopen</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Cold Open</name>
+  <summary>Write screenplays that never lose work</summary>
+  <developer id="io.github.theyungstump">
+    <name>The Cold Open contributors</name>
+  </developer>
+  <description>
+    <p>
+      Cold Open is a free, open-source screenwriting app. It reads and writes
+      Fountain and .fdx files, paginates the same on every computer, and
+      journals every keystroke, so a crash costs nothing.
+    </p>
+    <p>
+      Every action is a command, reachable from the app, a command line, JSON
+      over stdio and an MCP server for AI agents.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.theyungstump.coldopen.desktop</launchable>
+  <url type="homepage">https://github.com/TheYungStump/cold-open</url>
+  <url type="bugtracker">https://github.com/TheYungStump/cold-open/issues</url>
+  <url type="vcs-browser">https://github.com/TheYungStump/cold-open</url>
+  <provides>
+    <binary>coldopen</binary>
+    <binary>coldopen-app</binary>
+    <mediatype>text/x-fountain</mediatype>
+    <mediatype>application/x-fdx</mediatype>
+    <mediatype>application/x-coldopen</mediatype>
+  </provides>
+  <categories>
+    <category>Office</category>
+    <category>WordProcessor</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="@VERSION@" date="@DATE@" type="development"/>
+  </releases>
+</component>

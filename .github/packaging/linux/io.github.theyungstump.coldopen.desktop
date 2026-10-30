@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Cold Open
+GenericName=Screenwriting
+Comment=Write screenplays in Fountain and .fdx
+Exec=coldopen-app %f
+Icon=io.github.theyungstump.coldopen
+Terminal=false
+Categories=Office;WordProcessor;
+Keywords=screenplay;script;fountain;fdx;screenwriting;
+MimeType=text/x-fountain;application/x-fdx;application/x-coldopen;
+StartupNotify=true
+StartupWMClass=coldopen-app

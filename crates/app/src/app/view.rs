@@ -289,6 +289,9 @@ impl App {
             self.recovery_view(pal, r)
         } else if let Some(r) = &self.repair {
             self.repair_view(pal, r)
+        } else if let Some(b) = &self.bench_run {
+            width = 760.0;
+            self.bench_view(pal, b)
         } else if self.reports.is_some() {
             return None;
         } else if let Some(s) = &self.recovered {

@@ -19,6 +19,7 @@ use serde_json::{Value, json};
 mod about_sheet;
 mod agents;
 mod bench;
+mod bench_sheet;
 mod changes;
 mod compare;
 mod copies;
@@ -150,6 +151,13 @@ pub enum Message {
     OpenLink(String),
     /// What the system says draws the window: its adapter and backend.
     SystemInfo(Option<(String, String)>),
+    /// The window's scale factor and its screen's size, for the bench.
+    BenchScale(f32),
+    BenchMonitor(Option<iced::Size>),
+    /// "Measure performance…": start, show the report's folder, close.
+    BenchStart,
+    BenchShow,
+    BenchClose,
     /// The title page sheet's fields and buttons (editor.md §19).
     Title(title::TitleInput),
     /// The compare view and the import question (editor.md §21).
@@ -422,6 +430,9 @@ pub struct App {
     about: about_sheet::AboutState,
     /// The adapter and backend drawing the window, once the system says.
     graphics: Option<(String, String)>,
+    /// "Measure performance…" (editor.md §22).
+    bench_run: Option<bench_sheet::BenchRun>,
+    bench_command: Option<(PathBuf, Vec<String>)>,
     /// Scripts with unsaved work from an earlier session (editor.md §11).
     pub leftover: Vec<PathBuf>,
     /// The agent link server, while agent access is on and a script is
@@ -468,6 +479,10 @@ pub struct Boot {
     pub exit_after_first_frame: Option<Instant>,
     /// Run a self-driving benchmark, report it and exit.
     pub bench: Option<Bench>,
+    /// What "Measure performance…" runs, with `--bench --progress` and
+    /// these arguments after them: this program by default (tests name
+    /// the built app and add `--quick`).
+    pub bench_command: Option<(PathBuf, Vec<String>)>,
 }
 
 fn coverage() -> Box<dyn coldopen_layout::Coverage> {
@@ -549,6 +564,8 @@ impl App {
             sheet: None,
             about: about_sheet::AboutState::default(),
             graphics: None,
+            bench_run: None,
+            bench_command: boot.bench_command.clone(),
             leftover: Vec::new(),
             link: None,
             link_path: None,
@@ -1171,6 +1188,7 @@ impl App {
                 if self.nav_stale {
                     self.refresh_nav();
                 }
+                self.bench_tick();
                 Task::none()
             }
             Message::Scrolled(vp) => {
@@ -1318,6 +1336,21 @@ impl App {
             }
             Message::SystemInfo(g) => {
                 self.graphics = g;
+                Task::none()
+            }
+            Message::BenchStart | Message::BenchShow | Message::BenchClose => {
+                self.bench_message(message)
+            }
+            Message::BenchScale(s) => {
+                if let Some(b) = &mut self.bench {
+                    b.scale = Some(s);
+                }
+                Task::none()
+            }
+            Message::BenchMonitor(s) => {
+                if let Some(b) = &mut self.bench {
+                    b.monitor = s;
+                }
                 Task::none()
             }
             Message::Title(input) => self.title_input(input),
@@ -1664,6 +1697,7 @@ impl App {
             || self.reports.is_some()
             || self.title_sheet.is_some()
             || self.compare.is_some()
+            || self.bench_run.is_some()
     }
 
     /// Keys for an open dialog (editor.md §11, §13): each button has a key,
@@ -1814,6 +1848,9 @@ impl App {
         if self.prompt.is_none()
             && let Some(t) = self.title_key(kp, esc)
         {
+            return t;
+        }
+        if let Some(t) = self.bench_key(kp, enter, esc) {
             return t;
         }
         if let Some(sheet) = self.sheet {
@@ -2164,6 +2201,10 @@ impl App {
             "app.review_draft" => return self.ask(Ask::ReviewDraft),
             "app.about" => {
                 self.about_open();
+                scroll = false;
+            }
+            "app.bench" => {
+                self.bench_open();
                 scroll = false;
             }
             "app.agent_access" => {

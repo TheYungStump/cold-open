@@ -1,0 +1,12 @@
+#!/bin/sh
+# The AppImage's entry point (docs/specs/release.md §3.5): the CLI when
+# started through a link named coldopen, or with `cli` first; else the app.
+here=$(dirname "$(readlink -f "$0")")
+case "$(basename "${ARGV0:-$0}")" in
+  coldopen) exec "$here/usr/bin/coldopen" "$@" ;;
+esac
+if [ "$1" = cli ]; then
+  shift
+  exec "$here/usr/bin/coldopen" "$@"
+fi
+exec "$here/usr/bin/coldopen-app" "$@"

@@ -17,11 +17,11 @@ The spec's budgets are release targets on every OS. CI runs on shared virtual ma
 ## 2. Running it
 
 - **From the app:** the palette entry **Measure performance…**. A sheet says what it will do and how long it takes (about two minutes), with **Start** (Enter) and Cancel (Esc). While it runs, the sheet shows each step. At the end it shows the summary, with **Show the report** (it opens the folder holding the two files) and Close.
-  - The open script is left alone. **Resolution:** the bench starts only with no unsaved changes, and asks to save or discard them first, as Close does. Its windows come and go during the run.
-- **From a terminal:** `coldopen-app --bench [--out FOLDER] [--quick]`. It prints the summary and the two file names, and exits with 0 when every budget passed, 1 when one was missed and 2 when the bench couldn't run.
+  - The open script is left alone: the bench runs as a child process (`coldopen-app --bench --progress`), whose windows use their own temporary folders. The app stays usable meanwhile, and Esc stops the bench.
+- **From a terminal:** `coldopen bench [--out FOLDER] [--quick]`, which runs the desktop app installed beside the CLI (`docs/specs/release.md` §4), or `coldopen-app --bench [--out FOLDER] [--quick]` directly. **Resolution:** on Windows the app is a windowed program, which a terminal doesn't show output from, so `coldopen bench` is the command to give testers there. It prints the summary and the two file names, and exits with 0 when every budget passed, 1 when one was missed and 2 when the bench couldn't run.
   - `--quick` runs fewer repetitions, for CI's smoke tests. Its numbers are not for judging budgets.
 - **Where the files go:** the user's Downloads folder, else the Desktop, else the current folder. `--out` overrides that.
-- **The files:** `coldopen-bench-<os>-<arch>-<yyyymmdd-hhmmss>.json` and `.txt` with the same name, using the local time. **Resolution:** two files of a few kilobytes. A tester attaches both, or just the JSON.
+- **The files:** `coldopen-bench-<os>-<arch>-<yyyymmdd-hhmmss>.json` and `.txt` with the same name. **Resolution:** the time is UTC, as in the report, so neither says where the tester lives. **Resolution:** two files of a few kilobytes. A tester attaches both, or just the JSON.
 
 ## 3. What it measures
 
@@ -37,7 +37,7 @@ Every run uses the synthetic feature script, `coldopen_layout::synthetic::featur
 | Journal write per edit, under 1 ms | 300 edits in the app's durability mode | p95 |
 | A save's time on the UI thread, under 4 ms | The snapshot, marker and commit of 21 saves each of the script as Fountain, .fdx and a project with tracked changes | p95 of each |
 | A whole save, under 50 ms | The same 21 saves end to end, the write and file sync included | Median of each (p95 reported) |
-| Memory with a feature script open, under 150 MB | Peak resident memory of a windowed run that scrolls through every page | The peak |
+| Memory with a feature script open, under 150 MB | Peak resident memory of a windowed run that scrolls through every page, a screen at a time (`COLDOPEN_BENCH=memory`). Peak on Windows and Linux; on macOS the size at the end, the most the OS reports without unsafe code | The peak |
 | The report view's scrolling, under 16 ms | Windowed, `COLDOPEN_BENCH=reports` | p95 |
 | Scrolling the pages | Windowed, `COLDOPEN_BENCH=scrolling` | p95 against 16 ms, for information (the spec has no scrolling budget) |
 

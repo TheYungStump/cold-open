@@ -35,6 +35,7 @@ rfd.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 unicode-width.workspace = true
+sysinfo.workspace = true
 # Inflates the third-party license list compiled into the About sheet.
 miniz_oxide.workspace = true
 

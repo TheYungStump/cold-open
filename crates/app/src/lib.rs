@@ -9,6 +9,7 @@
 pub mod about;
 pub mod actions;
 pub mod app;
+pub mod bench;
 pub mod editor;
 pub mod files;
 pub mod fonts;

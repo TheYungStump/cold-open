@@ -4,7 +4,23 @@
 use coldopen_app::app::{Bench, BenchKind};
 use coldopen_app::{App, Boot};
 
-fn main() -> iced::Result {
+fn main() -> std::process::ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    // The bench (docs/specs/bench.md): no window of its own; the app it
+    // measures runs as its children.
+    if args.first().is_some_and(|a| a == "--bench") {
+        return coldopen_app::bench::main(&args[1..]);
+    }
+    match app() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("Cold Open could not start: {e}");
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+fn app() -> iced::Result {
     let launched = std::time::Instant::now();
     choose_renderer();
     let file = std::env::args_os().nth(1).map(std::path::PathBuf::from);
@@ -44,13 +60,14 @@ fn main() -> iced::Result {
         .run()
 }
 
-/// `COLDOPEN_BENCH=typing|scrolling|reports` runs the self-driving benchmark,
+/// `COLDOPEN_BENCH=typing|scrolling|reports|memory` runs the self-driving benchmark,
 /// `COLDOPEN_BENCH_FRAMES` frames long (120 by default).
 fn bench() -> Option<Bench> {
     let kind = match std::env::var("COLDOPEN_BENCH").ok()?.as_str() {
         "typing" => BenchKind::Typing,
         "scrolling" => BenchKind::Scrolling,
         "reports" => BenchKind::Reports,
+        "memory" => BenchKind::Memory,
         _ => return None,
     };
     let frames = std::env::var("COLDOPEN_BENCH_FRAMES")
