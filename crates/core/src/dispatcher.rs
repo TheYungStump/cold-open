@@ -100,12 +100,9 @@ impl PreparedSave {
     }
 }
 
-/// A save in place taken on the UI thread, to be written out on another
-/// (docs/specs/journal.md, "Saving off the UI thread"): a snapshot of the
-/// document and what the save needs to know about the session.
-#[derive(Clone, Debug)]
 /// An `export.pdf` ready to lay out and write on any thread
 /// ([`Dispatcher::export_pdf_prepare`]).
+#[derive(Clone, Debug)]
 pub struct PdfJob {
     doc: Document,
     format: FormatId,
@@ -195,6 +192,10 @@ impl PdfJob {
     }
 }
 
+/// A save in place taken on the UI thread, to be written out on another
+/// (docs/specs/journal.md, "Saving off the UI thread"): a snapshot of the
+/// document and what the save needs to know about the session.
+#[derive(Clone, Debug)]
 pub struct SaveJob {
     doc: Document,
     style: SourceStyle,
