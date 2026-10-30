@@ -1,7 +1,7 @@
 """Writes THIRD-PARTY-LICENSES.txt from cargo-about's JSON
 (docs/specs/release.md §10):
 
-    cargo about generate --workspace --locked --format json --target <triple> \\
+    cargo about generate --workspace --locked --offline --fail --format json --target <triple> \\
         | python3 .github/packaging/third_party.py > THIRD-PARTY-LICENSES.txt
 
 Our own crates (path dependencies, with no `source`) are left out: their

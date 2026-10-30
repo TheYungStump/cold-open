@@ -41,9 +41,10 @@ jobs:
       - name: Generate, one file per target
         run: |
           mkdir -p third-party
+          cargo fetch --locked
           for t in x86_64-pc-windows-msvc aarch64-pc-windows-msvc aarch64-apple-darwin \
                    x86_64-apple-darwin x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
-            cargo about generate --workspace --locked --fail --format json --target "$t" \
+            cargo about generate --workspace --locked --offline --fail --format json --target "$t" \
               | python3 .github/packaging/third_party.py >"third-party/$t.txt"
           done
           wc -c third-party/*

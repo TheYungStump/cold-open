@@ -2,8 +2,12 @@
 # (docs/specs/release.md §10). A crate whose license is not accepted here
 # fails the build; read its license before adding one.
 #
-#   cargo about generate --workspace --locked --format json --target <triple> \
-#     | python3 .github/packaging/third_party.py > THIRD-PARTY-LICENSES.txt
+#   cargo fetch --locked
+#   cargo about generate --workspace --locked --offline --fail --format json \
+#     --target <triple> | python3 .github/packaging/third_party.py > THIRD-PARTY-LICENSES.txt
+#
+# --offline: every license text comes from the crates' own files, so the
+# output doesn't depend on a web service.
 
 # In order of preference, for crates that offer a choice.
 accepted = [
@@ -23,9 +27,6 @@ accepted = [
 # macros run at build time, and dev-dependencies only in tests.
 ignore-build-dependencies = true
 ignore-dev-dependencies = true
-# Every license text comes from the crate's own files, so the output does
-# not depend on a web service.
-no-clearly-defined = true
 
 # Our own crates (left out of the output by third_party.py).
 [coldopen-core]
