@@ -659,7 +659,7 @@ dependencies = [
 
 [[package]]
 name = "coldopen-app"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "coldopen-core",
  "coldopen-fonts",
@@ -679,7 +679,7 @@ dependencies = [
 
 [[package]]
 name = "coldopen-cli"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "clap",
  "coldopen-app",
@@ -697,7 +697,7 @@ dependencies = [
 
 [[package]]
 name = "coldopen-core"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "coldopen-diff",
  "coldopen-fdx",
@@ -718,7 +718,7 @@ dependencies = [
 
 [[package]]
 name = "coldopen-diff"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "coldopen-fountain",
  "coldopen-layout",
@@ -730,7 +730,7 @@ dependencies = [
 
 [[package]]
 name = "coldopen-fdx"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "coldopen-screenplay",
  "proptest",
@@ -741,11 +741,11 @@ dependencies = [
 
 [[package]]
 name = "coldopen-fonts"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 
 [[package]]
 name = "coldopen-fountain"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "coldopen-screenplay",
  "proptest",
@@ -754,7 +754,7 @@ dependencies = [
 
 [[package]]
 name = "coldopen-layout"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "coldopen-fdx",
  "coldopen-fonts",
@@ -773,7 +773,7 @@ dependencies = [
 
 [[package]]
 name = "coldopen-link"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "getrandom 0.3.4",
  "interprocess",
@@ -785,7 +785,7 @@ dependencies = [
 
 [[package]]
 name = "coldopen-mcp"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "coldopen-core",
  "coldopen-fountain",
@@ -799,7 +799,7 @@ dependencies = [
 
 [[package]]
 name = "coldopen-screenplay"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "schemars",
  "serde",

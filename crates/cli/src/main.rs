@@ -16,7 +16,7 @@ mod report;
 #[derive(Parser)]
 #[command(
     name = "coldopen",
-    version,
+    version = coldopen_core::build_info::VERSION_LINE,
     about = "Cold Open: a screenwriting app you can drive from the command line"
 )]
 struct Cli {
