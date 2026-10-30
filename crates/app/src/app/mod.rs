@@ -1890,9 +1890,8 @@ impl App {
     }
 
     /// The row of the scene holding the caret, or under a section, the
-    /// scene before it: what "This scene", the status bar and moving a
-    /// scene act on. A section's row is no scene (2026-10-28, review
-    /// finding AR10).
+    /// scene before it: what "This scene" and the status bar act on. A
+    /// section's row is no scene (2026-10-28, review finding AR10).
     fn current_scene_row(&self) -> Option<usize> {
         self.row_before_caret(|r| !r.section)
     }
@@ -2288,7 +2287,11 @@ impl App {
                     .motion(&mut self.d, Motion::NextScene, false, Pt::ZERO);
             }
             "nav.move_scene_up" | "nav.move_scene_down" => {
-                if let Some(i) = self.current_scene_row() {
+                // The selected row, only when it is a scene: a section's row
+                // moved the scene before it, which looked like the section
+                // moving the other way (2026-10-30). Sections are not dragged
+                // either.
+                if let Some(i) = self.current_row().filter(|&i| !self.nav[i].section) {
                     let scenes: Vec<usize> = (0..self.nav.len())
                         .filter(|&j| !self.nav[j].section)
                         .collect();

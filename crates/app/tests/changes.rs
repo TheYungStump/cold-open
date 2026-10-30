@@ -106,6 +106,17 @@ fn has_color(px: &[u8], c: iced::Color) -> bool {
         .any(|p| (0..3).all(|k| (i32::from(p[k]) - want[k]).abs() <= 2))
 }
 
+/// Whether `c` is drawn in the columns `xs` of a frame `width` pixels wide.
+fn has_color_in(px: &[u8], width: usize, xs: std::ops::Range<usize>, c: iced::Color) -> bool {
+    let want = [c.r, c.g, c.b].map(|v| (v * 255.0).round() as i32);
+    px.as_chunks::<4>()
+        .0
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| xs.contains(&(i % width)))
+        .any(|(_, p)| (0..3).all(|k| (i32::from(p[k]) - want[k]).abs() <= 2))
+}
+
 #[test]
 fn tracked_typing_shows_in_the_authors_color_in_each_theme() {
     for theme in [Choice::Light, Choice::Dark, Choice::HighContrast] {
@@ -769,9 +780,12 @@ fn a_pending_deleted_scene_keeps_its_row() {
 
 /// AR10: a section's row is not a scene. With the caret under a section,
 /// the scene is the one before it: "This scene" replaces in it rather than
-/// sending the section's id (`scene_not_found`), the status bar names it,
-/// and Alt+Down in the navigator moves it. A change under the section
-/// gets the section's row a dot (Antigravity's reproduction).
+/// sending the section's id (`scene_not_found`), and the status bar names
+/// it. A change under the section gets the section's row a dot
+/// (Antigravity's reproduction), drawn as well as recorded. In the
+/// navigator, Alt+Down moves the selected row only when it is a scene: on
+/// a section's row it moved the scene before, which looked like the
+/// section moving up (the project owner's manual test, 2026-10-30).
 #[test]
 fn ar10_a_section_row_is_not_a_scene() {
     let home = tempfile::tempdir().unwrap();
@@ -791,6 +805,14 @@ fn ar10_a_section_row_is_not_a_scene() {
     let rows = h.app.nav_rows();
     assert!(rows[1].section && rows[1].change.is_some(), "{rows:?}");
     assert!(rows[0].change.is_none() && rows[2].change.is_none());
+    // Only the section's row has a change, so the author's color in the
+    // navigator is its dot.
+    let blue = Palette::of(Choice::Light, false).changes[0];
+    let (size, px) = h.frame(1.0);
+    assert!(
+        has_color_in(&px, size.width as usize, 0..240, blue),
+        "no dot is drawn on the section's row"
+    );
 
     // Under the section, the scene is the one before it.
     assert_eq!(h.app.scene_row().map(|r| r.id), Some(ids[0]));
@@ -818,9 +840,14 @@ fn ar10_a_section_row_is_not_a_scene() {
         h.named(Named::Escape, Modifiers::empty());
     }
 
-    // From the section, Alt+Down moves the scene before it.
+    // On the section's row, Alt+Down moves nothing; on the scene's row, it
+    // moves the scene.
+    let before = texts(&h);
     h.app.editor.caret = Caret::at(ids[2], 0);
     h.app.focus = Focus::Navigator;
+    h.named(Named::ArrowDown, Modifiers::ALT);
+    assert_eq!(texts(&h), before);
+    h.app.editor.caret = Caret::at(ids[0], 0);
     h.named(Named::ArrowDown, Modifiers::ALT);
     let t = texts(&h);
     assert_eq!(t[t.len() - 2], "INT. LAB - NIGHT", "{t:?}");

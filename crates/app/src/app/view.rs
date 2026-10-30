@@ -808,19 +808,32 @@ impl App {
         for (i, r) in self.nav.iter().enumerate() {
             let selected = current == Some(i);
             let hovering = self.nav_drag.is_some() && self.nav_hover == Some(i);
+            // A row with pending changes has a dot in its first author's
+            // color, and one with revision marks a star (editor.md §7,
+            // §17.1, §18): a section's row too, for the blocks under it.
+            let dot = r.change.map_or(Color::TRANSPARENT, |c| {
+                crate::page_view::change_color(&pal, &slots, c.0)
+            });
+            let revised = text(if r.revised { "*" } else { "" })
+                .font(fonts::UI_BOLD)
+                .size(12)
+                .color(pal.text_quiet);
             let label = if r.section {
                 row![
+                    text("●").font(fonts::UI).size(9).color(dot),
                     text(r.heading.clone())
                         .font(fonts::UI_BOLD)
                         .size(12)
-                        .color(pal.text_quiet)
+                        .color(pal.text_quiet),
+                    revised,
                 ]
+                .spacing(6)
+                .align_y(Center)
                 .padding([0, 4 * u16::from(r.depth.saturating_sub(1))])
             } else {
                 let page = r.page.map_or_else(String::new, |p| p.to_string());
                 let fg = if selected { pal.accent_text } else { pal.text };
-                // A deleted heading is struck; a scene with pending changes
-                // has a dot in its first author's color (editor.md §17.1).
+                // A deleted heading is struck.
                 let heading: Element<'_, Message> = if r.deleted {
                     container(super::changes::struck(ellipsize(&r.heading, 24), 13.0, fg))
                         .width(Fill)
@@ -834,9 +847,6 @@ impl App {
                         .width(Fill)
                         .into()
                 };
-                let dot = r.change.map_or(Color::TRANSPARENT, |c| {
-                    crate::page_view::change_color(&pal, &slots, c.0)
-                });
                 row![
                     text(r.number.clone())
                         .font(fonts::UI)
@@ -845,11 +855,7 @@ impl App {
                         .width(Length::Fixed(22.0)),
                     text("●").font(fonts::UI).size(9).color(dot),
                     heading,
-                    // A scene with revision marks (editor.md §18).
-                    text(if r.revised { "*" } else { "" })
-                        .font(fonts::UI_BOLD)
-                        .size(12)
-                        .color(pal.text_quiet),
+                    revised,
                     text(page).font(fonts::UI).size(12).color(pal.text_quiet),
                 ]
                 .spacing(6)
