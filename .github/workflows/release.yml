@@ -1,0 +1,95 @@
+name: Release
+
+# A release (docs/specs/release.md §2): every package for every target,
+# with SHA256SUMS.txt and the release notes.
+# - A tag v<version> publishes it, marked a pre-release when the version
+#   has a "-" (0.1.0-alpha.1). The tag must match Cargo.toml.
+# - Run by hand (Actions > Release > Run workflow) on any branch, it makes
+#   a private draft named rehearsal-<run>, to check before tagging.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  version:
+    name: version matches the tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: v
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::the tag $GITHUB_REF_NAME doesn't match Cargo.toml's version $version"
+            exit 1
+          fi
+          if [ ! -f "docs/release-notes/v$version.md" ]; then
+            echo "::error::no release notes: docs/release-notes/v$version.md"
+            exit 1
+          fi
+
+  build:
+    needs: version
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
+
+  publish:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    # Only this job can write to the repository: it makes the release.
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: packages-*
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd dist
+          ls -l
+          sha256sum -- * | sort -k2 >SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Release notes, with the files' sizes
+        run: |
+          cp "docs/release-notes/v$VERSION.md" notes.md
+          {
+            echo
+            echo "## Files"
+            echo
+            echo "| File | Size |"
+            echo "| --- | --- |"
+            for f in dist/*; do
+              [ "$(basename "$f")" = SHA256SUMS.txt ] && continue
+              echo "| $(basename "$f") | $(awk -v b="$(wc -c <"$f")" 'BEGIN { printf "%.1f MB", b / 1000000 }') |"
+            done
+            echo
+            echo "Check a download with \`sha256sum -c SHA256SUMS.txt --ignore-missing\` (Linux), \`shasum -a 256 -c SHA256SUMS.txt --ignore-missing\` (macOS) or \`Get-FileHash\` (Windows)."
+          } >>notes.md
+      - name: Publish (tag) or draft (by hand)
+        run: |
+          args=(--title "Cold Open $VERSION" --notes-file notes.md)
+          case "$VERSION" in *-*) args+=(--prerelease) ;; esac
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            gh release create "$GITHUB_REF_NAME" "${args[@]}" dist/*
+          else
+            gh release create "rehearsal-$GITHUB_RUN_NUMBER" --draft --target "$GITHUB_SHA" \
+              --title "Rehearsal: Cold Open $VERSION" --notes-file notes.md \
+              $(case "$VERSION" in *-*) echo --prerelease ;; esac) dist/*
+          fi
