@@ -1,7 +1,7 @@
 # The desktop editor
 
 - **Date:** 2026-10-15, updated 2026-10-16
-- **Status:** implemented in `crates/app` (phase 3); the 2026-10-16 changes come from the reviews of phases 1–3; phase 4 (2026-10-16) added .fdx files, the repair report, Recovered versions and one command router (§16). Phase 5a (2026-10-18) added bundles and track changes (§17). Phase 5b (2026-10-22) adds production revisions (§18), the title page editor (§19), reports (§20), comparing drafts (§21) and missing recent files (§11); being implemented.
+- **Status:** implemented in `crates/app` (phase 3); the 2026-10-16 changes come from the reviews of phases 1–3; phase 4 (2026-10-16) added .fdx files, the repair report, Recovered versions and one command router (§16). Phase 5a (2026-10-18) added bundles and track changes (§17). Phase 5b (2026-10-22) adds production revisions (§18), the title page editor (§19), reports (§20), comparing drafts (§21) and missing recent files (§11). Phase 6a (2026-10-30) adds §22: About, the bench, the command-line tool on macOS and folders that can't be written.
 - **Sources:**
   - `docs/spec.md`: Writing, Structure and navigation, Comfort, Reliability.
   - The phase 3 brief and its approved decisions (2026-10-15).
@@ -504,4 +504,29 @@ Added 2026-10-22 (phase 5b; `docs/specs/diff.md`).
 
 - **Compare with…** (palette) asks for a draft (.fountain, .fdx or .coldopen), then runs `diff` with the open script as A, as it stands now, and the draft as B. It opens a read-only view in place of the page area: B's pages with the changes marked as the diff PDF marks them, and a list of the changed scenes on the left, in place of the navigator. Up and Down choose a scene, Enter scrolls to it, "Save as PDF…" (Mod+Shift+E in the view) writes the diff PDF, and Esc closes the view. The open script is not changed, and nothing can be typed into the view. **Resolution (2026-10-26):** the pages are A with B brought in, as the diff PDF is (`docs/specs/diff.md` §4.3), so restyled blocks and changed attributes, which cannot be tracked, show in the list but not on the pages.
 - **Review a draft as changes…** (palette) asks for a draft and the name its changes should carry, prefilled with the file's name, then sends `changes.import` and opens the changes panel (§17.3). What could not be brought in as changes (styles, attributes, the title page) is listed in a notice, and the draft itself is never changed.
-- **Off the UI thread** (2026-10-28, review finding CL7). Both read and compare the draft on a worker thread, as a save is written (§11), so the editor never waits: a long script compared as one unit took seconds. Meanwhile the status bar says "Comparing with b.fdx… Esc stops.", the script can be edited, and Esc stops waiting; an answer that comes after that is let go. A draft brought in is planned on the script as it was when asked; if it was edited meanwhile, it is planned again, once. "Save as PDF…" in the view still writes on the UI thread.
+- **Off the UI thread** (2026-10-28, review finding CL7). Both read and compare the draft on a worker thread, as a save is written (§11), so the editor never waits: a long script compared as one unit took seconds. Meanwhile the status bar says "Comparing with b.fdx… Esc stops.", the script can be edited, and Esc stops waiting; an answer that comes after that is let go. A draft brought in is planned on the script as it was when asked; if it was edited meanwhile, it is planned again, once. Until 2026-10-30, "Save as PDF…" in the view wrote on the UI thread.
+- **"Save as PDF…" off the UI thread** (2026-10-30, phase 6a). The diff PDF is laid out and written on a worker thread too.
+  - The status bar says "Saving the PDF…". The view stays open and can be scrolled.
+  - Esc closes the view, but the PDF is still written. A banner names it when it's done, or gives the error.
+  - A second "Save as PDF…" while one is being written waits for it.
+
+## 22. Release builds
+
+Added 2026-10-30 (phase 6a; `docs/specs/release.md`, `docs/specs/bench.md`).
+
+- **About Cold Open** (palette; also Help in the start screen's links).
+  - **The top of the sheet:**
+    - the version and commit (`docs/specs/release.md` §9), the build's target, and the renderer drawing the window;
+    - a link to the source code at that commit;
+    - **Copy version info** (C), which puts those lines on the clipboard for a bug report.
+  - **Licenses**, in a scrolling list of sections, each opened with Enter: Cold Open (GPL-3.0-or-later, with the notice), the format and layout libraries (MIT or Apache-2.0), the fonts (SIL OFL 1.1), and third-party crates (`release.md` §10).
+  - **Room for 6b:** rows for the user guide and for sending feedback appear when the build names their addresses. 6a's builds name neither, so neither row shows.
+  - Links open in the system's browser.
+- **Measure performance…** (palette): the bench (`docs/specs/bench.md` §2).
+- **Install the command-line tool** (palette, macOS only): `docs/specs/release.md` §3.3.
+- **A script in a folder that can't be written** (the project owner's decision, 2026-10-30).
+  - When `doc.open` fails with `folder_read_only`, the app opens the script as an untitled copy instead: `Unsaved/<name> (copy).<ext>`, or `(copy 2)` and so on if that name is taken. It is made from the file's bytes, then opened like any script in `Unsaved/`, with its own journal. Recovery, the repair report and the recent files work as for any open; the copy is what's listed.
+  - A banner stays until closed: "<folder> can't be written, so this is a copy. Save as… to keep it somewhere else."
+  - Mod+S opens Save as, as for any untitled script. The original is never written to.
+  - **Resolution:** if `Unsaved/` itself can't be written either, the open fails with the error's message, as any failed open does.
+- **The renderer falls back.** A writer who chooses the GPU renderer on a computer where it can't start gets the CPU renderer (`release.md` §6). The About sheet then says "CPU (the GPU renderer could not start)".
