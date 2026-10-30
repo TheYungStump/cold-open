@@ -117,8 +117,8 @@ The same files as the installer, in one folder: `Cold Open.exe`, `coldopen.exe` 
 
 ### 3.6 Flatpak
 
-- **A bundle file** (`flatpak build-bundle`), built with `flatpak-builder` from `.github/packaging/linux/io.github.theyungstump.coldopen.yml`, on the `org.freedesktop.Platform` runtime.
-- **Resolution:** the manifest installs the same release binaries the other Linux packages hold, so all three run identical code. Flathub requires a build from source; that is for a later phase.
+- **A bundle file** (`flatpak build-bundle`), on the `org.freedesktop.Platform` 25.08 runtime, made with Flatpak's own build commands (`build-init`, `build-finish`, `build-export`) in `package.sh`.
+- **Resolution:** it holds the same release binaries the other Linux packages hold, so all three run identical code. `flatpak-builder` builds from a manifest, and the builder adds nothing for prebuilt binaries. Also, Ubuntu 22.04's builder calls a tool the 25.08 SDK no longer has, and Flathub's builder can't see the runner's SDK from its sandbox (CI, 2026-10-30). Flathub requires a manifest and a build from source; that is for a later phase.
 - **Permissions:**
 
   | Permission | Why |

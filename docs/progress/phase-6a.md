@@ -41,7 +41,7 @@ Phase 6 is split in two. **6a** (this phase) builds installable packages for eve
 11. **Installer tool:** Inno Setup 6, per user (`PrivilegesRequired=lowest`). The CLI goes in `bin\` on the user's PATH (a task, ticked by default). It offers "Open with" for `.fountain` and `.fdx`, and is the default only for `.coldopen`.
 12. **macOS:** one universal dmg if under 15 MB, else one per architecture, decided by the packaging step. The CLI sits inside the bundle, and the palette's **Install the command-line tool** links it into `/usr/local/bin` or `~/.local/bin`, never over another program's file.
 13. **macOS file associations:** Finder sends a double-clicked document as an Apple Event, which iced and winit don't expose. Handling it would need a small `unsafe` objc2 delegate, so per the plan it is a known issue in the release notes, not done without the owner's approval. The app starts; the file needs Open.
-14. **Linux:** builds on Ubuntu 22.04 (glibc 2.35). The .deb is built with `dpkg-deb` and `dpkg-shlibdeps` and names the window libraries winit loads at run time. The AppImage uses appimagetool 1.9.1 and runtime 20251108, pinned by SHA-256. The Flatpak installs the same binaries on freedesktop 25.08.
+14. **Linux:** builds on Ubuntu 22.04 (glibc 2.35). The .deb is built with `dpkg-deb` and `dpkg-shlibdeps` and names the window libraries winit loads at run time. The AppImage uses appimagetool 1.9.1 and runtime 20251108, pinned by SHA-256. The Flatpak holds the same binaries on freedesktop 25.08, made with flatpak's own build commands (flatpak-builder failed on CI twice; release.md §3.6).
 15. **The window icon** is the 64-pixel PNG, decoded with `miniz_oxide`, which the app already has, rather than iced's image feature. Wayland gets the app id `io.github.theyungstump.coldopen`.
 16. **The package readme** is `.github/packaging/TESTING.txt`, rewritten for the alpha and shipped as `README.txt`. **`measure.py`** is no longer used by CI, since the bench replaces it. It is left in place until the owner says to remove it.
 
@@ -54,7 +54,7 @@ Phase 6 is split in two. **6a** (this phase) builds installable packages for eve
 | `miniz_oxide`, named directly | app, and its build script | The third-party list compiled in deflated, and the window icon. Already in the tree | MIT OR Zlib OR Apache-2.0 |
 | `winresource` 0.1 | app's build script, Windows only | The .exe's icon and version details | MIT |
 | cargo-about 0.9.3 (CI tool) | CI | The third-party license file | MIT OR Apache-2.0 |
-| Inno Setup 6, appimagetool 1.9.1, the AppImage type2 runtime, flatpak-builder (CI tools) | CI | The installers and packages | Inno Setup License (free), MIT, MIT, LGPL-2.1+ (build tools only, nothing shipped from them except the AppImage runtime, MIT) |
+| Inno Setup 6, appimagetool 1.9.1, the AppImage type2 runtime (CI tools) | CI | The installers and packages; the Flatpak uses flatpak's own commands | Inno Setup License (free), MIT, MIT (only the AppImage runtime is shipped, inside the AppImage) |
 
 ## Measurements
 

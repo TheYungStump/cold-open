@@ -70,7 +70,8 @@ windows_pack() {
   cp -r "$stage/licenses" "$zipdir/"
   (cd "dist/stage/zip-$arch" && 7z a -tzip -mx=9 "../../ColdOpen-$version-windows-$arch.zip" "Cold Open" >/dev/null)
   local iscc="${ISCC:-/c/Program Files (x86)/Inno Setup 6/ISCC.exe}"
-  "$iscc" /Q "/DAppVersion=$version" "/DNumVersion=${version%%-*}.0" "/DArch=$arch" \
+  # Git Bash would turn the /D… switches into paths.
+  MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' "$iscc" /Q "/DAppVersion=$version" "/DNumVersion=${version%%-*}.0" "/DArch=$arch" \
     "/DStage=$(cygpath -w "$root/$stage")" "/DOut=$(cygpath -w "$root/dist")" \
     "$(cygpath -w "$here/windows/coldopen.iss")"
 }
@@ -226,21 +227,22 @@ linux_appimage() {
 }
 
 linux_flatpak() {
+  # Flatpak's own build commands, which put the release binaries in /app
+  # as they are: no build from source, so no flatpak-builder (whose
+  # Ubuntu 22.04 version calls a tool the 25.08 SDK no longer has, and
+  # whose Flathub version can't see the runner's SDK from its sandbox).
   local arch=$1 bin=$2
   local work=dist/stage/flatpak-$arch
   rm -rf "$work"
-  mkdir -p "$work/files/icons"
-  cp "$bin/coldopen-app" "$bin/coldopen" "$work/files/"
-  cp "$here/linux/$id.desktop" "$here/linux/$id.xml" "$work/files/"
-  sed -e "s/@VERSION@/$version/" -e "s/@DATE@/$(date -u +%Y-%m-%d)/" \
-    "$here/linux/$id.metainfo.xml" >"$work/files/$id.metainfo.xml"
-  cp "$here"/icon/png/*.png "$work/files/icons/"
-  licenses "$work/files/licenses"
-  cp "$here/linux/$id.yml" "$work/"
-  # The builder from Flathub: the one Ubuntu 22.04 ships calls
-  # appstream-compose, which the 25.08 SDK no longer has.
-  (cd "$work" && flatpak run org.flatpak.Builder --user --force-clean --disable-rofiles-fuse \
-    --repo=repo build "$id.yml" >/dev/null)
+  flatpak build-init "$work/build" "$id" org.freedesktop.Sdk org.freedesktop.Platform 25.08
+  # The build folder's files/ is /app inside the sandbox.
+  linux_tree "$work/build/files" "$bin"
+  licenses "$work/build/files/share/licenses/$id"
+  # The permissions (release.md §3.6).
+  flatpak build-finish "$work/build" --command=coldopen-app \
+    --share=ipc --socket=wayland --socket=fallback-x11 --device=dri \
+    --filesystem=home --filesystem=xdg-run/coldopen:create >/dev/null
+  flatpak build-export "$work/repo" "$work/build" >/dev/null
   flatpak build-bundle --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo \
     "$work/repo" "dist/ColdOpen-$version-$arch.flatpak" "$id"
 }
