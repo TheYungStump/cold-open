@@ -67,11 +67,11 @@ The app's identifier is `io.github.theyungstump.coldopen` everywhere an OS asks 
 - **The CLI on PATH:** a task, ticked by default, adds `<install>\bin` to the user's `Path` (HKCU\Environment). Uninstalling takes it out again. Programs started after the install see it.
 - **File associations** (§5), under `HKCU\Software\Classes`.
 - **Uninstall** (Settings ▸ Apps) removes the installed files, shortcuts, PATH entry and associations. It never touches the writer's folders (§6), scripts, journals or set-aside copies.
-- **Upgrades:** a newer installer over an older one replaces the files in place and keeps the settings. If the app is running, the installer asks the writer to close it first.
+- **Upgrades:** a newer installer over an older one replaces the files in place and keeps the settings. If the app is running, the installer offers to close it. **Resolution (2026-10-31, the project owner's manual test):** iced's window doesn't answer the request Windows' Restart Manager sends, so the installer ends the app when asking fails (`CloseApplications=force`). Nothing is lost: every keystroke is already in the crash journal, and the next start recovers it as after any crash. CI installs over a running app on every pull request.
 
 ### 3.2 Windows zip
 
-The same files as the installer, in one folder: `Cold Open.exe`, `coldopen.exe` (next to it, not in `bin`), `licenses\` and `README.txt`. It has no shortcuts, associations or PATH entry. The readme says how to add the folder to PATH. The app keeps its settings in the usual folders (§6). **Resolution:** a portable mode that keeps settings beside the exe is not in 6a; `COLDOPEN_HOME` already gives one for those who want it.
+The same files as the installer, in one folder named `ColdOpen` (no space, so a terminal path needs no quoting; 2026-10-31): `Cold Open.exe`, `coldopen.exe` (next to it, not in `bin`), `licenses\` and `README.txt`. It has no shortcuts, associations or PATH entry. The readme says how to add the folder to PATH. The app keeps its settings in the usual folders (§6). **Resolution:** a portable mode that keeps settings beside the exe is not in 6a; `COLDOPEN_HOME` already gives one for those who want it.
 
 ### 3.3 macOS disk image
 

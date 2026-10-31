@@ -55,8 +55,11 @@ SolidCompression=yes
 WizardStyle=modern
 ChangesEnvironment=yes
 ChangesAssociations=yes
-; Asks the writer to close a running Cold Open before replacing it.
-CloseApplications=yes
+; Offers to close a running Cold Open before replacing it, and ends it if
+; asking fails: iced's window doesn't answer Windows' Restart Manager (the
+; project owner's manual test, 2026-10-31). Nothing is lost, since every
+; keystroke is already in the crash journal, as after any crash.
+CloseApplications=force
 RestartApplications=no
 
 [Tasks]

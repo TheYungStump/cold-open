@@ -181,8 +181,26 @@ jobs:
         if: matrix.arch == 'x64'
         run: |
           app=$(cygpath -u "$APP")
-          "$app/bin/coldopen.exe" bench --quick --out bench || [ $? -eq 1 ]
+          "$app/bin/coldopen.exe" bench --quick --out bench >bench.out || [ $? -eq 1 ]
+          cat bench.out
+          # The app's summary comes back through coldopen (the manual test of
+          # 2026-10-31 found it lost).
+          grep -q "Cold Open bench:" bench.out
           ls bench
+      # An upgrade while Cold Open runs: the installer closes it (or ends it,
+      # release.md §3.1) and installs over it.
+      - name: Install again over the running app
+        shell: pwsh
+        run: |
+          $running = Start-Process -PassThru -FilePath "$env:APP\Cold Open.exe"
+          Start-Sleep -Seconds 5
+          if ($running.HasExited) { Write-Error "the app didn't stay open"; exit 1 }
+          $setup = Get-ChildItem dist/*-setup.exe | Select-Object -First 1
+          $p = Start-Process -Wait -PassThru -FilePath $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CLOSEAPPLICATIONS','/TASKS=addtopath','/LOG=upgrade.log'
+          if ($p.ExitCode -ne 0) { Get-Content upgrade.log; exit 1 }
+          Start-Sleep -Seconds 2
+          if (-not $running.HasExited) { Get-Content upgrade.log; Write-Error "the installer left the app running"; exit 1 }
+          Select-String -Path upgrade.log -Pattern "close|Restart Manager" | Select-Object -First 10
       - name: Uninstall
         shell: pwsh
         run: |

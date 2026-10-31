@@ -62,13 +62,15 @@ windows_stage() {
 windows_pack() {
   local arch=$1
   local stage=dist/stage/windows-$arch
-  local zipdir=dist/stage/zip-$arch/"Cold Open"
+  # No space in the folder name, so a terminal path to coldopen.exe
+  # needs no quoting (the project owner's manual test, 2026-10-31).
+  local zipdir=dist/stage/zip-$arch/ColdOpen
   rm -rf "dist/stage/zip-$arch"
   mkdir -p "$zipdir"
   # The zip has the CLI beside the app (release.md §3.2).
   cp "$stage/Cold Open.exe" "$stage/bin/coldopen.exe" "$stage/README.txt" "$zipdir/"
   cp -r "$stage/licenses" "$zipdir/"
-  (cd "dist/stage/zip-$arch" && 7z a -tzip -mx=9 "../../ColdOpen-$version-windows-$arch.zip" "Cold Open" >/dev/null)
+  (cd "dist/stage/zip-$arch" && 7z a -tzip -mx=9 "../../ColdOpen-$version-windows-$arch.zip" ColdOpen >/dev/null)
   local iscc="${ISCC:-/c/Program Files (x86)/Inno Setup 6/ISCC.exe}"
   # Git Bash would turn the /D… switches into paths.
   MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' "$iscc" /Q "/DAppVersion=$version" "/DNumVersion=${version%%-*}.0" "/DArch=$arch" \

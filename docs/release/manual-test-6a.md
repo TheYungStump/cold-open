@@ -1,5 +1,14 @@
 # Manual test: phase 6a, the alpha's packages
 
+**Results of the first run (2026-10-31, the project owner, 83b44f7):**
+- **The bench (§5) passed every budget**, quick and full. These two reports are the Windows gate, in `docs/progress/phase-6a-bench/`.
+- **Four findings, all fixed:**
+  - `coldopen bench` printed nothing in a terminal (§5);
+  - the installer couldn't close a running Cold Open (§8);
+  - the zip's folder had a space in its name (§9);
+  - this list's own PowerShell commands were wrong (§9).
+- **OneDrive (§7) is untested:** OneDrive is off and full on the test PC. The retest is §5 step 6, §8 and §9.
+
 For the project owner, on the Windows PC. About 45 minutes.
 
 **Before you start**
@@ -67,7 +76,7 @@ Record each result as **pass** or **fail**, with what you saw. A screenshot help
    - Nothing in either file names you, this PC, a folder or a script.
 5. **Send me both files.** They go into the final report as the Windows gate.
 6. Also try `coldopen bench --quick` in a terminal.
-7. **Expected:** the same summary printed in the terminal, and two more files in Downloads.
+7. **Expected:** the steps and the same summary printed in the terminal (fixed 2026-10-31: before, nothing was printed), and two more files in Downloads.
 
 ## 6. A folder that can't be written
 
@@ -96,7 +105,7 @@ Record each result as **pass** or **fail**, with what you saw. A screenshot help
 2. **Expected:**
    - It installs over the first one without asking for a folder.
    - Your settings (theme, recent files) are still there afterwards.
-   - If Cold Open was open, the installer asks you to close it first.
+   - If Cold Open was open, the installer offers to close it, and does: it asks the app first, and ends it if that fails. Type a line in an untitled script before you run the installer. When Cold Open starts again, it offers that script back, line included.
 3. Settings ▸ Apps ▸ Installed apps ▸ Cold Open ▸ Uninstall.
 4. **Expected:**
    - `%LOCALAPPDATA%\Programs\Cold Open` is gone.
@@ -106,9 +115,10 @@ Record each result as **pass** or **fail**, with what you saw. A screenshot help
 
 ## 9. The zip
 
-1. Unzip `ColdOpen-0.1.0-alpha.1-windows-x64.zip` to `C:\ColdOpenTest\zip`.
-2. Double-click `Cold Open.exe`.
-3. **Expected:**
-   - It starts like the installed one.
-   - `C:\ColdOpenTest\zip\Cold Open\coldopen.exe --version` works.
-   - `coldopen bench --quick`, run from that folder, finds the app beside it.
+1. Unzip `ColdOpen-0.1.0-alpha.1-windows-x64.zip` to `C:\ColdOpenTest\zip`. It holds one folder, `ColdOpen` (no space since 2026-10-31).
+2. Double-click `Cold Open.exe` in it.
+3. **Expected:** it starts like the installed one.
+4. In PowerShell, run `C:\ColdOpenTest\zip\ColdOpen\coldopen.exe --version`.
+5. **Expected:** the version and commit.
+6. `cd C:\ColdOpenTest\zip\ColdOpen`, then run `.\coldopen bench --quick`. PowerShell needs the `.\` for a program in the current folder.
+7. **Expected:** it finds the app beside it, and prints the steps and the summary in the terminal.

@@ -43,7 +43,9 @@ coldopen converts, exports, compares and repairs scripts, and runs an MCP
 server for AI agents (coldopen mcp). Type coldopen --help for the list.
 
 - Windows installer: it's on your PATH; open a new terminal.
-- Windows zip: it's next to Cold Open.exe.
+- Windows zip: it's next to Cold Open.exe. In PowerShell, from that
+  folder, run it as  .\coldopen --help  (PowerShell doesn't run
+  programs from the current folder by name alone).
 - macOS: choose "Install the command-line tool" in the app's palette
   (Ctrl+K or Cmd+K), or link it yourself:
     ln -s "/Applications/Cold Open.app/Contents/MacOS/coldopen" ~/.local/bin/coldopen

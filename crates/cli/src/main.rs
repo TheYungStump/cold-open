@@ -508,7 +508,7 @@ fn eighths(n: u64) -> String {
 /// §2), with its output here.
 fn bench(out: Option<&Path>, quick: bool) -> Result<ExitCode, String> {
     let app = find_app().ok_or(
-        "the desktop app was not found next to this command; run the bench from the app          instead (Measure performance… in the palette), or with coldopen-app --bench",
+        "the desktop app was not found next to this command; run the bench from the app          instead (Measure performance in the palette), or with coldopen-app --bench",
     )?;
     let mut cmd = std::process::Command::new(&app);
     cmd.arg("--bench");
@@ -518,9 +518,33 @@ fn bench(out: Option<&Path>, quick: bool) -> Result<ExitCode, String> {
     if quick {
         cmd.arg("--quick");
     }
-    let status = cmd
-        .status()
+    // The app's output comes back through here: on Windows it is a windowed
+    // program, which can't write to a console it was handed, so its lines
+    // would be lost (the project owner's manual test, 2026-10-31).
+    let mut child = cmd
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .map_err(|e| format!("could not start {}: {e}", app.display()))?;
+    let relay_err = child.stderr.take().map(|e| {
+        std::thread::spawn(move || {
+            for line in io::BufReader::new(e).lines().map_while(Result::ok) {
+                eprintln!("{line}");
+            }
+        })
+    });
+    if let Some(o) = child.stdout.take() {
+        let mut out = io::stdout();
+        for line in io::BufReader::new(o).lines().map_while(Result::ok) {
+            let _ = writeln!(out, "{line}");
+            let _ = out.flush();
+        }
+    }
+    if let Some(t) = relay_err {
+        let _ = t.join();
+    }
+    let status = child.wait().map_err(|e| e.to_string())?;
     Ok(match status.code() {
         Some(0) => ExitCode::SUCCESS,
         Some(1) => ExitCode::from(1),

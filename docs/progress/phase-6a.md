@@ -108,7 +108,34 @@ The reports are in `docs/progress/phase-6a-bench/`. CI's runners are shared virt
 
 ### Real machines
 
-Pending: the owner's Windows report and the Mac tester's.
+**Windows: the project owner's PC, 2026-10-31.** The installed build of 83b44f7, on Windows 11 Home, an i9-13900K, an RTX 4090 and a 1920×1080 screen. The full bench passes every budget (`coldopen-bench-windows-x86_64-20261031-011219`), and so does the quick run (`…011458`):
+
+| Budget | Result | Limit |
+| --- | --- | --- |
+| Open a 120-page script | 42.6 ms | 200 ms |
+| Full repagination | 22.1 ms | 50 ms |
+| Journal write (p95) | 0.010 ms | 1 ms |
+| Save on the UI thread (p95: Fountain, .fdx, project) | 2.0, 1.1, 1.2 ms | 4 ms |
+| Whole save (median) | 19.6, 8.7, 10.8 ms | 50 ms |
+| Cold start | 143 ms | 1 s |
+| Keystroke to screen (p95, CPU) | 9.3 ms | 16 ms |
+| Report view scrolling (p95, CPU) | 6.1 ms | 16 ms |
+| Memory | 79 MiB | 150 MB |
+
+With the GPU renderer (Vulkan), for comparison: typing p95 7.5 ms, scrolling 1.8 ms, the report view 0.7 ms.
+
+**macOS:** the Mac tester's report is pending; it doesn't block the merge.
+
+## The project owner's manual test (2026-10-31, 83b44f7)
+
+The bench passed. Four findings, all fixed in the next commit:
+
+1. **`coldopen bench` printed nothing in a terminal**, though the files were written. On Windows the app is a windowed program, which can't write to the console it is handed. The CLI now reads the app's output and prints it. CI checks that the summary comes back.
+2. **The installer couldn't close a running Cold Open.** iced's window doesn't answer Windows' Restart Manager. The installer now ends the app when asking fails (`CloseApplications=force`), which loses nothing, since every keystroke is in the journal. CI installs over a running app on every pull request.
+3. **The zip's folder was "Cold Open"**, so a terminal path to `coldopen.exe` needed quoting. It is `ColdOpen` now.
+4. **The manual test's own commands** left out PowerShell's `& "…"` and `.\`. Fixed, and the package readme says to use `.\coldopen`.
+
+**OneDrive (§7) wasn't tested:** OneDrive is off, and full, on the test PC. The synced-folder protections rest on the Windows tests that hold a file as a sync client does (`core/tests/synced_folder.rs`), and on the rename retry, which has been in place since phase 3.
 
 ## Checks
 
