@@ -574,3 +574,66 @@ fn convert_to_and_from_fdx() {
     ]);
     assert!(o.status.success());
 }
+
+/// One version everywhere (docs/specs/release.md §9): `--version`, the MCP
+/// server's `serverInfo`, and the files a session writes.
+#[test]
+fn every_surface_reports_the_one_version() {
+    let version = coldopen_core::build_info::VERSION;
+    assert_eq!(version, env!("CARGO_PKG_VERSION"));
+
+    let out = coldopen(&["--version"]);
+    assert!(out.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        format!("coldopen {}", coldopen_core::build_info::VERSION_LINE)
+    );
+
+    let mut mcp = Command::new(BIN)
+        .arg("mcp")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let init = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+        "protocolVersion": "2025-06-18", "capabilities": {},
+        "clientInfo": {"name": "version-test", "version": "1"}}});
+    let mut stdin = mcp.stdin.take().unwrap();
+    writeln!(stdin, "{init}").unwrap();
+    stdin.flush().unwrap();
+    let mut line = String::new();
+    BufReader::new(mcp.stdout.take().unwrap())
+        .read_line(&mut line)
+        .unwrap();
+    drop(stdin);
+    let _ = mcp.wait();
+    let reply: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(reply["result"]["serverInfo"]["version"], version, "{reply}");
+
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("v.fountain");
+    let bundle = dir.path().join("v.coldopen");
+    // The journal is locked while the server runs; unsaved work keeps it
+    // after the server ends.
+    let mut srv = Server::start();
+    srv.call("doc.new", json!({"path": s(&p)}));
+    srv.call(
+        "block.insert",
+        json!({"type": "action", "text": "Unsaved."}),
+    );
+    drop(srv.stdin.take());
+    assert!(srv.child.wait().unwrap().success());
+    let journal = fs::read_to_string(coldopen_core::journal::path_for(&p)).unwrap();
+    let header: Value = serde_json::from_str(journal.lines().next().unwrap()).unwrap();
+    assert_eq!(header["app"], version);
+    let mut srv = Server::start();
+    srv.call("doc.open", json!({"path": s(&p)}));
+    srv.call("doc.save", json!({"path": s(&bundle)}));
+    drop(srv.stdin.take());
+    assert!(srv.child.wait().unwrap().success());
+    assert_eq!(
+        coldopen_core::bundle::written_by(&fs::read(&bundle).unwrap()).as_deref(),
+        Some(version)
+    );
+}

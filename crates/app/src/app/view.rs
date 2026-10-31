@@ -289,6 +289,9 @@ impl App {
             self.recovery_view(pal, r)
         } else if let Some(r) = &self.repair {
             self.repair_view(pal, r)
+        } else if let Some(b) = &self.bench_run {
+            width = 760.0;
+            self.bench_view(pal, b)
         } else if self.reports.is_some() {
             return None;
         } else if let Some(s) = &self.recovered {
@@ -299,6 +302,9 @@ impl App {
             let revised = self.d.session().is_some_and(|s| s.doc.has_revision_data());
             export_view(pal, f, marks, revised)
         } else {
+            if self.sheet == Some(Sheet::About) {
+                width = 760.0;
+            }
             self.sheet_view(pal, self.sheet?)
         };
         let card = container(content)
@@ -569,35 +575,7 @@ impl App {
                 .spacing(10)
                 .into()
             }
-            Sheet::About => column![
-                title(pal, format!("Cold Open {}", env!("CARGO_PKG_VERSION"))),
-                body(
-                    pal,
-                    "Free software under the GNU General Public License, version 3 or \
-                     later. The format and layout libraries are also available under the \
-                     MIT or Apache-2.0 licenses."
-                ),
-                hint(
-                    pal,
-                    "Bundled fonts: Courier Prime for the page, and Atkinson Hyperlegible \
-                     Next (subset to Latin) for the interface, both under the SIL Open Font \
-                     License 1.1:"
-                ),
-                scrollable(
-                    text(format!(
-                        "Courier Prime\n\n{}\n\nAtkinson Hyperlegible Next\n\n{}",
-                        coldopen_fonts::LICENSE,
-                        coldopen_fonts::UI_LICENSE
-                    ))
-                    .font(fonts::PAGE)
-                    .size(11)
-                    .color(pal.text)
-                )
-                .height(Length::Fixed(300.0)),
-                hint(pal, "Esc: close"),
-            ]
-            .spacing(10)
-            .into(),
+            Sheet::About => self.about_view(pal),
         }
     }
 
@@ -922,7 +900,8 @@ impl App {
         let working = self
             .working
             .as_ref()
-            .map(|w| format!("{} Esc stops.", w.what));
+            .map(|w| format!("{} Esc stops.", w.what))
+            .or_else(|| self.pdf_writing.as_ref().map(|n| format!("Saving {n}…")));
         let (journal, jcolor) = match self.d.journal_status() {
             _ if self.saving.is_some() => ("Saving…".to_string(), pal.text_quiet),
             Some(st) if st.error.is_some() => ("Not protected".to_string(), pal.danger),

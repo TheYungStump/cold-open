@@ -2,7 +2,13 @@
 
 Cold Open is a free, open-source screenwriting app. It reads and writes Fountain and Final Draft (.fdx) files and never loses your work. Every action is a command, and you can drive it from the desktop app, the command line, JSON over stdio, or an MCP server.
 
-**Status:** phase 3 of 6: the desktop editor and the MCP server, on top of the core, the command-line tool, pagination and PDF export. Full .fdx support comes next. See [`docs/spec.md`](docs/spec.md) for the full plan, and [`docs/progress/phase-3.md`](docs/progress/phase-3.md) for where phase 3 stands.
+**Status:** alpha. Phases 1 to 5 built the editor, the command line, the MCP server, .fdx exchange, track changes, revisions, script diff and reports; phase 6a makes the builds a writer installs. See [`docs/spec.md`](docs/spec.md) for the plan and [`docs/progress/`](docs/progress/) for each phase.
+
+## Install
+
+Alpha builds for Windows (x64 and ARM64), macOS (Apple Silicon and Intel) and Linux (x86-64 and ARM64; .deb, AppImage and Flatpak) are on the [releases page](https://github.com/TheYungStump/cold-open/releases). Each download is under 15 MB. They aren't signed by Microsoft or notarized by Apple yet; the release notes say how to get past the first-start warning on each system. The command-line tool `coldopen` comes with the app on every system (`docs/specs/release.md` §4).
+
+To help us measure Cold Open on your computer, choose **Measure performance** in the palette, or run `coldopen bench`, and send us the two small files it writes to your Downloads folder ([`docs/specs/bench.md`](docs/specs/bench.md)). They hold model names and times, and nothing personal.
 
 ## Build
 
@@ -14,7 +20,7 @@ cargo build --release
 
 This builds two programs in `target/release`: `coldopen-app`, the desktop app, and `coldopen`, the command-line tool, which also runs the MCP server. Both run on Windows, macOS and Linux (`.exe` on Windows). On Linux the app needs X11 or Wayland, and libxkbcommon, at run time.
 
-Test builds for every OS, unsigned, come from CI: open a run of the CI workflow on the `phase-3-editor-mcp` branch and download the `cold-open-<os>` artifact. Each has a `TESTING.txt` that says how to start it and what to try.
+Packages for every system are built by CI (`.github/workflows/build.yml`, `.github/packaging/package.sh`); every pull request's run has them under Summary ▸ Artifacts.
 
 ## Use the desktop app
 

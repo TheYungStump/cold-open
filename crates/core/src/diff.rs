@@ -386,6 +386,35 @@ fn with_before(mut p: Value, before: Option<Value>) -> Value {
     p
 }
 
+/// Writes the diff PDF (§4.3) of a document [`marked`] made: laid out in
+/// the marked print form and written atomically to `target`. It needs no
+/// dispatcher, so the app runs it on a worker thread (2026-10-30,
+/// docs/specs/editor.md §21); the `diff` command checks the target first.
+pub fn write_marked_pdf(
+    marked: Document,
+    format: FormatId,
+    target: &Path,
+) -> Result<(), CommandError> {
+    let marked =
+        crate::session::Session::new(marked, None, format, crate::io::SourceStyle::default());
+    let (layout, _) = marked.layout_as(
+        &coldopen_layout::Options::default(),
+        crate::changes::PrintForm::Marked,
+    );
+    let fonts = coldopen_layout::Fonts::new()
+        .map_err(|e| CommandError::new("internal_error", format!("bundled fonts: {e}")))?;
+    let written = coldopen_layout::pdf::write(
+        &layout,
+        &fonts,
+        &coldopen_layout::pdf::PdfOptions {
+            change_slots: marked.doc.change_slots(),
+            ..Default::default()
+        },
+    )
+    .map_err(|e| CommandError::new("internal_error", e.to_string()))?;
+    crate::io::atomic_write(target, &written.bytes).map_err(|e| CommandError::io(target, &e))
+}
+
 /// B with the changes marked (§4.3): A, accepted, with B brought in as the
 /// tracked changes of a writer called `name`. Built for printing and
 /// showing only; never saved or journaled.

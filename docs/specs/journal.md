@@ -244,6 +244,15 @@ Without a journal, a missing file fails with `io_error` as before.
 
 Because such a journal is the only copy of the work, `doc.new` never starts over on top of it (2026-10-16): `doc.new` at a path whose journal holds anything fails with `already_exists` and leaves the journal untouched.
 
+**A folder that can't be written** (2026-10-30, phase 6a; the project owner's decision).
+- **The error.** When no journal exists for the file and one can't be created beside it, `doc.open` fails with `folder_read_only`, with `details.path` naming the script, and changes nothing. That covers a read-only folder or file system, no permission, or a synced or network folder refusing new files.
+- **Why it refuses.** Until now such an open failed with `io_error`. Opening the script without a journal would let a writer type work that no crash could bring back, so the open is refused rather than run unjournaled.
+- **The app** opens the script as an untitled copy instead (`docs/specs/editor.md` §22).
+- **The CLI and MCP server** return the error. Its message says to copy the script somewhere writable, or to open it in the app.
+- **An existing journal** that can be read but not written is still `io_error`. It may hold work, and it is left as it is.
+- **`doc.new`** at a path in such a folder fails with `folder_read_only` the same way.
+- **Save as** (`doc.save` with a path) into such a folder fails with `folder_read_only` too, before anything is written, since the journal moves with the script. The app says so, and the script keeps its own file.
+
 ## Damaged originals
 
 Added 2026-10-16 (phase 4). An .fdx file that the reader had to repair (`docs/specs/fdx.md` §9, §17) may hold something the repair could not keep. So the first save in place of a document opened with a `repaired` report does this before anything else is written:

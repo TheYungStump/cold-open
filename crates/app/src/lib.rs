@@ -6,12 +6,15 @@
     deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
 )]
 
+pub mod about;
 pub mod actions;
 pub mod app;
+pub mod bench;
 pub mod editor;
 pub mod files;
 pub mod fonts;
 pub mod headless;
+pub mod icon;
 pub mod keymap;
 pub mod link;
 pub mod page_view;

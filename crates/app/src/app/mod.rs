@@ -16,13 +16,16 @@ use iced::widget::scrollable;
 use iced::{Subscription, Task, Theme};
 use serde_json::{Value, json};
 
+mod about_sheet;
 mod agents;
 mod bench;
+mod bench_sheet;
 mod changes;
 mod compare;
 mod copies;
 mod file_ops;
 mod recent;
+mod report_lines;
 mod reports;
 mod revisions;
 mod router;
@@ -141,12 +144,32 @@ pub enum Message {
     ReportScrolled(scrollable::Viewport),
     /// The report view's Close button.
     ReportClose,
+    /// The About sheet's tabs, its license text scrolled, "Copy version
+    /// info", and a link clicked (editor.md §22).
+    AboutTab(crate::about::AboutTab),
+    AboutScrolled(scrollable::Viewport),
+    CopyVersionInfo,
+    OpenLink(String),
+    /// What the system says draws the window: its adapter and backend.
+    SystemInfo(Option<(String, String)>),
+    /// The window's scale factor and its screen's size, for the bench.
+    BenchScale(f32),
+    BenchMonitor(Option<iced::Size>),
+    /// "Measure performance…": start, show the report's folder, close.
+    BenchStart,
+    BenchShow,
+    BenchClose,
     /// The title page sheet's fields and buttons (editor.md §19).
     Title(title::TitleInput),
     /// The compare view and the import question (editor.md §21).
     Compare(compare::CompareInput),
     /// A comparison worked out off the UI thread, by its token.
     Compared(u64, compare::Handoff<Result<compare::Compared, String>>),
+    /// A diff PDF written off the UI thread, or why not.
+    ComparePdfWritten(PathBuf, Result<(), String>),
+    /// The script's PDF exported off the UI thread: what `export.pdf`
+    /// returned, or why it failed.
+    Exported(PathBuf, Result<Value, String>),
     /// An import planned off the UI thread.
     ImportPlanned(compare::ImportPlanned),
     /// The worker's answer about the recent files: those it checked, and
@@ -403,12 +426,22 @@ pub struct App {
     /// A comparison or import being worked out off the UI thread
     /// (editor.md §21).
     pub working: Option<compare::Working>,
+    /// The PDF being written off the UI thread, the script's or a diff's,
+    /// by name (editor.md §11, §21).
+    pub pdf_writing: Option<String>,
     /// Numbers that work, so a stopped one's answer is let go.
     jobs: u64,
     /// Recent files found to be gone, as last checked (editor.md §11).
     pub missing: std::collections::BTreeSet<PathBuf>,
     pub export: Option<ExportForm>,
     pub sheet: Option<Sheet>,
+    /// The About sheet's tab and scrolling (editor.md §22).
+    about: about_sheet::AboutState,
+    /// The adapter and backend drawing the window, once the system says.
+    graphics: Option<(String, String)>,
+    /// "Measure performance…" (editor.md §22).
+    bench_run: Option<bench_sheet::BenchRun>,
+    bench_command: Option<(PathBuf, Vec<String>)>,
     /// Scripts with unsaved work from an earlier session (editor.md §11).
     pub leftover: Vec<PathBuf>,
     /// The agent link server, while agent access is on and a script is
@@ -455,6 +488,10 @@ pub struct Boot {
     pub exit_after_first_frame: Option<Instant>,
     /// Run a self-driving benchmark, report it and exit.
     pub bench: Option<Bench>,
+    /// What "Measure performance…" runs, with `--bench --progress` and
+    /// these arguments after them: this program by default (tests name
+    /// the built app and add `--quick`).
+    pub bench_command: Option<(PathBuf, Vec<String>)>,
 }
 
 fn coverage() -> Box<dyn coldopen_layout::Coverage> {
@@ -530,10 +567,15 @@ impl App {
             title_sheet: None,
             compare: None,
             working: None,
+            pdf_writing: None,
             jobs: 0,
             missing: std::collections::BTreeSet::new(),
             export: None,
             sheet: None,
+            about: about_sheet::AboutState::default(),
+            graphics: None,
+            bench_run: None,
+            bench_command: boot.bench_command.clone(),
             leftover: Vec::new(),
             link: None,
             link_path: None,
@@ -584,7 +626,10 @@ impl App {
         } else {
             Task::none()
         };
-        (app, task)
+        // Which renderer and GPU draw the window, for the About sheet.
+        let info = iced::system::information()
+            .map(|i| Message::SystemInfo(Some((i.graphics_adapter, i.graphics_backend))));
+        (app, Task::batch([task, info]))
     }
 
     /// An editor for a document just opened or created, with the writer's
@@ -721,6 +766,26 @@ impl App {
                 });
                 return;
             }
+            // A folder that can't be written: the script opens as a copy in
+            // Unsaved/, journaled there (editor.md §22).
+            Err(e) if e.code == "folder_read_only" => match self.copy_to_unsaved(path) {
+                Ok(copy) => {
+                    let folder = path.parent().unwrap_or(path);
+                    self.banners.push(
+                            format!(
+                                "{} can't be written, so this is a copy. Save as… to keep it somewhere else.",
+                                folder.display()
+                            )
+                            .into(),
+                        );
+                    self.open_with(&copy, recover);
+                    return;
+                }
+                Err(why) => {
+                    self.banners.push(format!("{} {why}", e.message).into());
+                    None
+                }
+            },
             Err(e) => {
                 self.banners.push(e.message.into());
                 None
@@ -750,6 +815,62 @@ impl App {
             None if self.d.session().is_none() => self.new_script(),
             None => {}
         }
+    }
+
+    /// "Install the command-line tool" (macOS; docs/specs/release.md §3.3):
+    /// links the bundle's `coldopen` into `/usr/local/bin` or
+    /// `~/.local/bin`, and says how to reach it.
+    fn install_cli(&mut self) {
+        #[cfg(unix)]
+        {
+            let cli = std::env::current_exe()
+                .ok()
+                .and_then(|e| e.parent().map(|d| d.join("coldopen")))
+                .filter(|c| c.is_file());
+            let Some(cli) = cli else {
+                self.banners
+                    .push("The command-line tool isn't beside the app in this build.".into());
+                return;
+            };
+            let home = std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_default();
+            let dirs = [PathBuf::from("/usr/local/bin"), home.join(".local/bin")];
+            let path = std::env::var_os("PATH").unwrap_or_default();
+            match crate::files::install_cli(&cli, &dirs, &path) {
+                Ok((link, true)) => self.banners.push(
+                    format!("Installed: coldopen is at {}. Open a new terminal to use it.", link.display())
+                        .into(),
+                ),
+                Ok((link, false)) => self.banners.push(
+                    format!(
+                        "Installed coldopen at {}. Add its folder to PATH: echo 'export PATH=\"{}:$PATH\"' >> ~/.zprofile",
+                        link.display(),
+                        link.parent().map_or_else(String::new, |p| p.display().to_string())
+                    )
+                    .into(),
+                ),
+                Err(e) => self.banners.push(format!("Couldn't install coldopen: {e}").into()),
+            }
+        }
+        #[cfg(not(unix))]
+        self.banners
+            .push("On this system the installer puts coldopen on PATH.".into());
+    }
+
+    /// Copies a script into `Unsaved/` under a free name, for a script
+    /// whose own folder can't be written.
+    fn copy_to_unsaved(&self, path: &Path) -> Result<PathBuf, String> {
+        let dirs = self
+            .dirs
+            .as_ref()
+            .ok_or("There's no folder for a copy either.")?;
+        std::fs::create_dir_all(dirs.unsaved())
+            .map_err(|e| format!("A copy couldn't be made: {e}"))?;
+        let copy =
+            crate::files::copy_path(dirs, path, "copy").ok_or("A copy couldn't be named.")?;
+        std::fs::copy(path, &copy).map_err(|e| format!("A copy couldn't be made: {e}"))?;
+        Ok(copy)
     }
 
     fn save_settings(&mut self) {
@@ -1153,6 +1274,7 @@ impl App {
                 if self.nav_stale {
                     self.refresh_nav();
                 }
+                self.bench_tick();
                 Task::none()
             }
             Message::Scrolled(vp) => {
@@ -1257,6 +1379,14 @@ impl App {
             Message::Chosen(ask, path) => self.chosen(ask, path),
             Message::Rendered(r) => self.rendered(r),
             Message::Compared(token, out) => self.compared(token, out),
+            Message::Exported(path, r) => {
+                self.exported(path, r);
+                Task::none()
+            }
+            Message::ComparePdfWritten(target, r) => {
+                self.compare_pdf_written(target, r);
+                Task::none()
+            }
             Message::ImportPlanned(p) => self.import_planned(p),
             Message::Saved(r) => self.saved(r),
             Message::Reply(r) => self.reply(r),
@@ -1285,6 +1415,38 @@ impl App {
                 self.after_change(false)
             }
             Message::ReportRow(i) => self.reports_go(i),
+            Message::AboutTab(t) => self.about_tab(t),
+            Message::AboutScrolled(v) => {
+                self.about_scrolled(v);
+                Task::none()
+            }
+            Message::CopyVersionInfo => self.copy_version_info(),
+            Message::OpenLink(url) => {
+                if let Err(e) = crate::files::open_link(&url) {
+                    self.banners
+                        .push(format!("Couldn't open {url}: {e}").into());
+                }
+                Task::none()
+            }
+            Message::SystemInfo(g) => {
+                self.graphics = g;
+                Task::none()
+            }
+            Message::BenchStart | Message::BenchShow | Message::BenchClose => {
+                self.bench_message(message)
+            }
+            Message::BenchScale(s) => {
+                if let Some(b) = &mut self.bench {
+                    b.scale = Some(s);
+                }
+                Task::none()
+            }
+            Message::BenchMonitor(s) => {
+                if let Some(b) = &mut self.bench {
+                    b.monitor = s;
+                }
+                Task::none()
+            }
             Message::Title(input) => self.title_input(input),
             Message::Compare(input) => self.compare_input(input),
             Message::RecentChecked { checked, missing } => {
@@ -1629,6 +1791,7 @@ impl App {
             || self.reports.is_some()
             || self.title_sheet.is_some()
             || self.compare.is_some()
+            || self.bench_run.is_some()
     }
 
     /// Keys for an open dialog (editor.md §11, §13): each button has a key,
@@ -1781,7 +1944,16 @@ impl App {
         {
             return t;
         }
+        if let Some(t) = self.bench_key(kp, enter, esc) {
+            return t;
+        }
         if let Some(sheet) = self.sheet {
+            if sheet == Sheet::About
+                && !esc
+                && let Some(t) = self.about_key(kp)
+            {
+                return t;
+            }
             if esc || enter {
                 self.sheet = None;
             } else if sheet == Sheet::History && cmd && ch == "z" {
@@ -2122,7 +2294,15 @@ impl App {
             "app.compare" => return self.ask(Ask::Compare),
             "app.review_draft" => return self.ask(Ask::ReviewDraft),
             "app.about" => {
-                self.sheet = Some(Sheet::About);
+                self.about_open();
+                scroll = false;
+            }
+            "app.bench" => {
+                self.bench_open();
+                scroll = false;
+            }
+            "app.install_cli" => {
+                self.install_cli();
                 scroll = false;
             }
             "app.agent_access" => {

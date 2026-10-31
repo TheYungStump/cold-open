@@ -1,0 +1,43 @@
+# cargo-about: the third-party licenses shipped with every build
+# (docs/specs/release.md §10). A crate whose license is not accepted here
+# fails the build; read its license before adding one.
+#
+#   cargo fetch --locked
+#   cargo about generate --workspace --locked --offline --fail --format json \
+#     --target <triple> | python3 .github/packaging/third_party.py > THIRD-PARTY-LICENSES.txt
+#
+# --offline: every license text comes from the crates' own files, so the
+# output doesn't depend on a web service.
+
+# In order of preference, for crates that offer a choice.
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "BSL-1.0",
+    "Unicode-3.0",
+    "CC0-1.0",
+]
+# Only code compiled into the programs: build scripts and procedural
+# macros run at build time, and dev-dependencies only in tests.
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+
+# Our own crates (left out of the output by third_party.py).
+[coldopen-core]
+accepted = ["GPL-3.0-or-later"]
+[coldopen-cli]
+accepted = ["GPL-3.0-or-later"]
+[coldopen-app]
+accepted = ["GPL-3.0-or-later"]
+[coldopen-mcp]
+accepted = ["GPL-3.0-or-later"]
+[coldopen-link]
+accepted = ["GPL-3.0-or-later"]
+[coldopen-fonts]
+accepted = ["OFL-1.1"]

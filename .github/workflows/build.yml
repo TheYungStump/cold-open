@@ -1,0 +1,365 @@
+name: Build
+
+# Every package for every target (docs/specs/release.md): built, sized,
+# installed and started where a runner allows it. ci.yml calls this on
+# every pull request and push; release.yml calls it for a release. It can
+# also be run by hand on a branch (Actions > Build > Run workflow).
+on:
+  workflow_call:
+    inputs:
+      linux_only:
+        description: Build Linux x86-64 only (branch pushes).
+        type: boolean
+        default: false
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # The commit every program names (release.md §9).
+  # A pull request builds a merge commit; name the branch's head instead.
+  COLDOPEN_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # The third-party license file for each target (release.md §10), which
+  # each build compiles into the app and ships beside it. cargo-about fails
+  # on a license about.toml doesn't accept.
+  licenses:
+    name: third-party licenses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about@0.9.3
+      - name: Generate, one file per target
+        run: |
+          mkdir -p third-party
+          cargo fetch --locked
+          for t in x86_64-pc-windows-msvc aarch64-pc-windows-msvc aarch64-apple-darwin \
+                   x86_64-apple-darwin x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
+            cargo about generate --workspace --locked --offline --fail --format json --target "$t" \
+              | python3 .github/packaging/third_party.py >"third-party/$t.txt"
+          done
+          wc -c third-party/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: third-party
+          path: third-party
+          if-no-files-found: error
+
+  windows:
+    name: windows (${{ matrix.arch }})
+    if: ${{ !inputs.linux_only }}
+    needs: licenses
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - arch: arm64
+            os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    env:
+      COLDOPEN_THIRD_PARTY: ${{ github.workspace }}/third-party/${{ matrix.target }}.txt
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - uses: actions/download-artifact@v5
+        with:
+          name: third-party
+          path: third-party
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }} -p coldopen-app -p coldopen-cli
+      - name: Stage
+        run: bash .github/packaging/package.sh windows-stage ${{ matrix.arch }} ${{ matrix.target }}
+
+      # Signing is one switch (release.md §8): the repository variable
+      # WINDOWS_SIGNING=signpath, with SIGNPATH_API_TOKEN and the SignPath
+      # ids. Unset, the build ships unsigned.
+      - name: Upload the exes for signing
+        if: vars.WINDOWS_SIGNING == 'signpath'
+        id: unsigned-exes
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-exes-${{ matrix.arch }}
+          path: |
+            dist/stage/windows-${{ matrix.arch }}/Cold Open.exe
+            dist/stage/windows-${{ matrix.arch }}/bin/coldopen.exe
+      - name: Sign the exes
+        if: vars.WINDOWS_SIGNING == 'signpath'
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          artifact-configuration-slug: exes
+          github-artifact-id: ${{ steps.unsigned-exes.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: dist/stage/windows-${{ matrix.arch }}
+
+      - name: Inno Setup
+        run: |
+          if [ ! -x "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" ]; then
+            choco install innosetup -y --no-progress
+          fi
+      - name: Zip and installer
+        run: bash .github/packaging/package.sh windows-pack ${{ matrix.arch }}
+
+      - name: Upload the installer for signing
+        if: vars.WINDOWS_SIGNING == 'signpath'
+        id: unsigned-setup
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-setup-${{ matrix.arch }}
+          path: dist/*-setup.exe
+      - name: Sign the installer
+        if: vars.WINDOWS_SIGNING == 'signpath'
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          artifact-configuration-slug: installer
+          github-artifact-id: ${{ steps.unsigned-setup.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: dist
+
+      - name: Sizes (15,000,000 bytes each)
+        run: bash .github/packaging/package.sh sizes
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-windows-${{ matrix.arch }}
+          path: |
+            dist/*.exe
+            dist/*.zip
+          if-no-files-found: error
+
+      # Install as a writer would, with no administrator rights.
+      - name: Install
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem dist/*-setup.exe | Select-Object -First 1
+          $p = Start-Process -Wait -PassThru -FilePath $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TASKS=addtopath','/LOG=install.log'
+          if ($p.ExitCode -ne 0) { Get-Content install.log; exit 1 }
+          $app = "$env:LOCALAPPDATA\Programs\Cold Open"
+          foreach ($f in "Cold Open.exe", "bin\coldopen.exe", "licenses\THIRD-PARTY-LICENSES.txt", "README.txt") {
+            if (-not (Test-Path "$app\$f")) { Write-Error "missing $f"; exit 1 }
+          }
+          $path = (Get-ItemProperty HKCU:\Environment).Path
+          if ($path -notlike "*$app\bin*") { Write-Error "coldopen is not on the user's PATH: $path"; exit 1 }
+          foreach ($k in "ColdOpen.fountain", "ColdOpen.fdx", "ColdOpen.coldopen") {
+            if (-not (Test-Path "HKCU:\Software\Classes\$k\shell\open\command")) { Write-Error "no $k"; exit 1 }
+          }
+          if ((Get-ItemProperty "HKCU:\Software\Classes\.coldopen").'(default)' -ne 'ColdOpen.coldopen') { Write-Error ".coldopen is not ours"; exit 1 }
+          (Get-Item "$app\Cold Open.exe").VersionInfo | Format-List ProductName, ProductVersion
+          "APP=$app" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+      - name: Start the installed programs
+        run: |
+          app=$(cygpath -u "$APP")
+          bash .github/packaging/smoke.sh cli "$app/bin/coldopen.exe"
+          bash .github/packaging/smoke.sh app "$app/Cold Open.exe"
+          bash .github/packaging/smoke.sh fallback "$app/Cold Open.exe"
+      - name: The bench, quick, through the installed coldopen
+        if: matrix.arch == 'x64'
+        run: |
+          app=$(cygpath -u "$APP")
+          "$app/bin/coldopen.exe" bench --quick --out bench >bench.out || [ $? -eq 1 ]
+          cat bench.out
+          # The app's summary comes back through coldopen (the manual test of
+          # 2026-10-31 found it lost).
+          grep -q "Cold Open bench:" bench.out
+          ls bench
+      # An upgrade while Cold Open runs: the installer closes it (or ends it,
+      # release.md §3.1) and installs over it.
+      - name: Install again over the running app
+        shell: pwsh
+        run: |
+          $running = Start-Process -PassThru -FilePath "$env:APP\Cold Open.exe"
+          Start-Sleep -Seconds 5
+          if ($running.HasExited) { Write-Error "the app didn't stay open"; exit 1 }
+          $setup = Get-ChildItem dist/*-setup.exe | Select-Object -First 1
+          $p = Start-Process -Wait -PassThru -FilePath $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CLOSEAPPLICATIONS','/TASKS=addtopath','/LOG=upgrade.log'
+          if ($p.ExitCode -ne 0) { Get-Content upgrade.log; exit 1 }
+          Start-Sleep -Seconds 2
+          if (-not $running.HasExited) { Get-Content upgrade.log; Write-Error "the installer left the app running"; exit 1 }
+          Select-String -Path upgrade.log -Pattern "close|Restart Manager" | Select-Object -First 10
+      - name: Uninstall
+        shell: pwsh
+        run: |
+          $p = Start-Process -Wait -PassThru -FilePath "$env:APP\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART'
+          if ($p.ExitCode -ne 0) { exit 1 }
+          Start-Sleep -Seconds 2
+          if (Test-Path "$env:APP\Cold Open.exe") { Write-Error "the app is still there"; exit 1 }
+          $path = (Get-ItemProperty HKCU:\Environment).Path
+          if ($path -like "*$env:APP\bin*") { Write-Error "PATH still names coldopen"; exit 1 }
+          if (Test-Path "HKCU:\Software\Classes\ColdOpen.fountain") { Write-Error "ProgId left behind"; exit 1 }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-quick-windows-${{ matrix.arch }}
+          path: bench
+          if-no-files-found: ignore
+
+  macos:
+    name: macos (universal)
+    if: ${{ !inputs.linux_only }}
+    needs: licenses
+    runs-on: macos-latest
+    env:
+      COLDOPEN_THIRD_PARTY: ${{ github.workspace }}/third-party/aarch64-apple-darwin.txt
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/download-artifact@v5
+        with:
+          name: third-party
+          path: third-party
+      - name: Build both architectures
+        run: |
+          for t in aarch64-apple-darwin x86_64-apple-darwin; do
+            COLDOPEN_THIRD_PARTY="$PWD/third-party/$t.txt" \
+              cargo build --release --locked --target "$t" -p coldopen-app -p coldopen-cli
+          done
+      - name: App bundle and disk image
+        run: bash .github/packaging/package.sh macos
+      - name: Sizes (15,000,000 bytes each)
+        run: bash .github/packaging/package.sh sizes
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-macos
+          path: dist/*.dmg
+          if-no-files-found: error
+      - name: Install and start (Apple Silicon)
+        run: bash .github/packaging/smoke-macos.sh
+      - name: The bench, quick
+        run: |
+          "$HOME/Applications/Cold Open.app/Contents/MacOS/coldopen" bench --quick --out bench || [ $? -eq 1 ]
+          ls bench
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-quick-macos-arm64
+          path: bench
+          if-no-files-found: ignore
+
+  macos-intel:
+    name: macos (Intel, install)
+    if: ${{ !inputs.linux_only }}
+    needs: macos
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: packages-macos
+          path: dist
+      - name: Install and start (Intel)
+        run: bash .github/packaging/smoke-macos.sh
+
+  linux:
+    name: linux (${{ matrix.arch }})
+    needs: licenses
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.linux_only && '[{"arch":"x86_64","os":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu"}]' || '[{"arch":"x86_64","os":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu"},{"arch":"aarch64","os":"ubuntu-22.04-arm","target":"aarch64-unknown-linux-gnu"}]') }}
+    # The oldest supported Ubuntu, so the binaries need glibc 2.35 or newer
+    # (release.md §2).
+    runs-on: ${{ matrix.os }}
+    env:
+      COLDOPEN_THIRD_PARTY: ${{ github.workspace }}/third-party/${{ matrix.target }}.txt
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - uses: actions/download-artifact@v5
+        with:
+          name: third-party
+          path: third-party
+      - name: Packaging tools and the window's libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq dpkg-dev flatpak desktop-file-utils \
+            appstream xvfb libxkbcommon-x11-0 libxcursor1 libxi6 libxrandr2 libx11-xcb1
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y --noninteractive flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }} -p coldopen-app -p coldopen-cli
+      - name: .deb, AppImage and Flatpak
+        run: bash .github/packaging/package.sh linux ${{ matrix.arch }} ${{ matrix.target }}
+      - name: Sizes (15,000,000 bytes each)
+        run: bash .github/packaging/package.sh sizes
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-linux-${{ matrix.arch }}
+          path: |
+            dist/*.deb
+            dist/*.AppImage
+            dist/*.flatpak
+          if-no-files-found: error
+
+      - name: .deb
+        run: |
+          sudo apt-get install -y -qq ./dist/cold-open_*.deb
+          id=io.github.theyungstump.coldopen
+          desktop-file-validate /usr/share/applications/$id.desktop
+          appstreamcli validate --no-net --explain /usr/share/metainfo/$id.metainfo.xml
+          grep -q 'x-fountain' /usr/share/mime/globs2
+          bash .github/packaging/smoke.sh cli /usr/bin/coldopen
+          xvfb-run -a -s "-screen 0 1920x1080x24" bash .github/packaging/smoke.sh app /usr/bin/coldopen-app
+          xvfb-run -a -s "-screen 0 1920x1080x24" bash .github/packaging/smoke.sh fallback /usr/bin/coldopen-app
+      - name: The bench, quick, through the installed coldopen
+        if: matrix.arch == 'x86_64'
+        run: |
+          xvfb-run -a -s "-screen 0 1920x1080x24" coldopen bench --quick --out bench || [ $? -eq 1 ]
+          ls bench
+      - name: Remove the .deb
+        run: |
+          sudo apt-get remove -y -qq cold-open
+          if [ -e /usr/bin/coldopen ]; then echo "::error::coldopen is still installed"; exit 1; fi
+      - name: AppImage
+        run: |
+          image=$(ls "$PWD"/dist/*.AppImage)
+          chmod +x "$image"
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          bash .github/packaging/smoke.sh cli "$image" cli
+          xvfb-run -a -s "-screen 0 1920x1080x24" bash .github/packaging/smoke.sh app "$image"
+      - name: Flatpak
+        run: |
+          flatpak install --user -y --noninteractive ./dist/*.flatpak
+          id=io.github.theyungstump.coldopen
+          # The sandbox sees the home folder, not /tmp.
+          export TMPDIR="$HOME/smoke-tmp"
+          mkdir -p "$TMPDIR"
+          bash .github/packaging/smoke.sh cli flatpak run --command=coldopen $id
+          xvfb-run -a -s "-screen 0 1920x1080x24" bash .github/packaging/smoke.sh app flatpak run $id
+          flatpak uninstall --user -y --noninteractive $id
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-quick-linux-${{ matrix.arch }}
+          path: bench
+          if-no-files-found: ignore

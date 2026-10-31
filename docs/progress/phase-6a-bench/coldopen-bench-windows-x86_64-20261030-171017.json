@@ -1,0 +1,199 @@
+{
+  "bench": 1,
+  "app": {
+    "version": "0.1.0-alpha.1",
+    "commit": "1c1ef2a4d99e",
+    "target": "x86_64-pc-windows-msvc"
+  },
+  "when": "2026-10-30T17:10:17Z",
+  "quick": false,
+  "machine": {
+    "os": "windows",
+    "os_version": "Windows Server 2025 Datacenter (26100)",
+    "arch": "x86_64",
+    "cpu": "AMD EPYC 9V45 96-Core Processor",
+    "cores": 2,
+    "memory_gib": 16,
+    "gpus": [
+      "Microsoft Basic Render Driver"
+    ],
+    "renderer_default": "tiny-skia",
+    "screen": {
+      "width": 1024,
+      "height": 768,
+      "scale": 1.0
+    }
+  },
+  "script": {
+    "name": "synthetic feature script, seed 1",
+    "pages": 119,
+    "blocks": 2269
+  },
+  "budgets": [
+    {
+      "id": "open",
+      "stat": "median",
+      "value_ms": 46.15,
+      "limit_ms": 200.0,
+      "pass": true,
+      "runs": 11
+    },
+    {
+      "id": "repagination",
+      "stat": "median",
+      "value_ms": 22.4,
+      "limit_ms": 50.0,
+      "pass": true,
+      "runs": 11
+    },
+    {
+      "id": "journal_write",
+      "stat": "p95",
+      "value_ms": 0.02,
+      "limit_ms": 1.0,
+      "pass": true,
+      "runs": 300
+    },
+    {
+      "id": "save_ui_fountain",
+      "stat": "p95",
+      "value_ms": 1.19,
+      "limit_ms": 4.0,
+      "pass": true,
+      "runs": 21
+    },
+    {
+      "id": "save_whole_fountain",
+      "stat": "median",
+      "value_ms": 30.66,
+      "limit_ms": 50.0,
+      "pass": true,
+      "runs": 21
+    },
+    {
+      "id": "save_ui_fdx",
+      "stat": "p95",
+      "value_ms": 0.89,
+      "limit_ms": 4.0,
+      "pass": true,
+      "runs": 21
+    },
+    {
+      "id": "save_whole_fdx",
+      "stat": "median",
+      "value_ms": 21.52,
+      "limit_ms": 50.0,
+      "pass": true,
+      "runs": 21
+    },
+    {
+      "id": "save_ui_project",
+      "stat": "p95",
+      "value_ms": 1.05,
+      "limit_ms": 4.0,
+      "pass": true,
+      "runs": 21
+    },
+    {
+      "id": "save_whole_project",
+      "stat": "median",
+      "value_ms": 25.2,
+      "limit_ms": 50.0,
+      "pass": true,
+      "runs": 21
+    },
+    {
+      "id": "cold_start",
+      "stat": "median",
+      "value_ms": 163.57,
+      "limit_ms": 1000.0,
+      "pass": true,
+      "runs": 7
+    },
+    {
+      "id": "keystroke",
+      "stat": "p95",
+      "value_ms": 8.21,
+      "limit_ms": 16.0,
+      "pass": true,
+      "runs": 120,
+      "renderer": "tiny-skia"
+    },
+    {
+      "id": "report_scrolling",
+      "stat": "p95",
+      "value_ms": 7.41,
+      "limit_ms": 16.0,
+      "pass": true,
+      "runs": 120,
+      "renderer": "tiny-skia"
+    },
+    {
+      "id": "memory",
+      "stat": "peak",
+      "value_mib": 74.38,
+      "limit_mib": 150.0,
+      "pass": true,
+      "runs": 1,
+      "renderer": "tiny-skia"
+    }
+  ],
+  "info": [
+    {
+      "id": "keystroke_headless",
+      "renderer": "tiny-skia",
+      "median_ms": 21.37,
+      "p95_ms": 21.95
+    },
+    {
+      "id": "edit_and_repaginate",
+      "median_ms": 4.9,
+      "p95_ms": 5.28
+    },
+    {
+      "id": "fsync",
+      "median_ms": 4.05,
+      "p95_ms": 7.38
+    },
+    {
+      "id": "save_whole_fountain_p95",
+      "median_ms": 30.6554,
+      "p95_ms": 36.9704
+    },
+    {
+      "id": "save_whole_fdx_p95",
+      "median_ms": 21.5248,
+      "p95_ms": 36.782000000000004
+    },
+    {
+      "id": "save_whole_project_p95",
+      "median_ms": 25.2013,
+      "p95_ms": 32.9096
+    },
+    {
+      "id": "scrolling_pages",
+      "renderer": "tiny-skia",
+      "median_ms": 8.47,
+      "p95_ms": 10.44
+    },
+    {
+      "id": "typing_windowed",
+      "renderer": "Dx12",
+      "median_ms": 37.13,
+      "p95_ms": 44.4
+    },
+    {
+      "id": "scrolling_windowed",
+      "renderer": "Dx12",
+      "median_ms": 30.48,
+      "p95_ms": 34.77
+    },
+    {
+      "id": "reports_windowed",
+      "renderer": "Dx12",
+      "median_ms": 32.6,
+      "p95_ms": 34.55
+    }
+  ],
+  "passed": true
+}

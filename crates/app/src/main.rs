@@ -4,7 +4,23 @@
 use coldopen_app::app::{Bench, BenchKind};
 use coldopen_app::{App, Boot};
 
-fn main() -> iced::Result {
+fn main() -> std::process::ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    // The bench (docs/specs/bench.md): no window of its own; the app it
+    // measures runs as its children.
+    if args.first().is_some_and(|a| a == "--bench") {
+        return coldopen_app::bench::main(&args[1..]);
+    }
+    match app() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("Cold Open could not start: {e}");
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+fn app() -> iced::Result {
     let launched = std::time::Instant::now();
     choose_renderer();
     let file = std::env::args_os().nth(1).map(std::path::PathBuf::from);
@@ -21,8 +37,14 @@ fn main() -> iced::Result {
         size: iced::Size::new(1280.0, 860.0),
         // The close button asks about unsaved changes first.
         exit_on_close_request: false,
+        icon: coldopen_app::icon::window_icon(),
         ..iced::window::Settings::default()
     };
+    // Wayland finds the desktop entry, and its icon, by this id.
+    #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "openbsd"))]
+    {
+        window.platform_specific.application_id = coldopen_app::icon::APP_ID.to_string();
+    }
     // The self-driving benchmark's window (docs/progress/phase-3.md).
     if let Some((w, h)) = std::env::var("COLDOPEN_BENCH_SIZE")
         .ok()
@@ -44,13 +66,14 @@ fn main() -> iced::Result {
         .run()
 }
 
-/// `COLDOPEN_BENCH=typing|scrolling|reports` runs the self-driving benchmark,
+/// `COLDOPEN_BENCH=typing|scrolling|reports|memory` runs the self-driving benchmark,
 /// `COLDOPEN_BENCH_FRAMES` frames long (120 by default).
 fn bench() -> Option<Bench> {
     let kind = match std::env::var("COLDOPEN_BENCH").ok()?.as_str() {
         "typing" => BenchKind::Typing,
         "scrolling" => BenchKind::Scrolling,
         "reports" => BenchKind::Reports,
+        "memory" => BenchKind::Memory,
         _ => return None,
     };
     let frames = std::env::var("COLDOPEN_BENCH_FRAMES")

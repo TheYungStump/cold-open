@@ -544,6 +544,15 @@ pub fn identity(bytes: &[u8]) -> Option<(Option<String>, Option<Changes>)> {
     Some((doc_id, table))
 }
 
+/// The version of Cold Open that wrote a bundle, from its `meta.json`
+/// (docs/specs/release.md §9). `None` when the bytes are not a readable
+/// bundle or name none.
+pub fn written_by(bytes: &[u8]) -> Option<String> {
+    let e = entries(bytes).ok()?;
+    let meta = serde_json::from_slice::<Meta>(e.get(META)?).ok()?;
+    Some(meta.app)
+}
+
 /// The bundle format (docs/specs/bundle.md).
 pub struct Bundle;
 

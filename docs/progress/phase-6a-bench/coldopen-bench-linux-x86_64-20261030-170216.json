@@ -1,0 +1,185 @@
+{
+  "bench": 1,
+  "app": {
+    "version": "0.1.0-alpha.1",
+    "commit": "1c1ef2a4d99e",
+    "target": "x86_64-unknown-linux-gnu"
+  },
+  "when": "2026-10-30T17:02:16Z",
+  "quick": false,
+  "machine": {
+    "os": "linux",
+    "os_version": "Linux (Ubuntu 24.04) (7.0.0-1017-azure)",
+    "arch": "x86_64",
+    "cpu": "AMD EPYC 9V45 96-Core Processor",
+    "cores": 2,
+    "memory_gib": 16,
+    "gpus": [],
+    "renderer_default": "tiny-skia",
+    "screen": {
+      "width": 1920,
+      "height": 1080,
+      "scale": 1.0
+    }
+  },
+  "script": {
+    "name": "synthetic feature script, seed 1",
+    "pages": 119,
+    "blocks": 2269
+  },
+  "budgets": [
+    {
+      "id": "open",
+      "stat": "median",
+      "value_ms": 16.27,
+      "limit_ms": 200.0,
+      "pass": true,
+      "runs": 11
+    },
+    {
+      "id": "repagination",
+      "stat": "median",
+      "value_ms": 10.96,
+      "limit_ms": 50.0,
+      "pass": true,
+      "runs": 11
+    },
+    {
+      "id": "journal_write",
+      "stat": "p95",
+      "value_ms": 0.01,
+      "limit_ms": 1.0,
+      "pass": true,
+      "runs": 300
+    },
+    {
+      "id": "save_ui_fountain",
+      "stat": "p95",
+      "value_ms": 0.87,
+      "limit_ms": 4.0,
+      "pass": true,
+      "runs": 21
+    },
+    {
+      "id": "save_whole_fountain",
+      "stat": "median",
+      "value_ms": 10.86,
+      "limit_ms": 50.0,
+      "pass": true,
+      "runs": 21
+    },
+    {
+      "id": "save_ui_fdx",
+      "stat": "p95",
+      "value_ms": 0.86,
+      "limit_ms": 4.0,
+      "pass": true,
+      "runs": 21
+    },
+    {
+      "id": "save_whole_fdx",
+      "stat": "median",
+      "value_ms": 2.9,
+      "limit_ms": 50.0,
+      "pass": true,
+      "runs": 21
+    },
+    {
+      "id": "save_ui_project",
+      "stat": "p95",
+      "value_ms": 1.0,
+      "limit_ms": 4.0,
+      "pass": true,
+      "runs": 21
+    },
+    {
+      "id": "save_whole_project",
+      "stat": "median",
+      "value_ms": 7.98,
+      "limit_ms": 50.0,
+      "pass": true,
+      "runs": 21
+    },
+    {
+      "id": "cold_start",
+      "stat": "median",
+      "value_ms": 40.53,
+      "limit_ms": 1000.0,
+      "pass": true,
+      "runs": 7
+    },
+    {
+      "id": "keystroke",
+      "stat": "p95",
+      "value_ms": 4.39,
+      "limit_ms": 16.0,
+      "pass": true,
+      "runs": 120,
+      "renderer": "tiny-skia"
+    },
+    {
+      "id": "report_scrolling",
+      "stat": "p95",
+      "value_ms": 5.21,
+      "limit_ms": 16.0,
+      "pass": true,
+      "runs": 120,
+      "renderer": "tiny-skia"
+    },
+    {
+      "id": "memory",
+      "stat": "peak",
+      "value_mib": 53.34,
+      "limit_mib": 150.0,
+      "pass": true,
+      "runs": 1,
+      "renderer": "tiny-skia"
+    }
+  ],
+  "info": [
+    {
+      "id": "keystroke_headless",
+      "renderer": "tiny-skia",
+      "median_ms": 21.33,
+      "p95_ms": 22.39
+    },
+    {
+      "id": "edit_and_repaginate",
+      "median_ms": 3.23,
+      "p95_ms": 3.54
+    },
+    {
+      "id": "fsync",
+      "median_ms": 0.19,
+      "p95_ms": 0.25
+    },
+    {
+      "id": "save_whole_fountain_p95",
+      "median_ms": 10.861018999999999,
+      "p95_ms": 36.782287
+    },
+    {
+      "id": "save_whole_fdx_p95",
+      "median_ms": 2.895547,
+      "p95_ms": 3.2052259999999997
+    },
+    {
+      "id": "save_whole_project_p95",
+      "median_ms": 7.9761180000000005,
+      "p95_ms": 8.644959
+    },
+    {
+      "id": "scrolling_pages",
+      "renderer": "tiny-skia",
+      "median_ms": 7.43,
+      "p95_ms": 7.81
+    },
+    {
+      "id": "typing_windowed_wgpu_could_not_start",
+      "renderer": "wgpu",
+      "median_ms": 0.0,
+      "p95_ms": 0.0
+    }
+  ],
+  "passed": true
+}

@@ -16,287 +16,18 @@
 //! (`layout::synthetic`). `--assert` exits with an error when a budget is
 //! missed (CI does this on Linux only). Cold start, the windowed frame
 //! times and binary size are measured by CI around the release build
-//! (`.github/packaging`).
+//! (`.github/packaging`). The measurements are the bench's own
+//! (`coldopen_app::bench`, docs/specs/bench.md), which a tester runs.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Instant;
 
-use coldopen_app::files::{Dialogs, Dirs};
-use coldopen_app::headless::Headless;
-use coldopen_app::{App, Boot};
-use coldopen_core::command::DocSave;
-use coldopen_core::{Command, Dispatcher, Durability, Options};
-use iced::keyboard::Modifiers;
-use iced::{Event, Point, Size, mouse};
+use coldopen_app::bench::machine::peak_rss_mib;
+use coldopen_app::bench::measure::{
+    SaveRow, journal, ms, open_and_layout, open_app, saves, scrolling, typing,
+};
+use iced::Size;
 use serde_json::{Value, json};
-
-struct Stats {
-    median: f64,
-    p95: f64,
-    max: f64,
-}
-
-fn stats(mut v: Vec<f64>) -> Stats {
-    v.sort_by(f64::total_cmp);
-    let at = |q: f64| v[((v.len() - 1) as f64 * q).round() as usize];
-    Stats {
-        median: at(0.5),
-        p95: at(0.95),
-        max: v[v.len() - 1],
-    }
-}
-
-fn ms(t: Instant) -> f64 {
-    t.elapsed().as_secs_f64() * 1000.0
-}
-
-/// The process's peak resident memory in MiB, where the OS says it
-/// cheaply: the peak on Linux and Windows, the current size on macOS.
-fn peak_rss_mib() -> Option<f64> {
-    if cfg!(target_os = "linux") {
-        let s = std::fs::read_to_string("/proc/self/status").ok()?;
-        let line = s.lines().find(|l| l.starts_with("VmHWM:"))?;
-        let kb: f64 = line.split_whitespace().nth(1)?.parse().ok()?;
-        return Some(kb / 1024.0);
-    }
-    let pid = std::process::id().to_string();
-    if cfg!(windows) {
-        let out = std::process::Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                &format!("(Get-Process -Id {pid}).PeakWorkingSet64"),
-            ])
-            .output()
-            .ok()?;
-        let bytes: f64 = String::from_utf8_lossy(&out.stdout).trim().parse().ok()?;
-        return Some(bytes / 1024.0 / 1024.0);
-    }
-    let out = std::process::Command::new("ps")
-        .args(["-o", "rss=", "-p", &pid])
-        .output()
-        .ok()?;
-    let kb: f64 = String::from_utf8_lossy(&out.stdout).trim().parse().ok()?;
-    Some(kb / 1024.0)
-}
-
-fn open(home: &Path, script: &Path, size: Size, renderer: &str) -> Headless {
-    let mut app = App::new(Boot {
-        file: Some(script.to_path_buf()),
-        dirs: Some(Dirs::under(home)),
-        ..Boot::default()
-    });
-    app.set_dialogs(Dialogs::scripted(|_| None));
-    Headless::with_renderer(app, size, renderer).expect("a headless renderer")
-}
-
-/// Keystroke to screen: the update for one typed key (command, journal
-/// write, repagination, caret) plus drawing the next frame.
-fn typing(h: &mut Headless, scale: f32, keys: usize) -> (Stats, Stats, Stats) {
-    let mut update = Vec::new();
-    let mut frame = Vec::new();
-    let mut total = Vec::new();
-    // Warm up: the first frame loads glyphs.
-    h.frame(scale);
-    let text = "and the sea goes on ";
-    for (i, c) in text.chars().cycle().take(keys).enumerate() {
-        let s = c.to_string();
-        let t = Instant::now();
-        let key = iced::keyboard::Key::Character(s.as_str().into());
-        h.key(key, Modifiers::empty(), Some(&s));
-        let u = ms(t);
-        let t2 = Instant::now();
-        h.frame(scale);
-        let f = ms(t2);
-        if i >= 3 {
-            update.push(u);
-            frame.push(f);
-            total.push(u + f);
-        }
-    }
-    (stats(update), stats(frame), stats(total))
-}
-
-/// Frame time while scrolling with the wheel over the pages.
-fn scrolling(h: &mut Headless, scale: f32, steps: usize) -> Stats {
-    let at = Point::new(h.size.width * 0.6, h.size.height * 0.5);
-    h.cursor = mouse::Cursor::Available(at);
-    h.events(vec![Event::Mouse(mouse::Event::CursorMoved {
-        position: at,
-    })]);
-    h.frame(scale);
-    let mut v = Vec::new();
-    for _ in 0..steps {
-        let t = Instant::now();
-        h.events(vec![Event::Mouse(mouse::Event::WheelScrolled {
-            delta: mouse::ScrollDelta::Lines { x: 0.0, y: -4.0 },
-        })]);
-        h.frame(scale);
-        v.push(ms(t));
-    }
-    stats(v)
-}
-
-/// Journal latency: the write on the UI thread in the app's mode, the
-/// write plus fsync in the CLI's mode, and a bare fsync.
-fn journal(dir: &Path) -> (Stats, Stats, Stats) {
-    let run = |durability: Option<Durability>, name: &str| {
-        let mut d = Dispatcher::new(Options::default());
-        if let Some(du) = durability {
-            d.set_durability(du);
-        }
-        let p = dir.join(name);
-        d.execute(Command::from_parts("doc.new", json!({"path": p, "start": "action"})).unwrap())
-            .unwrap();
-        let id = d.session().unwrap().doc.blocks[0].id;
-        let mut v = Vec::new();
-        for i in 0..300 {
-            let cmd = Command::from_parts("text.insert", json!({"id": id, "at": i, "text": "x"}))
-                .unwrap();
-            let t = Instant::now();
-            d.execute(cmd).unwrap();
-            v.push(ms(t));
-        }
-        d.discard();
-        stats(v)
-    };
-    let app = run(Some(Durability::APP), "app.fountain");
-    let cli = run(None, "cli.fountain");
-    let mut f = std::fs::File::create(dir.join("fsync.bin")).unwrap();
-    let mut v = Vec::new();
-    for _ in 0..100 {
-        use std::io::Write;
-        f.write_all(&[b'x'; 200]).unwrap();
-        let t = Instant::now();
-        f.sync_data().unwrap();
-        v.push(ms(t));
-    }
-    (app, cli, stats(v))
-}
-
-fn run(d: &mut Dispatcher, c: &str, p: Value) -> Value {
-    d.execute(Command::from_parts(c, p).unwrap())
-        .unwrap_or_else(|e| panic!("{c}: {}", e.message))
-}
-
-/// One kind of save measured: the UI thread's time, the whole save, and
-/// the slowest snapshot, marker and commit on the UI thread.
-struct SaveRow {
-    label: String,
-    ui: Stats,
-    whole: Stats,
-    steps: [f64; 3],
-}
-
-/// One save of each kind of file, as the desktop app saves (journal.md,
-/// "Saving off the UI thread"), `runs` times after an edit: the UI thread's
-/// steps (the snapshot, the marker, the commit with the journal's new
-/// header) and the whole save, the worker's rendering and write included.
-/// The script is `source` as Fountain, as .fdx written by Cold Open, and as
-/// a project with tracked changes on every fourth scene.
-fn saves(dir: &Path, source: &str, runs: usize) -> Vec<SaveRow> {
-    let fountain = dir.join("saves.fountain");
-    std::fs::write(&fountain, source).unwrap();
-    let fdx = dir.join("saves.fdx");
-    let project = dir.join("saves.coldopen");
-    let mut d = Dispatcher::new(Options::default());
-    run(&mut d, "doc.open", json!({"path": fountain}));
-    run(
-        &mut d,
-        "export.fdx",
-        json!({"path": fdx, "allow_lossy": true}),
-    );
-    run(&mut d, "changes.track", json!({"writer": true}));
-    let blocks = run(&mut d, "doc.get", json!({}))["blocks"]
-        .as_array()
-        .unwrap()
-        .clone();
-    let headings = blocks.iter().filter(|b| b["type"] == "scene_heading");
-    for (k, b) in headings.enumerate() {
-        if k.is_multiple_of(4) {
-            run(
-                &mut d,
-                "block.insert",
-                json!({"after": b["id"], "type": "action", "text": "A line added later."}),
-            );
-        }
-    }
-    run(&mut d, "doc.save", json!({"path": project}));
-    d.discard();
-
-    let mut out = Vec::new();
-    for (label, file) in [
-        ("Fountain", &fountain),
-        (".fdx", &fdx),
-        ("project, tracked changes", &project),
-    ] {
-        let mut d = Dispatcher::new(Options::default());
-        d.set_durability(Durability::APP);
-        run(&mut d, "doc.open", json!({"path": file}));
-        let id = d
-            .session()
-            .unwrap()
-            .doc
-            .blocks
-            .iter()
-            .find(|b| b.element.kind == coldopen_screenplay::ElementKind::Action)
-            .expect("an action to type in")
-            .id;
-        let (mut ui, mut whole) = (Vec::new(), Vec::new());
-        // The slowest snapshot, marker and commit, so a stall shows where
-        // it fell.
-        let mut steps = [0.0f64; 3];
-        for i in 0..runs {
-            run(
-                &mut d,
-                "text.insert",
-                json!({"id": id, "at": 0, "text": if i % 2 == 0 { "x" } else { "y" }}),
-            );
-            let t = Instant::now();
-            let job = d.save_prepare(&DocSave::default()).unwrap();
-            let snapshot = ms(t);
-            // The worker.
-            let rendered = job.render();
-            let t = Instant::now();
-            let prepared = d.save_mark(rendered).unwrap();
-            let mark = ms(t);
-            // The worker again, as the app's: the write, then the wait for
-            // the journal's flush of the marker.
-            let written = coldopen_core::io::atomic_write(&prepared.target, &prepared.bytes);
-            prepared.wait_for_journal();
-            let t = Instant::now();
-            d.save_commit(prepared, written).unwrap();
-            let commit = ms(t);
-            for (max, v) in steps.iter_mut().zip([snapshot, mark, commit]) {
-                *max = max.max(v);
-            }
-            ui.push(snapshot + mark + commit);
-        }
-        // The whole save, end to end, in a row of its own.
-        for i in 0..runs {
-            run(
-                &mut d,
-                "text.insert",
-                json!({"id": id, "at": 0, "text": if i % 2 == 0 { "x" } else { "y" }}),
-            );
-            let t = Instant::now();
-            let job = d.save_prepare(&DocSave::default()).unwrap();
-            let prepared = d.save_mark(job.render()).unwrap();
-            let written = coldopen_core::io::atomic_write(&prepared.target, &prepared.bytes);
-            prepared.wait_for_journal();
-            d.save_commit(prepared, written).unwrap();
-            whole.push(ms(t));
-        }
-        d.shutdown();
-        out.push(SaveRow {
-            label: label.to_string(),
-            ui: stats(ui),
-            whole: stats(whole),
-            steps,
-        });
-    }
-    out
-}
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -341,7 +72,7 @@ fn main() {
             "| Save, {name} | UI thread | Whole save |
 | --- | --- | --- |"
         );
-        for r in saves(work.path(), &source, 21) {
+        for r in saves(work.path(), &source, 21).expect("the saves") {
             println!(
                 "| {} | median {:.2} ms, p95 {:.2} ms (slowest snapshot {:.2}, marker {:.2}, commit {:.2}) | median {:.1} ms, p95 {:.1} ms |",
                 r.label,
@@ -373,6 +104,15 @@ fn main() {
             "under 50 ms".into(),
         ));
     }
+    // Opening the script: doc.open and the first layout (2026-10-30,
+    // docs/specs/bench.md §5).
+    let (open, _, _, _) = open_and_layout(work.path(), &source, 11).expect("the open");
+    results.insert("open_median_ms".into(), json!(open.median));
+    rows.push((
+        "Open (doc.open and the first layout), median of 11".into(),
+        format!("{:.1} ms", open.median),
+        "under 200 ms".into(),
+    ));
 
     // Memory first, before any 4K run can raise the peak: open the
     // script at 1080p and scroll through every page.
@@ -381,7 +121,8 @@ fn main() {
         std::fs::create_dir_all(&home).unwrap();
         let file = home.join("script.fountain");
         std::fs::write(&file, &source).unwrap();
-        let mut h = open(&home, &file, Size::new(1920.0, 1080.0), &renderer);
+        let mut h = open_app(&home, &file, Size::new(1920.0, 1080.0), &renderer)
+            .expect("a headless renderer");
         let pages = h.app.d.view().map_or(0, |v| v.layout().pages.len());
         scrolling(&mut h, 1.0, pages * 12);
         h.app.d.discard();
@@ -409,7 +150,7 @@ fn main() {
         std::fs::create_dir_all(&home).unwrap();
         let file = home.join("script.fountain");
         std::fs::write(&file, &source).unwrap();
-        let mut h = open(&home, &file, *size, &renderer);
+        let mut h = open_app(&home, &file, *size, &renderer).expect("a headless renderer");
         let pages = h.app.d.view().map_or(0, |v| v.layout().pages.len()) as u32;
         let page = h
             .app
@@ -446,12 +187,13 @@ fn main() {
         h.app.d.discard();
     }
 
-    let save_rows = saves(work.path(), &source, 21);
+    let save_rows = saves(work.path(), &source, 21).expect("the saves");
     for SaveRow {
         label,
         ui,
         whole,
         steps,
+        ..
     } in &save_rows
     {
         results.insert(
@@ -479,7 +221,7 @@ fn main() {
         ));
     }
 
-    let (app, cli, fsync) = journal(work.path());
+    let (app, cli, fsync) = journal(work.path(), 300).expect("the journal");
     results.insert(
         "journal".into(),
         json!({"app_median": app.median, "app_p95": app.p95, "app_max": app.max,
@@ -531,6 +273,9 @@ fn main() {
         let mut missed = Vec::new();
         if full >= 50.0 {
             missed.push(format!("full layout {full:.1} ms"));
+        }
+        if open.median >= 200.0 {
+            missed.push(format!("open {:.1} ms", open.median));
         }
         // Keystroke to screen is not asserted here: headless frames redraw
         // the whole window, while the windowed app redraws only what

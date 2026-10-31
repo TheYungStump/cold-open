@@ -901,24 +901,70 @@ impl App {
         if form.colored {
             params["revision_pages"] = json!("colored");
         }
-        if let Some(r) = self.run("export.pdf", params) {
-            let warnings = r["warnings"].as_array().map_or(0, Vec::len);
-            let mut msg = format!(
-                "Exported {} {} to {}.",
-                r["pages"],
-                if r["pages"] == 1 { "page" } else { "pages" },
-                path.display()
-            );
-            if warnings > 0 {
-                msg.push_str(&format!(
-                    " {warnings} warning{}: {}",
-                    if warnings == 1 { "" } else { "s" },
-                    r["warnings"][0]["message"].as_str().unwrap_or("")
-                ));
-            }
-            self.banners.push(msg.into());
+        if self.pdf_writing.is_some() {
+            self.banners
+                .push("A PDF is still being written; try again when it's done.".into());
+            return Task::none();
         }
-        Task::none()
+        // The checks and a copy of the script here; the layout and the
+        // write on a worker (2026-10-30: 63 ms for 120 pages on a fast
+        // computer, which held typing for four frames).
+        let job = serde_json::from_value(params)
+            .map_err(|e| e.to_string())
+            .and_then(|p| {
+                self.d
+                    .export_pdf_prepare(p, &coldopen_core::Author::writer())
+                    .map_err(|e| e.message)
+            });
+        let job = match job {
+            Ok(j) => j,
+            Err(e) => {
+                self.banners.push(e.into());
+                return Task::none();
+            }
+        };
+        let (tx, rx) = iced::futures::channel::oneshot::channel();
+        let spawned = std::thread::Builder::new()
+            .name("export-pdf".into())
+            .spawn(move || {
+                let _ = tx.send(job.run().map_err(|e| e.message));
+            });
+        if let Err(e) = spawned {
+            self.banners.push(e.to_string().into());
+            return Task::none();
+        }
+        self.pdf_writing = Some(super::view::file_name(&path));
+        Task::perform(rx, move |r| {
+            let r = r.unwrap_or_else(|_| Err("the PDF stopped before it was written".into()));
+            Message::Exported(path.clone(), r)
+        })
+    }
+
+    /// An exported PDF back from its worker.
+    pub(super) fn exported(&mut self, path: PathBuf, r: Result<serde_json::Value, String>) {
+        self.pdf_writing = None;
+        let r = match r {
+            Ok(r) => r,
+            Err(e) => {
+                self.banners.push(e.into());
+                return;
+            }
+        };
+        let warnings = r["warnings"].as_array().map_or(0, Vec::len);
+        let mut msg = format!(
+            "Exported {} {} to {}.",
+            r["pages"],
+            if r["pages"] == 1 { "page" } else { "pages" },
+            path.display()
+        );
+        if warnings > 0 {
+            msg.push_str(&format!(
+                " {warnings} warning{}: {}",
+                if warnings == 1 { "" } else { "s" },
+                r["warnings"][0]["message"].as_str().unwrap_or("")
+            ));
+        }
+        self.banners.push(msg.into());
     }
 
     /// Fills the recovery dialog after an open recovered unsaved work.
