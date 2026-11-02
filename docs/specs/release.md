@@ -66,8 +66,15 @@ The app's identifier is `io.github.theyungstump.coldopen` everywhere an OS asks 
 - **Shortcuts:** a Start menu entry, and an optional desktop shortcut, off by default.
 - **The CLI on PATH:** a task, ticked by default, adds `<install>\bin` to the user's `Path` (HKCU\Environment). Uninstalling takes it out again. Programs started after the install see it.
 - **File associations** (§5), under `HKCU\Software\Classes`.
-- **Uninstall** (Settings ▸ Apps) removes the installed files, shortcuts, PATH entry and associations. It never touches the writer's folders (§6), scripts, journals or set-aside copies.
+- **Uninstall** (Settings ▸ Apps) removes the installed files, shortcuts, PATH entry and associations. It never touches the writer's folders (§6), scripts, journals or set-aside copies. If the installed app is running, the uninstaller first closes it as an upgrade does (below; 2026-11-02).
 - **Upgrades:** a newer installer over an older one replaces the files in place and keeps the settings. If the app is running, the installer offers to close it. **Resolution (2026-10-31, the project owner's manual test):** iced's window doesn't answer the request Windows' Restart Manager sends, so the installer ends the app when asking fails (`CloseApplications=force`). Nothing is lost: every keystroke is already in the crash journal, and the next start recovers it as after any crash. CI installs over a running app on every pull request.
+  - **Closing it quickly** (2026-11-02, the project owner's retest: the Restart Manager's close took 20 to 30 seconds, waiting out Windows' time limit, and the uninstaller had no close at all). The installer and the uninstaller close the app themselves, before any file is replaced or removed, and the Restart Manager is no longer used (`CloseApplications=no`):
+    1. Find the copies of `Cold Open.exe` running from the install folder. Copies run from anywhere else, such as a zip, hold none of its files and are left alone.
+    2. Say that Cold Open will be closed and that nothing typed is lost, with OK and Cancel. Cancel stops the install or uninstall and changes nothing. A silent run takes OK.
+    3. Ask each to close, as its window's close button does. A script with nothing unsaved closes cleanly.
+    4. After 3 seconds, end any still running (one asking whether to save, say). Its work is in the crash journal, and the next start offers it back.
+    5. If one is still running 3 seconds later, say so and stop, changing nothing.
+  - CI starts the app, then installs over it and uninstalls it while it runs, and fails if either leaves it running or takes over 15 seconds.
 
 ### 3.2 Windows zip
 
