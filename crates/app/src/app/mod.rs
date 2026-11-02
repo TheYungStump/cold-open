@@ -439,6 +439,8 @@ pub struct App {
     about: about_sheet::AboutState,
     /// The adapter and backend drawing the window, once the system says.
     graphics: Option<(String, String)>,
+    /// Whether the system was asked for [`App::graphics`].
+    graphics_asked: bool,
     /// "Measure performance…" (editor.md §22).
     bench_run: Option<bench_sheet::BenchRun>,
     bench_command: Option<(PathBuf, Vec<String>)>,
@@ -574,6 +576,7 @@ impl App {
             sheet: None,
             about: about_sheet::AboutState::default(),
             graphics: None,
+            graphics_asked: false,
             bench_run: None,
             bench_command: boot.bench_command.clone(),
             leftover: Vec::new(),
@@ -626,10 +629,20 @@ impl App {
         } else {
             Task::none()
         };
-        // Which renderer and GPU draw the window, for the About sheet.
-        let info = iced::system::information()
-            .map(|i| Message::SystemInfo(Some((i.graphics_adapter, i.graphics_backend))));
-        (app, Task::batch([task, info]))
+        (app, task)
+    }
+
+    /// Asks the system, once, which renderer and GPU draw the window, for
+    /// the About sheet and the bench. Not at start: iced's query also reads
+    /// every running process, on every core, which held up the window's
+    /// frames for about 200 ms (editor.md §22; 2026-11-02).
+    fn ask_graphics(&mut self) -> Task<Message> {
+        if self.graphics.is_some() || self.graphics_asked {
+            return Task::none();
+        }
+        self.graphics_asked = true;
+        iced::system::information()
+            .map(|i| Message::SystemInfo(Some((i.graphics_adapter, i.graphics_backend))))
     }
 
     /// An editor for a document just opened or created, with the writer's
@@ -2295,7 +2308,7 @@ impl App {
             "app.review_draft" => return self.ask(Ask::ReviewDraft),
             "app.about" => {
                 self.about_open();
-                scroll = false;
+                return Task::batch([self.ask_graphics(), self.after_change(false)]);
             }
             "app.bench" => {
                 self.bench_open();

@@ -31,6 +31,10 @@ pub struct Budget {
     pub stat: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value_ms: Option<f64>,
+    /// The median beside a windowed p95, which tells a few slow frames
+    /// from every frame being slow.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub median_ms: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit_ms: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -60,6 +64,7 @@ impl Budget {
             title,
             stat,
             value_ms: Some(round(value)),
+            median_ms: None,
             limit_ms: Some(limit),
             value_mib: None,
             limit_mib: None,
@@ -77,6 +82,7 @@ impl Budget {
             title,
             stat: "peak",
             value_ms: None,
+            median_ms: None,
             limit_ms: None,
             value_mib: Some(round(value)),
             limit_mib: Some(limit),
@@ -99,6 +105,7 @@ impl Budget {
             title,
             stat,
             value_ms: None,
+            median_ms: None,
             limit_ms: None,
             value_mib: None,
             limit_mib: None,
@@ -111,6 +118,11 @@ impl Budget {
 
     pub fn on(mut self, renderer: &str) -> Budget {
         self.renderer = Some(renderer.to_string());
+        self
+    }
+
+    pub fn with_median(mut self, median: f64) -> Budget {
+        self.median_ms = Some(round(median));
         self
     }
 }
@@ -228,12 +240,15 @@ impl Report {
             .budgets
             .iter()
             .map(|b| {
-                let result = match (b.value_ms, b.value_mib) {
+                let mut result = match (b.value_ms, b.value_mib) {
                     (Some(v), _) if v < 1.0 => format!("{} {v:.3} ms", b.stat),
                     (Some(v), _) => format!("{} {v:.1} ms", b.stat),
                     (_, Some(v)) => format!("{v:.0} MiB"),
                     _ => "not measured".into(),
                 };
+                if let Some(m) = b.median_ms {
+                    result.push_str(&format!(" (median {m:.1})"));
+                }
                 let limit = match (b.limit_ms, b.limit_mib) {
                     (Some(l), _) => format!("under {l:.0} ms"),
                     (_, Some(l)) => format!("under {l:.0} MB"),

@@ -44,6 +44,7 @@ Phase 6 is split in two. **6a** (this phase) builds installable packages for eve
 14. **Linux:** builds on Ubuntu 22.04 (glibc 2.35). The .deb is built with `dpkg-deb` and `dpkg-shlibdeps` and names the window libraries winit loads at run time. The AppImage uses appimagetool 1.9.1 and runtime 20251108, pinned by SHA-256. The Flatpak holds the same binaries on freedesktop 25.08, made with flatpak's own build commands (flatpak-builder failed on CI twice; release.md §3.6).
 15. **The window icon** is the 64-pixel PNG, decoded with `miniz_oxide`, which the app already has, rather than iced's image feature. Wayland gets the app id `io.github.theyungstump.coldopen`.
 16. **The package readme** is `.github/packaging/TESTING.txt`, rewritten for the alpha and shipped as `README.txt`. **`measure.py`** is no longer used by CI, since the bench replaces it. It is left in place until the owner says to remove it.
+17. **The system is asked which renderer draws the window only when it's needed** (2026-11-02): when About first opens, and in the bench once the frames are measured. iced's query also lists every running process on every core, and at start it held up the window's frames (see "Report scrolling misses" below).
 
 ## New dependencies
 
@@ -124,7 +125,29 @@ The reports are in `docs/progress/phase-6a-bench/`. CI's runners are shared virt
 
 With the GPU renderer (Vulkan), for comparison: typing p95 7.5 ms, scrolling 1.8 ms, the report view 0.7 ms.
 
-**macOS:** the Mac tester's report is pending; it doesn't block the merge.
+**macOS: the Mac tester, 2026-11-02.** The installed build of b901828, on macOS 26.5, an M1 Pro (10 cores, 16 GiB) and a 3440×1440 screen at 1×, drawn with Metal (`coldopen-bench-macos-aarch64-20261102-035521`). Every budget passed except the report view's scrolling, p95 16.3 ms against 16 (see below):
+
+| Budget | Result | Limit |
+| --- | --- | --- |
+| Open a 120-page script | 34.7 ms | 200 ms |
+| Full repagination | 16.2 ms | 50 ms |
+| Journal write (p95) | 0.020 ms | 1 ms |
+| Save on the UI thread (p95: Fountain, .fdx, project) | 1.3, 2.8, 1.6 ms | 4 ms |
+| Whole save (median) | 33.7, 22.6, 26.7 ms | 50 ms |
+| Cold start | 200 ms | 1 s |
+| Keystroke to screen (p95, Metal) | 12.0 ms | 16 ms |
+| Report view scrolling (p95, Metal) | **16.3 ms** | 16 ms |
+| Memory | 140 MiB | 150 MB |
+
+With the CPU renderer, for comparison: typing p95 19.7 ms, page scrolling 15.3 ms, the report view 8.8 ms.
+
+### Report scrolling misses (2026-11-02)
+
+- **What was seen:** the Mac tester's full bench missed the report view's scrolling (above). The project owner's quick bench on this PC, rerun on 83b44f7, missed it too, at p95 28.1 ms (`…20261102-040835`). That build had passed it at 6.1 ms (full) and 11.4 ms (quick) two days before.
+- **The cause on Windows:** the frame times showed a burst of two or three slow frames (14 to 42 ms) at the same point in every run, about 120 ms after the first frame, while the rest took about 6 ms. The burst was iced's system information query, which the app sent at start for the About sheet. Besides the renderer's name, it reads every running process, spread over every core, and that held up the window's frames. With the query left out, the burst was gone. A quick run's p95 over 30 frames is its second-slowest frame, so the burst decided it.
+- **The fix:** the query is sent only when About first opens, and by the bench once the frames are measured (decision 17). The bench reads the peak memory before it asks.
+- **After, on this PC** (a local build of the fix on b901828, tiny-skia, 1280×860): six runs of 120 frames gave p95 6.5 to 10.3 ms, with the slowest frame 13.7 ms. Six runs of 30 frames gave p95 6.3 to 7.3 ms. The whole quick bench passes every budget (`…20261102-160803`): report scrolling p95 5.7 ms (median 5.3), keystroke 7.4 ms. Memory fell from 77 to 54 MiB, since the process list is no longer in the peak.
+- **macOS:** not measured here. The Mac's query is the same and ran during the same frames, but its CPU runs were steady, so Metal may have a cost of its own. The windowed budgets now carry their median beside the p95 (bench.md §4), so the Mac's next report shows whether a miss is a few slow frames or all of them. The Mac tester reruns the bench on the next build.
 
 ## The project owner's manual test (2026-10-31, 83b44f7)
 

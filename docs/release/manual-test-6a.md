@@ -9,6 +9,8 @@
   - this list's own PowerShell commands were wrong (§9).
 - **OneDrive (§7) is untested:** OneDrive is off and full on the test PC. The retest is §5 step 6, §8 and §9.
 
+**Later (2026-11-02):** a quick bench on 83b44f7 missed the report view's scrolling (p95 28.1 ms), and so did the Mac tester's full bench on b901828 (16.3 ms). Fixed (`docs/progress/phase-6a.md`, "Report scrolling misses"). **The retest:** install the newest build, then §5 in full, both the sheet and `coldopen bench --quick`, then §8 and §9. In the `.txt`, the two windowed lines now show a median in brackets beside the p95.
+
 For the project owner, on the Windows PC. About 45 minutes.
 
 **Before you start**

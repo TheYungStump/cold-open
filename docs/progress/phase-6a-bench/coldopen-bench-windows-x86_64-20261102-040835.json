@@ -1,0 +1,199 @@
+{
+  "bench": 1,
+  "app": {
+    "version": "0.1.0-alpha.1",
+    "commit": "83b44f78f6d7",
+    "target": "x86_64-pc-windows-msvc"
+  },
+  "when": "2026-11-02T04:08:35Z",
+  "quick": true,
+  "machine": {
+    "os": "windows",
+    "os_version": "Windows 11 Home (22621)",
+    "arch": "x86_64",
+    "cpu": "13th Gen Intel(R) Core(TM) i9-13900K",
+    "cores": 24,
+    "memory_gib": 32,
+    "gpus": [
+      "NVIDIA GeForce RTX 4090"
+    ],
+    "renderer_default": "tiny-skia",
+    "screen": {
+      "width": 1920,
+      "height": 1080,
+      "scale": 1.0
+    }
+  },
+  "script": {
+    "name": "synthetic feature script, seed 1",
+    "pages": 119,
+    "blocks": 2269
+  },
+  "budgets": [
+    {
+      "id": "open",
+      "stat": "median",
+      "value_ms": 43.59,
+      "limit_ms": 200.0,
+      "pass": true,
+      "runs": 3
+    },
+    {
+      "id": "repagination",
+      "stat": "median",
+      "value_ms": 20.82,
+      "limit_ms": 50.0,
+      "pass": true,
+      "runs": 3
+    },
+    {
+      "id": "journal_write",
+      "stat": "p95",
+      "value_ms": 0.01,
+      "limit_ms": 1.0,
+      "pass": true,
+      "runs": 100
+    },
+    {
+      "id": "save_ui_fountain",
+      "stat": "p95",
+      "value_ms": 1.48,
+      "limit_ms": 4.0,
+      "pass": true,
+      "runs": 5
+    },
+    {
+      "id": "save_whole_fountain",
+      "stat": "median",
+      "value_ms": 23.45,
+      "limit_ms": 50.0,
+      "pass": true,
+      "runs": 5
+    },
+    {
+      "id": "save_ui_fdx",
+      "stat": "p95",
+      "value_ms": 0.96,
+      "limit_ms": 4.0,
+      "pass": true,
+      "runs": 5
+    },
+    {
+      "id": "save_whole_fdx",
+      "stat": "median",
+      "value_ms": 7.19,
+      "limit_ms": 50.0,
+      "pass": true,
+      "runs": 5
+    },
+    {
+      "id": "save_ui_project",
+      "stat": "p95",
+      "value_ms": 1.18,
+      "limit_ms": 4.0,
+      "pass": true,
+      "runs": 5
+    },
+    {
+      "id": "save_whole_project",
+      "stat": "median",
+      "value_ms": 12.02,
+      "limit_ms": 50.0,
+      "pass": true,
+      "runs": 5
+    },
+    {
+      "id": "cold_start",
+      "stat": "median",
+      "value_ms": 146.89,
+      "limit_ms": 1000.0,
+      "pass": true,
+      "runs": 2
+    },
+    {
+      "id": "keystroke",
+      "stat": "p95",
+      "value_ms": 11.73,
+      "limit_ms": 16.0,
+      "pass": true,
+      "runs": 30,
+      "renderer": "tiny-skia"
+    },
+    {
+      "id": "report_scrolling",
+      "stat": "p95",
+      "value_ms": 28.07,
+      "limit_ms": 16.0,
+      "pass": false,
+      "runs": 30,
+      "renderer": "tiny-skia"
+    },
+    {
+      "id": "memory",
+      "stat": "peak",
+      "value_mib": 76.54,
+      "limit_mib": 150.0,
+      "pass": true,
+      "runs": 1,
+      "renderer": "tiny-skia"
+    }
+  ],
+  "info": [
+    {
+      "id": "keystroke_headless",
+      "renderer": "tiny-skia",
+      "median_ms": 20.31,
+      "p95_ms": 23.24
+    },
+    {
+      "id": "edit_and_repaginate",
+      "median_ms": 5.07,
+      "p95_ms": 5.71
+    },
+    {
+      "id": "fsync",
+      "median_ms": 0.29,
+      "p95_ms": 0.34
+    },
+    {
+      "id": "save_whole_fountain_p95",
+      "median_ms": 23.452299999999997,
+      "p95_ms": 25.4739
+    },
+    {
+      "id": "save_whole_fdx_p95",
+      "median_ms": 7.1864,
+      "p95_ms": 10.8126
+    },
+    {
+      "id": "save_whole_project_p95",
+      "median_ms": 12.0248,
+      "p95_ms": 12.5871
+    },
+    {
+      "id": "scrolling_pages",
+      "renderer": "tiny-skia",
+      "median_ms": 7.93,
+      "p95_ms": 18.43
+    },
+    {
+      "id": "typing_windowed",
+      "renderer": "Vulkan",
+      "median_ms": 6.21,
+      "p95_ms": 12.55
+    },
+    {
+      "id": "scrolling_windowed",
+      "renderer": "Vulkan",
+      "median_ms": 1.23,
+      "p95_ms": 1.51
+    },
+    {
+      "id": "reports_windowed",
+      "renderer": "Vulkan",
+      "median_ms": 0.53,
+      "p95_ms": 0.79
+    }
+  ],
+  "passed": false
+}

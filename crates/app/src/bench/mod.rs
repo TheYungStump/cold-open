@@ -327,7 +327,8 @@ fn measure_all(
             16.0,
             reps.frames,
         )
-        .on(&label(d)),
+        .on(&label(d))
+        .with_median(d.median),
         Err(why) => Budget::skipped("keystroke", "Keystroke to screen", "p95", *why),
     });
 
@@ -343,7 +344,8 @@ fn measure_all(
             16.0,
             reps.frames,
         )
-        .on(&label(d)),
+        .on(&label(d))
+        .with_median(d.median),
         Err(why) => Budget::skipped("report_scrolling", "Scrolling the report view", "p95", *why),
     });
     if let Ok(d) = runner.driven("scrolling", default, reps.frames) {
@@ -521,6 +523,45 @@ mod tests {
                 .unwrap()
                 .to_string_lossy()
                 .starts_with("coldopen-bench-")
+        );
+    }
+
+    /// docs/specs/bench.md §4: a windowed p95 carries its median.
+    #[test]
+    fn a_windowed_budget_shows_its_median() {
+        let mut r = Report::new(
+            Machine::probe(),
+            ScriptInfo {
+                name: SCRIPT_NAME,
+                pages: 119,
+                blocks: 3000,
+            },
+            false,
+        );
+        r.budgets.push(
+            Budget::ms(
+                "report_scrolling",
+                "Scrolling the report view",
+                "p95",
+                16.26,
+                16.0,
+                120,
+            )
+            .on("Metal")
+            .with_median(9.123),
+        );
+        r.finish();
+        assert!(
+            r.to_text()
+                .contains("Scrolling the report view (Metal)  p95 16.3 ms (median 9.1)")
+        );
+        let v = serde_json::to_value(&r).unwrap();
+        assert_eq!(v["budgets"][0]["median_ms"], 9.12);
+        assert!(
+            serde_json::to_value(Budget::ms("open", "Open", "median", 40.0, 200.0, 3))
+                .unwrap()
+                .get("median_ms")
+                .is_none()
         );
     }
 

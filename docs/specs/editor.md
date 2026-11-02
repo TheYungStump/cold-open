@@ -532,3 +532,4 @@ Added 2026-10-30 (phase 6a; `docs/specs/release.md`, `docs/specs/bench.md`).
   - Mod+S opens Save as, as for any untitled script. The original is never written to.
   - **Resolution:** if `Unsaved/` itself can't be written either, the open fails with the error's message, as any failed open does.
 - **The renderer falls back.** A writer who chooses the GPU renderer on a computer where it can't start gets the CPU renderer (`release.md` §6). The About sheet then says "CPU (the GPU renderer could not start)".
+- **Which renderer draws the window** is asked of the system the first time the About sheet opens, not at start (2026-11-02). Until the answer comes, the sheet names the renderer the settings ask for. **Resolution:** iced's query also reads every running process, on every core; asked at start, it held up the window's frames for about 200 ms, and the bench's report-scrolling step missed its budget on the project owner's PC.

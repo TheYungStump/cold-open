@@ -45,6 +45,7 @@ Every run uses the synthetic feature script, `coldopen_layout::synthetic::featur
 - Every windowed step runs with the renderer the app would choose by default on this OS (`auto`, `docs/specs/release.md` §6), and the budgets are judged on that run.
 - Where a GPU renderer can start and isn't the default, the windowed steps run with it too, reported for information.
 - **Resolution:** windowed runs set `ICED_PRESENT_MODE=immediate`. Without it, the GPU renderer waits for the screen's refresh, and a 60 Hz screen could never show a frame-to-frame time under 16.7 ms, whatever the app's own work. The CPU renderer doesn't wait.
+- **Windowed runs** ask the system which renderer drew the window only after their frames are measured, and read the peak memory before asking (2026-11-02; `editor.md` §22 says why).
 - **Windowed runs** use a 1280×860 window, the app's default size, at the screen's own scale. **Resolution:** not 1920×1080 as in CI, because a laptop's screen may be smaller than that, and a window larger than the screen measures pixels nobody sees.
 
 ## 4. The report
@@ -74,6 +75,7 @@ Every run uses the synthetic feature script, `coldopen_layout::synthetic::featur
 ```
 
 - **`budgets`** holds one entry per budget in §3, with `id`, `value_ms` (or `value_mib` for memory), `stat`, `limit_ms` (or `limit_mib`), `pass`, `runs`, and `renderer` where it applies.
+  - The windowed p95 budgets also carry `median_ms` (2026-11-02), which tells a few slow frames from every frame being slow. The text report shows it in brackets.
   - A step that couldn't run has `"pass": null` and a `"skipped"` reason drawn from a fixed list: `no_window`, `no_gpu`, `timeout`, `failed`.
 - **`info`** holds the numbers kept for comparison: other renderers, headless frames, p95 of the whole save, page scrolling.
 - **`passed`** is true only when every budget passed and none was skipped.

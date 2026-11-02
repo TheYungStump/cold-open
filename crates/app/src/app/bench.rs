@@ -49,6 +49,9 @@ pub(super) struct BenchState {
     /// The window's scale factor and its screen's size, for the report.
     pub(super) scale: Option<f32>,
     pub(super) monitor: Option<iced::Size>,
+    /// The peak memory when the measuring ended, before the system is
+    /// asked what draws the window.
+    peak_mib: Option<f64>,
 }
 
 impl BenchState {
@@ -59,6 +62,7 @@ impl BenchState {
             done: None,
             scale: None,
             monitor: None,
+            peak_mib: None,
         }
     }
 }
@@ -128,20 +132,28 @@ impl App {
             v.absolute_offset().y + v.bounds().height >= v.content_bounds().height - 2.0
         });
         // Done once the frames are measured, or a memory run reaches the
-        // end; then wait a little for the system to say what draws the
-        // window, which the report names.
+        // end; then ask the system what draws the window, which the report
+        // names, and wait a little for it. Asked earlier, its query held up
+        // the measured frames (`App::ask_graphics`).
         let measured = n > WARM_UP + state.bench.frames
             || (kind == BenchKind::Memory && at_end && n > WARM_UP);
         let named = self.graphics.is_some() || n > WARM_UP + state.bench.frames + 600;
-        if measured && state.done.is_none() {
+        let ended = measured && state.done.is_none();
+        if ended {
             state.done = Some(n);
+            state.peak_mib = crate::bench::machine::peak_rss_mib();
         }
         if state.done.is_some() && named {
             self.bench_report();
             self.d.discard();
             return iced::exit();
         }
-        match kind {
+        let ask = if ended {
+            self.ask_graphics()
+        } else {
+            Task::none()
+        };
+        let step = match kind {
             BenchKind::Typing => {
                 let c = TEXT.chars().nth(n % TEXT.len()).unwrap_or(' ').to_string();
                 self.key(KeyPress {
@@ -193,7 +205,8 @@ impl App {
                     widget_op::scroll_by(PAGES, scrollable::AbsoluteOffset { x: 0.0, y: 80.0 })
                 }
             }
-        }
+        };
+        Task::batch([ask, step])
     }
 
     fn bench_report(&self) {
@@ -226,7 +239,7 @@ impl App {
             "median_ms": (at(0.5) * 100.0).round() / 100.0,
             "p95_ms": (at(0.95) * 100.0).round() / 100.0,
             "max_ms": (gaps[gaps.len() - 1] * 100.0).round() / 100.0,
-            "peak_mib": crate::bench::machine::peak_rss_mib(),
+            "peak_mib": state.peak_mib,
             "adapter": adapter,
             "backend": backend,
             "scale": state.scale,
