@@ -13,7 +13,7 @@
 
 **Results of the retest (2026-11-02, the project owner, 3a28406):**
 - **§5 passed:** every budget, in the sheet's full run (`…20261102-204947`) and `coldopen bench --quick` (`…205131`). The terminal now prints the steps and the summary.
-- **§8:** the installer now closes a running Cold Open, but took 20 to 30 seconds to. The uninstaller didn't remove Cold Open while a window was open. Both are findings (`docs/progress/phase-6a.md`, the retest).
+- **§8:** the installer now closes a running Cold Open, but took 20 to 30 seconds to. The uninstaller didn't remove Cold Open while a window was open. Both are findings (`docs/progress/phase-6a.md`, the retest). Fixed in 14dcae7, and **§8 passed on that build**: both close Cold Open after OK, and the uninstall removes it.
 - **§9 passed**, `.\coldopen bench --quick` from the zip included (`…205903`).
 - **§10 passed:** all three lines came back after the kill, and nothing ending in `.next` was left. The scripts were in `C:\ColdOpenTest\scripts`.
 

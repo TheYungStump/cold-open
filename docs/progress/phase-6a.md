@@ -199,7 +199,7 @@ Every budget passed in all three. The full run is the Windows gate now, in place
   1. **The installer's close of a running Cold Open works, but took 20 to 30 seconds.** It asks Windows' Restart Manager to close the app first, and the app's window doesn't answer it, so the installer waits out Windows' time limit before ending it.
   2. **The uninstaller didn't remove Cold Open while a window was open.** Unlike the installer, it has no step that closes the app, so the program's files were in use.
 
-  Both fixed the same day (decision 19, release.md §3.1). The retest is §8 again.
+  Both fixed the same day (decision 19, release.md §3.1). **§8 retested on 14dcae7 (2026-11-02): pass.** The installer and the uninstaller both close a running Cold Open after OK, and the uninstall removes it.
 
 ## The project owner's manual test (2026-10-31, 83b44f7)
 
