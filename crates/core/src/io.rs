@@ -250,13 +250,13 @@ fn write_then_replace(tmp: &Path, target: &Path, bytes: &[u8]) -> io::Result<()>
     replace(tmp, target)
 }
 
-#[cfg(unix)]
-fn replace(tmp: &Path, target: &Path) -> io::Result<()> {
-    fs::rename(tmp, target)?;
-    // Syncing the folder makes the rename itself durable. It is best effort:
-    // the new file is already complete and in place, and some systems
-    // (macOS with F_FULLFSYNC) refuse to sync a directory handle.
-    if let Some(dir) = target.parent() {
+/// Flushes the folder holding `path`, so a file created or renamed there
+/// stays after a power cut. Best effort: some systems (macOS with
+/// F_FULLFSYNC) refuse to sync a directory handle, and Windows has no
+/// such handle; there, a rename is made durable by `MOVEFILE_WRITE_THROUGH`.
+pub(crate) fn sync_folder_of(path: &Path) {
+    #[cfg(unix)]
+    if let Some(dir) = path.parent() {
         let dir = if dir.as_os_str().is_empty() {
             Path::new(".")
         } else {
@@ -264,11 +264,26 @@ fn replace(tmp: &Path, target: &Path) -> io::Result<()> {
         };
         let _ = File::open(dir).and_then(|d| d.sync_all());
     }
+    #[cfg(not(unix))]
+    let _ = path;
+}
+
+/// Renames `tmp` over `target`, durably, as an atomic save does: on
+/// Windows, retrying for about a second while another program holds
+/// either file.
+#[cfg(unix)]
+pub(crate) fn replace(tmp: &Path, target: &Path) -> io::Result<()> {
+    fs::rename(tmp, target)?;
+    // The new file is already complete and in place.
+    sync_folder_of(target);
     Ok(())
 }
 
+/// Renames `tmp` over `target`, durably, as an atomic save does: on
+/// Windows, retrying for about a second while another program holds
+/// either file.
 #[cfg(windows)]
-fn replace(tmp: &Path, target: &Path) -> io::Result<()> {
+pub(crate) fn replace(tmp: &Path, target: &Path) -> io::Result<()> {
     // Antivirus, indexers and sync clients briefly hold files open; retry
     // those failures for about a second.
     const ACCESS_DENIED: i32 = 5;

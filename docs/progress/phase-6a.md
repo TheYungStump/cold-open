@@ -45,6 +45,7 @@ Phase 6 is split in two. **6a** (this phase) builds installable packages for eve
 15. **The window icon** is the 64-pixel PNG, decoded with `miniz_oxide`, which the app already has, rather than iced's image feature. Wayland gets the app id `io.github.theyungstump.coldopen`.
 16. **The package readme** is `.github/packaging/TESTING.txt`, rewritten for the alpha and shipped as `README.txt`. **`measure.py`** is no longer used by CI, since the bench replaces it. It is left in place until the owner says to remove it.
 17. **The system is asked which renderer draws the window only when it's needed** (2026-11-02): when About first opens, and in the bench once the frames are measured. iced's query also lists every running process on every core, and at start it held up the window's frames (see "Report scrolling misses" below).
+18. **The journal starts again off the UI thread** (2026-11-02; phase 5a decision 47, done now at the project owner's request). After a save, the commit used to cut the journal back and write its new header on the UI thread, which CI once caught taking 13.4 ms. Now the save's worker writes the next journal beside the old one (`<journal>.next`), the commit only switches which file edits go to, and a background thread renames it into place. Recovery takes the `.next` only when the old journal ends exactly at the save marker its header names (journal.md, "Starting the journal again off the UI thread"). `core/tests/restart.rs` kills a process at each step, with typing during the restart.
 
 ## New dependencies
 
@@ -148,6 +149,22 @@ With the CPU renderer, for comparison: typing p95 19.7 ms, page scrolling 15.3 m
 - **The fix:** the query is sent only when About first opens, and by the bench once the frames are measured (decision 17). The bench reads the peak memory before it asks.
 - **After, on this PC** (a local build of the fix on b901828, tiny-skia, 1280×860): six runs of 120 frames gave p95 6.5 to 10.3 ms, with the slowest frame 13.7 ms. Six runs of 30 frames gave p95 6.3 to 7.3 ms. The whole quick bench passes every budget (`…20261102-160803`): report scrolling p95 5.7 ms (median 5.3), keystroke 7.4 ms. Memory fell from 77 to 54 MiB, since the process list is no longer in the peak.
 - **macOS:** not measured here. The Mac's query is the same and ran during the same frames, but its CPU runs were steady, so Metal may have a cost of its own. The windowed budgets now carry their median beside the p95 (bench.md §4), so the Mac's next report shows whether a miss is a few slow frames or all of them. The Mac tester reruns the bench on the next build.
+
+### The save's commit off the UI thread (2026-11-02, decision 18)
+
+- **What was seen:** CI's Linux budgets job on 261f184 missed "Save on the UI thread, .fdx" at p95 13.1 ms. The step was the commit (slowest snapshot 0.23 ms, marker 0.02, commit 13.41), the one that cut the journal back and wrote its header. The rerun of the same job missed the project save instead: p95 11.8 ms, with one commit at 55.4 ms. The push run on the same commit passed. Real machines passed (this PC 1.0 ms, the Mac 2.8 ms), but a synced folder can stall like CI's disk.
+- **This PC, before and after** (three runs of the budgets example's saves each, 21 saves of each kind):
+
+| UI thread | Before (261f184) | After |
+| --- | --- | --- |
+| Save p95: Fountain, .fdx, project | 2.5–2.8, 2.5–2.8, 2.5–2.9 ms | 1.0–1.3, 1.4, 1.1–1.2 ms |
+| Commit, slowest | 1.9–2.7 ms | 0.2–0.6 ms |
+| Commit, p95 | (not recorded then) | 0.14–0.17, 0.29–0.52, 0.14–0.35 ms |
+| Whole save, median | 30–32, 14, 14–15 ms | 32–35, 15, 15–16 ms |
+
+  The whole save is 1 to 3 ms longer, since the worker now writes and flushes the next journal too.
+- **The crash gate**, run five times in a row on this PC: 9 of 9 each time. `core/tests/restart.rs` (a kill at each of 9 points, with typing during the restart) passes.
+- **CI, every OS:** the UI-thread p95 of each step is in the next run's budgets jobs (below, once it has run).
 
 ## The project owner's manual test (2026-10-31, 83b44f7)
 

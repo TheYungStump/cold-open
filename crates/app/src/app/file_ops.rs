@@ -1048,17 +1048,16 @@ fn write_on_worker(prepared: &PreparedSave) -> Task<Message> {
     let (tx, rx) = iced::futures::channel::oneshot::channel();
     let target = prepared.target.clone();
     let bytes = prepared.bytes.clone();
-    let journal = prepared.journal_waiter();
+    let finish = prepared.finisher();
     let spawned = std::thread::Builder::new()
         .name("save".into())
         .spawn(move || {
             let r = coldopen_core::io::atomic_write(&target, &bytes).map_err(|e| e.to_string());
-            // The commit starts the journal again on the UI thread; with
-            // the marker's flush done here first, that never waits on the
-            // disk (PreparedSave::wait_for_journal).
-            if let Some(w) = journal {
-                w.wait(std::time::Duration::from_secs(2));
-            }
+            // The marker's flush, then the next journal beside the old one,
+            // so the commit starts the journal again without touching a
+            // file (journal.md, "Starting the journal again off the UI
+            // thread").
+            finish.run(r.is_ok());
             let _ = tx.send(r);
         });
     if let Err(e) = spawned {

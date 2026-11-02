@@ -1,10 +1,13 @@
 //! The crash journal (docs/specs/journal.md): a locked sidecar file holding
 //! a snapshot of the last saved document followed by every applied command.
 
-use std::fs::{self, File, TryLockError};
+use std::fmt;
+use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -42,6 +45,15 @@ pub fn path_for(doc: &Path) -> PathBuf {
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
     doc.with_file_name(format!(".{name}.coldopen-journal"))
+}
+
+/// `<journal>.next`: the journal a save writes beside the old one, which
+/// takes the old one's name once the session has switched to it
+/// (docs/specs/journal.md, "Starting the journal again off the UI thread").
+pub fn next_path(journal: &Path) -> PathBuf {
+    let mut name = journal.as_os_str().to_owned();
+    name.push(".next");
+    PathBuf::from(name)
 }
 
 /// `.script.fdx.coldopen-original-<ms>` next to `script.fdx`: a repaired
@@ -95,6 +107,18 @@ pub struct Header {
     /// and their fingerprint instead of copied.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub changes_ref: Option<ChangesRef>,
+    /// In a journal a save wrote beside the old one: where the old one
+    /// ended (2026-11-02). Absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continues: Option<Continues>,
+}
+
+/// What a next journal took over from: the old journal's entry count, the
+/// last of them the `doc.saved` marker for `disk`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Continues {
+    pub seq: u64,
+    pub disk: Fingerprint,
 }
 
 /// How a bundle's journal header names its change table.
@@ -223,8 +247,25 @@ pub struct Journal {
     /// Present in `Deferred` mode. Declared after `file` but dropped first
     /// by `delete`, so its final flush never races the file's removal.
     flusher: Option<Flusher>,
+    /// Set while the file lives at `<journal>.next`: after a switch, until
+    /// the tidying renames it, or for good when that rename failed.
+    at_next: Arc<AtomicBool>,
+    /// The latest tidying, after a switch or a next journal not used. Each
+    /// waits for the one before it.
+    tidy: Option<Gate>,
+    /// Where a save's worker leaves its next journal for the commit.
+    slot: Slot,
+    /// Cleared when the journal is closed, so a save's worker still running
+    /// writes no next journal for it.
+    alive: Arc<AtomicBool>,
     #[cfg(test)]
     pub(crate) faults: Faults,
+}
+
+impl Drop for Journal {
+    fn drop(&mut self) {
+        self.alive.store(false, Ordering::SeqCst);
+    }
 }
 
 impl Journal {
@@ -243,6 +284,7 @@ impl Journal {
         }
         let mut contents = Vec::new();
         file.read_to_end(&mut contents).map_err(OpenError::Io)?;
+        let (file, contents) = next_on_open(path, file, contents)?;
         let flusher = match durability {
             Durability::Deferred { max_delay, idle } => {
                 let handle = file.try_clone().map_err(OpenError::Io)?;
@@ -263,6 +305,10 @@ impl Journal {
                 broken: None,
                 durability,
                 flusher,
+                at_next: Arc::new(AtomicBool::new(false)),
+                tidy: None,
+                slot: Slot::default(),
+                alive: Arc::new(AtomicBool::new(true)),
                 #[cfg(test)]
                 faults: Faults::default(),
             },
@@ -354,45 +400,31 @@ impl Journal {
         &self.path
     }
 
-    /// Starts over: truncates the journal and writes a header with `doc`
-    /// as the new base. Used after open and after every save.
-    pub fn start(&mut self, doc: &Document, disk: Option<Fingerprint>) -> io::Result<()> {
-        let (changes, changes_ref) = if self.format.holds_changes() {
-            let count = doc.changes.len();
-            let fp = doc.changes.fingerprint(count).map(|f| f.fnv64);
-            (
-                None,
-                fp.filter(|_| count > 0).map(|fnv64| ChangesRef {
-                    count: count as u64,
-                    fnv64,
-                }),
-            )
-        } else {
-            (
-                (!doc.changes.is_empty()).then(|| doc.changes.to_file()),
-                None,
-            )
-        };
-        let header = Header {
-            journal: FORMAT.into(),
-            v: VERSION,
-            app: env!("CARGO_PKG_VERSION").into(),
-            doc: doc.clone(),
-            disk,
-            semantics: SEMANTICS,
+    /// What the headers written now say besides their document and file.
+    fn header_plan(&self) -> HeaderPlan {
+        HeaderPlan {
             host: self.host.clone(),
-            path: self.doc_path.clone(),
+            doc_path: self.doc_path.clone(),
             format: self.format,
-            unsaved: self.unsaved && disk.is_none(),
-            doc_id: doc.doc_id.clone(),
-            changes,
-            changes_ref,
-        };
+            unsaved: self.unsaved,
+        }
+    }
+
+    /// Starts over: truncates the journal and writes a header with `doc`
+    /// as the new base. Used after open, by a save that wrote no next
+    /// journal, and by the other places that start it again. Waits for any
+    /// tidying in flight first.
+    pub fn start(&mut self, doc: &Document, disk: Option<Fingerprint>) -> io::Result<()> {
+        self.settle();
+        if self.at_next() {
+            // A rename that failed: a header written at `.next` would hide
+            // what follows from recovery.
+            self.rename_next()?;
+        }
+        let line = self.header_plan().line(doc, disk, None)?;
         if disk.is_some() {
             self.unsaved = false;
         }
-        let mut line = serde_json::to_vec(&header).map_err(io::Error::other)?;
-        line.push(b'\n');
         // If this fails, the old journal is still whole.
         self.file.set_len(0)?;
         self.seq = 0;
@@ -421,6 +453,193 @@ impl Journal {
         self.written()?;
         self.flush_now();
         Ok(())
+    }
+
+    /// Whether the file lives at `<journal>.next`.
+    fn at_next(&self) -> bool {
+        self.at_next.load(Ordering::SeqCst)
+    }
+
+    /// Puts a journal still living at `<journal>.next`, after a rename that
+    /// failed, in its place.
+    fn rename_next(&mut self) -> io::Result<()> {
+        crate::io::replace(&next_path(&self.path), &self.path)?;
+        self.at_next.store(false, Ordering::SeqCst);
+        Ok(())
+    }
+
+    /// Waits for the tidying in flight, if any.
+    fn settle(&mut self) {
+        if let Some(g) = &self.tidy {
+            g.wait(Duration::from_secs(10));
+        }
+    }
+
+    /// Step 1 of a save in place (docs/specs/journal.md, "Starting the
+    /// journal again off the UI thread"): what its worker needs to write the
+    /// next journal, or `None` when the commit is to start it again in place
+    /// (a broken journal) or keep it (one whose rename failed).
+    pub fn restart_plan(&mut self) -> Option<RestartPlan> {
+        // Whatever an earlier save left unclaimed is stale now.
+        let stale = lock(&self.slot).take();
+        if let Some(n) = stale.and_then(|f| f.next) {
+            self.discard(n);
+        }
+        let failed = self.at_next() && self.tidy.as_ref().is_none_or(Gate::done);
+        if self.broken.is_some() || failed {
+            return None;
+        }
+        Some(RestartPlan {
+            path: self.path.clone(),
+            header: self.header_plan(),
+            seq: self.seq,
+            durability: self.durability,
+            after: self.tidy.clone(),
+            slot: self.slot.clone(),
+            alive: self.alive.clone(),
+        })
+    }
+
+    /// What save `number`'s worker left, if anything. Anything else left
+    /// there is from a save that is over, and goes.
+    fn take_finished(&mut self, number: u64) -> Option<Finished> {
+        let f = lock(&self.slot).take()?;
+        if f.number == number {
+            return Some(f);
+        }
+        if let Some(n) = f.next {
+            self.discard(n);
+        }
+        None
+    }
+
+    /// Step 5 of save `number` in place, when nothing was edited since its
+    /// snapshot: starts the journal again from the saved document `doc`,
+    /// written as `disk`. Switches to the next journal the save's worker
+    /// wrote, which touches no file; without one, starts again in place as
+    /// before. Returns false when the journal is kept as it is instead: the
+    /// marker's flush timed out, so the disk is stalled, or the journal
+    /// still lives at `.next` (docs/specs/journal.md, "Starting the journal
+    /// again off the UI thread").
+    pub fn restart_after_save(
+        &mut self,
+        number: u64,
+        doc: &Document,
+        disk: Fingerprint,
+    ) -> io::Result<bool> {
+        let (flushed, next) = match self.take_finished(number) {
+            Some(f) => (f.flushed, f.next),
+            None => (true, None),
+        };
+        if let Some(next) = next {
+            let fits = self.broken.is_none()
+                && !self.at_next()
+                && next.continues
+                    == (Continues {
+                        seq: self.seq,
+                        disk,
+                    });
+            if fits {
+                self.switch(next);
+                return Ok(true);
+            }
+            self.discard(next);
+        }
+        if self.broken.is_some() {
+            return self.start(doc, Some(disk)).map(|()| true);
+        }
+        if self.at_next() {
+            let tidied = self.tidy.as_ref().is_none_or(Gate::done);
+            if !tidied || self.rename_next().is_err() {
+                self.flush_now();
+                return Ok(false);
+            }
+        }
+        if !flushed {
+            self.flush_now();
+            return Ok(false);
+        }
+        self.start(doc, Some(disk)).map(|()| true)
+    }
+
+    /// For save `number` that did not start the journal again: drops the
+    /// next journal its worker left, if any.
+    pub fn save_ended(&mut self, number: u64) {
+        let _ = self.take_finished(number);
+    }
+
+    /// Appends to the next journal from now on: a change of handles, with
+    /// no call that can wait on the disk. The old journal's flusher and
+    /// file are closed, and the next journal renamed into place, on a
+    /// thread of their own.
+    fn switch(&mut self, next: NextJournal) {
+        let old_file = std::mem::replace(&mut self.file, next.file);
+        let old_flusher = std::mem::replace(&mut self.flusher, next.flusher);
+        self.seq = 0;
+        self.len = next.len;
+        self.broken = None;
+        self.unsaved = false;
+        self.at_next.store(true, Ordering::SeqCst);
+        hook("switched");
+        let (from, to) = (next_path(&self.path), self.path.clone());
+        let at_next = self.at_next.clone();
+        self.spawn_tidy(move || {
+            hook("tidy_started");
+            // Stopping the flusher flushes what it had pending.
+            drop(old_flusher);
+            drop(old_file);
+            hook("old_closed");
+            if crate::io::replace(&from, &to).is_err() {
+                return false;
+            }
+            at_next.store(false, Ordering::SeqCst);
+            hook("renamed");
+            true
+        });
+    }
+
+    /// Closes and removes a next journal that was not used, on a thread of
+    /// its own.
+    fn discard(&mut self, next: NextJournal) {
+        let path = next_path(&self.path);
+        self.spawn_tidy(move || {
+            drop(next);
+            match fs::remove_file(&path) {
+                Err(e) => e.kind() == io::ErrorKind::NotFound,
+                Ok(()) => true,
+            }
+        });
+    }
+
+    /// Runs `work` on a thread of its own, after the tidying before it.
+    /// If no thread can start, it runs here.
+    fn spawn_tidy(&mut self, work: impl FnOnce() -> bool + Send + 'static) {
+        let gate = Gate::default();
+        let before = self.tidy.replace(gate.clone());
+        let job = move || {
+            if let Some(b) = before {
+                b.wait(Duration::from_secs(10));
+            }
+            gate.open(work());
+            hook("tidied");
+        };
+        let job = Arc::new(Mutex::new(Some(job)));
+        let run = {
+            let job = job.clone();
+            move || {
+                if let Some(j) = lock(&job).take() {
+                    j();
+                }
+            }
+        };
+        if std::thread::Builder::new()
+            .name("coldopen-journal-tidy".into())
+            .spawn(run)
+            .is_err()
+            && let Some(j) = lock(&job).take()
+        {
+            j();
+        }
     }
 
     /// Appends one applied command in a single write. `t` is its time in
@@ -561,33 +780,333 @@ impl Journal {
     /// Keeps a copy of the journal's bytes next to it, never deleting
     /// anything a writer might want back.
     pub fn copy_aside(&self, contents: &[u8], tag: &str) -> io::Result<PathBuf> {
-        let mut ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_millis());
-        // Never over another copy: a copy made in the same millisecond
-        // takes the next free one, so its name still says when it was made.
-        loop {
-            let mut name = self.path.as_os_str().to_owned();
-            name.push(format!(".{tag}-{ms}"));
-            let aside = PathBuf::from(name);
-            match crate::io::write_new(&aside, contents) {
-                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => ms += 1,
-                other => return other.map(|()| aside),
-            }
-        }
+        copy_aside_at(&self.path, contents, tag)
     }
 
-    /// Releases the lock and removes the journal file.
+    /// Releases the lock and removes the journal file, and a next journal
+    /// beside it.
     pub fn delete(mut self) -> io::Result<()> {
         let path = self.path.clone();
+        self.alive.store(false, Ordering::SeqCst);
+        let unclaimed = lock(&self.slot).take();
+        drop(unclaimed);
+        self.settle();
         if let Some(mut f) = self.flusher.take() {
             f.stop();
         }
         drop(self);
-        match fs::remove_file(&path) {
-            Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
-            _ => Ok(()),
+        for p in [path.clone(), next_path(&path)] {
+            match fs::remove_file(&p) {
+                Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
+                _ => {}
+            }
         }
+        Ok(())
+    }
+}
+
+/// Keeps a copy of a journal's bytes beside it, as `<journal>.<tag>-<ms>`.
+fn copy_aside_at(journal: &Path, contents: &[u8], tag: &str) -> io::Result<PathBuf> {
+    let mut ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis());
+    // Never over another copy: a copy made in the same millisecond takes
+    // the next free one, so its name still says when it was made.
+    loop {
+        let mut name = journal.as_os_str().to_owned();
+        name.push(format!(".{tag}-{ms}"));
+        let aside = PathBuf::from(name);
+        match crate::io::write_new(&aside, contents) {
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => ms += 1,
+            other => return other.map(|()| aside),
+        }
+    }
+}
+
+/// Recovery's step 0 (docs/specs/journal.md, "Recovery on open"): a next
+/// journal that continues the journal at `path` takes its place, and a
+/// stale one goes, copied aside first when it holds entries.
+fn next_on_open(path: &Path, file: File, contents: Vec<u8>) -> Result<(File, Vec<u8>), OpenError> {
+    let next = next_path(path);
+    let mut nf = match OpenOptions::new().read(true).write(true).open(&next) {
+        Ok(f) => f,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok((file, contents)),
+        Err(e) => return Err(OpenError::Io(e)),
+    };
+    match nf.try_lock() {
+        Ok(()) => {}
+        Err(TryLockError::WouldBlock) => return Err(OpenError::Locked),
+        Err(TryLockError::Error(e)) => return Err(OpenError::Io(e)),
+    }
+    let mut ncontents = Vec::new();
+    nf.read_to_end(&mut ncontents).map_err(OpenError::Io)?;
+    if continues(&contents, &ncontents) {
+        drop(file);
+        crate::io::replace(&next, path).map_err(OpenError::Io)?;
+        nf.seek(SeekFrom::End(0)).map_err(OpenError::Io)?;
+        return Ok((nf, ncontents));
+    }
+    drop(nf);
+    if ncontents.iter().filter(|&&b| b == b'\n').count() > 1 {
+        copy_aside_at(path, &ncontents, "next").map_err(OpenError::Io)?;
+    }
+    match fs::remove_file(&next) {
+        Err(e) if e.kind() != io::ErrorKind::NotFound => Err(OpenError::Io(e)),
+        _ => Ok((file, contents)),
+    }
+}
+
+/// Whether the next journal `next` takes over from the journal `old`: its
+/// header names exactly where `old` ends, at the save marker for the file
+/// it names, so `old` replays to its header's document.
+fn continues(old: &[u8], next: &[u8]) -> bool {
+    let (Ok(old), Ok(next)) = (read(old), read(next)) else {
+        return false;
+    };
+    let Some(c) = next.header.continues else {
+        return false;
+    };
+    old.problem.is_none()
+        && old.entries.len() as u64 == c.seq
+        && old.entries.last().and_then(Entry::saved_disk) == Some(c.disk)
+        && next.header.disk == Some(c.disk)
+}
+
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    // What these locks guard stays whole whatever panicked while holding
+    // them, so a poisoned lock is used as it is.
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// What a header says besides its document and file: taken from the
+/// journal, so a header can also be written on another thread.
+#[derive(Clone, Debug)]
+pub struct HeaderPlan {
+    host: Option<String>,
+    doc_path: Option<String>,
+    format: FormatId,
+    unsaved: bool,
+}
+
+impl HeaderPlan {
+    /// The header line for `doc`, saved as `disk` if it was.
+    fn line(
+        &self,
+        doc: &Document,
+        disk: Option<Fingerprint>,
+        continues: Option<Continues>,
+    ) -> io::Result<Vec<u8>> {
+        let (changes, changes_ref) = if self.format.holds_changes() {
+            let count = doc.changes.len();
+            let fp = doc.changes.fingerprint(count).map(|f| f.fnv64);
+            (
+                None,
+                fp.filter(|_| count > 0).map(|fnv64| ChangesRef {
+                    count: count as u64,
+                    fnv64,
+                }),
+            )
+        } else {
+            (
+                (!doc.changes.is_empty()).then(|| doc.changes.to_file()),
+                None,
+            )
+        };
+        let header = Header {
+            journal: FORMAT.into(),
+            v: VERSION,
+            app: env!("CARGO_PKG_VERSION").into(),
+            doc: doc.clone(),
+            disk,
+            semantics: SEMANTICS,
+            host: self.host.clone(),
+            path: self.doc_path.clone(),
+            format: self.format,
+            unsaved: self.unsaved && disk.is_none(),
+            doc_id: doc.doc_id.clone(),
+            changes,
+            changes_ref,
+            continues,
+        };
+        let mut line = serde_json::to_vec(&header).map_err(io::Error::other)?;
+        line.push(b'\n');
+        Ok(line)
+    }
+}
+
+/// Opens once the tidying it stands for is done: with true when it left
+/// nothing at `<journal>.next` that is still needed.
+#[derive(Clone, Default)]
+pub struct Gate(Arc<(Mutex<Option<bool>>, Condvar)>);
+
+impl fmt::Debug for Gate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Gate").field(&*lock(&self.0.0)).finish()
+    }
+}
+
+impl Gate {
+    fn open(&self, ok: bool) {
+        *lock(&self.0.0) = Some(ok);
+        self.0.1.notify_all();
+    }
+
+    fn done(&self) -> bool {
+        lock(&self.0.0).is_some()
+    }
+
+    /// Waits for at most `timeout`. True when the tidying is done and went
+    /// well.
+    fn wait(&self, timeout: Duration) -> bool {
+        let (m, cv) = &*self.0;
+        let guard = lock(m);
+        let (guard, _) = cv
+            .wait_timeout_while(guard, timeout, |g| g.is_none())
+            .unwrap_or_else(|e| e.into_inner());
+        *guard == Some(true)
+    }
+}
+
+/// What a save's worker left for its commit.
+#[derive(Debug)]
+struct Finished {
+    number: u64,
+    /// Whether the journal was flushed up to the save's marker in time.
+    flushed: bool,
+    next: Option<NextJournal>,
+}
+
+type Slot = Arc<Mutex<Option<Finished>>>;
+
+/// A next journal, written, flushed and locked by a save's worker.
+#[derive(Debug)]
+struct NextJournal {
+    file: File,
+    flusher: Option<Flusher>,
+    len: u64,
+    continues: Continues,
+}
+
+/// A next journal's header, made on a save's worker in step 2.
+#[derive(Clone, Debug)]
+pub struct NextHeader {
+    line: Vec<u8>,
+    continues: Continues,
+}
+
+/// What a save's worker needs to write the next journal
+/// (docs/specs/journal.md, "Starting the journal again off the UI
+/// thread"), taken on the UI thread with the save's snapshot.
+#[derive(Clone, Debug)]
+pub struct RestartPlan {
+    path: PathBuf,
+    header: HeaderPlan,
+    /// The entries at the snapshot; the save's marker follows them.
+    seq: u64,
+    durability: Durability,
+    /// The tidying in flight, which the worker waits for.
+    after: Option<Gate>,
+    slot: Slot,
+    alive: Arc<AtomicBool>,
+}
+
+impl RestartPlan {
+    /// Step 2, on the worker: the next journal's header, for the snapshot
+    /// `doc` and the bytes it was rendered to.
+    pub fn header(&self, doc: &Document, disk: Fingerprint) -> io::Result<NextHeader> {
+        let continues = Continues {
+            seq: self.seq + 1,
+            disk,
+        };
+        Ok(NextHeader {
+            line: self.header.line(doc, Some(disk), Some(continues))?,
+            continues,
+        })
+    }
+
+    /// Step 4's end, on the worker: leaves save `number`'s outcome for its
+    /// commit, with the next journal when there is a `header` to write (the
+    /// file was written) and the marker was `flushed`. A next journal that
+    /// can't be written is left out, and the commit starts the journal again
+    /// in place.
+    pub fn finish(&self, number: u64, flushed: bool, header: Option<&NextHeader>) {
+        let next = match header {
+            Some(h) if flushed => self.write_next(h).ok(),
+            _ => None,
+        };
+        if !self.alive.load(Ordering::SeqCst) {
+            // Closed meanwhile: nothing will claim it.
+            if next.is_some() {
+                drop(next);
+                let _ = fs::remove_file(next_path(&self.path));
+            }
+            return;
+        }
+        let written = next.is_some();
+        *lock(&self.slot) = Some(Finished {
+            number,
+            flushed,
+            next,
+        });
+        if written {
+            hook("next_written");
+        }
+    }
+
+    fn write_next(&self, h: &NextHeader) -> io::Result<NextJournal> {
+        if let Some(g) = &self.after
+            && !g.wait(Duration::from_secs(2))
+        {
+            return Err(io::Error::other("the last switch is still being tidied"));
+        }
+        if !self.alive.load(Ordering::SeqCst) {
+            return Err(io::Error::other("the journal was closed"));
+        }
+        let path = next_path(&self.path);
+        let mut file = open_rw(&path)?;
+        crate::io::hide(&path);
+        match file.try_lock() {
+            Ok(()) => {}
+            Err(TryLockError::WouldBlock) => {
+                return Err(io::Error::other("the next journal is in use"));
+            }
+            Err(TryLockError::Error(e)) => return Err(e),
+        }
+        file.set_len(0)?;
+        file.write_all(&h.line)?;
+        file.sync_all()?;
+        crate::io::sync_folder_of(&path);
+        let flusher = match self.durability {
+            Durability::Deferred { max_delay, idle } => {
+                Some(Flusher::spawn(file.try_clone()?, max_delay, idle)?)
+            }
+            _ => None,
+        };
+        Ok(NextJournal {
+            file,
+            flusher,
+            len: h.line.len() as u64,
+            continues: h.continues,
+        })
+    }
+}
+
+/// Called at each step of starting the journal again off the UI thread,
+/// for tests that kill the process there.
+static HOOK: OnceLock<fn(&str)> = OnceLock::new();
+
+/// For tests: `f` is called with the name of each step of starting the
+/// journal again off the UI thread: `next_written`, `switched`,
+/// `tidy_started`, `old_closed`, `renamed` and `tidied`. Set once per
+/// process.
+#[doc(hidden)]
+pub fn set_restart_hook(f: fn(&str)) {
+    let _ = HOOK.set(f);
+}
+
+fn hook(step: &str) {
+    if let Some(f) = HOOK.get() {
+        f(step);
     }
 }
 

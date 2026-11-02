@@ -292,6 +292,12 @@ fn measure_all(
             median_ms: row.whole.median,
             p95_ms: row.whole.p95,
         });
+        // Each UI-thread step on its own (2026-11-02, docs/specs/bench.md
+        // §4), so a stall shows where it fell.
+        for (step, s) in ["snapshot", "marker", "commit"].iter().zip(row.steps) {
+            r.info
+                .push(info(&format!("save_ui_{}_{step}", row.id), None, s));
+        }
     }
 
     let runner = windowed::Runner {

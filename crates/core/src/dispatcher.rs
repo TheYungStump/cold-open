@@ -76,27 +76,49 @@ pub struct PreparedSave {
     /// changes (`changes_accepted`), for the commit's warnings.
     notes: Vec<Value>,
     /// Waits for the journal's flush of the save marker (a deferred
-    /// journal only); see [`PreparedSave::wait_for_journal`].
+    /// journal only); see [`SaveFinisher::run`].
     journal: Option<crate::flush::FlushWaiter>,
+    /// What the worker needs to write the next journal, and its header;
+    /// boxed, since it is large and rarely there for long.
+    restart: Option<Box<(journal::RestartPlan, journal::NextHeader)>>,
 }
 
 impl PreparedSave {
-    /// Step 4's end, on the thread that wrote the file: waits, for at most
-    /// two seconds, until the journal is flushed up to the save marker.
-    /// The commit then starts the journal again with no flush of it in
-    /// flight. On Linux, cutting a file back waits for the writes in
-    /// flight to it, and on a stalled disk that held the UI thread for
-    /// 76 ms (docs/specs/journal.md, "Saving off the UI thread",
-    /// 2026-10-21).
-    pub fn wait_for_journal(&self) {
-        if let Some(w) = &self.journal {
-            w.wait(std::time::Duration::from_secs(2));
+    /// Step 4's end, to run on the thread that wrote the file.
+    pub fn finisher(&self) -> SaveFinisher {
+        SaveFinisher {
+            journal: self.journal.clone(),
+            restart: self.restart.clone(),
+            number: self.number,
         }
     }
+}
 
-    /// The same wait, as a handle to move to the thread that writes.
-    pub fn journal_waiter(&self) -> Option<crate::flush::FlushWaiter> {
-        self.journal.clone()
+/// The end of step 4 of a save in place, on the thread that wrote the file
+/// ([`PreparedSave::finisher`]).
+#[derive(Debug)]
+pub struct SaveFinisher {
+    journal: Option<crate::flush::FlushWaiter>,
+    restart: Option<Box<(journal::RestartPlan, journal::NextHeader)>>,
+    number: u64,
+}
+
+impl SaveFinisher {
+    /// Waits, for at most two seconds, until the journal is flushed up to
+    /// the save marker (2026-10-21: on Linux, cutting a file back waits for
+    /// a flush of it in flight). Then, if the file was `written`, writes the
+    /// next journal beside the old one, so the commit switches to it
+    /// without touching a file (docs/specs/journal.md, "Starting the
+    /// journal again off the UI thread", 2026-11-02).
+    pub fn run(self, written: bool) {
+        let flushed = self
+            .journal
+            .as_ref()
+            .is_none_or(|w| w.wait(std::time::Duration::from_secs(2)));
+        if let Some(r) = &self.restart {
+            let (plan, header) = &**r;
+            plan.finish(self.number, flushed, written.then_some(header));
+        }
     }
 }
 
@@ -209,6 +231,9 @@ pub struct SaveJob {
     session: u64,
     number: u64,
     notes: Vec<Value>,
+    /// What the worker needs to write the next journal, if the journal has
+    /// one to write.
+    restart: Option<journal::RestartPlan>,
 }
 
 /// Which save a [`SaveJob`] is, so a caller whose worker never answered
@@ -240,8 +265,16 @@ impl SaveJob {
             } else {
                 None
             };
+            let fingerprint = Fingerprint::of(&r.bytes);
+            // The next journal's header, turned into JSON here rather than
+            // on the UI thread. One that can't be made means no next
+            // journal, and the commit starts the journal again in place.
+            let restart = self.restart.as_ref().and_then(|plan| {
+                let header = plan.header(&self.doc, fingerprint).ok()?;
+                Some(Box::new((plan.clone(), header)))
+            });
             Ok(PreparedSave {
-                fingerprint: Fingerprint::of(&r.bytes),
+                fingerprint,
                 target: r.target,
                 bytes: r.bytes,
                 format: r.format.name().to_string(),
@@ -252,6 +285,7 @@ impl SaveJob {
                 original,
                 notes: self.notes,
                 journal: None,
+                restart,
             })
         })();
         RenderedSave {
@@ -1457,6 +1491,10 @@ impl Dispatcher {
             .ok_or_else(CommandError::no_document)?;
         session.saves += 1;
         session.saving = Some(session.saves);
+        let restart = session
+            .journal
+            .as_mut()
+            .and_then(journal::Journal::restart_plan);
         Ok(SaveJob {
             doc: session.doc.clone(),
             style: session.style,
@@ -1468,6 +1506,7 @@ impl Dispatcher {
             session: session.id(),
             number: session.saves,
             notes,
+            restart,
         })
     }
 
@@ -1551,21 +1590,35 @@ impl Dispatcher {
             .with_details(json!({ "path": prepared.target.display().to_string() })));
         };
         session.saving = None;
-        written.map_err(|e| CommandError::io(&prepared.target, &e))?;
+        if let Err(e) = written {
+            if let Some(j) = &mut session.journal {
+                j.save_ended(prepared.number);
+            }
+            return Err(CommandError::io(&prepared.target, &e));
+        }
         // The file now holds these bytes, whether or not edits came since.
         session.disk = Some(prepared.fingerprint);
         session.style = saved_style(session.style);
         session.damaged = false;
         let current = session.rev == prepared.rev;
         if current {
-            if let Some(j) = &mut session.journal {
-                j.start(&session.doc, Some(prepared.fingerprint))
-                    .map_err(|e| CommandError::io(j.path(), &e))?;
+            // Switched to the next journal the worker wrote, or started
+            // again in place; or kept as it is, on a stalled disk
+            // (docs/specs/journal.md, "Starting the journal again off the
+            // UI thread").
+            let restarted = match &mut session.journal {
+                Some(j) => j
+                    .restart_after_save(prepared.number, &session.doc, prepared.fingerprint)
+                    .map_err(|e| CommandError::io(j.path(), &e))?,
+                None => true,
+            };
+            if restarted {
+                session.journal_restarted();
             }
-            session.journal_restarted();
             session.dirty = false;
             session.recovered = None;
-        } else if let Some(j) = &session.journal {
+        } else if let Some(j) = &mut session.journal {
+            j.save_ended(prepared.number);
             j.flush_now();
         }
         Ok(json!({

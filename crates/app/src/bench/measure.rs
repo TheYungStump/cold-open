@@ -171,13 +171,13 @@ pub fn journal(dir: &Path, edits: usize) -> Result<(Stats, Stats, Stats), String
 }
 
 /// One kind of save measured: the UI thread's time, the whole save, and
-/// the slowest snapshot, marker and commit on the UI thread.
+/// each of the UI thread's steps: the snapshot, the marker and the commit.
 pub struct SaveRow {
     pub label: &'static str,
     pub id: &'static str,
     pub ui: Stats,
     pub whole: Stats,
-    pub steps: [f64; 3],
+    pub steps: [Stats; 3],
 }
 
 /// One save of each kind of file, as the desktop app saves (journal.md,
@@ -235,9 +235,8 @@ pub fn saves(dir: &Path, source: &str, runs: usize) -> Result<Vec<SaveRow>, Stri
             .ok_or("no action to type in")?
             .id;
         let (mut ui, mut whole) = (Vec::new(), Vec::new());
-        // The slowest snapshot, marker and commit, so a stall shows where
-        // it fell.
-        let mut steps = [0.0f64; 3];
+        // Each step's times, so a stall shows where it fell.
+        let mut steps: [Vec<f64>; 3] = Default::default();
         let save = |d: &mut Dispatcher| -> Result<[f64; 3], String> {
             let t = Instant::now();
             let job = d.save_prepare(&DocSave::default()).map_err(|e| e.message)?;
@@ -247,10 +246,10 @@ pub fn saves(dir: &Path, source: &str, runs: usize) -> Result<Vec<SaveRow>, Stri
             let t = Instant::now();
             let prepared = d.save_mark(rendered).map_err(|e| e.message)?;
             let mark = ms(t);
-            // The worker again, as the app's: the write, then the wait for
-            // the journal's flush of the marker.
+            // The worker again, as the app's: the write, the wait for the
+            // journal's flush of the marker, and the next journal.
             let written = coldopen_core::io::atomic_write(&prepared.target, &prepared.bytes);
-            prepared.wait_for_journal();
+            prepared.finisher().run(written.is_ok());
             let t = Instant::now();
             d.save_commit(prepared, written).map_err(|e| e.message)?;
             Ok([snapshot, mark, ms(t)])
@@ -263,8 +262,8 @@ pub fn saves(dir: &Path, source: &str, runs: usize) -> Result<Vec<SaveRow>, Stri
                 json!({"id": block, "at": 0, "text": text}),
             )?;
             let s = save(&mut d)?;
-            for (max, v) in steps.iter_mut().zip(s) {
-                *max = max.max(v);
+            for (times, v) in steps.iter_mut().zip(s) {
+                times.push(v);
             }
             ui.push(s.iter().sum());
         }
@@ -286,7 +285,7 @@ pub fn saves(dir: &Path, source: &str, runs: usize) -> Result<Vec<SaveRow>, Stri
             id,
             ui: stats(ui),
             whole: stats(whole),
-            steps,
+            steps: steps.map(stats),
         });
     }
     Ok(out)

@@ -74,13 +74,14 @@ fn main() {
         );
         for r in saves(work.path(), &source, 21).expect("the saves") {
             println!(
-                "| {} | median {:.2} ms, p95 {:.2} ms (slowest snapshot {:.2}, marker {:.2}, commit {:.2}) | median {:.1} ms, p95 {:.1} ms |",
+                "| {} | median {:.2} ms, p95 {:.2} ms (p95 snapshot {:.2}, marker {:.2}, commit {:.2}; slowest commit {:.2}) | median {:.1} ms, p95 {:.1} ms |",
                 r.label,
                 r.ui.median,
                 r.ui.p95,
-                r.steps[0],
-                r.steps[1],
-                r.steps[2],
+                r.steps[0].p95,
+                r.steps[1].p95,
+                r.steps[2].p95,
+                r.steps[2].max,
                 r.whole.median,
                 r.whole.p95
             );
@@ -199,15 +200,25 @@ fn main() {
         results.insert(
             format!("save {label}"),
             json!({"ui_median": ui.median, "ui_p95": ui.p95, "ui_max": ui.max,
-                   "ui_slowest_snapshot": steps[0], "ui_slowest_marker": steps[1],
-                   "ui_slowest_commit": steps[2],
+                   "ui_p95_snapshot": steps[0].p95, "ui_p95_marker": steps[1].p95,
+                   "ui_p95_commit": steps[2].p95,
+                   "ui_slowest_snapshot": steps[0].max, "ui_slowest_marker": steps[1].max,
+                   "ui_slowest_commit": steps[2].max,
                    "whole_median": whole.median, "whole_p95": whole.p95, "whole_max": whole.max}),
         );
         rows.push((
             format!("Save on the UI thread, {label}"),
             format!(
-                "median {:.2} ms, p95 {:.2} ms, max {:.2} ms (slowest snapshot {:.2}, marker {:.2}, commit {:.2})",
-                ui.median, ui.p95, ui.max, steps[0], steps[1], steps[2]
+                "median {:.2} ms, p95 {:.2} ms, max {:.2} ms (p95 snapshot {:.2}, marker {:.2}, commit {:.2}; slowest {:.2}, {:.2}, {:.2})",
+                ui.median,
+                ui.p95,
+                ui.max,
+                steps[0].p95,
+                steps[1].p95,
+                steps[2].p95,
+                steps[0].max,
+                steps[1].max,
+                steps[2].max
             ),
             "p95 under 4 ms".into(),
         ));
