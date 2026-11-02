@@ -164,7 +164,16 @@ With the CPU renderer, for comparison: typing p95 19.7 ms, page scrolling 15.3 m
 
   The whole save is 1 to 3 ms longer, since the worker now writes and flushes the next journal too.
 - **The crash gate**, run five times in a row on this PC: 9 of 9 each time. `core/tests/restart.rs` (a kill at each of 9 points, with typing during the restart) passes.
-- **CI, every OS:** the UI-thread p95 of each step is in the next run's budgets jobs (below, once it has run).
+- **CI, every OS** (199ae39, the budgets jobs' saves table; Windows and macOS print it twice, so both runs are given). p95 in ms, as Fountain / .fdx / project:
+
+| OS | Snapshot | Marker | Commit | Whole UI thread |
+| --- | --- | --- | --- | --- |
+| Linux | 0.25 / 0.17 / 0.19 | 0.03 / 0.01 / 0.01 | **0.04 / 0.02 / 0.03** | 0.30 / 0.20 / 0.23 |
+| Windows | 0.66–0.67 / 0.67–0.81 / 0.58–0.69 | 0.04 / 0.48–1.41 / 0.04 | **0.08–0.22 / 0.06–0.07 / 0.06–0.07** | 0.76–0.89 / 1.12–2.12 / 0.66–0.78 |
+| macOS | 0.53–0.65 / 0.47–0.52 / 0.49–0.55 | 0.12–0.19 / 0.12–0.15 / 0.17–0.18 | **0.07–0.10 / 0.06–0.07 / 0.07** | 0.63–0.75 / 0.64–0.67 / 0.63–0.69 |
+
+  Before, Linux's slowest commits were 13.4 and 55.4 ms. Every save budget passes on every OS. Windows' slowest step is now the .fdx marker, an append like a keystroke's (2.7 ms once), on a shared runner's disk.
+- **CI's macOS bench** (a 3-core virtual Mac, reported, not asserted) missed two windowed budgets with Metal, and the new medians show they are spikes: keystroke p95 16.7 ms with a median of 9.2, the report view p95 19.4 ms with a median of 4.1. The Mac tester's rerun on a real Mac is the gate.
 
 ## The project owner's manual test (2026-10-31, 83b44f7)
 
