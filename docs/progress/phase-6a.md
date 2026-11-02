@@ -46,6 +46,7 @@ Phase 6 is split in two. **6a** (this phase) builds installable packages for eve
 16. **The package readme** is `.github/packaging/TESTING.txt`, rewritten for the alpha and shipped as `README.txt`. **`measure.py`** is no longer used by CI, since the bench replaces it. It is left in place until the owner says to remove it.
 17. **The system is asked which renderer draws the window only when it's needed** (2026-11-02): when About first opens, and in the bench once the frames are measured. iced's query also lists every running process on every core, and at start it held up the window's frames (see "Report scrolling misses" below).
 18. **The journal starts again off the UI thread** (2026-11-02; phase 5a decision 47, done now at the project owner's request). After a save, the commit used to cut the journal back and write its new header on the UI thread, which CI once caught taking 13.4 ms. Now the save's worker writes the next journal beside the old one (`<journal>.next`), the commit only switches which file edits go to, and a background thread renames it into place. Recovery takes the `.next` only when the old journal ends exactly at the save marker its header names (journal.md, "Starting the journal again off the UI thread"). `core/tests/restart.rs` kills a process at each step, with typing during the restart.
+19. **The installer and the uninstaller close a running Cold Open themselves** (2026-11-02, the project owner's retest), instead of through Windows' Restart Manager (`CloseApplications=no`). They find the copies running from the install folder through WMI, say so with OK and Cancel, ask each to close, and end any still open after 3 seconds; its work is in the crash journal. CI starts the app, then installs over it and uninstalls it while it runs, each within 15 seconds.
 
 ## New dependencies
 
@@ -197,6 +198,8 @@ Every budget passed in all three. The full run is the Windows gate now, in place
 - **§8, two findings:**
   1. **The installer's close of a running Cold Open works, but took 20 to 30 seconds.** It asks Windows' Restart Manager to close the app first, and the app's window doesn't answer it, so the installer waits out Windows' time limit before ending it.
   2. **The uninstaller didn't remove Cold Open while a window was open.** Unlike the installer, it has no step that closes the app, so the program's files were in use.
+
+  Both fixed the same day (decision 19, release.md §3.1). The retest is §8 again.
 
 ## The project owner's manual test (2026-10-31, 83b44f7)
 

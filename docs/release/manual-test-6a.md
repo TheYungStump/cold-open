@@ -113,9 +113,10 @@ Record each result as **pass** or **fail**, with what you saw. A screenshot help
 2. **Expected:**
    - It installs over the first one without asking for a folder.
    - Your settings (theme, recent files) are still there afterwards.
-   - If Cold Open was open, the installer offers to close it, and does: it asks the app first, and ends it if that fails. Type a line in an untitled script before you run the installer. When Cold Open starts again, it offers that script back, line included.
-3. Settings ▸ Apps ▸ Installed apps ▸ Cold Open ▸ Uninstall.
+   - If Cold Open was open, the installer says it will close it, with OK and Cancel (since 2026-11-02). After OK, Cold Open closes within about 3 seconds: if it asks whether to save, the installer ends it rather than wait. Type a line in an untitled script before you run the installer. When Cold Open starts again, it offers that script back, line included.
+3. Open Cold Open again, then Settings ▸ Apps ▸ Installed apps ▸ Cold Open ▸ Uninstall.
 4. **Expected:**
+   - The uninstaller says it will close Cold Open, and after OK closes it within about 3 seconds (since 2026-11-02; before, it couldn't remove a running Cold Open).
    - `%LOCALAPPDATA%\Programs\Cold Open` is gone.
    - A new terminal says `coldopen` isn't recognised.
    - Cold Open is gone from "Open with".

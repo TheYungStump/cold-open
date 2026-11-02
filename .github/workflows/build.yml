@@ -187,8 +187,9 @@ jobs:
           # 2026-10-31 found it lost).
           grep -q "Cold Open bench:" bench.out
           ls bench
-      # An upgrade while Cold Open runs: the installer closes it (or ends it,
-      # release.md §3.1) and installs over it.
+      # An upgrade while Cold Open runs: the installer closes it, ending it
+      # after 3 seconds if it must, and installs over it, all in well under
+      # 15 seconds (release.md §3.1).
       - name: Install again over the running app
         shell: pwsh
         run: |
@@ -196,18 +197,32 @@ jobs:
           Start-Sleep -Seconds 5
           if ($running.HasExited) { Write-Error "the app didn't stay open"; exit 1 }
           $setup = Get-ChildItem dist/*-setup.exe | Select-Object -First 1
-          $p = Start-Process -Wait -PassThru -FilePath $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CLOSEAPPLICATIONS','/TASKS=addtopath','/LOG=upgrade.log'
+          $t = [Diagnostics.Stopwatch]::StartNew()
+          $p = Start-Process -Wait -PassThru -FilePath $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TASKS=addtopath','/LOG=upgrade.log'
+          $secs = [math]::Round($t.Elapsed.TotalSeconds, 1)
           if ($p.ExitCode -ne 0) { Get-Content upgrade.log; exit 1 }
-          Start-Sleep -Seconds 2
           if (-not $running.HasExited) { Get-Content upgrade.log; Write-Error "the installer left the app running"; exit 1 }
-          Select-String -Path upgrade.log -Pattern "close|Restart Manager" | Select-Object -First 10
-      - name: Uninstall
+          Select-String -Path upgrade.log -Pattern "Cold Open" | Select-Object -First 10
+          "The upgrade took $secs s"
+          if ($secs -gt 15) { Write-Error "the upgrade took $secs s"; exit 1 }
+      # The uninstaller closes a running Cold Open the same way.
+      - name: Uninstall while the app runs
         shell: pwsh
         run: |
-          $p = Start-Process -Wait -PassThru -FilePath "$env:APP\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART'
-          if ($p.ExitCode -ne 0) { exit 1 }
-          Start-Sleep -Seconds 2
+          $running = Start-Process -PassThru -FilePath "$env:APP\Cold Open.exe"
+          Start-Sleep -Seconds 5
+          if ($running.HasExited) { Write-Error "the app didn't stay open"; exit 1 }
+          $t = [Diagnostics.Stopwatch]::StartNew()
+          $p = Start-Process -Wait -PassThru -FilePath "$env:APP\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/LOG=uninstall.log'
+          if ($p.ExitCode -ne 0) { Get-Content uninstall.log -ErrorAction SilentlyContinue; exit 1 }
+          # Inno's uninstaller hands over to a copy of itself, which may still
+          # be at work when this one exits.
+          while ((-not $running.HasExited -or (Test-Path "$env:APP\Cold Open.exe")) -and $t.Elapsed.TotalSeconds -lt 30) { Start-Sleep -Milliseconds 250 }
+          $secs = [math]::Round($t.Elapsed.TotalSeconds, 1)
+          if (-not $running.HasExited) { Write-Error "the uninstaller left the app running"; exit 1 }
           if (Test-Path "$env:APP\Cold Open.exe") { Write-Error "the app is still there"; exit 1 }
+          "The uninstall took $secs s"
+          if ($secs -gt 15) { Write-Error "the uninstall took $secs s"; exit 1 }
           $path = (Get-ItemProperty HKCU:\Environment).Path
           if ($path -like "*$env:APP\bin*") { Write-Error "PATH still names coldopen"; exit 1 }
           if (Test-Path "HKCU:\Software\Classes\ColdOpen.fountain") { Write-Error "ProgId left behind"; exit 1 }

@@ -55,11 +55,11 @@ SolidCompression=yes
 WizardStyle=modern
 ChangesEnvironment=yes
 ChangesAssociations=yes
-; Offers to close a running Cold Open before replacing it, and ends it if
-; asking fails: iced's window doesn't answer Windows' Restart Manager (the
-; project owner's manual test, 2026-10-31). Nothing is lost, since every
-; keystroke is already in the crash journal, as after any crash.
-CloseApplications=force
+; A running Cold Open is closed by CloseColdOpen below, not by Windows'
+; Restart Manager: iced's window doesn't answer it, so it waited out
+; Windows' time limit, 20 to 30 seconds (release.md §3.1, the project
+; owner's retest, 2026-11-02).
+CloseApplications=no
 RestartApplications=no
 
 [Tasks]
@@ -104,6 +104,117 @@ Filename: "{app}\Cold Open.exe"; Description: "Start Cold Open"; Flags: nowait p
 [Code]
 const
   EnvKey = 'Environment';
+  AppExe = 'Cold Open.exe';
+  { What Running does to each copy it finds. }
+  JustCount = 0;
+  AskToClose = 1;
+  EndIt = 2;
+  { What CloseColdOpen comes to. }
+  Closed = 0;
+  Cancelled = 1;
+  StillOpen = 2;
+
+{ The copies of Cold Open running from Exe: counted, asked to close as the
+  window's close button does, or ended. WMI names each process's file, so
+  a copy run from anywhere else, such as a zip, is left alone. }
+function Running(Exe: string; Action: Integer): Integer;
+var
+  Locator, Service, Items, Item: Variant;
+  I, Pid, Code: Integer;
+  Path: string;
+begin
+  Result := 0;
+  try
+    Locator := CreateOleObject('WbemScripting.SWbemLocator');
+    Service := Locator.ConnectServer('.', 'root\CIMV2');
+    Items := Service.ExecQuery('SELECT ProcessId, ExecutablePath FROM Win32_Process WHERE Name = ''' + AppExe + '''');
+    for I := 0 to Items.Count - 1 do
+    begin
+      Item := Items.ItemIndex(I);
+      { Another user's process has no path to read. }
+      try
+        Path := Item.ExecutablePath;
+      except
+        Path := '';
+      end;
+      if CompareText(Path, Exe) = 0 then
+      begin
+        Result := Result + 1;
+        Pid := Item.ProcessId;
+        if Action = AskToClose then
+          Exec(ExpandConstant('{sys}\taskkill.exe'), '/PID ' + IntToStr(Pid), '', SW_HIDE, ewWaitUntilTerminated, Code)
+        else if Action = EndIt then
+          Item.Terminate();
+      end;
+    end;
+  except
+    Log('Could not list the running programs: ' + GetExceptionMessage);
+  end;
+end;
+
+{ Waits up to Ms milliseconds for every copy running from Exe to end. }
+function GoneWithin(Exe: string; Ms: Integer): Boolean;
+var
+  Waited: Integer;
+begin
+  Waited := 0;
+  while (Running(Exe, JustCount) > 0) and (Waited < Ms) do
+  begin
+    Sleep(250);
+    Waited := Waited + 250;
+  end;
+  Result := Running(Exe, JustCount) = 0;
+end;
+
+{ Closes the Cold Open running from the install folder before Who (Setup
+  or the uninstaller) replaces or removes its files (release.md §3.1):
+  asks, asks the app to close, and after 3 seconds ends it. Nothing is
+  lost, since every keystroke is in the crash journal. }
+function CloseColdOpen(Who: string): Integer;
+var
+  Exe: string;
+begin
+  Exe := ExpandConstant('{app}\' + AppExe);
+  Result := Closed;
+  if Running(Exe, JustCount) = 0 then
+    Exit;
+  if SuppressibleMsgBox('Cold Open is open, so ' + Who + ' will close it first.' + #13#10 + #13#10 +
+      'Nothing you typed is lost: Cold Open keeps it, and offers it back when it starts again.',
+      mbConfirmation, MB_OKCANCEL, IDOK) <> IDOK then
+  begin
+    Result := Cancelled;
+    Exit;
+  end;
+  Running(Exe, AskToClose);
+  if GoneWithin(Exe, 3000) then
+    Exit;
+  Log('Cold Open did not close when asked, so it is being ended.');
+  Running(Exe, EndIt);
+  if not GoneWithin(Exe, 3000) then
+    Result := StillOpen;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  case CloseColdOpen('Setup') of
+    Cancelled: Result := 'Cold Open is still open, so nothing was installed.';
+    StillOpen: Result := 'Cold Open could not be closed. Close it, then run Setup again.';
+  end;
+end;
+
+function InitializeUninstall(): Boolean;
+begin
+  Result := True;
+  case CloseColdOpen('the uninstaller') of
+    Cancelled: Result := False;
+    StillOpen:
+      begin
+        SuppressibleMsgBox('Cold Open could not be closed. Close it, then uninstall it again.', mbError, MB_OK, IDOK);
+        Result := False;
+      end;
+  end;
+end;
 
 { Whether Dir is one of the ';'-separated entries in Path. }
 function InPath(Path, Dir: string): Boolean;
