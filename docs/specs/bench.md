@@ -77,7 +77,7 @@ Every run uses the synthetic feature script, `coldopen_layout::synthetic::featur
 - **`budgets`** holds one entry per budget in §3, with `id`, `value_ms` (or `value_mib` for memory), `stat`, `limit_ms` (or `limit_mib`), `pass`, `runs`, and `renderer` where it applies.
   - The windowed p95 budgets also carry `median_ms` (2026-11-02), which tells a few slow frames from every frame being slow. The text report shows it in brackets.
   - A step that couldn't run has `"pass": null` and a `"skipped"` reason drawn from a fixed list: `no_window`, `no_gpu`, `timeout`, `failed`.
-- **`info`** holds the numbers kept for comparison: other renderers, headless frames, p95 of the whole save, page scrolling.
+- **`info`** holds the numbers kept for comparison: other renderers, headless frames, p95 of the whole save, page scrolling, and (2026-11-02) each UI-thread step of each kind of save, as `save_ui_<kind>_snapshot`, `_marker` and `_commit`.
 - **`passed`** is true only when every budget passed and none was skipped.
 
 **Text:** the same in a table, as the summary shows it, with one line per budget: name, result, limit, PASS, MISS or SKIPPED.

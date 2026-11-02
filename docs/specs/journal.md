@@ -1,6 +1,6 @@
 # Crash journal and atomic saves
 
-- **Date:** 2026-10-13, updated 2026-10-15, 2026-10-16, 2026-10-18, 2026-10-22 (phase 5b: `semantics` 3 and the revision table in the header) and 2026-10-28 (`semantics` 4 and semantics markers, from the reviews of phases 4–5b)
+- **Date:** 2026-10-13, updated 2026-10-15, 2026-10-16, 2026-10-18, 2026-10-22 (phase 5b: `semantics` 3 and the revision table in the header) 2026-10-28 (`semantics` 4 and semantics markers, from the reviews of phases 4–5b) and 2026-11-02 (phase 6a: the journal starts again off the UI thread, beside the old one)
 - **Status:** implemented in `crates/core` (phases 1, 3 and 4, and the review fixes of 2026-10-16). Phase 5a (2026-10-18: `semantics` 2 and the `tracked` param, `doc_id`, the change data and how the header names it, bundles) is being implemented.
 - **Sources:** `docs/spec.md` (Reliability features, File formats), `CLAUDE.md` (Reliability), the phase 3 brief and its approved decisions (2026-10-15), the reviews of phases 1–3 (2026-10-15, listed in `docs/progress/review-fixes.md`; section "F18" there for the decisions at the end), the phase 4 brief and its decisions (2026-10-16, `docs/progress/phase-4.md`), the phase 5a brief and its decisions (2026-10-18, `docs/progress/phase-5a.md`), `docs/specs/changes.md`, `docs/specs/bundle.md`. No external material.
 
@@ -26,6 +26,7 @@
 | `doc_id` | (2026-10-18, phase 5a) For a bundle, the document's identity (`docs/specs/bundle.md` §8). Absent for other formats. |
 | `changes`, `changes_ref` | (2026-10-18, phase 5a) The document's change table ("The change data"). For a bundle, `changes_ref` names it; for other formats, `changes` holds it. Both are absent when the table is empty. |
 | `host`, `path` | (2026-10-16) The computer's name and the script's canonical path when the header was written. Absent in older journals. |
+| `continues` | (2026-11-02, phase 6a) Only in a journal a save started beside the old one ("Starting the journal again off the UI thread"): `{"seq": n, "disk": {...}}`, the old journal's entry count when this one took over, whose last entry is the `doc.saved` marker for `disk`. Absent otherwise. Older versions ignore it. |
 | `unsaved` | (2026-10-16, phase 4) `true` when the header's document is itself unsaved work with no file behind it, as for a restored copy ("Recovered versions"), so the app offers it at start-up though the journal has no entries. Written only in a header with no `disk`; absent means false. |
 | `format` | (2026-10-16, phase 4) The file format `doc` was read from or saved as, such as `"fdx"`. Recovery writes the replayed document in this format when it checks whether the file already holds it (step 4), so it compares like with like. Absent means Fountain, and Fountain is never written, so Fountain journals are exactly as before. A format this version does not know makes the header unreadable: the journal is kept aside (step 1), never replayed as the wrong format. |
 
@@ -173,18 +174,31 @@ The two possible crash points are both safe:
 1. **Snapshot**, on the UI thread: take the save token and a copy of the document, with what the save needs to know (its path, format, style, and what this session last read or wrote).
 2. **Render**, on a worker thread: write the copy in its format (Fountain, or the format it was opened in; 2026-10-16), check for losses (without `allow_lossy`, a loss of class `lost` ends the save with `lossy_format`), check that no other program changed the file (`file_changed`), and, for the first save in place of a repaired file, keep a copy of it.
 3. **Mark**, on the UI thread: append a `doc.saved` marker with the fingerprint of the rendered bytes. If step 2 failed, the save ends here instead, and its token is given back.
-4. **Write**, on a worker thread: the atomic save below. Then (2026-10-21), for a journal flushed in the background ("Durability"), the worker waits, for at most two seconds, until the journal is flushed up to the marker. Step 5 cuts the journal back and writes a new header on the UI thread. On Linux, cutting a file back waits for any flush of it still in flight, and on a stalled disk (a CI runner's) that held the UI thread for 76 ms. With the marker's flush done first, nothing of the journal is in flight when step 5 runs. Step 5 only cuts the journal when nothing was edited since step 1, so no later write can start a flush in between.
-5. **Commit**, back on the UI thread. If the write succeeded and nothing was edited since step 1, the journal is restarted exactly as in step 2 of "Saving" above. Its header is written here and flushed by the background flusher, as entries are ("Durability"). If edits arrived in the meantime, the journal is kept as it is: it holds them, and the document stays unsaved. If the write failed, the error is shown, and the marker is harmless.
+4. **Write**, on a worker thread: the atomic save below. Then (2026-10-21), for a journal flushed in the background ("Durability"), the worker waits, for at most two seconds, until the journal is flushed up to the marker. On Linux, cutting a file back waits for any flush of it still in flight, and on a stalled disk (a CI runner's) that held the UI thread for 76 ms. Then (2026-11-02) the worker writes the next journal beside the old one, as "Starting the journal again off the UI thread" says.
+5. **Commit**, back on the UI thread. If the write succeeded and nothing was edited since step 1, the journal starts again from the saved document: since 2026-11-02 by switching to the journal step 4 wrote, which touches no file. If edits arrived in the meantime, the journal is kept as it is: it holds them, and the document stays unsaved. If the write failed, the error is shown, and the marker is harmless.
 
-**Typing during a save never meets a journal being cut back** (2026-10-21). Step 4's wait covers the marker only. The question is whether edits typed while a save runs could still leave the UI thread cutting the journal back while a flush of it is in flight. They can't:
+**Starting the journal again off the UI thread** (2026-11-02, phase 6a; phase 5a decision 47, which the project owner asked for now). Until this date, step 5 cut the journal back and wrote its new header on the UI thread. On 2026-11-02 that commit took 13.4 ms once on a CI runner, against a 4 ms budget, though the marker's flush was done (the 2026-10-21 fix): cutting a file back and writing to it can wait on the disk for other reasons. A synced folder (OneDrive, Dropbox) stalls more often than CI does. So the commit no longer touches the journal's file.
 
-- **An edit during the save means no cut.** Step 5 cuts the journal back only when nothing was edited since step 1. After any edit it keeps the journal as it is, since the journal holds that edit, and only asks for a flush.
-- **Nothing slips in between.** Edits, an agent's included, and step 5 all run on the UI thread, one after another, so none can land between step 5's check and its cut.
-- **Only the save writes without an edit.** Markers come only from the one save in flight (the save token). So when step 5 does cut, the only write since step 1 is the marker, which step 4 waited for. Its flush was the last one, and the cut finds nothing in flight.
-- **The next save** starts again from step 1, with its own marker and its own wait.
-- **What an edit costs the UI thread** is an append, as every keystroke is, and an append does not wait for a flush in flight. The per-edit budget, measured on CI, stays near 0.01 ms.
+- **The next journal.** The save's worker, after step 4's wait, writes `<journal>.next` (for example `.script.fountain.coldopen-journal.next`): a header with the saved document and `disk`, plus `continues`, naming the old journal's entry count at the marker and the marker's `disk`. It locks the file, flushes it and, on Linux and macOS, its folder, and for a journal flushed in the background starts its flusher. The header is turned into JSON on the worker (step 2), so the UI thread no longer does that either.
+- **The switch** (step 5, UI thread). When nothing was edited since step 1 and the old journal's last entry is still the marker, the session swaps the file it appends to: from then on entries go after the next journal's header. That is a change of handles in memory, with no system call that can wait on the disk. Edits typed from then on are appended to the next journal, never to the old one, and the old one is never cut back.
+- **Tidying up** (a background thread). It stops the old journal's flusher and closes it, then renames `<journal>.next` over the journal's name (retrying for about a second on Windows, as an atomic save does, since a file still open elsewhere cannot be replaced there), then flushes the folder. The next save's worker waits for the tidying before it writes a `<journal>.next` again.
+- **No next journal.** When the worker could not write one (an error), when an edit came in during the save, or for a journal marked broken, the commit does what it did before: it starts the journal again in place, which is the only way out of a broken journal. When step 4's wait for the marker's flush timed out after two seconds, the disk is stalled, and cutting the journal back would hold the UI thread on it, so the journal is kept as it is: it replays to the saved state, which its marker names, and the next save starts it again.
+- **When the rename fails** even after retrying, the session goes on appending to `<journal>.next`, which recovery finds (step 0 below). The next commit tries the rename again first; until one succeeds, the journal is neither switched nor started again in place, since a new header there would hide its edits from recovery. Closing removes both files.
+- **The other places that start the journal again** (Save as onto the script's own path, Reload) and closing first wait for any tidying in flight, then work as before.
 
-So restarting the journal on the save worker (phase 5a decision 47) is not needed for typing, and the restart stays on the UI thread. `a_save_with_an_edit_during_it_never_cuts_the_journal` (`crates/core/tests/saving.rs`) checks both sides.
+**What a crash at each point leaves**, and what recovery makes of it:
+
+| Crash | On disk | Recovered from |
+| --- | --- | --- |
+| Before the next journal is written | The old journal, ending with the marker | The old journal: the saved state |
+| After it is written, before the switch | The old journal, and a `.next` holding only a header | The `.next`, which holds the same state |
+| An edit came in during the save, so no switch | The old journal with that edit after the marker, and a stale `.next` | The old journal, which holds the edit; the `.next` is removed |
+| After the switch, with edits typed | The old journal ending with the marker, and the `.next` holding the edits | The `.next`, renamed into place |
+| After the rename | The journal, holding the edits | The journal |
+
+A power cut loses no more than "Durability" allows: the old journal is flushed up to the marker before the next journal is written (step 4), the `.next` and its folder entry are flushed before the switch, and edits in the `.next` are flushed by its own flusher within 250 ms.
+
+**Typing during a save** (2026-10-21, still true): an edit during the save means no switch and no cut. Edits, an agent's included, and step 5 all run on the UI thread, one after another, so none lands between step 5's check and the switch. What an edit costs the UI thread is an append, as every keystroke is. `a_save_with_an_edit_during_it_never_cuts_the_journal` (`crates/core/tests/saving.rs`) checks that, and `crates/core/tests/restart.rs` kills a process at each point of the table above, with typing during the restart, and checks what comes back.
 
 The other places that start the journal again or stop its flusher on the UI thread are Save as onto the script's own path, Reload (`doc.revert`) and closing a script. Each follows a dialog or ends the editing, so it never interrupts typing. On a stalled disk, each can still wait for a flush in flight.
 
@@ -220,6 +234,7 @@ A refused save writes nothing: the target's file and journal are exactly as they
 
 When `doc.open` finds a journal for the file:
 
+0. **A next journal** (2026-11-02; "Starting the journal again off the UI thread"). If `<journal>.next` exists, it is locked too, and a lock held elsewhere is `doc_locked`. It takes over when its header reads, has `continues`, and the journal's trusted entries number exactly `continues.seq`, the last being the `doc.saved` marker for `continues.disk`. The old journal then replays to the `.next` header's document, so nothing is lost by taking the `.next`, which also holds what was typed after the switch: it is renamed over the journal's name, and recovery goes on with it. Otherwise it is stale, from a save that never switched. It is removed when it holds only a header, and copied aside to `<journal>.next-<ms>` first when it holds entries.
 1. **Lock the journal.** If the header cannot be read, copy the journal to `<journal>.corrupt-<ms>` (never delete it), warn, and start a fresh journal from the file. A header that reads but holds a damaged document is treated the same way (2026-10-16): two blocks with one id, an id not below `next_id`, a `next_id` that leaves no id to hand out, or a block that breaks a model rule. Ids are handed out with an overflow check, so even a document that slips past cannot panic.
 2. **Replay.** Start from `doc` and replay the entries in order.
    - A final line with no `\n` is a write torn by the crash. It is ignored and cut off; it was never acknowledged.
@@ -267,10 +282,10 @@ The copy is a set-aside copy like the others ("Recovered versions"): hidden on W
 
 Added 2026-10-16 (phase 4). Journals and set-aside copies start with a dot, which hides them on Linux and macOS. On Windows, which ignores the dot, they are also given the hidden attribute, so writers never see them in their script folders:
 
-- Journals, copies kept aside (`.discarded`, `.corrupt`, `.diverged`) and damaged originals are created hidden.
+- Journals, next journals (`.next`, 2026-11-02), copies kept aside (`.discarded`, `.corrupt`, `.diverged`, `.next-<ms>`) and damaged originals are created hidden.
 - A journal from before phase 4 is made hidden when it is next opened.
 - A save's temporary file is not hidden, because it is renamed onto the script, and the script must stay visible.
-- On Windows, creating a file over an existing hidden file fails, so Cold Open never does that: a journal is only ever cut back with a truncation, and every copy has a new name.
+- On Windows, creating a file over an existing hidden file fails, so Cold Open never does that: a journal is only ever cut back with a truncation or replaced by a rename, and every copy has a new name.
 
 ## Recovered versions
 
