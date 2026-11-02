@@ -169,8 +169,6 @@ fn a_kill_at_each_step_of_the_restart_loses_no_edit() {
         // a header, which hold the same saved state.
         ("next_written", saved, false),
         ("switched", saved, false),
-        // The tidying starts as the switch is made, before any typing.
-        ("tidy_started", saved, false),
         // After the switch, edits typed into the `.next`, with the tidying
         // held until they are in.
         ("typed", "INT. LAB - NIGHT\n\nRain. A. B1. B2.\n", true),
@@ -180,12 +178,33 @@ fn a_kill_at_each_step_of_the_restart_loses_no_edit() {
         ("after", "INT. LAB - NIGHT\n\nRain. A. B1. B2. C.\n", true),
         // An edit during the save: no switch, and the stale `.next` goes.
         ("no_switch", "INT. LAB - NIGHT\n\nRain. A. D. E.\n", true),
+        // The tidying starts as the switch is made, while the child types:
+        // a kill there may come after any number of the typed keys, and
+        // every one typed must come back. Checked below.
+        (
+            "tidy_started",
+            "INT. LAB - NIGHT\n\nRain. A. B1. B2.\n",
+            true,
+        ),
     ];
     for (point, want, recovers) in cases {
         let (dir, mut d, r) = kill_and_reopen(point);
         let p = dir.path().join("save.fountain");
-        assert_eq!(text(&mut d), want, "{point}: {r}");
-        assert_eq!(r["recovered"].is_object(), recovers, "{point}: {r}");
+        let got = text(&mut d);
+        let want = if point == "tidy_started" {
+            // Any state from the save to the last key typed before it.
+            let typed = got
+                .strip_prefix("INT. LAB - NIGHT\n\nRain. A.")
+                .and_then(|t| t.strip_suffix('\n'))
+                .unwrap_or_else(|| panic!("{point}: {got:?}"));
+            assert!(" B1. B2.".starts_with(typed), "{point}: {got:?}");
+            assert_eq!(r["recovered"].is_object(), !typed.is_empty(), "{r}");
+            got.clone()
+        } else {
+            assert_eq!(r["recovered"].is_object(), recovers, "{point}: {r}");
+            want.to_string()
+        };
+        assert_eq!(got, want, "{point}: {r}");
         assert_eq!(fs::read_to_string(&p).unwrap(), saved, "{point}");
         assert_eq!(leftovers(dir.path()), Vec::<String>::new(), "{point}");
         // The journal recovery left goes on: an edit, a close that keeps

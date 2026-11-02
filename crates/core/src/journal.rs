@@ -263,8 +263,13 @@ pub struct Journal {
 }
 
 impl Drop for Journal {
+    /// Closing waits for any tidying in flight, which may still hold the
+    /// old journal open, so the script can be opened again at once
+    /// (docs/specs/journal.md, "Starting the journal again off the UI
+    /// thread").
     fn drop(&mut self) {
         self.alive.store(false, Ordering::SeqCst);
+        self.settle();
     }
 }
 

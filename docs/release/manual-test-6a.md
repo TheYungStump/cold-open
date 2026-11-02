@@ -9,7 +9,7 @@
   - this list's own PowerShell commands were wrong (§9).
 - **OneDrive (§7) is untested:** OneDrive is off and full on the test PC. The retest is §5 step 6, §8 and §9.
 
-**Later (2026-11-02):** a quick bench on 83b44f7 missed the report view's scrolling (p95 28.1 ms), and so did the Mac tester's full bench on b901828 (16.3 ms). Fixed (`docs/progress/phase-6a.md`, "Report scrolling misses"). **The retest:** install the newest build, then §5 in full, both the sheet and `coldopen bench --quick`, then §8 and §9. In the `.txt`, the two windowed lines now show a median in brackets beside the p95.
+**Later (2026-11-02):** a quick bench on 83b44f7 missed the report view's scrolling (p95 28.1 ms), and so did the Mac tester's full bench on b901828 (16.3 ms). Fixed (`docs/progress/phase-6a.md`, "Report scrolling misses"). **The retest:** install the newest build, then §5 in full, both the sheet and `coldopen bench --quick`, then §8, §9 and §10 (new on 2026-11-02: saving now starts the crash journal again off the UI thread). In the `.txt`, the two windowed lines now show a median in brackets beside the p95.
 
 For the project owner, on the Windows PC. About 45 minutes.
 
@@ -124,3 +124,16 @@ Record each result as **pass** or **fail**, with what you saw. A screenshot help
 5. **Expected:** the version and commit.
 6. `cd C:\ColdOpenTest\zip\ColdOpen`, then run `.\coldopen bench --quick`. PowerShell needs the `.\` for a program in the current folder.
 7. **Expected:** it finds the app beside it, and prints the steps and the summary in the terminal.
+
+## 10. Typing through a save, then a crash
+
+Added 2026-11-02. A save now starts the crash journal again beside the old one, off the UI thread (`docs/specs/journal.md`, "Starting the journal again off the UI thread").
+
+1. Copy `Brick-&-Steel.fdx` to `C:\ColdOpenTest\save-test.fdx` and open the copy.
+2. Type a line, press Ctrl+S, and keep typing straight away: a second line, then Ctrl+S, then a third line. Don't stop between them.
+3. **Expected:** typing never stutters or drops a key around the saves.
+4. With the third line on screen, end Cold Open in Task Manager (Details ▸ `Cold Open.exe` ▸ End task).
+5. Open `save-test.fdx` again.
+6. **Expected:** it offers the recovered work, and all three lines are there.
+7. Save, close Cold Open, then in PowerShell run `Get-ChildItem C:\ColdOpenTest -Force -Filter "*save-test*"`.
+8. **Expected:** `save-test.fdx`, plus at most `.save-test.fdx.coldopen-journal`, and no file ending in `.next`.
