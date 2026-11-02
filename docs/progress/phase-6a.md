@@ -220,5 +220,10 @@ The bench passed. Four findings, all fixed in the next commit:
 - **Corpus and reference, with the corpus required (release build):**
   - Every corpus .fdx file writes back byte for byte, and title edits check out on 34 files.
   - The reference gate gives phase 4's numbers. Big Fish: wraps 100.0%, resynced breaks 97.4% (max Δ 2 lines), pages 120/120, scene starts 99.5%. The other two reference scripts: 100% on every measure.
-- **Fuzzing:** the workflow, run by hand on the branch (41094779485), ten minutes per target. Result pending.
+- **Fuzzing:** the workflow, run by hand on the branch (41094779485), ten minutes per target, on 3b581d4: passed, no crash.
+- **The rehearsal release (2026-11-02, a5d157d):** the release workflow, started by pushing `rehearsal/v0.1.0-alpha.1`, since GitHub runs a workflow by hand only once it is on the default branch. Every job passed and it made the draft pre-release `rehearsal-1`. Downloaded and checked here:
+  - The 12 files spec §2 lists, with macOS as the arm64 and x64 disk images (the universal one came to 15,404,028 bytes, over the budget), plus `SHA256SUMS.txt`. Every file passes `sha256sum -c`, and SHA256SUMS lists no other file.
+  - The largest is the x86-64 AppImage at 12,179,960 bytes; every file is under 15,000,000.
+  - The x64 zip's `coldopen --version` prints `0.1.0-alpha.1 (a5d157ddec46)`, the draft's commit.
+  - One finding: the notes' "Which file to download" said "the `.dmg`" with two to choose from. They now name each, and how to tell an Intel Mac.
 - **CI:** pending the run on the final commit.
