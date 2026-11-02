@@ -175,6 +175,29 @@ With the CPU renderer, for comparison: typing p95 19.7 ms, page scrolling 15.3 m
   Before, Linux's slowest commits were 13.4 and 55.4 ms. Every save budget passes on every OS. Windows' slowest step is now the .fdx marker, an append like a keystroke's (2.7 ms once), on a shared runner's disk.
 - **CI's macOS bench** (a 3-core virtual Mac, reported, not asserted) missed two windowed budgets with Metal, and the new medians show they are spikes: keystroke p95 16.7 ms with a median of 9.2, the report view p95 19.4 ms with a median of 4.1. The Mac tester's rerun on a real Mac is the gate.
 
+## The project owner's retest (2026-11-02, 3a28406)
+
+The installed build of 3a28406 on this PC. The reports are in `docs/progress/phase-6a-bench/`.
+
+| Budget | Full (`…204947`) | Quick (`…205131`) | Zip, quick (`…205903`) | Limit |
+| --- | --- | --- | --- | --- |
+| Open a 120-page script | 40.5 ms | 41.1 ms | 40.7 ms | 200 ms |
+| Full repagination | 20.7 ms | 21.0 ms | 20.4 ms | 50 ms |
+| Save on the UI thread (p95: Fountain, .fdx, project) | 1.5, 0.30, 0.31 ms | 0.52, 0.41, 0.55 ms | 0.51, 0.50, 0.49 ms | 4 ms |
+| Their commit steps (p95) | 1.28, 0.02, 0.02 ms | 0.14, 0.21, 0.17 ms | 0.19, 0.31, 0.14 ms | |
+| Whole save (median) | 17.9, 9.9, 11.3 ms | 23.3, 7.1, 12.3 ms | 22.9, 6.9, 12.5 ms | 50 ms |
+| Cold start | 125 ms | 125 ms | 126 ms | 1 s |
+| Keystroke to screen (p95, CPU; median) | 8.6 ms (6.9) | 10.5 ms (6.7) | 7.9 ms (6.8) | 16 ms |
+| Report view scrolling (p95, CPU; median) | 5.3 ms (4.9) | 5.6 ms (5.1) | 5.6 ms (5.0) | 16 ms |
+| Memory | 56 MiB | 54 MiB | 54 MiB | 150 MB |
+
+Every budget passed in all three. The full run is the Windows gate now, in place of 2026-10-31's.
+
+- **§5, §9 and §10 passed:** the terminal prints the bench's steps and summary, the zip's `ColdOpen` folder works from a terminal, and typing through saves then a kill brought every line back, with no `.next` left.
+- **§8, two findings:**
+  1. **The installer's close of a running Cold Open works, but took 20 to 30 seconds.** It asks Windows' Restart Manager to close the app first, and the app's window doesn't answer it, so the installer waits out Windows' time limit before ending it.
+  2. **The uninstaller didn't remove Cold Open while a window was open.** Unlike the installer, it has no step that closes the app, so the program's files were in use.
+
 ## The project owner's manual test (2026-10-31, 83b44f7)
 
 The bench passed. Four findings, all fixed in the next commit:

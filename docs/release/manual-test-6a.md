@@ -11,6 +11,12 @@
 
 **Later (2026-11-02):** a quick bench on 83b44f7 missed the report view's scrolling (p95 28.1 ms), and so did the Mac tester's full bench on b901828 (16.3 ms). Fixed (`docs/progress/phase-6a.md`, "Report scrolling misses"). **The retest:** install the newest build, then §5 in full, both the sheet and `coldopen bench --quick`, then §8, §9 and §10 (new on 2026-11-02: saving now starts the crash journal again off the UI thread). In the `.txt`, the two windowed lines now show a median in brackets beside the p95.
 
+**Results of the retest (2026-11-02, the project owner, 3a28406):**
+- **§5 passed:** every budget, in the sheet's full run (`…20261102-204947`) and `coldopen bench --quick` (`…205131`). The terminal now prints the steps and the summary.
+- **§8:** the installer now closes a running Cold Open, but took 20 to 30 seconds to. The uninstaller didn't remove Cold Open while a window was open. Both are findings (`docs/progress/phase-6a.md`, the retest).
+- **§9 passed**, `.\coldopen bench --quick` from the zip included (`…205903`).
+- **§10 passed:** all three lines came back after the kill, and nothing ending in `.next` was left. The scripts were in `C:\ColdOpenTest\scripts`.
+
 For the project owner, on the Windows PC. About 45 minutes.
 
 **Before you start**
@@ -135,5 +141,5 @@ Added 2026-11-02. A save now starts the crash journal again beside the old one, 
 4. With the third line on screen, end Cold Open in Task Manager (Details ▸ `Cold Open.exe` ▸ End task).
 5. Open `save-test.fdx` again.
 6. **Expected:** it offers the recovered work, and all three lines are there.
-7. Save, close Cold Open, then in PowerShell run `Get-ChildItem C:\ColdOpenTest -Force -Filter "*save-test*"`.
+7. Save, close Cold Open, then in PowerShell run `Get-ChildItem C:\ColdOpenTest -Force -Filter "*save-test*"`, naming the folder that holds the copy.
 8. **Expected:** `save-test.fdx`, plus at most `.save-test.fdx.coldopen-journal`, and no file ending in `.next`.
