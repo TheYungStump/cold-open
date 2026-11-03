@@ -117,9 +117,9 @@ Please send the Mac tester the updated `docs/release/mac-tester.md`. It now has 
 
 | § | Result | Notes |
 | --- | --- | --- |
-| 1 The website | | |
-| 2 Install alpha.2 | | |
-| 3 The docs links | | |
-| 4 Report a problem | | |
-| 5 A crash report | | |
-| 6 The rehearsal release | | |
+| 1 The website | pass | 2026-11-03, the local preview |
+| 2 Install alpha.2 | pass | |
+| 3 The docs links | pass | User guide opens GitHub's 404 until Pages deploys |
+| 4 Report a problem | pass | Retest on 2dae886: the Close button and the browser fixed. Steps 4–5 again after the merge, for the template |
+| 5 A crash report | pass | Retest on 2dae886: the sentence and the browser fixed. Steps 6–7 again after the merge, for the template |
+| 6 The rehearsal release | pass | The setup's SHA-256 matches `SHA256SUMS.txt` |

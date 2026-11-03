@@ -107,6 +107,7 @@ The README's code signing policy and privacy statement went first, in their own 
     - **"Crash on purpose?" had a gap in its sentence.** The string was broken across two lines without a `\`, so the second line's indent was part of it. A search found the same in two error messages (`folder_read_only` in the dispatcher, and `coldopen bench` without the app), now fixed too.
     - **A new test, `crates/app/tests/sheet_layout.rs`,** opens every question and sheet and fails when text runs past its card, is squeezed narrower than its longest word (how the Close button failed: a squeezed button draws its label past itself), or has a run of spaces mid-line. It failed on Report a problem before the fix.
 30. **Interface size** (2026-11-03, the owner's suggestion that dialog text is small). The palette's **Make the interface larger**, **smaller** and **Interface at normal size** step through 100 to 200%, kept in `settings.json`. It's iced's `scale_factor`, so it scales the whole window like the system's own scale, the pages included. Scaling only the interface's text would mean a size on every one of its few hundred text calls, and the page has its own zoom. No keys: Ctrl+Shift+= types `+` on many layouts. A benchmark always runs at 100%. Specified in `editor.md` §3.
+31. **The owner's manual test passes** (2026-11-03, the retest with packages from CI run 41734110827 on 2dae886). Every section passed, the fixes of decision 29 and the interface size included. G and F open the browser now. Two steps wait for the merge: §4 steps 4–5 and §5 steps 6–7, since GitHub reads issue templates from `main` only.
 
 ## New dependencies
 
@@ -154,7 +155,7 @@ The README's code signing policy and privacy statement went first, in their own 
 
 **For the project owner:**
 
-1. **The manual test** in `docs/release/manual-test-6b.md`. §1 and §6 passed, §6 with the setup's SHA-256 matching `SHA256SUMS.txt`. On the retest (CI run 41734110827, 2dae886), G now opens a new issue in the browser with the template and details in the address. But GitHub reads issue templates from `main` only, so the page has no fields until this PR merges. §4 steps 4–5 and §5 steps 6–7 are checked again after the merge, with the live site. The rest of §3–§5 is in progress.
+1. **The manual test passed** (decision 31). After the merge: §4 steps 4–5 and §5 steps 6–7 (the issue templates), and the live site.
 2. **Make the "Alpha testing" Discussions category** on the web page (decision 27), and remove General, Polls and Show and tell if they aren't wanted. Pages and Discussions are on, and two-factor sign-in is confirmed.
 3. **Send the Mac tester** the updated `docs/release/mac-tester.md`.
 4. **`v0.1.0-alpha.1` is tagged** (decision 28). Next: OK the Code signing policy and Privacy line in its notes, then send the SignPath application.
