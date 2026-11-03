@@ -6,6 +6,7 @@ For the project owner, on the Windows PC. About 40 minutes.
 
 - **The packages:** take them from the PR's latest CI run (Summary ▸ Artifacts ▸ `packages-windows-x64`). Put them in `C:\ColdOpenTest\packages`, outside the repository. The rehearsal draft ("Rehearsal: Cold Open 0.1.0-alpha.2") was built from 128a74a, before the feedback form was wired in, so its app has no **Use the form** button: use the draft for §6 only.
 - **Scripts:** use copies in `C:\ColdOpenTest`, never the files in `corpus/`.
+- **The issue templates:** GitHub reads them from `main` only, so until this PR merges, G opens GitHub's plain new-issue page, with the address naming the template but no fields. Check §4 steps 4–5 and §5 steps 6–7 again after the merge.
 - **The website:** if GitHub Pages isn't on yet, §1 uses the local preview instead: run `mdbook serve docs/guide`, or ask Claude to start it, and open <http://localhost:3000>.
 
 Record each result as **pass** or **fail**, with what you saw. A screenshot helps for anything that looks wrong.

@@ -154,7 +154,7 @@ The README's code signing policy and privacy statement went first, in their own 
 
 **For the project owner:**
 
-1. **The manual test** in `docs/release/manual-test-6b.md`. §1 passed. Next, with packages from CI on the fixes (decision 29): §3 steps 5 and 6 (interface size), §4 from step 2, all of §5, and §6.
+1. **The manual test** in `docs/release/manual-test-6b.md`. §1 and §6 passed, §6 with the setup's SHA-256 matching `SHA256SUMS.txt`. On the retest (CI run 41734110827, 2dae886), G now opens a new issue in the browser with the template and details in the address. But GitHub reads issue templates from `main` only, so the page has no fields until this PR merges. §4 steps 4–5 and §5 steps 6–7 are checked again after the merge, with the live site. The rest of §3–§5 is in progress.
 2. **Make the "Alpha testing" Discussions category** on the web page (decision 27), and remove General, Polls and Show and tell if they aren't wanted. Pages and Discussions are on, and two-factor sign-in is confirmed.
 3. **Send the Mac tester** the updated `docs/release/mac-tester.md`.
 4. **`v0.1.0-alpha.1` is tagged** (decision 28). Next: OK the Code signing policy and Privacy line in its notes, then send the SignPath application.
