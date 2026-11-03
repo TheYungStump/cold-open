@@ -21,16 +21,30 @@ The slow frames are waits for a Metal drawable: the window server holds both of 
 - With vsync on, the same wait takes a whole refresh (median 15–16 ms on CI's 60 Hz screen).
 - The slow frames don't fall at the jump back to the top, nor with the caret's tick.
 
-## What wasn't changed, and why
+## The owner's decision
 
-The budget and the measurement are as they were. The brief says that if the measurement counts time spent waiting on the display, it's written up with the evidence and the project owner decides before it changes. `docs/specs/bench.md` §6 lists three options:
+The measurement counted time spent waiting on the display, so the brief called for the evidence to be written up and the project owner to decide before anything changed. `docs/specs/bench.md` §6 gave three options. The owner chose the second (2026-11-03):
 
-1. leave the wait out of the GPU renderer's frame times (a small patch to iced_wgpu);
-2. judge the GPU renderer with vsync on, by frames that take longer than a refresh;
-3. keep the measurement, and record the Mac's miss as the window server's.
+> Judge with vsync: the report-view budget passes when frames make their refresh, i.e. the p95 frame-to-frame interval is within one refresh period of the display it ran on (8.3 ms at 120 Hz, 16.7 ms at 60 Hz), and it counts missed refreshes. Also report the app's own work per frame with the drawable wait subtracted, for diagnosis only. Use the same method on Windows and Linux wherever presentation is vsynced, and note in the spec (dated) what the budget measures.
+
+## What changed
+
+`docs/specs/bench.md` §6 ("What the budget measures") is the rule. In short:
+
+- **The report view's runs use vsync** (`ICED_PRESENT_MODE=fifo`). On a GPU renderer, the p95 passes within one refresh, and missed refreshes are counted. The slow frames are those that missed one.
+- **The refresh is measured:** each report-view run first draws 30 frames with nothing changing, and their median is the refresh. Vsync is judged only when that median is a rate of 45 to 250 Hz. Otherwise, and on the CPU renderer, the run is judged against 16 ms as before.
+- **The app's own work per frame** (the frame's time less its wait for a drawable) is reported for every GPU run, for diagnosis only.
+- **No patched dependency.** wgpu already marks the drawable acquire with a `profiling` scope. The app turns on `profiling`'s tracing backend, and in bench runs installs a small tracing subscriber (`crates/app/src/bench/acquire.rs`) that times that one scope. Both crates were already compiled into the app: `profiling` through wgpu, `tracing` through winit and softbuffer. The only crate new to `Cargo.lock` is `profiling-procmacros`, which stays off and isn't built.
+- **Keystroke and page scrolling** still run with `immediate`. They gain the work figure, but their rule is unchanged.
+
+### Decisions made along the way
+
+1. **"Within one refresh" means under 1.5 refreshes.** Under vsync, frame times bunch at whole refreshes, with timer jitter either side, so a p95 of 16.8 ms at 60 Hz is one refresh. Holding it to exactly 16.67 ms would fail at random.
+2. **The refresh is measured, not asked for.** iced doesn't report the screen's rate, and the OS calls need unsafe code or new crates. Idle frames under vsync each wait for the refresh, so their median is the refresh.
+3. **Only the report view's budget changed,** as the owner's words say. Keystroke to screen keeps `immediate` and 16 ms. Whether it should be judged with vsync too is a question for the owner.
+4. **On Windows and Linux the default renderer is the CPU renderer,** which doesn't sync to the screen, so the report-view budget there is unchanged. Their GPU comparison runs use vsync and report refreshes.
 
 ## Still to do
 
-- The owner's choice, then the change it calls for.
-- CI's macOS bench showing the report view under the limit over a few runs, and the Mac tester's rerun on a real Mac.
+- CI's runs of this PR on all three OSes, and the Mac tester's rerun on a real Mac (the final check).
 - Delete the probe branch once it's no longer needed.

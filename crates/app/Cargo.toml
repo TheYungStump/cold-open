@@ -20,9 +20,13 @@ path = "src/main.rs"
 # Both renderers: tiny-skia on the CPU and wgpu on the GPU, chosen at start
 # from settings.json (docs/progress/phase-3.md, decision on renderers).
 default = ["gpu"]
-gpu = ["iced/wgpu"]
+# With the GPU renderer, the bench times its wait for a drawable
+# (docs/specs/bench.md §6).
+gpu = ["iced/wgpu", "dep:profiling", "dep:tracing"]
 
 [dependencies]
+profiling = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
 coldopen-core.workspace = true
 coldopen-layout.workspace = true
 coldopen-screenplay.workspace = true

@@ -5,6 +5,8 @@
 //! `coldopen-app --bench [--out FOLDER] [--quick]`, `coldopen bench`, or
 //! "Measure performance…" in the app, which runs the first as a child.
 
+#[cfg(feature = "gpu")]
+pub mod acquire;
 pub mod machine;
 pub mod measure;
 pub mod report;
@@ -17,7 +19,7 @@ use iced::Size;
 
 use machine::{Machine, Screen};
 use measure::Stats;
-use report::{Budget, Info, Report, ScriptInfo, Skipped};
+use report::{Budget, Frames, Info, Report, ScriptInfo, Skipped};
 
 /// How a bench runs.
 #[derive(Clone, Debug, Default)]
@@ -236,6 +238,7 @@ fn measure_all(
                 renderer: None,
                 median_ms: 0.0,
                 p95_ms: 0.0,
+                frames: Frames::default(),
             }),
         }
     }
@@ -291,6 +294,7 @@ fn measure_all(
             renderer: None,
             median_ms: row.whole.median,
             p95_ms: row.whole.p95,
+            frames: Frames::default(),
         });
         // Each UI-thread step on its own (2026-11-02, docs/specs/bench.md
         // §4), so a stall shows where it fell.
@@ -325,17 +329,9 @@ fn measure_all(
     let typing = runner.driven("typing", default, reps.frames);
     note_machine(&mut r.machine, &typing);
     r.budgets.push(match &typing {
-        Ok(d) => Budget::ms(
-            "keystroke",
-            "Keystroke to screen",
-            "p95",
-            d.p95,
-            16.0,
-            reps.frames,
-        )
-        .on(&label(d))
-        .with_median(d.median)
-        .with_slow_frames(&d.gaps),
+        Ok(d) => {
+            frames_budget("keystroke", "Keystroke to screen", d, 16.0, reps.frames).on(&label(d))
+        }
         Err(why) => Budget::skipped("keystroke", "Keystroke to screen", "p95", *why),
     });
 
@@ -343,17 +339,14 @@ fn measure_all(
     let reports = runner.driven("reports", default, reps.frames);
     note_machine(&mut r.machine, &reports);
     r.budgets.push(match &reports {
-        Ok(d) => Budget::ms(
+        Ok(d) => frames_budget(
             "report_scrolling",
             "Scrolling the report view",
-            "p95",
-            d.p95,
+            d,
             16.0,
             reps.frames,
         )
-        .on(&label(d))
-        .with_median(d.median)
-        .with_slow_frames(&d.gaps),
+        .on(&label(d)),
         Err(why) => Budget::skipped("report_scrolling", "Scrolling the report view", "p95", *why),
     });
     if let Ok(d) = runner.driven("scrolling", default, reps.frames) {
@@ -396,6 +389,7 @@ fn measure_all(
                     renderer: Some(other.into()),
                     median_ms: 0.0,
                     p95_ms: 0.0,
+                    frames: Frames::default(),
                 });
                 break;
             }
@@ -411,11 +405,12 @@ fn info(id: &str, renderer: Option<&str>, s: Stats) -> Info {
         renderer: renderer.map(str::to_string),
         median_ms: (s.median * 100.0).round() / 100.0,
         p95_ms: (s.p95 * 100.0).round() / 100.0,
+        frames: Frames::default(),
     }
 }
 
 fn driven_info(id: &str, d: &windowed::Driven, renderer: &str) -> Info {
-    info(
+    let mut i = info(
         id,
         Some(renderer),
         Stats {
@@ -423,7 +418,33 @@ fn driven_info(id: &str, d: &windowed::Driven, renderer: &str) -> Info {
             p95: d.p95,
             max: d.p95,
         },
-    )
+    );
+    // Vsync's refreshes and the frames' own work, as a budget has them
+    // (docs/specs/bench.md §6).
+    i.frames = d
+        .refresh_ms()
+        .map_or_else(Frames::default, |p| Frames::vsync(p, &d.gaps))
+        .with_work(d.work());
+    i
+}
+
+/// A windowed run's p95 against `limit`, or with vsync against one refresh
+/// (docs/specs/bench.md §6), with its median, slow frames and own work.
+fn frames_budget(
+    id: &'static str,
+    title: &'static str,
+    d: &windowed::Driven,
+    limit: f64,
+    runs: usize,
+) -> Budget {
+    let b = Budget::ms(id, title, "p95", d.p95, limit, runs);
+    let b = match d.refresh_ms() {
+        Some(p) => b.vsync(p, &d.gaps),
+        None => b,
+    };
+    b.with_median(d.median)
+        .with_slow_frames(&d.gaps)
+        .with_work(d.work())
 }
 
 /// What a windowed run says about the machine: its GPU and screen.
@@ -618,11 +639,144 @@ mod tests {
         );
         assert!(v["budgets"][2].get("slow_frames").is_none());
         let text = r.to_text();
-        assert!(
-            text.contains("  Scrolling the report view (Metal), 2 of 120: 12: 21.4, 32: 16.0\n")
-        );
-        assert!(text.contains("  Keystroke to screen, 25 of 120: 1: 30.0, "));
+        assert!(text.contains(
+            "  Scrolling the report view (Metal), 2 of 120 over 16 ms: 12: 21.4, 32: 16.0\n"
+        ));
+        assert!(text.contains("  Keystroke to screen, 25 of 120 over 16 ms: 1: 30.0, "));
         assert!(text.contains(", 20: 30.0, and 5 more\n"));
+    }
+
+    fn driven(
+        backend: &str,
+        idle_ms: Option<f64>,
+        gaps: Vec<f64>,
+        waits: Vec<f64>,
+    ) -> windowed::Driven {
+        let s = measure::stats(gaps.clone());
+        windowed::Driven {
+            asked: "wgpu,tiny-skia".into(),
+            median: s.median,
+            p95: s.p95,
+            gaps,
+            waits,
+            idle_ms,
+            backend: Some(backend.into()),
+            ..windowed::Driven::default()
+        }
+    }
+
+    /// docs/specs/bench.md §6: with vsync on a GPU renderer, the p95 is
+    /// judged against one refresh, the missed ones counted, and the own
+    /// work reported beside it.
+    #[test]
+    fn a_vsynced_run_is_judged_by_its_refreshes() {
+        let refresh = 1000.0 / 60.0;
+        // On time but for 4 frames that missed one refresh and 1 that
+        // missed two; the wait is the rest of each refresh.
+        let mut gaps = vec![16.7; 120];
+        for k in [9, 40, 41, 70] {
+            gaps[k] = 33.3;
+        }
+        gaps[100] = 50.1;
+        let waits: Vec<f64> = gaps.iter().map(|g| g - 3.0).collect();
+        let d = driven("Metal", Some(16.68), gaps.clone(), waits.clone());
+        assert_eq!(d.refresh_ms(), Some(16.68));
+        let b = frames_budget(
+            "report_scrolling",
+            "Scrolling the report view",
+            &d,
+            16.0,
+            120,
+        )
+        .on("Metal");
+        assert_eq!(b.pass, Some(true));
+        assert_eq!(b.limit_ms, Some(16.68));
+        assert_eq!(b.frames.refresh_hz, Some(60.0));
+        assert_eq!(b.frames.missed_refreshes, Some(6));
+        assert_eq!(b.frames.work_median_ms, Some(3.0));
+        assert_eq!(
+            b.slow_frames,
+            Some(vec![
+                (10, 33.3),
+                (41, 33.3),
+                (42, 33.3),
+                (71, 33.3),
+                (101, 50.1)
+            ])
+        );
+        let mut r = Report::new(
+            Machine::probe(),
+            ScriptInfo {
+                name: SCRIPT_NAME,
+                pages: 119,
+                blocks: 3000,
+            },
+            false,
+        );
+        r.budgets.push(b);
+        r.finish();
+        let text = r.to_text();
+        assert!(text.contains(
+            "p95 16.7 ms (median 16.7; 6 refreshes missed)  within a refresh (16.7 ms at 60 Hz)  PASS"
+        ));
+        assert!(text.contains(
+            "  Scrolling the report view (Metal), 5 of 120 missed a refresh: 10: 33.3, "
+        ));
+        assert!(text.contains("  Scrolling the report view (Metal): median 3.0 ms, p95 3.0 ms\n"));
+
+        // Missing a refresh more than one frame in twenty misses the budget.
+        let mut late = vec![16.7; 120];
+        for g in late.iter_mut().step_by(10) {
+            *g = 33.4;
+        }
+        let d = driven("Metal", Some(refresh), late, Vec::new());
+        let b = frames_budget(
+            "report_scrolling",
+            "Scrolling the report view",
+            &d,
+            16.0,
+            120,
+        );
+        assert_eq!(b.pass, Some(false));
+        assert_eq!(b.frames.missed_refreshes, Some(12));
+        assert!(b.frames.work_median_ms.is_none());
+    }
+
+    /// docs/specs/bench.md §6: no vsync judgment on the CPU renderer, nor
+    /// when the idle frames don't look like a refresh.
+    #[test]
+    fn only_a_gpu_run_at_a_screens_rate_is_judged_by_refreshes() {
+        let gaps = vec![6.0; 120];
+        for (backend, idle) in [
+            ("tiny-skia", Some(16.7)),
+            ("Metal", None),
+            ("Vulkan", Some(1.2)),
+            ("Dx12", Some(40.0)),
+        ] {
+            let d = driven(backend, idle, gaps.clone(), vec![0.0; 120]);
+            assert_eq!(d.refresh_ms(), None, "{backend} {idle:?}");
+            let b = frames_budget(
+                "report_scrolling",
+                "Scrolling the report view",
+                &d,
+                16.0,
+                120,
+            );
+            assert_eq!(b.limit_ms, Some(16.0));
+            assert!(b.frames.refresh_hz.is_none());
+            assert_eq!(b.frames.work_median_ms.is_some(), backend != "tiny-skia");
+        }
+        // 120 Hz is a refresh too.
+        let d = driven("Metal", Some(8.33), vec![8.3; 120], vec![5.0; 120]);
+        let b = frames_budget(
+            "report_scrolling",
+            "Scrolling the report view",
+            &d,
+            16.0,
+            120,
+        );
+        assert_eq!(b.frames.refresh_hz, Some(120.0));
+        assert_eq!(b.pass, Some(true));
     }
 
     #[test]

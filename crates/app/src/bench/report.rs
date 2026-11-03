@@ -14,6 +14,69 @@ pub const FORMAT: u32 = 1;
 /// them all.
 const SLOW_SHOWN: usize = 20;
 
+/// Under vsync, a frame time counts as one refresh until it is halfway to
+/// the next (docs/specs/bench.md §6).
+const LATE: f64 = 1.5;
+
+/// What a windowed run adds to its entry (docs/specs/bench.md §4, §6).
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct Frames {
+    /// The screen's refresh, when the run was judged with vsync.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_hz: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub missed_refreshes: Option<usize>,
+    /// The frames' times less their wait for a drawable, on a GPU
+    /// renderer, for diagnosis only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub work_median_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub work_p95_ms: Option<f64>,
+}
+
+impl Frames {
+    /// With vsync at `refresh` ms a frame: how many refreshes `gaps`
+    /// missed, each time rounded to whole refreshes, less one.
+    pub fn vsync(refresh: f64, gaps: &[f64]) -> Frames {
+        Frames {
+            refresh_hz: Some((10_000.0 / refresh).round() / 10.0),
+            missed_refreshes: Some(
+                gaps.iter()
+                    .map(|g| ((g / refresh).round() as usize).saturating_sub(1))
+                    .sum(),
+            ),
+            ..Frames::default()
+        }
+    }
+
+    pub fn with_work(mut self, work: Option<super::measure::Stats>) -> Frames {
+        if let Some(w) = work {
+            self.work_median_ms = Some(round(w.median));
+            self.work_p95_ms = Some(round(w.p95));
+        }
+        self
+    }
+
+    /// The comparison list's words for these, if any.
+    fn words(&self) -> String {
+        let mut out = String::new();
+        if let (Some(hz), Some(missed)) = (self.refresh_hz, self.missed_refreshes) {
+            out.push_str(&format!("; vsync at {hz:.0} Hz, {}", refreshes(missed)));
+        }
+        if let (Some(m), Some(p)) = (self.work_median_ms, self.work_p95_ms) {
+            out.push_str(&format!("; own work median {m:.1} ms, p95 {p:.1} ms"));
+        }
+        out
+    }
+}
+
+fn refreshes(missed: usize) -> String {
+    match missed {
+        1 => "1 refresh missed".to_string(),
+        k => format!("{k} refreshes missed"),
+    }
+}
+
 /// Why a step could not run. A fixed list, so no message from the system
 /// (which may hold a path) ever reaches the report.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -55,6 +118,8 @@ pub struct Budget {
     pub renderer: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skipped: Option<Skipped>,
+    #[serde(flatten)]
+    pub frames: Frames,
 }
 
 impl Budget {
@@ -81,6 +146,7 @@ impl Budget {
             runs,
             renderer: None,
             skipped: None,
+            frames: Frames::default(),
         }
     }
 
@@ -100,6 +166,7 @@ impl Budget {
             runs: 1,
             renderer: None,
             skipped: None,
+            frames: Frames::default(),
         }
     }
 
@@ -124,6 +191,7 @@ impl Budget {
             runs: 0,
             renderer: None,
             skipped: Some(why),
+            frames: Frames::default(),
         }
     }
 
@@ -137,16 +205,51 @@ impl Budget {
         self
     }
 
+    /// Judged with vsync at `refresh` ms a frame (docs/specs/bench.md §6):
+    /// the limit is one refresh, and the p95 passes under 1.5, where a
+    /// frame would have waited for the next.
+    pub fn vsync(mut self, refresh: f64, gaps: &[f64]) -> Budget {
+        let value = self.value_ms.unwrap_or(f64::INFINITY);
+        self.limit_ms = Some(round(refresh));
+        self.pass = Some(value < refresh * LATE);
+        self.frames = Frames::vsync(refresh, gaps);
+        self
+    }
+
+    pub fn with_work(mut self, work: Option<super::measure::Stats>) -> Budget {
+        self.frames = self.frames.with_work(work);
+        self
+    }
+
+    /// The name with the renderer, as the text report shows it.
+    fn full_title(&self) -> String {
+        match &self.renderer {
+            Some(r) => format!("{} ({r})", self.title),
+            None => self.title.to_string(),
+        }
+    }
+
+    /// The time over which a frame is slow: the limit, or under vsync the
+    /// point where it missed a refresh.
+    fn late(&self) -> Option<f64> {
+        let limit = self.limit_ms?;
+        Some(if self.frames.refresh_hz.is_some() {
+            limit * LATE
+        } else {
+            limit
+        })
+    }
+
     /// The frames of `gaps`, in the order measured, that took longer than
-    /// the limit.
+    /// the limit, or under vsync missed a refresh.
     pub fn with_slow_frames(mut self, gaps: &[f64]) -> Budget {
-        let Some(limit) = self.limit_ms else {
+        let Some(late) = self.late() else {
             return self;
         };
         let slow: Vec<(usize, f64)> = gaps
             .iter()
             .enumerate()
-            .filter(|(_, g)| **g > limit)
+            .filter(|(_, g)| **g > late)
             .map(|(k, g)| (k + 1, round(*g)))
             .collect();
         self.slow_frames = (!slow.is_empty()).then_some(slow);
@@ -162,6 +265,8 @@ pub struct Info {
     pub renderer: Option<String>,
     pub median_ms: f64,
     pub p95_ms: f64,
+    #[serde(flatten)]
+    pub frames: Frames,
 }
 
 /// The app that ran the bench.
@@ -273,12 +378,17 @@ impl Report {
                     (_, Some(v)) => format!("{v:.0} MiB"),
                     _ => "not measured".into(),
                 };
-                if let Some(m) = b.median_ms {
-                    result.push_str(&format!(" (median {m:.1})"));
+                match (b.median_ms, b.frames.missed_refreshes) {
+                    (Some(m), Some(k)) => {
+                        result.push_str(&format!(" (median {m:.1}; {})", refreshes(k)));
+                    }
+                    (Some(m), None) => result.push_str(&format!(" (median {m:.1})")),
+                    _ => {}
                 }
-                let limit = match (b.limit_ms, b.limit_mib) {
-                    (Some(l), _) => format!("under {l:.0} ms"),
-                    (_, Some(l)) => format!("under {l:.0} MB"),
+                let limit = match (b.limit_ms, b.limit_mib, b.frames.refresh_hz) {
+                    (Some(l), _, Some(hz)) => format!("within a refresh ({l:.1} ms at {hz:.0} Hz)"),
+                    (Some(l), _, None) => format!("under {l:.0} ms"),
+                    (_, Some(l), _) => format!("under {l:.0} MB"),
                     _ => String::new(),
                 };
                 let verdict = match (b.pass, b.skipped) {
@@ -287,11 +397,7 @@ impl Report {
                     (None, Some(why)) => format!("SKIPPED ({})", skipped_words(why)),
                     (None, None) => "SKIPPED".to_string(),
                 };
-                let title = match &b.renderer {
-                    Some(r) => format!("{} ({r})", b.title),
-                    None => b.title.to_string(),
-                };
-                [title, result, limit, verdict]
+                [b.full_title(), result, limit, verdict]
             })
             .collect();
         let w: Vec<usize> = (0..3)
@@ -315,7 +421,7 @@ impl Report {
             .filter(|b| b.slow_frames.is_some())
             .collect();
         if !slow.is_empty() {
-            out.push_str("\nFrames over the limit (frame: ms), counted from the first measured:\n");
+            out.push_str("\nSlow frames (frame: ms), counted from the first measured:\n");
             for b in slow {
                 let frames = b.slow_frames.as_deref().unwrap_or_default();
                 let mut list: Vec<String> = frames
@@ -326,15 +432,35 @@ impl Report {
                 if frames.len() > SLOW_SHOWN {
                     list.push(format!("and {} more", frames.len() - SLOW_SHOWN));
                 }
-                let title = match &b.renderer {
-                    Some(r) => format!("{} ({r})", b.title),
-                    None => b.title.to_string(),
+                let what = match (b.frames.refresh_hz, b.limit_ms) {
+                    (Some(_), _) => "missed a refresh".to_string(),
+                    (None, Some(l)) => format!("over {l:.0} ms"),
+                    (None, None) => String::new(),
                 };
                 out.push_str(&format!(
-                    "  {title}, {} of {}: {}\n",
+                    "  {}, {} of {} {what}: {}\n",
+                    b.full_title(),
                     frames.len(),
                     b.runs,
                     list.join(", ")
+                ));
+            }
+        }
+        let worked: Vec<&Budget> = self
+            .budgets
+            .iter()
+            .filter(|b| b.frames.work_median_ms.is_some())
+            .collect();
+        if !worked.is_empty() {
+            out.push_str(
+                "\nThe app's own work per frame, less the wait for a drawable (for diagnosis):\n",
+            );
+            for b in worked {
+                out.push_str(&format!(
+                    "  {}: median {:.1} ms, p95 {:.1} ms\n",
+                    b.full_title(),
+                    b.frames.work_median_ms.unwrap_or_default(),
+                    b.frames.work_p95_ms.unwrap_or_default()
                 ));
             }
         }
@@ -347,8 +473,11 @@ impl Report {
                     .map(|r| format!(" ({r})"))
                     .unwrap_or_default();
                 out.push_str(&format!(
-                    "  {}{on}: median {:.1} ms, p95 {:.1} ms\n",
-                    i.id, i.median_ms, i.p95_ms
+                    "  {}{on}: median {:.1} ms, p95 {:.1} ms{}\n",
+                    i.id,
+                    i.median_ms,
+                    i.p95_ms,
+                    i.frames.words()
                 ));
             }
         }

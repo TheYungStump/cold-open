@@ -52,10 +52,16 @@ pub(super) struct BenchState {
     /// The peak memory when the measuring ended, before the system is
     /// asked what draws the window.
     peak_mib: Option<f64>,
+    /// At each frame, how long the GPU renderer has waited for drawables
+    /// so far, in ms (docs/specs/bench.md §6).
+    waited: Vec<f64>,
 }
 
 impl BenchState {
     pub(super) fn new(bench: Bench) -> BenchState {
+        // Time the GPU renderer's waits for a drawable (bench.md §6).
+        #[cfg(feature = "gpu")]
+        crate::bench::acquire::install();
         BenchState {
             bench,
             times: Vec::new(),
@@ -63,12 +69,33 @@ impl BenchState {
             scale: None,
             monitor: None,
             peak_mib: None,
+            waited: Vec::new(),
         }
     }
 }
 
 const WARM_UP: usize = 5;
 const TEXT: &str = "and the sea goes on ";
+/// Frames a report-view run draws with nothing changing before its warm-up:
+/// under vsync their median is the screen's refresh (docs/specs/bench.md §6).
+const IDLE: usize = 30;
+
+/// The idle frames a run draws first.
+fn idle(kind: BenchKind) -> usize {
+    if kind == BenchKind::Reports { IDLE } else { 0 }
+}
+
+/// How long the GPU renderer has waited for drawables so far, in ms.
+fn waited_ms() -> f64 {
+    #[cfg(feature = "gpu")]
+    {
+        crate::bench::acquire::waited_ms()
+    }
+    #[cfg(not(feature = "gpu"))]
+    {
+        0.0
+    }
+}
 
 impl App {
     /// Puts the caret at the end of a speech on page `target`, or the last
@@ -108,8 +135,10 @@ impl App {
             return Task::none();
         };
         state.times.push(Instant::now());
+        state.waited.push(waited_ms());
         let n = state.times.len();
         let kind = state.bench.kind;
+        let start = idle(kind) + WARM_UP;
         if n == 1 {
             if kind == BenchKind::Typing {
                 let pages = self.d.cached_view().map_or(0, |v| v.layout().pages.len()) as u32;
@@ -135,9 +164,9 @@ impl App {
         // end; then ask the system what draws the window, which the report
         // names, and wait a little for it. Asked earlier, its query held up
         // the measured frames (`App::ask_graphics`).
-        let measured = n > WARM_UP + state.bench.frames
-            || (kind == BenchKind::Memory && at_end && n > WARM_UP);
-        let named = self.graphics.is_some() || n > WARM_UP + state.bench.frames + 600;
+        let measured =
+            n > start + state.bench.frames || (kind == BenchKind::Memory && at_end && n > start);
+        let named = self.graphics.is_some() || n > start + state.bench.frames + 600;
         let ended = measured && state.done.is_none();
         if ended {
             state.done = Some(n);
@@ -153,6 +182,10 @@ impl App {
         } else {
             Task::none()
         };
+        // The idle frames change nothing.
+        if n <= 1 + idle(kind) {
+            return ask;
+        }
         let step = match kind {
             BenchKind::Typing => {
                 let c = TEXT.chars().nth(n % TEXT.len()).unwrap_or(' ').to_string();
@@ -215,7 +248,9 @@ impl App {
             .done
             .unwrap_or(state.times.len())
             .min(state.times.len());
-        let t = &state.times[WARM_UP.min(end)..end];
+        let skip = idle(state.bench.kind);
+        let first = (skip + WARM_UP).min(end);
+        let t = &state.times[first..end];
         let in_order: Vec<f64> = t
             .windows(2)
             .map(|w| (w[1] - w[0]).as_secs_f64() * 1000.0)
@@ -223,6 +258,21 @@ impl App {
         if in_order.is_empty() {
             return;
         }
+        let r2 = |v: f64| (v * 100.0).round() / 100.0;
+        // Each frame's wait for a drawable, beside its time.
+        let waits: Vec<f64> = state.waited[first..end]
+            .windows(2)
+            .map(|w| r2(w[1] - w[0]))
+            .collect();
+        // The idle frames' median: under vsync, the screen's refresh.
+        let idle_ms = (skip > 1 && end > skip).then(|| {
+            let mut v: Vec<f64> = state.times[1..=skip]
+                .windows(2)
+                .map(|w| (w[1] - w[0]).as_secs_f64() * 1000.0)
+                .collect();
+            v.sort_by(f64::total_cmp);
+            r2(v[v.len() / 2])
+        });
         let mut gaps = in_order.clone();
         gaps.sort_by(f64::total_cmp);
         let at = |q: f64| gaps[((gaps.len() - 1) as f64 * q).round() as usize];
@@ -237,18 +287,18 @@ impl App {
             "bench": kind,
             "label": state.bench.label,
             "frames": gaps.len(),
-            "median_ms": (at(0.5) * 100.0).round() / 100.0,
-            "p95_ms": (at(0.95) * 100.0).round() / 100.0,
-            "max_ms": (gaps[gaps.len() - 1] * 100.0).round() / 100.0,
+            "median_ms": r2(at(0.5)),
+            "p95_ms": r2(at(0.95)),
+            "max_ms": r2(gaps[gaps.len() - 1]),
             // Every gap in the order measured, so the report can say which
             // frames were slow (docs/specs/bench.md §4). Not for a memory
             // run, which takes thousands.
-            "gaps_ms": (state.bench.kind != BenchKind::Memory).then(|| {
-                in_order
-                    .iter()
-                    .map(|g| (g * 100.0).round() / 100.0)
-                    .collect::<Vec<_>>()
-            }),
+            "gaps_ms": (state.bench.kind != BenchKind::Memory)
+                .then(|| in_order.iter().map(|g| r2(*g)).collect::<Vec<_>>()),
+            // And how much of each was the wait for a drawable, and the
+            // refresh, for docs/specs/bench.md §6.
+            "waits_ms": (state.bench.kind != BenchKind::Memory).then_some(waits),
+            "idle_ms": idle_ms,
             "peak_mib": state.peak_mib,
             "adapter": adapter,
             "backend": backend,
