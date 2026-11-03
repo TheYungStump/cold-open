@@ -79,3 +79,22 @@ The README's code signing policy and privacy statement went first, in their own 
 - `tools/privacy_scan.py` (2026-11-02):
   - with the private patterns, over the tree, all history's metadata, and the PR, issue and release texts: no findings after this step;
   - it catches a planted email address, home folder and private pattern.
+- **CI on cb45533 (Linux, branch push): every job passed.** That includes:
+  - **the crash report job:** a release build's report was clean, and frame 6 resolved to `coldopen_app::crash::crash_on_purpose`;
+  - **Report a problem:** it opened `…/issues/new?template=bug.yml&version=…&os=…&renderer=CPU` through a stand-in `xdg-open`;
+  - **the privacy job.**
+- **Linux x86-64 package sizes with symbols split off:** .deb 8,835,224, AppImage 12,237,304, Flatpak 7,336,616 bytes. That's 50 to 70 KB more than 6a's, all under 15,000,000.
+- **Windows, here:** a release-profile driver crashed on purpose, and `tools/symbolicate.py` resolved its report through dbghelp: `crash_on_purpose` (crash.rs:268), then `crash_now`, `reply` and `global_key`.
+- **Tests:** the workspace, 786 passing and 1 ignored, before the references and parameter docs. Core, MCP, CLI and the reference goldens passed after them.
+- **The draft PR:** TheYungStump/cold-open#21, opened for CI on all three OSes.
+
+## Where it stopped (2026-11-02)
+
+The session hit its usage limit after step 8. Next:
+
+1. Check #21's CI on Windows and macOS, especially the PDB and dSYM symbol steps.
+2. Announcement drafts: read the subreddits' rules in the built-in browser first.
+3. The CLI's version resource, and the Inno Setup version fields.
+4. The Google Form prefill, once the owner sends the link and entry ids.
+5. `CHANGELOG.md`, the alpha.2 notes, the version bump and the rehearsal.
+6. The fuzz workflow by hand, the full gates, the manual test list and the final report.
