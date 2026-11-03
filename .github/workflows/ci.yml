@@ -138,7 +138,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # The permissively licensed crates (CLAUDE.md, "Workspace layout").
-      PERMISSIVE_CRATES: coldopen-screenplay coldopen-fountain coldopen-fonts coldopen-layout coldopen-fdx
+      PERMISSIVE_CRATES: coldopen-screenplay coldopen-fountain coldopen-fonts coldopen-layout coldopen-fdx coldopen-diff
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -213,6 +213,41 @@ jobs:
               fi
             done
           done
+
+  # Nothing public names a person, and nothing shipped can reach the network
+  # (docs/specs/site.md §8; the privacy statement in README.md).
+  privacy:
+    name: privacy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Every commit, for the authors and messages.
+          fetch-depth: 0
+      - name: No personal details in the tree or the commits
+        run: |
+          python3 tools/privacy_scan.py --no-private
+          python3 tools/privacy_scan.py --no-private --history
+      - uses: dtolnay/rust-toolchain@stable
+      - name: The programs hold no network client
+        run: |
+          # The crates that would let Cold Open open a connection. The agent
+          # link is a local socket or pipe (std), and the MCP server is stdio.
+          banned='reqwest ureq hyper h2 http curl curl-sys isahc attohttpc surf minreq native-tls openssl openssl-sys rustls tungstenite'
+          if ! tree=$(cargo tree --locked --target all -p coldopen-app -p coldopen-cli -p coldopen-mcp -e normal --prefix none --format '{p}'); then
+            echo "::error::cargo tree failed, so the dependencies were not checked."
+            exit 1
+          fi
+          names=$(sed -e '/^$/d' -e 's/ .*//' <<<"$tree" | sort -u)
+          found=()
+          for crate in $banned; do
+            if grep -qx "$crate" <<<"$names"; then found+=("$crate"); fi
+          done
+          if [ ${#found[@]} -gt 0 ]; then
+            echo "::error::A network crate is in the programs' tree: ${found[*]}. The privacy statement says Cold Open makes no connections."
+            exit 1
+          fi
+          echo "$(wc -l <<<"$names") crates, none of them a network client."
 
   # Every package for every target, sized, installed and started
   # (docs/specs/release.md, build.yml). Every OS on pull requests and main;
