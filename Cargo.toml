@@ -16,7 +16,9 @@ members = [
 exclude = ["fuzz", "tools/refpdf"]
 
 [workspace.package]
-version = "0.1.0"
+# One version for every program, file and report (docs/specs/release.md §9).
+# The dependency requirements below follow it.
+version = "0.1.0-alpha.1"
 edition = "2024"
 # File::lock (used for journal locking) was stabilized in 1.89.
 rust-version = "1.89"
@@ -24,16 +26,16 @@ repository = "https://github.com/TheYungStump/cold-open"
 authors = ["The Cold Open contributors"]
 
 [workspace.dependencies]
-coldopen-screenplay = { path = "crates/screenplay", version = "0.1.0" }
-coldopen-fountain = { path = "crates/fountain", version = "0.1.0" }
-coldopen-fonts = { path = "crates/fonts", version = "0.1.0" }
-coldopen-layout = { path = "crates/layout", version = "0.1.0" }
-coldopen-core = { path = "crates/core", version = "0.1.0" }
-coldopen-fdx = { path = "crates/fdx", version = "0.1.0" }
-coldopen-link = { path = "crates/link", version = "0.1.0" }
-coldopen-app = { path = "crates/app", version = "0.1.0" }
-coldopen-mcp = { path = "crates/mcp", version = "0.1.0" }
-coldopen-diff = { path = "crates/diff", version = "0.1.0" }
+coldopen-screenplay = { path = "crates/screenplay", version = "0.1.0-alpha.1" }
+coldopen-fountain = { path = "crates/fountain", version = "0.1.0-alpha.1" }
+coldopen-fonts = { path = "crates/fonts", version = "0.1.0-alpha.1" }
+coldopen-layout = { path = "crates/layout", version = "0.1.0-alpha.1" }
+coldopen-core = { path = "crates/core", version = "0.1.0-alpha.1" }
+coldopen-fdx = { path = "crates/fdx", version = "0.1.0-alpha.1" }
+coldopen-link = { path = "crates/link", version = "0.1.0-alpha.1" }
+coldopen-app = { path = "crates/app", version = "0.1.0-alpha.1" }
+coldopen-mcp = { path = "crates/mcp", version = "0.1.0-alpha.1" }
+coldopen-diff = { path = "crates/diff", version = "0.1.0-alpha.1" }
 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -58,8 +60,11 @@ rawzip = "0.5.2"
 # The desktop app (docs/spec.md: iced, chosen in phase 1). Only the
 # tiny-skia CPU renderer by default; the `gpu` feature of coldopen-app adds
 # wgpu for comparison builds.
-iced = { version = "0.14", default-features = false, features = ["tiny-skia", "x11", "wayland", "smol", "advanced", "linux-theme-detection"] }
+iced = { version = "0.14", default-features = false, features = ["tiny-skia", "x11", "wayland", "smol", "advanced", "linux-theme-detection", "sysinfo"] }
 iced_test = "0.14"
+# `sysinfo` (2026-10-30, phase 6a; 127 KB on Windows) tells the About sheet and
+# the bench which renderer and GPU draw the window, and the CPU and OS they run
+# on (docs/specs/bench.md §4).
 # Already part of iced; named directly so the app can run itself headless
 # (user interface, tasks) for tests and the gate driver.
 iced_runtime = "0.14"
@@ -86,6 +91,15 @@ tokio = { version = "1", default-features = false, features = ["rt", "sync", "ma
 # Native open and save dialogs. Without default features it uses the XDG
 # desktop portal on Linux (no GTK) and the system dialogs elsewhere.
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
+
+# The bench's machine probe (docs/specs/bench.md §4): the OS, CPU and memory.
+# Already in the tree through iced's `sysinfo` feature, at this version.
+sysinfo = { version = "0.33", default-features = false, features = ["system"] }
+
+# Windows only, at build time: the app's icon and version details in its
+# .exe (docs/specs/release.md §3.1). MIT; without default features it needs
+# no TOML parser.
+winresource = { version = "0.1.34", default-features = false }
 
 # Dev-only.
 proptest = "1.5"

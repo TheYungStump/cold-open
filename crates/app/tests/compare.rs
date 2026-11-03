@@ -131,3 +131,40 @@ fn a_comparison_runs_off_the_ui_thread_and_esc_stops_waiting() {
         "a stopped comparison does not open"
     );
 }
+
+/// "Save as PDF…" lays out and writes off the UI thread (2026-10-30,
+/// editor.md §21): the update returns with the PDF still to come, the
+/// status bar says so, and the banner comes with the worker's answer.
+#[test]
+fn the_diff_pdf_is_written_off_the_ui_thread() {
+    let home = tempfile::tempdir().unwrap();
+    let mut h = app(home.path());
+    h.run(vec![Message::Action("app.compare".into())]);
+    assert!(h.app.compare.is_some());
+    h.app.banners.clear();
+    let pdf = home.path().join("changes.pdf");
+    let chosen = || Message::Chosen(Ask::DiffPdf("changes.pdf".into()), Some(pdf.clone()));
+    let task = h.app.update(chosen());
+    assert_eq!(h.app.pdf_writing.as_deref(), Some("changes.pdf"));
+    assert!(h.app.banners.is_empty(), "{:?}", h.app.banners);
+    // A second one waits its turn.
+    let _ = h.app.update(chosen());
+    assert!(
+        h.app
+            .banners
+            .iter()
+            .any(|b| b.contains("still being written"))
+    );
+    h.app.banners.clear();
+    h.run_task(task);
+    assert!(h.app.pdf_writing.is_none());
+    assert!(
+        h.app
+            .banners
+            .iter()
+            .any(|b| b.contains("Saved changes.pdf")),
+        "{:?}",
+        h.app.banners
+    );
+    assert!(std::fs::read(&pdf).unwrap().starts_with(b"%PDF"));
+}

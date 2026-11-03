@@ -1,0 +1,288 @@
+# Phase 6a progress: release engineering for the alpha
+
+Branch `phase-6a-release`, started 2026-10-30 from `main` (eb84cd3). Pull request: TheYungStump/cold-open#19 (draft). This file is updated and pushed with every step.
+
+Phase 6 is split in two. **6a** (this phase) builds installable packages for every platform the spec lists, with every budget met on real machines. **6b** brings user docs, the website, the tester group, feedback and opt-in crash reports. 6a builds none of 6b, but leaves room for it: the About sheet shows rows for the user guide and for feedback as soon as their addresses are set (`crates/app/src/about.rs`).
+
+## Final report (2026-11-02)
+
+Phase 6a is done: installable packages for every target the spec lists, each under 15 MB, a bench any tester can run, and a release workflow rehearsed end to end. Every step of the plan below is done. The project owner's manual test passed on Windows, with every budget met on the installed build, and so did each retest. It is squash-merged from TheYungStump/cold-open#19 with the owner's go-ahead. The tag `v0.1.0-alpha.1` is pushed on `main` only with the owner's OK, which publishes the release. The phase changed 106 files: about 5,300 lines in the crates and tests, 1,700 in CI and packaging, and 420 in specs.
+
+### What was built
+
+- **One version everywhere** (`0.1.0-alpha.1`), with the commit in About, `--version` and the bench report, never in a file Cold Open writes (decision 1). The release fails if the tag and `Cargo.toml` differ.
+- **Packages** (`release.md`, new):
+  - Windows, x64 and ARM64: a per-user Inno Setup installer and a zip. The CLI goes on the user's PATH. The installer offers Cold Open under "Open with" for `.fountain` and `.fdx`, and makes it the default for `.coldopen`. The installer and the uninstaller close a running Cold Open themselves (decision 19).
+  - macOS: an Apple Silicon and an Intel disk image, since the universal one is just over the budget. "Install the command-line tool" puts `coldopen` on the PATH.
+  - Linux, x86-64 and ARM64: a .deb, an AppImage and a Flatpak, built on Ubuntu 22.04 (glibc 2.35).
+  - Every package carries the licenses: the GPL, MIT and Apache, the fonts' OFL, and the third-party list made by cargo-about. A stand-in icon goes everywhere, ready for the owner's art (decision 1 of the owner's).
+- **The bench** (`bench.md`, new): "Measure performance" in the app, `coldopen bench`, or `coldopen-app --bench`. It measures every budget in the spec on a generated 120-page script, and writes a JSON and a text report to Downloads that name no person, machine, folder or script. Windowed budgets give their median beside the p95, so a miss shows whether it was a few slow frames or all of them.
+- **The About sheet:** the version, commit, target, renderer, the source at that commit, every license, and "Copy version info".
+- **Off the UI thread:**
+  - Both PDF exports (decision 8).
+  - The journal's restart after a save, which once took 13.4 ms on CI's disk. A crash at any point of it loses nothing, typing during it included (decision 18, `journal.md`).
+- **The report view scrolls in about 5 ms a frame**, down from 50 to 81 ms on CI's CPU renderer: its rows are drawn like the pages (decision 7). The system information query no longer holds up the first frames (decision 17).
+- **Awkward folders.** A script in a folder that can't be written opens as a copy, with a banner. Saves to synced folders are tested against a file held as a sync client holds it.
+- **Workflows:** `build.yml` builds, packages, size-checks and installs every package on its own OS, then starts it, opens a file and uninstalls it. `release.yml` publishes a `v*` tag as a pre-release with `SHA256SUMS.txt` and the notes. Run by hand or from a `rehearsal/` branch, it makes a private draft instead.
+- **Docs:** the release notes, the owner's manual test, the Mac tester's page, and the README's install section.
+
+### Checks
+
+- **Tests:** `cargo test --workspace --locked` on this PC (e101891's code, 2026-11-02): 757 pass, none fail, 1 ignored, the crash, typing and agent gates included. `cargo fmt` and `cargo clippy -D warnings` are clean. CI was green on every OS on e101891.
+- **The crash gate** ran five times in a row after the journal change, 9 of 9 each time. `core/tests/restart.rs` kills a process at each of nine points of the restart, with typing during it.
+- **Corpus and reference** (3b581d4): every corpus .fdx file writes back byte for byte, and the reference gate gives phase 4's numbers. No format, layout or diff crate has changed since.
+- **Fuzzing:** a ten-minute run of every target passed.
+- **Budgets:**
+  - **Windows, the owner's PC:** every budget passed on the installed build of 3a28406, in the full bench, the quick one and the zip's.
+  - **Linux:** CI asserts the headless budgets and the report view's scrolling, and they pass. Cold start and keystroke on a runner's virtual display are reported, not asserted (bench.md §5), and passed there too.
+  - **macOS:** the Mac tester's real Mac missed one budget by 0.3 ms, the report view's scrolling (p95 16.3 ms), on b901828. The Windows cause of the same miss is fixed (decision 17). The Mac tester's rerun on a new build is pending. CI's virtual Mac is reported, not asserted.
+  - **Sizes:** the largest file is the x86-64 AppImage, 12.2 MB.
+- **The rehearsal release:** every file in the draft passes its checksum and the size limit, and carries the draft's commit.
+- **Manual test** (the owner, Windows, 2026-10-31 and two retests on 2026-11-02): six findings, all fixed and retested. They were: the bench printed nothing in a terminal, the installer couldn't close a running Cold Open, then closed it slowly, the uninstaller couldn't remove a running one, the zip's folder name had a space, and the test's own PowerShell commands were wrong.
+
+### Deferred
+
+- **The Mac tester's rerun.** The one budget the real Mac missed needs a rerun on a build with decision 17. If it still misses, the report's median shows whether Metal is slow throughout or has a few slow frames.
+- **Phase 6's gate** asks for every budget on all three OSes on real machines. Windows is done and macOS is pending. Linux is CI's runner only so far: a tester with a Linux machine is a 6b task.
+- **Double-clicking a file on macOS** starts Cold Open without opening the file. Finder sends it as an Apple Event, which iced doesn't expose. Handling it needs a small `unsafe` objc2 handler, left for the owner to approve (decision 13). It is a known issue in the release notes.
+- **Signing.** The builds are unsigned. Setting `WINDOWS_SIGNING=signpath` and a SignPath token turns Windows signing on. Apple notarization waits on a paid account.
+- **OneDrive** wasn't tested by hand: OneDrive is off on the test PC.
+- **The icon** is a stand-in until the owner's art arrives.
+- **Flathub** would need a Flatpak built from source. The release's Flatpak repackages the CI binaries.
+- **`measure.py`** is unused and stays until the owner says to remove it.
+- **The rehearsal's branch and draft** (`rehearsal/v0.1.0-alpha.1`, `rehearsal-1`) stay until the owner says to remove them.
+
+### Decisions
+
+- **The project owner's, before the phase:** the stand-in icon, the copy for a folder that can't be written, Flatpak's home access, and a draft rehearsal before the tag.
+- **During the phase:** 19, listed below. The ones that shape later work:
+  - the commit shows, but is never written into a file (1);
+  - the bench is part of the app, so testers need nothing else (5);
+  - one dmg per architecture while the universal one is over budget (12);
+  - the system is asked about the renderer only when needed (17);
+  - the journal restarts off the UI thread, beside the old one (18);
+  - the installers close Cold Open themselves (19).
+
+## Plan and status
+
+| # | Step | Status |
+| --- | --- | --- |
+| 0 | Specs first: `release.md` and `bench.md` (new), `journal.md`, `commands.md`, `editor.md` §21 and §22 | done (a46d61f) |
+| 1 | One version (`0.1.0-alpha.1`) and the commit, everywhere | done (0a1beca) |
+| 2 | Third-party licenses (cargo-about) and the About sheet | done (1a2c1a8) |
+| 3 | The bench: `coldopen-app --bench`, `coldopen bench`, Measure performance | done (29e90e8) |
+| 4 | The report view's scrolling | done (0e37814) |
+| 5 | PDFs off the UI thread: the compare view's and the script's | done (52f9974, 56b3b77, c129768) |
+| 6 | First run, read-only and synced folders | done (7771a4c, 332338f) |
+| 7 | Packages: Windows installer and zip, macOS dmg, .deb, AppImage, Flatpak; icon; CLI on each OS | done (6e1d6fd) |
+| 8 | Workflows: build, install and start every package; release on a tag | done; rehearsed as the draft `rehearsal-1` (a5d157d) |
+| 9 | Manual test, Mac tester's page, README, this report | done; the manual test and its retests passed |
+
+## Decisions from the project owner (2026-10-30, before the phase)
+
+1. **Icon:** the owner provides the artwork. Until then a plain stand-in goes everywhere an icon goes, made by `.github/packaging/icon/make_icons.py`. Swapping the art in: export PNGs at 16 to 1024 pixels into a folder, then run `make_icons.py --from <folder>`.
+2. **A folder that can't be written:** the script opens as an untitled copy in `Unsaved/`, with a banner.
+3. **Flatpak:** `--filesystem=home`.
+4. **The release:** a draft rehearsal from the branch first. After the merge go-ahead, the tag `v0.1.0-alpha.1` on `main`, pushed only with the owner's OK.
+
+## Decisions made during the phase
+
+1. **The commit** comes from `COLDOPEN_COMMIT` (CI sets it), else `git`, else `unknown`. It shows in About, `--version` and the bench report, never in a file Cold Open writes, so two builds of one version write the same files.
+2. **Workspace dependency requirements** follow the pre-release version (`"0.1.0-alpha.1"`). Cargo then refuses a mismatch on its own.
+3. **cargo-about runs in CI only.** It compiles C code (zstd), and this PC's Windows SDK lacks the C runtime headers. Its output is JSON, turned into text by `third_party.py` (our own crates left out, each license text once). Local builds show a note in its place.
+4. **iced's `sysinfo` feature** (127 KB on Windows, measured) tells About and the bench which renderer and GPU draw the window, and the CPU and OS. It came in under the 300 KB the plan allowed.
+5. **The bench runs as a child process** in the app (`--bench --progress`), so the window stays usable. Windowed runs are the app's own children, with their own temporary folders and vsync off (`ICED_PRESENT_MODE=immediate`); otherwise a 60 Hz screen could never show under 16.7 ms. The report's file names use UTC, as its contents do.
+6. **`coldopen bench`** finds the app beside it and runs it. On Windows the app is a windowed program, whose output a terminal doesn't show.
+7. **The report view's rows** are one widget drawn like the page view: only the lines in sight, one text call each.
+8. **Export a PDF also moved off the UI thread.** The audit found it took 63 ms on this PC for 120 pages. `export.pdf` is now `export_pdf_prepare` (checks and a copy) then `PdfJob::run`. The compare view's PDF is written from the marked pages the view already holds. While one PDF is being written, a second is refused with a banner.
+9. **`folder_read_only`** also covers `doc.new` and Save as into such a folder. A journal that already exists keeps its own error, since it may hold work.
+10. **Synced folders:** the atomic rename already retried sharing and lock errors for about a second on Windows. 6a adds tests that hold the file as a sync client does, and the manual test covers OneDrive.
+11. **Installer tool:** Inno Setup 6, per user (`PrivilegesRequired=lowest`). The CLI goes in `bin\` on the user's PATH (a task, ticked by default). It offers "Open with" for `.fountain` and `.fdx`, and is the default only for `.coldopen`.
+12. **macOS:** one universal dmg if under 15 MB, else one per architecture, decided by the packaging step. The CLI sits inside the bundle, and the palette's **Install the command-line tool** links it into `/usr/local/bin` or `~/.local/bin`, never over another program's file.
+13. **macOS file associations:** Finder sends a double-clicked document as an Apple Event, which iced and winit don't expose. Handling it would need a small `unsafe` objc2 delegate, so per the plan it is a known issue in the release notes, not done without the owner's approval. The app starts; the file needs Open.
+14. **Linux:** builds on Ubuntu 22.04 (glibc 2.35). The .deb is built with `dpkg-deb` and `dpkg-shlibdeps` and names the window libraries winit loads at run time. The AppImage uses appimagetool 1.9.1 and runtime 20251108, pinned by SHA-256. The Flatpak holds the same binaries on freedesktop 25.08, made with flatpak's own build commands (flatpak-builder failed on CI twice; release.md §3.6).
+15. **The window icon** is the 64-pixel PNG, decoded with `miniz_oxide`, which the app already has, rather than iced's image feature. Wayland gets the app id `io.github.theyungstump.coldopen`.
+16. **The package readme** is `.github/packaging/TESTING.txt`, rewritten for the alpha and shipped as `README.txt`. **`measure.py`** is no longer used by CI, since the bench replaces it. It is left in place until the owner says to remove it.
+17. **The system is asked which renderer draws the window only when it's needed** (2026-11-02): when About first opens, and in the bench once the frames are measured. iced's query also lists every running process on every core, and at start it held up the window's frames (see "Report scrolling misses" below).
+18. **The journal starts again off the UI thread** (2026-11-02; phase 5a decision 47, done now at the project owner's request). After a save, the commit used to cut the journal back and write its new header on the UI thread, which CI once caught taking 13.4 ms. Now the save's worker writes the next journal beside the old one (`<journal>.next`), the commit only switches which file edits go to, and a background thread renames it into place. Recovery takes the `.next` only when the old journal ends exactly at the save marker its header names (journal.md, "Starting the journal again off the UI thread"). `core/tests/restart.rs` kills a process at each step, with typing during the restart.
+19. **The installer and the uninstaller close a running Cold Open themselves** (2026-11-02, the project owner's retest), instead of through Windows' Restart Manager (`CloseApplications=no`). They find the copies running from the install folder through WMI, say so with OK and Cancel, ask each to close, and end any still open after 3 seconds; its work is in the crash journal. CI starts the app, then installs over it and uninstalls it while it runs, each within 15 seconds.
+
+## New dependencies
+
+| Dependency | Where | Why | License |
+| --- | --- | --- | --- |
+| iced feature `sysinfo` (sysinfo 0.33) | app | The renderer, GPU, CPU and OS for About and the bench. +127 KB on Windows | MIT |
+| `sysinfo` 0.33, named directly | app | The bench's machine probe. Already in the tree through iced | MIT |
+| `miniz_oxide`, named directly | app, and its build script | The third-party list compiled in deflated, and the window icon. Already in the tree | MIT OR Zlib OR Apache-2.0 |
+| `winresource` 0.1 | app's build script, Windows only | The .exe's icon and version details | MIT |
+| cargo-about 0.9.3 (CI tool) | CI | The third-party license file | MIT OR Apache-2.0 |
+| Inno Setup 6, appimagetool 1.9.1, the AppImage type2 runtime (CI tools) | CI | The installers and packages; the Flatpak uses flatpak's own commands | Inno Setup License (free), MIT, MIT (only the AppImage runtime is shipped, inside the AppImage) |
+
+## Measurements
+
+### This PC (Windows 11, i9-13900K, RTX 4090, 1920×1080), quick bench, before the report view's fix
+
+Every budget passed except the report view's scrolling (p95 32.7 ms):
+
+| Budget | Result |
+| --- | --- |
+| Open a 120-page script | 42.9 ms |
+| Repagination | 20.2 ms |
+| Journal write | well under 0.1 ms |
+| Save on the UI thread | 1.6, 1.0, 1.2 ms |
+| Whole save | 23.6, 8.4, 12.3 ms |
+| Cold start | 186 ms |
+| Keystroke to screen | 9.4 ms |
+| Memory | 75 MiB |
+
+After the fix, the report view scrolls in 7.2 ms a frame (p95 10.3 ms) at 1920×1080 on the CPU renderer, against 11.2 ms for the pages.
+
+### Package sizes (CI, 09c45a1 and d6128dd; budget 15,000,000 bytes each)
+
+| Package | Bytes |
+| --- | --- |
+| Windows x64 installer / zip | 8,196,848 / 10,314,810 |
+| Windows ARM64 installer / zip | 7,569,488 / 9,570,319 |
+| macOS Apple Silicon dmg | 7,546,295 |
+| macOS Intel dmg | 8,913,885 |
+| macOS universal dmg (not shipped) | 15,218,928: over by 1.5%, so the packaging step made the two above (release.md §2) |
+| Linux x86-64 .deb / AppImage / Flatpak | 8,782,284 / 12,167,672 / 7,278,624 |
+| Linux ARM64 .deb / AppImage / Flatpak | 7,441,076 / 11,295,240 / 6,388,280 |
+
+### CI: the full bench in the budgets job (3b581d4, 2026-10-30)
+
+The reports are in `docs/progress/phase-6a-bench/`. CI's runners are shared virtual machines: Linux asserts the budgets listed in `docs/specs/bench.md` §5, and the rest are reported.
+
+| Budget | Linux (EPYC, 2 cores, xvfb) | Windows (EPYC, 2 cores, no GPU) | macOS (virtual M1, 3 cores, Metal) | Limit |
+| --- | --- | --- | --- | --- |
+| Open | 16.3 ms | 46.1 ms | 34.8 ms | 200 ms |
+| Repagination | 11.0 ms | 22.4 ms | 19.5 ms | 50 ms |
+| Journal write (p95) | 0.010 ms | 0.020 ms | 0.040 ms | 1 ms |
+| Save on the UI thread (p95: Fountain, .fdx, project) | 0.87, 0.86, 1.0 ms | 1.2, 0.89, 1.1 ms | **10.2**, 2.4, 2.9 ms | 4 ms |
+| Whole save (median) | 10.9, 2.9, 8.0 ms | 30.7, 21.5, 25.2 ms | 19.8, 8.8, 21.3 ms | 50 ms |
+| Cold start | 40.5 ms | 164 ms | 813 ms | 1 s |
+| Keystroke to screen (p95) | 4.4 ms (CPU) | 8.2 ms (CPU) | 15.8 ms (Metal) | 16 ms |
+| Report view scrolling (p95) | 5.2 ms (CPU) | 7.4 ms (CPU) | 13.5 ms (Metal) | 16 ms |
+| Memory | 53 MiB | 74 MiB | 137 MiB | 150 MB |
+
+- **Linux and Windows pass every budget.** The report view scrolled at 50 and 81 ms a frame on these runners before the fix.
+- **macOS misses one:** a Fountain save's UI-thread time, p95 10.2 ms. That is the slowest of 21 saves on a 3-core virtual machine, whose median was well under 4 ms. The quick run in the packaging job missed more (cold start 1.4 s, keystroke 23.6 ms with Metal) on a runner busy installing. The Mac tester's report, on a real Mac, is the gate.
+
+### Real machines
+
+**Windows: the project owner's PC, 2026-10-31.** The installed build of 83b44f7, on Windows 11 Home, an i9-13900K, an RTX 4090 and a 1920×1080 screen. The full bench passes every budget (`coldopen-bench-windows-x86_64-20261031-011219`), and so does the quick run (`…011458`):
+
+| Budget | Result | Limit |
+| --- | --- | --- |
+| Open a 120-page script | 42.6 ms | 200 ms |
+| Full repagination | 22.1 ms | 50 ms |
+| Journal write (p95) | 0.010 ms | 1 ms |
+| Save on the UI thread (p95: Fountain, .fdx, project) | 2.0, 1.1, 1.2 ms | 4 ms |
+| Whole save (median) | 19.6, 8.7, 10.8 ms | 50 ms |
+| Cold start | 143 ms | 1 s |
+| Keystroke to screen (p95, CPU) | 9.3 ms | 16 ms |
+| Report view scrolling (p95, CPU) | 6.1 ms | 16 ms |
+| Memory | 79 MiB | 150 MB |
+
+With the GPU renderer (Vulkan), for comparison: typing p95 7.5 ms, scrolling 1.8 ms, the report view 0.7 ms.
+
+**macOS: the Mac tester, 2026-11-02.** The installed build of b901828, on macOS 26.5, an M1 Pro (10 cores, 16 GiB) and a 3440×1440 screen at 1×, drawn with Metal (`coldopen-bench-macos-aarch64-20261102-035521`). Every budget passed except the report view's scrolling, p95 16.3 ms against 16 (see below):
+
+| Budget | Result | Limit |
+| --- | --- | --- |
+| Open a 120-page script | 34.7 ms | 200 ms |
+| Full repagination | 16.2 ms | 50 ms |
+| Journal write (p95) | 0.020 ms | 1 ms |
+| Save on the UI thread (p95: Fountain, .fdx, project) | 1.3, 2.8, 1.6 ms | 4 ms |
+| Whole save (median) | 33.7, 22.6, 26.7 ms | 50 ms |
+| Cold start | 200 ms | 1 s |
+| Keystroke to screen (p95, Metal) | 12.0 ms | 16 ms |
+| Report view scrolling (p95, Metal) | **16.3 ms** | 16 ms |
+| Memory | 140 MiB | 150 MB |
+
+With the CPU renderer, for comparison: typing p95 19.7 ms, page scrolling 15.3 ms, the report view 8.8 ms.
+
+### Report scrolling misses (2026-11-02)
+
+- **What was seen:** the Mac tester's full bench missed the report view's scrolling (above). The project owner's quick bench on this PC, rerun on 83b44f7, missed it too, at p95 28.1 ms (`…20261102-040835`). That build had passed it at 6.1 ms (full) and 11.4 ms (quick) two days before.
+- **The cause on Windows:** the frame times showed a burst of two or three slow frames (14 to 42 ms) at the same point in every run, about 120 ms after the first frame, while the rest took about 6 ms. The burst was iced's system information query, which the app sent at start for the About sheet. Besides the renderer's name, it reads every running process, spread over every core, and that held up the window's frames. With the query left out, the burst was gone. A quick run's p95 over 30 frames is its second-slowest frame, so the burst decided it.
+- **The fix:** the query is sent only when About first opens, and by the bench once the frames are measured (decision 17). The bench reads the peak memory before it asks.
+- **After, on this PC** (a local build of the fix on b901828, tiny-skia, 1280×860): six runs of 120 frames gave p95 6.5 to 10.3 ms, with the slowest frame 13.7 ms. Six runs of 30 frames gave p95 6.3 to 7.3 ms. The whole quick bench passes every budget (`…20261102-160803`): report scrolling p95 5.7 ms (median 5.3), keystroke 7.4 ms. Memory fell from 77 to 54 MiB, since the process list is no longer in the peak.
+- **macOS:** not measured here. The Mac's query is the same and ran during the same frames, but its CPU runs were steady, so Metal may have a cost of its own. The windowed budgets now carry their median beside the p95 (bench.md §4), so the Mac's next report shows whether a miss is a few slow frames or all of them. The Mac tester reruns the bench on the next build.
+
+### The save's commit off the UI thread (2026-11-02, decision 18)
+
+- **What was seen:** CI's Linux budgets job on 261f184 missed "Save on the UI thread, .fdx" at p95 13.1 ms. The step was the commit (slowest snapshot 0.23 ms, marker 0.02, commit 13.41), the one that cut the journal back and wrote its header. The rerun of the same job missed the project save instead: p95 11.8 ms, with one commit at 55.4 ms. The push run on the same commit passed. Real machines passed (this PC 1.0 ms, the Mac 2.8 ms), but a synced folder can stall like CI's disk.
+- **This PC, before and after** (three runs of the budgets example's saves each, 21 saves of each kind):
+
+| UI thread | Before (261f184) | After |
+| --- | --- | --- |
+| Save p95: Fountain, .fdx, project | 2.5–2.8, 2.5–2.8, 2.5–2.9 ms | 1.0–1.3, 1.4, 1.1–1.2 ms |
+| Commit, slowest | 1.9–2.7 ms | 0.2–0.6 ms |
+| Commit, p95 | (not recorded then) | 0.14–0.17, 0.29–0.52, 0.14–0.35 ms |
+| Whole save, median | 30–32, 14, 14–15 ms | 32–35, 15, 15–16 ms |
+
+  The whole save is 1 to 3 ms longer, since the worker now writes and flushes the next journal too.
+- **The crash gate**, run five times in a row on this PC: 9 of 9 each time. `core/tests/restart.rs` (a kill at each of 9 points, with typing during the restart) passes.
+- **CI, every OS** (199ae39, the budgets jobs' saves table; Windows and macOS print it twice, so both runs are given). p95 in ms, as Fountain / .fdx / project:
+
+| OS | Snapshot | Marker | Commit | Whole UI thread |
+| --- | --- | --- | --- | --- |
+| Linux | 0.25 / 0.17 / 0.19 | 0.03 / 0.01 / 0.01 | **0.04 / 0.02 / 0.03** | 0.30 / 0.20 / 0.23 |
+| Windows | 0.66–0.67 / 0.67–0.81 / 0.58–0.69 | 0.04 / 0.48–1.41 / 0.04 | **0.08–0.22 / 0.06–0.07 / 0.06–0.07** | 0.76–0.89 / 1.12–2.12 / 0.66–0.78 |
+| macOS | 0.53–0.65 / 0.47–0.52 / 0.49–0.55 | 0.12–0.19 / 0.12–0.15 / 0.17–0.18 | **0.07–0.10 / 0.06–0.07 / 0.07** | 0.63–0.75 / 0.64–0.67 / 0.63–0.69 |
+
+  Before, Linux's slowest commits were 13.4 and 55.4 ms. Every save budget passes on every OS. Windows' slowest step is now the .fdx marker, an append like a keystroke's (2.7 ms once), on a shared runner's disk.
+- **CI's macOS bench** (a 3-core virtual Mac, reported, not asserted) missed two windowed budgets with Metal, and the new medians show they are spikes: keystroke p95 16.7 ms with a median of 9.2, the report view p95 19.4 ms with a median of 4.1. The Mac tester's rerun on a real Mac is the gate.
+
+## The project owner's retest (2026-11-02, 3a28406)
+
+The installed build of 3a28406 on this PC. The reports are in `docs/progress/phase-6a-bench/`.
+
+| Budget | Full (`…204947`) | Quick (`…205131`) | Zip, quick (`…205903`) | Limit |
+| --- | --- | --- | --- | --- |
+| Open a 120-page script | 40.5 ms | 41.1 ms | 40.7 ms | 200 ms |
+| Full repagination | 20.7 ms | 21.0 ms | 20.4 ms | 50 ms |
+| Save on the UI thread (p95: Fountain, .fdx, project) | 1.5, 0.30, 0.31 ms | 0.52, 0.41, 0.55 ms | 0.51, 0.50, 0.49 ms | 4 ms |
+| Their commit steps (p95) | 1.28, 0.02, 0.02 ms | 0.14, 0.21, 0.17 ms | 0.19, 0.31, 0.14 ms | |
+| Whole save (median) | 17.9, 9.9, 11.3 ms | 23.3, 7.1, 12.3 ms | 22.9, 6.9, 12.5 ms | 50 ms |
+| Cold start | 125 ms | 125 ms | 126 ms | 1 s |
+| Keystroke to screen (p95, CPU; median) | 8.6 ms (6.9) | 10.5 ms (6.7) | 7.9 ms (6.8) | 16 ms |
+| Report view scrolling (p95, CPU; median) | 5.3 ms (4.9) | 5.6 ms (5.1) | 5.6 ms (5.0) | 16 ms |
+| Memory | 56 MiB | 54 MiB | 54 MiB | 150 MB |
+
+Every budget passed in all three. The full run is the Windows gate now, in place of 2026-10-31's.
+
+- **§5, §9 and §10 passed:** the terminal prints the bench's steps and summary, the zip's `ColdOpen` folder works from a terminal, and typing through saves then a kill brought every line back, with no `.next` left.
+- **§8, two findings:**
+  1. **The installer's close of a running Cold Open works, but took 20 to 30 seconds.** It asks Windows' Restart Manager to close the app first, and the app's window doesn't answer it, so the installer waits out Windows' time limit before ending it.
+  2. **The uninstaller didn't remove Cold Open while a window was open.** Unlike the installer, it has no step that closes the app, so the program's files were in use.
+
+  Both fixed the same day (decision 19, release.md §3.1). **§8 retested on 14dcae7 (2026-11-02): pass.** The installer and the uninstaller both close a running Cold Open after OK, and the uninstall removes it.
+
+## The project owner's manual test (2026-10-31, 83b44f7)
+
+The bench passed. Four findings, all fixed in the next commit:
+
+1. **`coldopen bench` printed nothing in a terminal**, though the files were written. On Windows the app is a windowed program, which can't write to the console it is handed. The CLI now reads the app's output and prints it. CI checks that the summary comes back.
+2. **The installer couldn't close a running Cold Open.** iced's window doesn't answer Windows' Restart Manager. The installer now ends the app when asking fails (`CloseApplications=force`), which loses nothing, since every keystroke is in the journal. CI installs over a running app on every pull request.
+3. **The zip's folder was "Cold Open"**, so a terminal path to `coldopen.exe` needed quoting. It is `ColdOpen` now.
+4. **The manual test's own commands** left out PowerShell's `& "…"` and `.\`. Fixed, and the package readme says to use `.\coldopen`.
+
+**OneDrive (§7) wasn't tested:** OneDrive is off, and full, on the test PC. The synced-folder protections rest on the Windows tests that hold a file as a sync client does (`core/tests/synced_folder.rs`), and on the rename retry, which has been in place since phase 3.
+
+## Checks
+
+- **Local, 2026-10-30 (Windows 11, 3b581d4's code):**
+  - `cargo test --workspace --locked`: 753 tests, none failing. That includes the crash, typing and agent gates, `old_journals.rs`, and the bench sheet's run of the real bench (`COLDOPEN_BENCH_TEST=1`).
+  - `cargo fmt --check` and `cargo clippy --workspace --all-targets -- -D warnings`, plus clippy of the app for Linux and macOS.
+- **Corpus and reference, with the corpus required (release build):**
+  - Every corpus .fdx file writes back byte for byte, and title edits check out on 34 files.
+  - The reference gate gives phase 4's numbers. Big Fish: wraps 100.0%, resynced breaks 97.4% (max Δ 2 lines), pages 120/120, scene starts 99.5%. The other two reference scripts: 100% on every measure.
+- **Fuzzing:** the workflow, run by hand on the branch (41094779485), ten minutes per target, on 3b581d4: passed, no crash.
+- **The rehearsal release (2026-11-02, a5d157d):** the release workflow, started by pushing `rehearsal/v0.1.0-alpha.1`, since GitHub runs a workflow by hand only once it is on the default branch. Every job passed and it made the draft pre-release `rehearsal-1`. Downloaded and checked here:
+  - The 12 files spec §2 lists, with macOS as the arm64 and x64 disk images (the universal one came to 15,404,028 bytes, over the budget), plus `SHA256SUMS.txt`. Every file passes `sha256sum -c`, and SHA256SUMS lists no other file.
+  - The largest is the x86-64 AppImage at 12,179,960 bytes; every file is under 15,000,000.
+  - The x64 zip's `coldopen --version` prints `0.1.0-alpha.1 (a5d157ddec46)`, the draft's commit.
+  - One finding: the notes' "Which file to download" said "the `.dmg`" with two to choose from. They now name each, and how to tell an Intel Mac.
+- **CI:** pending the run on the final commit.

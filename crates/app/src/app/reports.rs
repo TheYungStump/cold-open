@@ -5,9 +5,10 @@ use std::collections::BTreeMap;
 
 use coldopen_core::report::{self, Kind, Table};
 use iced::widget::{button, column, container, row, scrollable, text};
-use iced::{Background, Border, Element, Length, Task, Theme};
+use iced::{Background, Element, Length, Task};
 use serde_json::json;
 
+use super::report_lines::ReportLines;
 use super::view::{ellipsize, hint, title};
 
 /// The widest a column grows, in characters.
@@ -17,8 +18,6 @@ const WIDEST: usize = 36;
 const ROW_H: f32 = 22.0;
 /// The rows' area's height until it first reports its own.
 const ROWS_H: f32 = 600.0;
-/// Rows drawn beyond each edge of the visible part.
-const SPARE: usize = 8;
 /// The rows' scrolling area.
 pub(super) const REPORT_ROWS: &str = "report-rows";
 use super::{App, Message};
@@ -33,6 +32,9 @@ pub struct ReportView {
     pub tab: usize,
     pub selected: usize,
     pub tables: Vec<Table>,
+    /// Each tab's header and rows as lines of text, made once when the
+    /// view opens (2026-10-30: drawn by one widget, `report_lines.rs`).
+    pub lines: Vec<(String, Vec<String>)>,
     /// How far the rows are scrolled, and how tall their area is, in
     /// pixels.
     pub offset: u32,
@@ -58,7 +60,7 @@ impl App {
             .iter()
             .filter_map(|s| Some((s["id"].as_str()?.to_string(), s["index"].as_u64()?)))
             .collect();
-        let tables = Kind::ALL
+        let tables: Vec<Table> = Kind::ALL
             .iter()
             .map(|&k| {
                 self.run(k.command(), json!({}))
@@ -66,10 +68,12 @@ impl App {
                     .unwrap_or_default()
             })
             .collect();
+        let lines = tables.iter().map(table_lines).collect();
         self.reports = Some(ReportView {
             tab: 0,
             selected: 0,
             tables,
+            lines,
             offset: 0,
             height: ROWS_H as u32,
         });
@@ -178,7 +182,11 @@ impl App {
     }
 
     /// The view, as drawn.
-    pub(super) fn reports_view(&self, pal: Palette, r: &ReportView) -> Element<'_, Message> {
+    pub(super) fn reports_view<'a>(
+        &'a self,
+        pal: Palette,
+        r: &'a ReportView,
+    ) -> Element<'a, Message> {
         let m = if crate::keymap::MAC { "Cmd" } else { "Ctrl" };
         let tabs = Kind::ALL
             .iter()
@@ -196,97 +204,39 @@ impl App {
                         }),
                 )
             });
-        let empty = Table::default();
-        let table = r.table().unwrap_or(&empty);
-        // Each row is one line of text, its columns padded in the page's
-        // monospaced font. Cells drawn one by one each made a region of
-        // their own to repaint when the rows scrolled, and the CPU
-        // renderer filled a window-sized clip mask for every region:
-        // 244 ms a step on Big Fish (the manual test of 2026-10-26).
-        let cut = |c: &str| {
-            if c.chars().count() > WIDEST {
-                ellipsize(c, WIDEST)
-            } else {
-                c.to_string()
-            }
+        let (header, lines): (&str, &'a [String]) = r
+            .lines
+            .get(r.tab)
+            .map_or(("", &[]), |(h, l)| (h.as_str(), l.as_slice()));
+        let list = ReportLines::new(
+            lines,
+            r.selected,
+            ROW_H,
+            fonts::PAGE,
+            13.0,
+            pal.text,
+            (pal.accent_soft, pal.focus),
+            Message::ReportRow,
+        );
+        let header = container(
+            text(header)
+                .font(fonts::PAGE)
+                .size(13)
+                .color(pal.text_quiet)
+                .wrapping(text::Wrapping::None),
+        )
+        .padding([2, 6]);
+        let rows: Element<'a, Message> = if lines.is_empty() {
+            container(hint(pal, "Nothing to report yet."))
+                .height(Length::Fill)
+                .into()
+        } else {
+            scrollable(list)
+                .id(REPORT_ROWS)
+                .on_scroll(Message::ReportScrolled)
+                .height(Length::Fill)
+                .into()
         };
-        let header: Vec<String> = table.header.iter().map(|h| h.replace('_', " ")).collect();
-        let widths: Vec<usize> = header
-            .iter()
-            .enumerate()
-            .map(|(k, h)| {
-                table
-                    .rows
-                    .iter()
-                    .map(|row| cut(&row[k]).chars().count())
-                    .chain(std::iter::once(h.chars().count()))
-                    .max()
-                    .unwrap_or(4)
-            })
-            .collect();
-        let line = |cells: &[String], is_header: bool| -> String {
-            let mut out = String::new();
-            for (k, c) in cells.iter().enumerate() {
-                let c = if is_header { c.clone() } else { cut(c) };
-                let w = widths[k];
-                if k > 0 {
-                    out.push_str("  ");
-                }
-                if report::numeric(table.header[k]) {
-                    out.push_str(&format!("{c:>w$}"));
-                } else {
-                    out.push_str(&format!("{c:<w$}"));
-                }
-            }
-            out.trim_end().to_string()
-        };
-        let cells = |cells: &[String], is_header: bool, color: iced::Color| {
-            container(
-                text(line(cells, is_header))
-                    .font(fonts::PAGE)
-                    .size(13)
-                    .color(color)
-                    .wrapping(text::Wrapping::None),
-            )
-            .padding([2, 6])
-        };
-        // Only the rows in sight, and a few either side; spaces stand for
-        // the rest, so the scrolling area keeps its whole height.
-        let n = table.rows.len();
-        let first = ((r.offset as f32 / ROW_H) as usize)
-            .saturating_sub(SPARE)
-            .min(n);
-        let last = (((r.offset + r.height) as f32 / ROW_H).ceil() as usize + SPARE).min(n);
-        let mut list = column![iced::widget::space().height(Length::Fixed(first as f32 * ROW_H))];
-        for (i, cells_row) in table.rows.iter().enumerate().take(last).skip(first) {
-            let selected = i == r.selected;
-            let line = button(cells(cells_row, false, pal.text))
-                .on_press(Message::ReportRow(i))
-                .padding(0)
-                .width(Length::Fill)
-                .height(Length::Fixed(ROW_H))
-                .style(move |_t: &Theme, _s| button::Style {
-                    // Only the selected row paints: fewer regions to
-                    // repaint while the rows scroll.
-                    background: selected.then_some(Background::Color(pal.accent_soft)),
-                    text_color: pal.text,
-                    border: Border {
-                        color: if selected {
-                            pal.focus
-                        } else {
-                            iced::Color::TRANSPARENT
-                        },
-                        width: 1.0,
-                        radius: 3.0.into(),
-                    },
-                    ..button::Style::default()
-                });
-            list = list.push(line);
-        }
-        list = list.push(iced::widget::space().height(Length::Fixed((n - last) as f32 * ROW_H)));
-        if table.rows.is_empty() {
-            list = list.push(hint(pal, "Nothing to report yet."));
-        }
         let content = column![
             row![
                 title(pal, "Reports"),
@@ -297,11 +247,8 @@ impl App {
             ]
             .align_y(iced::Alignment::Center),
             tabs,
-            cells(&header, true, pal.text_quiet),
-            scrollable(list)
-                .id(REPORT_ROWS)
-                .on_scroll(Message::ReportScrolled)
-                .height(Length::Fill),
+            header,
+            rows,
             hint(
                 pal,
                 format!(
@@ -321,4 +268,49 @@ impl App {
             })
             .into()
     }
+}
+
+/// A table as lines: the header, then each row, its columns padded in the
+/// page's monospaced font and counts right-aligned. A long cell is cut to
+/// its column with "…"; the CSV copy keeps all of it.
+fn table_lines(table: &Table) -> (String, Vec<String>) {
+    let cut = |c: &str| {
+        if c.chars().count() > WIDEST {
+            ellipsize(c, WIDEST)
+        } else {
+            c.to_string()
+        }
+    };
+    let header: Vec<String> = table.header.iter().map(|h| h.replace('_', " ")).collect();
+    let widths: Vec<usize> = header
+        .iter()
+        .enumerate()
+        .map(|(k, h)| {
+            table
+                .rows
+                .iter()
+                .map(|row| cut(&row[k]).chars().count())
+                .chain(std::iter::once(h.chars().count()))
+                .max()
+                .unwrap_or(4)
+        })
+        .collect();
+    let line = |cells: &[String], is_header: bool| -> String {
+        let mut out = String::new();
+        for (k, c) in cells.iter().enumerate() {
+            let c = if is_header { c.clone() } else { cut(c) };
+            let w = widths[k];
+            if k > 0 {
+                out.push_str("  ");
+            }
+            if report::numeric(table.header[k]) {
+                out.push_str(&format!("{c:>w$}"));
+            } else {
+                out.push_str(&format!("{c:<w$}"));
+            }
+        }
+        out.trim_end().to_string()
+    };
+    let rows = table.rows.iter().map(|r| line(r, false)).collect();
+    (line(&header, true), rows)
 }

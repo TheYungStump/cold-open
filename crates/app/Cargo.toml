@@ -35,6 +35,16 @@ rfd.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 unicode-width.workspace = true
+sysinfo.workspace = true
+# Inflates the third-party license list compiled into the About sheet.
+miniz_oxide.workspace = true
+
+[build-dependencies]
+# Deflates that list at build time (build.rs).
+miniz_oxide.workspace = true
+
+[target.'cfg(windows)'.build-dependencies]
+winresource.workspace = true
 
 [dev-dependencies]
 iced_test.workspace = true

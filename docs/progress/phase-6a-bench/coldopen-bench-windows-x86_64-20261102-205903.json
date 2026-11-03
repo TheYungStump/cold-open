@@ -1,0 +1,246 @@
+{
+  "bench": 1,
+  "app": {
+    "version": "0.1.0-alpha.1",
+    "commit": "3a28406c704d",
+    "target": "x86_64-pc-windows-msvc"
+  },
+  "when": "2026-11-02T20:59:03Z",
+  "quick": true,
+  "machine": {
+    "os": "windows",
+    "os_version": "Windows 11 Home (22621)",
+    "arch": "x86_64",
+    "cpu": "13th Gen Intel(R) Core(TM) i9-13900K",
+    "cores": 24,
+    "memory_gib": 32,
+    "gpus": [
+      "NVIDIA GeForce RTX 4090"
+    ],
+    "renderer_default": "tiny-skia",
+    "screen": {
+      "width": 1920,
+      "height": 1080,
+      "scale": 1.0
+    }
+  },
+  "script": {
+    "name": "synthetic feature script, seed 1",
+    "pages": 119,
+    "blocks": 2269
+  },
+  "budgets": [
+    {
+      "id": "open",
+      "stat": "median",
+      "value_ms": 40.71,
+      "limit_ms": 200.0,
+      "pass": true,
+      "runs": 3
+    },
+    {
+      "id": "repagination",
+      "stat": "median",
+      "value_ms": 20.4,
+      "limit_ms": 50.0,
+      "pass": true,
+      "runs": 3
+    },
+    {
+      "id": "journal_write",
+      "stat": "p95",
+      "value_ms": 0.01,
+      "limit_ms": 1.0,
+      "pass": true,
+      "runs": 100
+    },
+    {
+      "id": "save_ui_fountain",
+      "stat": "p95",
+      "value_ms": 0.51,
+      "limit_ms": 4.0,
+      "pass": true,
+      "runs": 5
+    },
+    {
+      "id": "save_whole_fountain",
+      "stat": "median",
+      "value_ms": 22.85,
+      "limit_ms": 50.0,
+      "pass": true,
+      "runs": 5
+    },
+    {
+      "id": "save_ui_fdx",
+      "stat": "p95",
+      "value_ms": 0.5,
+      "limit_ms": 4.0,
+      "pass": true,
+      "runs": 5
+    },
+    {
+      "id": "save_whole_fdx",
+      "stat": "median",
+      "value_ms": 6.87,
+      "limit_ms": 50.0,
+      "pass": true,
+      "runs": 5
+    },
+    {
+      "id": "save_ui_project",
+      "stat": "p95",
+      "value_ms": 0.49,
+      "limit_ms": 4.0,
+      "pass": true,
+      "runs": 5
+    },
+    {
+      "id": "save_whole_project",
+      "stat": "median",
+      "value_ms": 12.47,
+      "limit_ms": 50.0,
+      "pass": true,
+      "runs": 5
+    },
+    {
+      "id": "cold_start",
+      "stat": "median",
+      "value_ms": 126.33,
+      "limit_ms": 1000.0,
+      "pass": true,
+      "runs": 2
+    },
+    {
+      "id": "keystroke",
+      "stat": "p95",
+      "value_ms": 7.93,
+      "median_ms": 6.77,
+      "limit_ms": 16.0,
+      "pass": true,
+      "runs": 30,
+      "renderer": "tiny-skia"
+    },
+    {
+      "id": "report_scrolling",
+      "stat": "p95",
+      "value_ms": 5.6,
+      "median_ms": 5.04,
+      "limit_ms": 16.0,
+      "pass": true,
+      "runs": 30,
+      "renderer": "tiny-skia"
+    },
+    {
+      "id": "memory",
+      "stat": "peak",
+      "value_mib": 53.72,
+      "limit_mib": 150.0,
+      "pass": true,
+      "runs": 1,
+      "renderer": "tiny-skia"
+    }
+  ],
+  "info": [
+    {
+      "id": "keystroke_headless",
+      "renderer": "tiny-skia",
+      "median_ms": 20.23,
+      "p95_ms": 23.14
+    },
+    {
+      "id": "edit_and_repaginate",
+      "median_ms": 4.23,
+      "p95_ms": 5.01
+    },
+    {
+      "id": "fsync",
+      "median_ms": 0.29,
+      "p95_ms": 0.37
+    },
+    {
+      "id": "save_whole_fountain_p95",
+      "median_ms": 22.8531,
+      "p95_ms": 23.6485
+    },
+    {
+      "id": "save_ui_fountain_snapshot",
+      "median_ms": 0.3,
+      "p95_ms": 0.34
+    },
+    {
+      "id": "save_ui_fountain_marker",
+      "median_ms": 0.02,
+      "p95_ms": 0.02
+    },
+    {
+      "id": "save_ui_fountain_commit",
+      "median_ms": 0.13,
+      "p95_ms": 0.19
+    },
+    {
+      "id": "save_whole_fdx_p95",
+      "median_ms": 6.8651,
+      "p95_ms": 7.1552
+    },
+    {
+      "id": "save_ui_fdx_snapshot",
+      "median_ms": 0.21,
+      "p95_ms": 0.33
+    },
+    {
+      "id": "save_ui_fdx_marker",
+      "median_ms": 0.01,
+      "p95_ms": 0.01
+    },
+    {
+      "id": "save_ui_fdx_commit",
+      "median_ms": 0.02,
+      "p95_ms": 0.31
+    },
+    {
+      "id": "save_whole_project_p95",
+      "median_ms": 12.4663,
+      "p95_ms": 13.0756
+    },
+    {
+      "id": "save_ui_project_snapshot",
+      "median_ms": 0.29,
+      "p95_ms": 0.36
+    },
+    {
+      "id": "save_ui_project_marker",
+      "median_ms": 0.01,
+      "p95_ms": 0.01
+    },
+    {
+      "id": "save_ui_project_commit",
+      "median_ms": 0.11,
+      "p95_ms": 0.14
+    },
+    {
+      "id": "scrolling_pages",
+      "renderer": "tiny-skia",
+      "median_ms": 7.62,
+      "p95_ms": 8.32
+    },
+    {
+      "id": "typing_windowed",
+      "renderer": "Vulkan",
+      "median_ms": 4.52,
+      "p95_ms": 5.02
+    },
+    {
+      "id": "scrolling_windowed",
+      "renderer": "Vulkan",
+      "median_ms": 1.18,
+      "p95_ms": 1.39
+    },
+    {
+      "id": "reports_windowed",
+      "renderer": "Vulkan",
+      "median_ms": 0.46,
+      "p95_ms": 0.52
+    }
+  ],
+  "passed": true
+}

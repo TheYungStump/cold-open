@@ -1,0 +1,36 @@
+Cold Open bench: 0.1.0-alpha.1 (b901828ce4da), x86_64-pc-windows-msvc
+When: 2026-11-02T16:08:03Z (UTC)
+Machine: windows (Windows 11 Home (22621)), 13th Gen Intel(R) Core(TM) i9-13900K, 24 cores, 32 GiB
+GPU: NVIDIA GeForce RTX 4090
+Screen: 1920x1080 at 1x
+Renderer by default: tiny-skia
+Script: synthetic feature script, seed 1, 119 pages
+Quick run: fewer repetitions, not for judging budgets.
+
+Open a 120-page script                         median 51.7 ms           under 200 ms   PASS
+Full repagination                              median 25.5 ms           under 50 ms    PASS
+Journal write per edit                         p95 0.010 ms             under 1 ms     PASS
+Save on the UI thread, Fountain                p95 1.5 ms               under 4 ms     PASS
+Whole save, Fountain                           median 22.2 ms           under 50 ms    PASS
+Save on the UI thread, .fdx                    p95 1.0 ms               under 4 ms     PASS
+Whole save, .fdx                               median 10.4 ms           under 50 ms    PASS
+Save on the UI thread, project                 p95 2.3 ms               under 4 ms     PASS
+Whole save, project                            median 13.7 ms           under 50 ms    PASS
+Cold start                                     median 167.3 ms          under 1000 ms  PASS
+Keystroke to screen (tiny-skia)                p95 7.4 ms (median 6.8)  under 16 ms    PASS
+Scrolling the report view (tiny-skia)          p95 5.7 ms (median 5.3)  under 16 ms    PASS
+Memory with a feature script open (tiny-skia)  54 MiB                   under 150 MB   PASS
+
+For comparison:
+  keystroke_headless (tiny-skia): median 18.8 ms, p95 19.4 ms
+  edit_and_repaginate: median 4.4 ms, p95 4.7 ms
+  fsync: median 0.3 ms, p95 0.4 ms
+  save_whole_fountain_p95: median 22.3 ms, p95 22.8 ms
+  save_whole_fdx_p95: median 10.4 ms, p95 11.9 ms
+  save_whole_project_p95: median 13.7 ms, p95 17.5 ms
+  scrolling_pages (tiny-skia): median 7.9 ms, p95 8.9 ms
+  typing_windowed (Vulkan): median 4.9 ms, p95 5.8 ms
+  scrolling_windowed (Vulkan): median 1.3 ms, p95 2.3 ms
+  reports_windowed (Vulkan): median 0.5 ms, p95 0.7 ms
+
+Every budget passed.

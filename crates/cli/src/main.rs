@@ -16,7 +16,7 @@ mod report;
 #[derive(Parser)]
 #[command(
     name = "coldopen",
-    version,
+    version = coldopen_core::build_info::VERSION_LINE,
     about = "Cold Open: a screenwriting app you can drive from the command line"
 )]
 struct Cli {
@@ -139,6 +139,18 @@ enum Cmd {
     },
     /// Print the licenses of Cold Open and of the fonts it bundles.
     Licenses,
+    /// Measure every speed and memory budget on this computer and write a
+    /// small report to send back (docs/specs/bench.md). Runs the desktop
+    /// app installed beside this command; takes about two minutes, during
+    /// which its windows come and go.
+    Bench {
+        /// Where to write the report (default: your Downloads folder).
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Fewer repetitions, for a quick check; not for judging budgets.
+        #[arg(long)]
+        quick: bool,
+    },
     /// Read JSON requests on standard input, one per line, and answer each
     /// on standard output.
     Serve {
@@ -200,6 +212,7 @@ fn main() -> ExitCode {
             overwrite,
         } => run_diff(&a, &b, json, pdf.as_deref(), overwrite),
         Cmd::Licenses => licenses(),
+        Cmd::Bench { out, quick } => bench(out.as_deref(), quick),
         Cmd::Run {
             edits,
             doc,
@@ -489,6 +502,74 @@ fn eighths(n: u64) -> String {
         (w, 0) => format!("{w}"),
         (w, r) => format!("{w} {r}/8"),
     }
+}
+
+/// `coldopen bench`: the desktop app runs the bench (docs/specs/bench.md
+/// §2), with its output here.
+fn bench(out: Option<&Path>, quick: bool) -> Result<ExitCode, String> {
+    let app = find_app().ok_or(
+        "the desktop app was not found next to this command; run the bench from the app          instead (Measure performance in the palette), or with coldopen-app --bench",
+    )?;
+    let mut cmd = std::process::Command::new(&app);
+    cmd.arg("--bench");
+    if let Some(o) = out {
+        cmd.arg("--out").arg(o);
+    }
+    if quick {
+        cmd.arg("--quick");
+    }
+    // The app's output comes back through here: on Windows it is a windowed
+    // program, which can't write to a console it was handed, so its lines
+    // would be lost (the project owner's manual test, 2026-10-31).
+    let mut child = cmd
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("could not start {}: {e}", app.display()))?;
+    let relay_err = child.stderr.take().map(|e| {
+        std::thread::spawn(move || {
+            for line in io::BufReader::new(e).lines().map_while(Result::ok) {
+                eprintln!("{line}");
+            }
+        })
+    });
+    if let Some(o) = child.stdout.take() {
+        let mut out = io::stdout();
+        for line in io::BufReader::new(o).lines().map_while(Result::ok) {
+            let _ = writeln!(out, "{line}");
+            let _ = out.flush();
+        }
+    }
+    if let Some(t) = relay_err {
+        let _ = t.join();
+    }
+    let status = child.wait().map_err(|e| e.to_string())?;
+    Ok(match status.code() {
+        Some(0) => ExitCode::SUCCESS,
+        Some(1) => ExitCode::from(1),
+        _ => ExitCode::from(2),
+    })
+}
+
+/// The desktop app installed with this command (docs/specs/release.md
+/// §4): beside it (the zip, macOS, Linux), or one folder up (the Windows
+/// installer's `bin`).
+fn find_app() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let here = exe.parent()?;
+    let names: &[&str] = if cfg!(windows) {
+        &["Cold Open.exe", "coldopen-app.exe"]
+    } else {
+        &["coldopen-app"]
+    };
+    let mut dirs = vec![here.to_path_buf()];
+    if let Some(up) = here.parent() {
+        dirs.push(up.to_path_buf());
+    }
+    dirs.iter()
+        .flat_map(|d| names.iter().map(move |n| d.join(n)))
+        .find(|p| p.is_file())
 }
 
 fn licenses() -> Result<ExitCode, String> {

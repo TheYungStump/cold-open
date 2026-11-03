@@ -46,6 +46,8 @@ pub struct CompareView {
     /// The other draft's text with the changes marked, and its pages.
     pub doc: Document,
     pub view: View,
+    /// The open script's format, which the marked pages are laid out in.
+    format: coldopen_core::FormatId,
     /// No agent marks here.
     marked: BTreeSet<usize>,
 }
@@ -57,6 +59,7 @@ pub struct Compared {
     result: Value,
     doc: Document,
     view: View,
+    format: coldopen_core::FormatId,
 }
 
 /// What a worker hands back, taken once. It may hold a layout, which is
@@ -177,6 +180,7 @@ impl App {
             result,
             doc,
             view,
+            format,
         } = match out.take() {
             Some(Ok(c)) => c,
             Some(Err(why)) => {
@@ -198,6 +202,7 @@ impl App {
             selected: 0,
             doc,
             view,
+            format,
             marked: BTreeSet::new(),
         });
         self.compare_go(0)
@@ -258,22 +263,71 @@ impl App {
         }
     }
 
-    /// "Save as PDF…" in the compare view: the other draft with the changes
-    /// marked, written as `diff` writes it.
+    /// "Save as PDF…" in the compare view: the pages it shows, the other
+    /// draft with the changes marked, laid out and written on a worker
+    /// thread as `diff` writes them (2026-10-30, editor.md §21). The view
+    /// stays open meanwhile, and the banner comes when it is written.
     pub(super) fn compare_pdf(&mut self, target: PathBuf, asked: bool) -> Task<Message> {
         let Some(c) = &self.compare else {
             return Task::none();
         };
-        let params = json!({
-            "b": c.b.display().to_string(),
-            "pdf": target.display().to_string(),
-            "overwrite": asked,
-        });
-        if self.run("diff", params).is_some() {
+        if self.pdf_writing.is_some() {
             self.banners
-                .push(format!("Saved {}.", super::view::file_name(&target)).into());
+                .push("A PDF is still being written; try again when it's done.".into());
+            return Task::none();
         }
-        Task::none()
+        // What the `diff` command would refuse: the drafts, the open
+        // script or its journal, or a file the dialog didn't ask about.
+        let own = self.d.session().and_then(|s| s.path.clone());
+        let taken = [
+            Some(c.b.clone()),
+            own.clone(),
+            own.as_deref().map(coldopen_core::journal::path_for),
+        ];
+        if taken.iter().flatten().any(|t| same_file(t, &target)) {
+            self.banners.push(
+                format!(
+                    "{} is one of the drafts or the open script; choose another name.",
+                    super::view::file_name(&target)
+                )
+                .into(),
+            );
+            return Task::none();
+        }
+        if !asked && target.exists() {
+            self.banners
+                .push(format!("{} already exists.", super::view::file_name(&target)).into());
+            return Task::none();
+        }
+        let (doc, format) = (c.doc.clone(), c.format);
+        let (tx, rx) = iced::futures::channel::oneshot::channel();
+        let to = target.clone();
+        let spawned = std::thread::Builder::new()
+            .name("diff-pdf".into())
+            .spawn(move || {
+                let r =
+                    coldopen_core::diff::write_marked_pdf(doc, format, &to).map_err(|e| e.message);
+                let _ = tx.send(r);
+            });
+        if let Err(e) = spawned {
+            self.banners.push(e.to_string().into());
+            return Task::none();
+        }
+        self.pdf_writing = Some(super::view::file_name(&target));
+        Task::perform(rx, move |r| {
+            let r = r.unwrap_or_else(|_| Err("the PDF stopped before it was written".into()));
+            Message::ComparePdfWritten(target.clone(), r)
+        })
+    }
+
+    /// A diff PDF back from its worker: a banner either way.
+    pub(super) fn compare_pdf_written(&mut self, target: PathBuf, r: Result<(), String>) {
+        self.pdf_writing = None;
+        let name = super::view::file_name(&target);
+        self.banners.push(match r {
+            Ok(()) => format!("Saved {name}.").into(),
+            Err(e) => format!("Couldn't save {name}: {e}").into(),
+        });
     }
 
     /// "Review a draft as changes…": the draft chosen, the name its changes
@@ -640,5 +694,14 @@ fn compare_draft(
         result,
         doc: marked,
         view,
+        format,
     })
+}
+
+/// Whether two paths name one file, as the `diff` command judges it.
+fn same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => a == b,
+    }
 }

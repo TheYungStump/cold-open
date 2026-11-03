@@ -409,3 +409,50 @@ fn the_page_fits_between_both_panels_at_1280() {
     assert_eq!(h.app.shown_zoom(), 1.0);
     h.app.d.discard();
 }
+
+/// The About sheet (editor.md §22): the version, and every license a tab
+/// at a time.
+#[test]
+fn about_shows_the_version_and_every_license() {
+    use coldopen_app::about::AboutTab;
+    let home = tempfile::tempdir().unwrap();
+    let mut h = app(home.path());
+    h.run(vec![Message::Action("app.about".into())]);
+    assert_eq!(h.app.about_shown(), Some(AboutTab::ColdOpen));
+    assert!(
+        h.app
+            .about_lines()
+            .iter()
+            .any(|l| l.contains("GNU GENERAL PUBLIC LICENSE"))
+    );
+    h.frame(1.0);
+    for (tab, needle) in [
+        (AboutTab::Libraries, "Permission is hereby granted"),
+        (AboutTab::Fonts, "SIL OPEN FONT LICENSE Version 1.1"),
+        (AboutTab::ThirdParty, "icense"),
+        (AboutTab::ColdOpen, "GNU GENERAL PUBLIC LICENSE"),
+    ] {
+        h.named(Named::Tab, Modifiers::empty());
+        assert_eq!(h.app.about_shown(), Some(tab));
+        assert!(
+            h.app.about_lines().iter().any(|l| l.contains(needle)),
+            "{tab:?}"
+        );
+        h.frame(1.0);
+    }
+    h.named(Named::Tab, Modifiers::SHIFT);
+    assert_eq!(h.app.about_shown(), Some(AboutTab::ThirdParty));
+    h.key(
+        iced::keyboard::Key::Character("c".into()),
+        Modifiers::empty(),
+        Some("c"),
+    );
+    assert!(
+        h.app
+            .banners
+            .iter()
+            .any(|b| b.contains("Version info copied"))
+    );
+    esc(&mut h);
+    assert_eq!(h.app.about_shown(), None);
+}

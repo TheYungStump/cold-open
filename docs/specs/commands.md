@@ -456,6 +456,7 @@ Undo is unlimited. A new edit clears the redo history.
 | `doc_locked` | Another process has the document open. |
 | `journal_foreign` | `doc.open` found unsaved work in a crash journal written on another computer or for another path; `details` gives `host` and `path`. Open with `recover` `"apply"` or `"discard"`. |
 | `io_error` | Reading or writing a file failed. |
+| `folder_read_only` | (2026-10-30) `doc.open` or `doc.new`: the crash journal can't be created in the script's folder (read-only, no permission, or refused by a synced or network folder), so the script isn't opened; `details.path` names it (`docs/specs/journal.md`, "A folder that can't be written"). |
 | `journal_error` | The crash journal could not be written; the edit was rolled back. |
 | `would_overwrite_document` | An output command was asked to write over the open document or its journal. |
 | `save_in_progress` | Another save of the document is being written; nothing changed. Retryable. |

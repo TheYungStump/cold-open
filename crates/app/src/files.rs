@@ -21,22 +21,23 @@ pub struct Dirs {
     pub run: PathBuf,
 }
 
-fn env(name: &str) -> Option<PathBuf> {
-    std::env::var_os(name)
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-}
-
 impl Dirs {
     /// The folders for this OS and user. `COLDOPEN_HOME`, when set, puts
     /// all three under one folder, for tests and portable use.
     pub fn find() -> Option<Dirs> {
+        Dirs::find_in(&|name| std::env::var_os(name))
+    }
+
+    /// [`Dirs::find`] with the environment given, for tests of a first
+    /// start (docs/specs/release.md §6).
+    pub fn find_in(get: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Option<Dirs> {
+        let env = |name: &str| get(name).filter(|v| !v.is_empty()).map(PathBuf::from);
         if let Some(home) = env("COLDOPEN_HOME") {
             return Some(Dirs::under(&home));
         }
         // The run folder is shared with `coldopen mcp`, so both use the
         // same rule.
-        let run = coldopen_link::run_dir()?;
+        let run = coldopen_link::run_dir_in(get)?;
         if cfg!(windows) {
             let roaming = env("APPDATA")?;
             let local = env("LOCALAPPDATA").unwrap_or_else(|| roaming.clone());
@@ -353,6 +354,27 @@ impl Dialogs {
 
 /// A chosen path, with `ext` added when the writer typed a name without
 /// one.
+/// Opens a web address in the system's browser (editor.md §22), or a
+/// folder in its file manager.
+pub fn open_link(target: &str) -> std::io::Result<()> {
+    let mut cmd = if cfg!(windows) {
+        let mut c = std::process::Command::new("explorer");
+        c.arg(target);
+        c
+    } else if cfg!(target_os = "macos") {
+        let mut c = std::process::Command::new("open");
+        c.arg(target);
+        c
+    } else {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(target);
+        c
+    };
+    // Explorer exits with 1 even when it opened the page, so only a
+    // failure to start counts.
+    cmd.spawn().map(|_| ())
+}
+
 pub fn with_extension(path: PathBuf, ext: &str) -> PathBuf {
     if path.extension().is_some() {
         path
@@ -362,6 +384,30 @@ pub fn with_extension(path: PathBuf, ext: &str) -> PathBuf {
 }
 
 /// The next free `Untitled-<n>.fountain` in `Unsaved/` (editor.md §11).
+/// A free name in `Unsaved/` for a copy of `script`: `<script> (<what>).<ext>`,
+/// or `(<what> 2)` and so on when that is taken, with no journal either.
+pub fn copy_path(dirs: &Dirs, script: &Path, what: &str) -> Option<PathBuf> {
+    let dir = dirs.unsaved();
+    let stem = script.file_stem().map_or_else(
+        || "Script".to_string(),
+        |s| s.to_string_lossy().into_owned(),
+    );
+    let ext = script.extension().map_or_else(
+        || "fountain".to_string(),
+        |e| e.to_string_lossy().into_owned(),
+    );
+    (1..1000)
+        .map(|n| {
+            let name = if n == 1 {
+                format!("{stem} ({what}).{ext}")
+            } else {
+                format!("{stem} ({what} {n}).{ext}")
+            };
+            dir.join(name)
+        })
+        .find(|p| !p.exists() && !coldopen_core::journal::path_for(p).exists())
+}
+
 pub fn next_untitled(dirs: &Dirs) -> PathBuf {
     let dir = dirs.unsaved();
     for n in 1.. {
@@ -508,5 +554,86 @@ mod tests {
             s.zoom_step(1);
         }
         assert_eq!(s.zoom, 3.0);
+    }
+}
+
+/// "Install the command-line tool" (docs/specs/release.md §3.3): a link
+/// named `coldopen` to `cli`, in the first of `dirs` that exists and can be
+/// written, else in the last, made if need be. Never replaces a `coldopen`
+/// that isn't a link to a Cold Open bundle's (or to `cli`). Returns the
+/// link, and whether its folder is on `path`.
+#[cfg(unix)]
+pub fn install_cli(
+    cli: &Path,
+    dirs: &[PathBuf],
+    path: &std::ffi::OsStr,
+) -> Result<(PathBuf, bool), String> {
+    let writable = |d: &Path| {
+        let probe = d.join(".coldopen-probe");
+        let ok = std::fs::write(&probe, b"").is_ok();
+        let _ = std::fs::remove_file(&probe);
+        ok
+    };
+    let dir = match dirs.iter().find(|d| d.is_dir() && writable(d)) {
+        Some(d) => d.clone(),
+        None => {
+            let d = dirs.last().ok_or("no folder to put it in")?.clone();
+            std::fs::create_dir_all(&d).map_err(|e| format!("{}: {e}", d.display()))?;
+            d
+        }
+    };
+    let link = dir.join("coldopen");
+    match std::fs::read_link(&link) {
+        Ok(old)
+            if old == cli
+                || old
+                    .to_string_lossy()
+                    .contains(".app/Contents/MacOS/coldopen") =>
+        {
+            std::fs::remove_file(&link).map_err(|e| format!("{}: {e}", link.display()))?;
+        }
+        Ok(_) => {
+            return Err(format!(
+                "{} is another program's; it was left alone",
+                link.display()
+            ));
+        }
+        Err(_) if link.symlink_metadata().is_ok() => {
+            return Err(format!(
+                "{} is another program's; it was left alone",
+                link.display()
+            ));
+        }
+        Err(_) => {}
+    }
+    std::os::unix::fs::symlink(cli, &link).map_err(|e| format!("{}: {e}", link.display()))?;
+    let on_path = std::env::split_paths(path).any(|p| p == dir);
+    Ok((link, on_path))
+}
+
+#[cfg(all(test, unix))]
+mod install_cli_tests {
+    use super::*;
+
+    #[test]
+    fn the_link_goes_in_the_first_writable_folder_and_is_replaced_not_clobbered() {
+        let t = tempfile::tempdir().unwrap();
+        let cli = t.path().join("Cold Open.app/Contents/MacOS/coldopen");
+        std::fs::create_dir_all(cli.parent().unwrap()).unwrap();
+        std::fs::write(&cli, b"").unwrap();
+        let missing = t.path().join("usr-local-bin");
+        let local = t.path().join(".local/bin");
+        let path = std::env::join_paths([&local]).unwrap();
+        let (link, on_path) = install_cli(&cli, &[missing.clone(), local.clone()], &path).unwrap();
+        assert_eq!(link, local.join("coldopen"));
+        assert!(on_path);
+        assert_eq!(std::fs::read_link(&link).unwrap(), cli);
+        // Again: our own link is replaced.
+        install_cli(&cli, &[missing, local.clone()], &path).unwrap();
+        // Someone else's file is left alone.
+        std::fs::remove_file(&link).unwrap();
+        std::fs::write(&link, b"theirs").unwrap();
+        assert!(install_cli(&cli, std::slice::from_ref(&local), &path).is_err());
+        assert_eq!(std::fs::read(&link).unwrap(), b"theirs");
     }
 }

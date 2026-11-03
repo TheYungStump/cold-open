@@ -518,8 +518,9 @@ Rain. Wind.
 /// Typing during a save never meets a journal being cut back (journal.md,
 /// "Saving off the UI thread", 2026-10-21). With edits between the
 /// snapshot and the commit, the commit keeps the journal and it only
-/// grows. With none, the worker's wait leaves nothing unflushed, and only
-/// then does the commit cut the journal back to a new header.
+/// grows. With none, the worker's wait leaves nothing unflushed, and the
+/// commit switches to the next journal the worker wrote, which takes the
+/// journal's name (2026-11-02).
 #[test]
 fn a_save_with_an_edit_during_it_never_cuts_the_journal() {
     let dir = tempfile::tempdir().unwrap();
@@ -535,7 +536,7 @@ fn a_save_with_an_edit_during_it_never_cuts_the_journal() {
     type_at_end(&mut d, " Rain.");
     let prepared = d.save_mark(job.render()).unwrap();
     let written = io::atomic_write(&prepared.target, &prepared.bytes);
-    prepared.wait_for_journal();
+    prepared.finisher().run(written.is_ok());
     type_at_end(&mut d, " Hail.");
     let before = len();
     let r = d.save_commit(prepared, written).unwrap();
@@ -546,12 +547,21 @@ fn a_save_with_an_edit_during_it_never_cuts_the_journal() {
     // the commit starts the journal again.
     let prepared = prepare(&mut d).unwrap();
     let written = io::atomic_write(&prepared.target, &prepared.bytes);
-    prepared.wait_for_journal();
+    prepared.finisher().run(written.is_ok());
     let status = d.journal_status().unwrap();
     assert_eq!(status.pending, 0, "{status:?}");
     let before = len();
     let r = d.save_commit(prepared, written).unwrap();
     assert_eq!(r["dirty"], false, "{r}");
+    let next = coldopen_core::journal::next_path(&j);
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while next.exists() && std::time::Instant::now() < until {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(
+        !next.exists(),
+        "the next journal was not renamed into place"
+    );
     assert!(len() < before, "the journal starts again");
     assert_eq!(fs::read_to_string(&p).unwrap(), text(&mut d));
     d.shutdown();
