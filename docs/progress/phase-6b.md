@@ -23,14 +23,14 @@ The README's code signing policy and privacy statement went first, in their own 
 | 1 | Specs: `crash-reports.md` and `site.md` (new), `editor.md` §23, `release.md` | done |
 | 2 | Crash reports: the hook, the scrubber, the offer at start, the sheet, Crash on purpose | done |
 | 3 | Symbols per release, and `tools/symbolicate.py` | done; checked on Windows here, Linux in CI |
-| 4 | Report a problem…, the About rows, Open the user guide | done (the form's button waits for step 6) |
+| 4 | Report a problem…, the About rows, Open the user guide | done, with the form from step 6 |
 | 5 | Issue templates, the Discussions categories and their form | templates done; Discussions wait for the owner |
-| 6 | The Google Form (made by the owner) and its prefill | waiting for the form's link and entry ids |
+| 6 | The Google Form (made by the owner) and its prefill | done 2026-11-03: in the app, the website and the issue chooser |
 | 7 | User docs, and the generated CLI, command and keyboard references | done |
-| 8 | The website: mdBook, Pages, link and accessibility checks | built and checked here; the first deploy waits for Pages to be turned on |
+| 8 | The website: mdBook, Pages, link and accessibility checks | built and checked here and in CI; the first deploy waits for Pages to be turned on |
 | 9 | Tester guide, "what feedback helps", announcement drafts | done: `docs/release/announcements/`; the form's setup is `docs/release/google-form-setup.md` |
-| 10 | Changelog, alpha.2 notes, version bump, rehearsal | done; rehearsal run 41585943031 from `rehearsal/v0.1.0-alpha.2` (128a74a) |
-| 11 | Final checks, the manual test list, this report | manual test list `docs/release/manual-test-6b.md`; the Mac page updated; fuzz run 41585968031; checks in progress |
+| 10 | Changelog, alpha.2 notes, version bump, rehearsal | done; rehearsal run 41585943031 from `rehearsal/v0.1.0-alpha.2` (128a74a), draft checked |
+| 11 | Final checks, the manual test list, this report | done: the manual test list is `docs/release/manual-test-6b.md`, and the Mac page is updated |
 
 ## Decisions from the project owner (2026-11-02, before the phase)
 
@@ -81,6 +81,17 @@ The README's code signing policy and privacy statement went first, in their own 
 22. **The Google Form's setup** is written for the owner (`docs/release/google-form-setup.md`): a project account, the seven questions the app's prefill expects (the choices "Bug" and "Crash" by their exact text), settings that need no sign-in, and the prefilled link to send back.
 23. **`tools/site_footer.py` reads and writes UTF-8 itself.** On Windows, Python's stdin follows the code page, and a local build showed "–" as "â€“". CI's Linux wasn't affected.
 24. **`coldopen.exe` carries the product name and version** as the app has since 6a: a `build.rs` with `winresource`, for SignPath's file-metadata condition. The installer already had both: Inno Setup's product name defaults to `AppName`, and the version is passed in. CI's Windows install step now checks the app and the CLI name "Cold Open" and `Cargo.toml`'s version.
+25. **The form is wired in** (2026-11-03), from the owner's prefilled link: `FORM_URL` and its six question ids in `crates/app/src/feedback.rs`.
+    - **Checked on its public page here:** it needs no sign-in and collects no email. The kind's choices include "Bug" and "Crash", spelled as the app sends them. A prefilled crash link chose Crash and filled every box.
+    - **The crash form has one box for the report,** so the app puts the one-line summary there. The banner tells the writer to paste the whole report, which replaces it.
+    - **The issue chooser's "No GitHub account?"** goes straight to the form, one click fewer. The website's feedback page links it too, and explains where the answers go.
+    - **Tests:** the form's address holds the kind, version, OS and renderer and nothing else; a crash's fits under 2,000 characters; and F opens it from both sheets.
+    - **The form's text has a typo:** the Version question's description says "About Cold Open show it". The owner can fix it in Google Forms; the app's prefill doesn't depend on it.
+26. **The fuzz run's `crash_scrub` find was another false alarm** (2026-11-03, run 41585968031). The quoted string was `]^����`, and the text after it began `^����`. The scrubber turned the quote into `[quoted]`, whose last `]` joined that text to read the string again, though none of it was kept.
+    - **The check now compares against the same message scrubbed with nothing between the quotes.** Whatever is in both was never quoted: the text around, the scrubber's own words, and any join between them.
+    - This covers decision 19's find too, so the two special cases it replaced are gone.
+    - The input is a regression test in `crates/core/tests/crash.rs`.
+    - The other 12 targets ran ten minutes each with no finds.
 
 ## New dependencies
 
@@ -107,13 +118,42 @@ The README's code signing policy and privacy statement went first, in their own 
 - **Tests:** the workspace, 786 passing and 1 ignored, before the references and parameter docs. Core, MCP, CLI and the reference goldens passed after them.
 - **The draft PR:** TheYungStump/cold-open#21, opened for CI on all three OSes.
 
-## Where it stopped (2026-11-02)
+### Final checks (2026-11-03)
 
-The session hit its usage limit after step 8. Next:
+- **The gates here, on the form commit (a483736):** `cargo fmt --check` and `clippy --all-targets -D warnings` are clean. `cargo test --workspace --locked`: 794 passed, none failed, 1 ignored. That includes the crash, typing and agent gates, the reference goldens and the crash report tests.
+- **CI on 4f80abc,** the PR's run and the branch's: every job passed on Windows, macOS and Linux. That covers the tests, the budgets, the packages, the website, the privacy job, the license boundary, minimum Rust, and the Linux crash report job.
+- **The alpha.2 rehearsal:** run 41585943031 from 128a74a, draft release `rehearsal-2`.
+  - 13 files plus `SHA256SUMS.txt`, which lists all 13.
+  - Every package is under 15,000,000 bytes; the largest is the x86-64 AppImage at 12,233,208.
+  - The symbols zip is 124.7 MB, and holds all five builds' symbols: Windows x64 and ARM64, Linux x86-64 and ARM64, and macOS.
+  - Here, the Windows x64 zip and installer matched their lines in `SHA256SUMS.txt`.
+  - `coldopen --version` from the zip prints `coldopen 0.1.0-alpha.2 (128a74a62fa6)`. Both programs' file details name Cold Open 0.1.0-alpha.2, and the CLI's description is "Cold Open command-line tool".
+  - The notes carry the file table with sizes, the line saying the symbols file isn't for installing, and the Code signing policy and Privacy links.
+- **Fuzzing:**
+  - Run 41585968031 on 128a74a ran every target for ten minutes. Twelve were clean. `crash_scrub` raised the false alarm in decision 26, now fixed.
+  - Run 41654862400 reruns `crash_scrub` for ten minutes on the fix (a483736).
+- **The privacy scan, with the private patterns,** before every commit: no findings.
 
-1. Check #21's CI on Windows and macOS, especially the PDB and dSYM symbol steps.
-2. Announcement drafts: read the subreddits' rules in the built-in browser first.
-3. The CLI's version resource, and the Inno Setup version fields.
-4. The Google Form prefill, once the owner sends the link and entry ids.
-5. `CHANGELOG.md`, the alpha.2 notes, the version bump and the rehearsal.
-6. The fuzz workflow by hand, the full gates, the manual test list and the final report.
+## What's left
+
+**For the project owner:**
+
+1. **The manual test** in `docs/release/manual-test-6b.md`, about 40 minutes, from the rehearsal draft.
+2. **Turn on GitHub Pages** (Settings ▸ Pages ▸ Source: GitHub Actions) **and Discussions,** and make the four categories: Announcements, Alpha testing, Q&A and Ideas. Or tell me to turn the two on with `gh`; the categories can only be made on the web page.
+3. **Confirm two-factor sign-in is on for GitHub.** The code signing policy says every team member uses it.
+4. **Fix the form's typo** (decision 25), if you like.
+5. **Send the Mac tester** the updated `docs/release/mac-tester.md`.
+6. **Tag `v0.1.0-alpha.1`** once the Mac rerun is recorded. Then OK the line added to its notes, and send the SignPath application.
+7. **Merge #21, then tag `v0.1.0-alpha.2`.** Each needs your go-ahead. After that, the rehearsal branches and drafts can go, when you say so.
+8. **The announcements** are drafts for you to read and post (`docs/release/announcements/`). I never post them.
+
+**Deferred:**
+
+- The fountain.io apps-list request waits for a project email.
+- Issue labels `crash` and `feedback` don't exist yet, so the templates use `bug` only.
+- Crash reports cover panics only. Aborts, segfaults and out-of-memory kills write none (`crash-reports.md`), and the crash journal still recovers the work.
+- 6a's known issues remain:
+  - on macOS, double-clicking a script starts Cold Open without opening it;
+  - on Windows, making Cold Open the default app is the user's choice;
+  - the icon is a stand-in.
+- Contributions of code wait for a CLA (decision 3 of the owner's).
