@@ -6,9 +6,48 @@ Cold Open is a free, open-source screenwriting app. It reads and writes Fountain
 
 ## Install
 
-Alpha builds for Windows (x64 and ARM64), macOS (Apple Silicon and Intel) and Linux (x86-64 and ARM64; .deb, AppImage and Flatpak) are on the [releases page](https://github.com/TheYungStump/cold-open/releases). Each download is under 15 MB. They aren't signed by Microsoft or notarized by Apple yet; the release notes say how to get past the first-start warning on each system. The command-line tool `coldopen` comes with the app on every system (`docs/specs/release.md` §4).
+Alpha builds for Windows (x64 and ARM64), macOS (Apple Silicon and Intel) and Linux (x86-64 and ARM64; .deb, AppImage and Flatpak) are on the [releases page](https://github.com/TheYungStump/cold-open/releases). Each download is under 15 MB. They aren't signed by Microsoft or notarized by Apple yet (see the [code signing policy](#code-signing-policy)); the release notes say how to get past the first-start warning on each system. The command-line tool `coldopen` comes with the app on every system (`docs/specs/release.md` §4).
 
 To help us measure Cold Open on your computer, choose **Measure performance** in the palette, or run `coldopen bench`, and send us the two small files it writes to your Downloads folder ([`docs/specs/bench.md`](docs/specs/bench.md)). They hold model names and times, and nothing personal.
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+Cold Open is applying to SignPath Foundation's program for open-source projects. Until the project is accepted, the Windows builds are unsigned, and Windows warns about them the first time they run.
+
+**Team roles:**
+
+- **Authors** (committers), who may change the source without another review: [TheYungStump](https://github.com/TheYungStump).
+- **Reviewers,** who review every change from anyone else, such as a pull request, before it is merged: [TheYungStump](https://github.com/TheYungStump).
+- **Approvers,** who approve each signing request by hand: [TheYungStump](https://github.com/TheYungStump).
+
+**How a release is signed:**
+
+- Each release is built from source by GitHub Actions, from a tagged commit of this repository ([`.github/workflows/release.yml`](.github/workflows/release.yml)).
+- Only Cold Open's own programs are signed: the desktop app, the command-line tool and the Windows installer.
+- An approver approves each signing request by hand.
+- Every team member uses multi-factor authentication for GitHub and for SignPath.
+
+Much of Cold Open's code is written with AI coding agents, working under the author's direction and GitHub account. The author reviews every change before it is merged.
+
+## Privacy
+
+This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
+
+In practice:
+
+- **Cold Open makes no network connections.** It doesn't check for updates, count anything or contact any server.
+- **The agent link stays on your computer.** The app and `coldopen mcp` talk through a socket or a pipe that only your user account can open ([`docs/specs/mcp.md`](docs/specs/mcp.md)). An AI agent you connect is a separate program: what it reads from your script, and where it sends it, is up to that program and its own privacy policy.
+- **Links open in your browser,** and only when you click them.
+- **Measure performance** writes two report files to your Downloads folder. They leave your computer only if you send them.
+
+Two ways to tell us about a problem are coming in the next alpha, 0.1.0-alpha.2. Both send nothing by themselves:
+
+- **Report a problem…** opens a page in your browser, ready to fill in: a GitHub issue, or a Google Form for people without a GitHub account. The app fills in Cold Open's version and commit, the build's target, your operating system's name and version, and the renderer drawing the window. It adds no script text, no file names or paths, and no user or computer names. Nothing is sent until you submit the page yourself, and you can change it first.
+- **Crash reports.** If Cold Open crashes, it saves a report on your computer: the error's message with any quoted text taken out, where in Cold Open's code it happened, a backtrace as code addresses with no file paths, the version, the operating system and the renderer. It holds no script text, file names or user names. At the next start, Cold Open asks whether you want to look at it. It shows you the whole report before anything leaves your computer. Then it can open a ready-filled issue or form, or copy the report for you to paste. You can choose **Never ask again**.
+
+GitHub issues are public, under [GitHub's privacy statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement). Form answers go privately to the project, through Google Forms, under [Google's privacy policy](https://policies.google.com/privacy).
 
 ## Build
 
