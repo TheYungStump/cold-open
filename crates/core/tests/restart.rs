@@ -45,6 +45,14 @@ fn text(d: &mut Dispatcher) -> String {
         .to_string()
 }
 
+/// The second block's own text, which the export would trim.
+fn typed_block(d: &mut Dispatcher) -> String {
+    ok(d, "doc.get", json!({}))["blocks"][1]["text"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
 // ---- The child --------------------------------------------------------
 
 /// Where the child dies, from `COLDOPEN_RESTART_KILL`.
@@ -208,13 +216,20 @@ fn a_kill_at_each_step_of_the_restart_loses_no_edit() {
         assert_eq!(fs::read_to_string(&p).unwrap(), saved, "{point}");
         assert_eq!(leftovers(dir.path()), Vec::<String>::new(), "{point}");
         // The journal recovery left goes on: an edit, a close that keeps
-        // it, and the same again.
+        // it, and the same again. Compared on the block's own text: a kill
+        // at `tidy_started` can land just after a typed space, which comes
+        // back but which the Fountain export trims (2026-11-03, CI: "B1. "
+        // read as "B1.", then " F." typed after the space).
+        let before = typed_block(&mut d);
         type_at_end(&mut d, " F.");
-        let want = format!("{} F.\n", want.trim_end_matches('\n'));
         d.shutdown();
         let mut d = Dispatcher::new(Options::default());
         let r = ok(&mut d, "doc.open", json!({"path": p}));
-        assert_eq!(text(&mut d), want, "{point}, reopened: {r}");
+        assert_eq!(
+            typed_block(&mut d),
+            format!("{before} F."),
+            "{point}, reopened: {r}"
+        );
         d.shutdown();
     }
 }
