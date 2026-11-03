@@ -1,0 +1,34 @@
+# The website and user guide (docs/specs/site.md). Built with mdBook 0.5:
+#   mdbook build docs/guide        (into docs/guide/book, which git ignores)
+#   mdbook serve docs/guide        (a local preview)
+[book]
+title = "Cold Open"
+description = "A free, open-source screenwriting app that reads and writes Fountain and .fdx, and never loses your work."
+authors = ["The Cold Open contributors"]
+language = "en"
+src = "src"
+
+# The footer on every page: the code signing policy and privacy links.
+# CI's site job sets up a `python` (site.md §7).
+[preprocessor.footer]
+command = "python ../../tools/site_footer.py"
+
+[output.html]
+default-theme = "light"
+# Followed when the system prefers dark (site.md §6).
+preferred-dark-theme = "navy"
+additional-css = ["theme/coldopen.css"]
+additional-js = ["theme/skip-link.js"]
+git-repository-url = "https://github.com/TheYungStump/cold-open"
+edit-url-template = "https://github.com/TheYungStump/cold-open/edit/main/docs/guide/{path}"
+# For the 404 page's links; every other link is relative (site.md §9).
+site-url = "/cold-open/"
+# No MathJax, no playground: nothing is fetched from another site.
+mathjax-support = false
+
+[output.html.playground]
+runnable = false
+copyable = true
+
+[output.html.search]
+enable = true

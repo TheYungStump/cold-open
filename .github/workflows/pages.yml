@@ -1,0 +1,68 @@
+name: Website
+
+# The website on GitHub Pages (docs/specs/site.md §7): built from docs/guide
+# with mdBook, its download page written from the newest release, scanned
+# for personal details, then published. ci.yml's `site` job runs the same
+# build and checks on pull requests without publishing.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/guide/**"
+      - "tools/site_*.py"
+      - "tools/privacy_scan.py"
+      - ".github/workflows/pages.yml"
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time; a newer one waits rather than cancelling a deploy
+# half done.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: mdBook, pinned and checked
+        run: bash tools/site_mdbook.sh
+      - name: The download page, from the newest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python tools/site_download.py docs/guide/src/download-files.md
+      - name: Build
+        run: mdbook build docs/guide
+      - name: Links between pages
+        run: python tools/site_links.py docs/guide/book
+      - name: No personal details
+        run: python tools/privacy_scan.py --no-private --dir docs/guide/book
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/guide/book
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

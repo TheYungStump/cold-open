@@ -214,6 +214,50 @@ jobs:
             done
           done
 
+  # The website (docs/specs/site.md §7), built and checked as pages.yml
+  # publishes it: links between pages, personal details, and accessibility
+  # in light and dark mode. Also that the GitHub templates read as YAML.
+  site:
+    name: website
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: mdBook, pinned and checked
+        run: bash tools/site_mdbook.sh
+      - name: Build
+        run: mdbook build docs/guide
+      - name: The pages the app opens are there
+        run: |
+          # crates/app/src/about.rs: SITE_URL and DOCS_URL.
+          test -f docs/guide/book/index.html
+          test -f docs/guide/book/guide/index.html
+      - name: Links between pages
+        run: python tools/site_links.py docs/guide/book
+      - name: No personal details
+        run: python tools/privacy_scan.py --no-private --dir docs/guide/book
+      - name: The issue and discussion templates read as YAML
+        run: |
+          pip install --quiet pyyaml==6.0.2
+          python - <<'EOF'
+          import glob, yaml
+          for f in sorted(glob.glob(".github/ISSUE_TEMPLATE/*.yml") + glob.glob(".github/DISCUSSION_TEMPLATE/*.yml")):
+              yaml.safe_load(open(f, encoding="utf-8"))
+              print("ok", f)
+          EOF
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Accessibility, light and dark (axe-core, WCAG 2.2 AA)
+        run: |
+          npm install --no-save --no-package-lock --silent playwright@1.48.2 @axe-core/playwright@4.10.1
+          npx playwright install --with-deps chromium >/dev/null
+          python -m http.server 8000 --bind 127.0.0.1 --directory docs/guide/book >/dev/null 2>&1 &
+          for _ in $(seq 1 50); do curl -fs http://127.0.0.1:8000/ >/dev/null && break; sleep 0.2; done
+          node tools/site_a11y.mjs http://127.0.0.1:8000/ docs/guide/book
+
   # Crash reports and Report a problem, end to end on Linux
   # (docs/specs/crash-reports.md §10; docs/specs/editor.md §23). A build made
   # as a release is made crashes on purpose while typing: its report holds

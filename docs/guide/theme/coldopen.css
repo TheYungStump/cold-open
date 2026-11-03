@@ -1,0 +1,86 @@
+/* Our additions to mdBook's theme (docs/specs/site.md §6): contrast where a
+   theme falls short of WCAG 2.2 AA, a focus ring everyone can see, a skip
+   link, and the footer. Nothing here is loaded from another site. */
+
+/* A visible focus ring, at least 2 px, on every link and control. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid var(--links);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* "Skip to the content": first in the page, shown when focused. */
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: -48px;
+  z-index: 1000;
+  padding: 8px 14px;
+  background: var(--bg);
+  color: var(--links);
+  border: 2px solid var(--links);
+  border-radius: 4px;
+  font-weight: 600;
+}
+.skip-link:focus {
+  top: 8px;
+}
+
+/* Links in running text are underlined, so they don't rely on color alone
+   (WCAG 1.4.1). */
+.content main a:not(.header):not(.footnote-reference) {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Contrast: mdBook's light theme draws quiet text and some links lighter
+   than 4.5:1 on white; these are the darkest of its own hues that pass. */
+.light,
+html:not(.js) {
+  --links: #1f5fa8;
+  --sidebar-fg: #2b2b2b;
+  --sidebar-non-existant: #6b6b6b;
+  --sidebar-active: #1f5fa8;
+  --icons: #5c5c5c;
+  --icons-hover: #1b1b1b;
+  --searchresults-header-fg: #555;
+  --blockquote-border: #8a8a8a;
+}
+
+.navy {
+  --links: #8ec5ff;
+  --sidebar-active: #8ec5ff;
+  --icons: #b3b8c3;
+  --sidebar-non-existant: #a3aab6;
+  --searchresults-header-fg: #c4c9d2;
+}
+
+/* The dark themes' code colors: their red is 4.46:1 on the code background,
+   just under AA; this one is above 5.5:1. */
+.navy .hljs-attr, .navy .hljs-variable, .navy .hljs-template-variable,
+.navy .hljs-tag, .navy .hljs-name, .navy .hljs-selector-id,
+.navy .hljs-selector-class, .navy .hljs-regexp, .navy .hljs-deletion,
+.coal .hljs-attr, .coal .hljs-variable, .coal .hljs-template-variable,
+.coal .hljs-tag, .coal .hljs-name, .coal .hljs-selector-id,
+.coal .hljs-selector-class, .coal .hljs-regexp, .coal .hljs-deletion {
+  color: #e78c8c;
+}
+
+/* The footer on every page: the policy and the privacy statement. */
+.site-footer {
+  margin-top: 3em;
+  padding-top: 1em;
+  border-top: 1px solid var(--table-border-color);
+  font-size: 0.9em;
+}
+
+/* Tables of files and keys read better without wrapping their first
+   column. */
+.content table td:first-child code {
+  white-space: nowrap;
+}

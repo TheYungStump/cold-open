@@ -11,6 +11,8 @@ use clap::{Parser, Subcommand, ValueEnum};
 use coldopen_core::{Dispatcher, Options};
 use serde_json::{Value, json};
 
+#[cfg(test)]
+mod reference;
 mod report;
 
 #[derive(Parser)]

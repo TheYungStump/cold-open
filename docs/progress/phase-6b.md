@@ -26,9 +26,9 @@ The README's code signing policy and privacy statement went first, in their own 
 | 4 | Report a problem…, the About rows, Open the user guide | done (the form's button waits for step 6) |
 | 5 | Issue templates, the Discussions categories and their form | templates done; Discussions wait for the owner |
 | 6 | The Google Form (made by the owner) and its prefill | waiting for the form's link and entry ids |
-| 7 | User docs, and the generated CLI, command and keyboard references | |
-| 8 | The website: mdBook, Pages, link and accessibility checks | |
-| 9 | Tester guide, "what feedback helps", announcement drafts | |
+| 7 | User docs, and the generated CLI, command and keyboard references | done |
+| 8 | The website: mdBook, Pages, link and accessibility checks | built and checked here; the first deploy waits for Pages to be turned on |
+| 9 | Tester guide, "what feedback helps", announcement drafts | the guide and the feedback page done; the drafts next |
 | 10 | Changelog, alpha.2 notes, version bump, rehearsal | |
 | 11 | Final checks, the manual test list, this report | |
 
@@ -56,6 +56,12 @@ The README's code signing policy and privacy statement went first, in their own 
     - CI builds every release binary with line tables and strip off, then splits the symbols out and strips (`package.sh symbols`). Windows needs `strip = none` for the linker to write a PDB at all.
     - `tools/symbolicate.py` uses `llvm-symbolizer` when it's installed, else the OS's own tool: `addr2line`, `atos`, or Windows' dbghelp.
 12. **Issue templates use the repository's existing labels** (`bug` only). A `crash` or `feedback` label would need creating first, which is a repository setting.
+13. **Every command parameter has a description now:** 88 short doc comments on the parameter types in `crates/core/src/command.rs`. They feed the agents' tool schemas as well as the command reference, where 56 of 123 parameters had none.
+14. **The site's links are checked by `tools/site_links.py`,** rather than lychee: one tool fewer, since mdBook's HTML is regular enough to read with two patterns. It also checks every `#anchor`.
+15. **mdBook has no footer or skip link,** so a small preprocessor (`tools/site_footer.py`) adds the footer with the code signing policy and privacy links to every page. A short script (`docs/guide/theme/skip-link.js`) adds "Skip to the content". Without scripts, the page's landmarks still let a screen reader skip the sidebar.
+16. **Contrast, checked here in the built site:** every text element of a long page passes WCAG AA in the light theme and in the dark one, except highlight.js's red in dark code blocks (4.46:1). `coldopen.css` lightens it. axe-core runs on every page in CI.
+17. **The guide's first page is `guide/index.md`,** not `README.md`: mdBook turns a README into `index.html` but leaves links to it as `README.html`.
+18. **This PC's Python is missing `html/entities.py`** from its standard library, so the site tools use nothing beyond Python's core modules. Not changed: it's the owner's install.
 
 ## New dependencies
 
@@ -63,6 +69,10 @@ The README's code signing policy and privacy statement went first, in their own 
 | --- | --- | --- | --- |
 | `backtrace` 0.3.76, with `addr2line`, `gimli`, `object` and `rustc-demangle` | app | A panic's return addresses. Only the unwinder is called; LTO drops the symbolizer | MIT OR Apache-2.0 |
 | `libc` (Unix), `windows-sys` 0.61 (Windows), named directly | app | Which module holds each frame. Both already in the tree | MIT OR Apache-2.0 |
+| mdBook 0.5.4 (CI tool; the release binary, checked by SHA-256) | the website | Builds the site from `docs/guide` | MPL-2.0 |
+| Playwright 1.48.2 and @axe-core/playwright 4.10.1 (CI only, npm) | the `site` job | Accessibility of every page in light and dark mode | Apache-2.0; MPL-2.0 |
+| PyYAML 6.0.2 (CI only) | the `site` job | Checks the issue and discussion templates parse | MIT |
+| actions/configure-pages, upload-pages-artifact, deploy-pages | `pages.yml` | Publishing to GitHub Pages | MIT |
 
 ## Checks
 
