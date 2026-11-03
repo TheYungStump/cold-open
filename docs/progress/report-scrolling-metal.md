@@ -50,9 +50,12 @@ The measurement counted time spent waiting on the display, so the brief called f
 | --- | --- | --- | --- |
 | This PC (Windows, RTX 4090, Vulkan, a 144 Hz screen), one run | p95 7.3 ms, median 7.0, within a refresh (6.9 ms) | 1 of 120 | 0.84, 1.22 ms |
 | CI's Mac, quick bench in the packages job (30 frames) | p95 19.2 ms, median 16.7, within a refresh (16.6 ms at 60 Hz): pass | 0 | 0.8, 1.3 ms |
-| CI's Mac, full bench in the budgets job (120 frames) | p95 32.1 ms, median 16.8, against 17.0 ms at 59 Hz: miss | 13 | 1.2, 3.7 ms |
+| CI's Mac, full bench in the budgets job | p95 32.1 ms, median 16.8, against 17.0 ms at 59 Hz: miss | 13 | 1.2, 3.7 ms |
+| CI's Mac, `macos-14` (1920×1080), three full benches in one job | p95 19.4, 27.1, 19.6 ms: pass, miss, pass | 0, 9, 0 | 0.9–1.3, 1.6–3.0 ms |
+| CI's Mac, `macos-latest` (1024×768), three full benches in one job | p95 31.9, 17.9, 34.7 ms: miss, pass, miss | 21, 4, 24 | 0.9–1.3, 1.6–3.9 ms |
 
-- **CI's Mac misses refreshes because of the runner, not the app.** Its frames' own work stayed under 4 ms at p95. Its GPU takes about 9 ms to finish each frame, and it stalls on its own: in the same run, cold start missed too (1,205 ms against 1 s). It stays reported, not asserted (`docs/specs/bench.md` §5).
+- **CI's Mac misses refreshes because of the runner, not the app.** It passed 4 of these 8 runs. In every run its frames' own work stayed under 4 ms at p95. Its GPU takes about 9 ms to finish each frame, and it stalls on its own: keystroke had frames of a whole second on `macos-14`, and cold start missed once (1,205 ms against 1 s). It stays reported, not asserted (`docs/specs/bench.md` §5).
+- **The last six runs** came from the throwaway probe branch, which ran the bench of b45b407 three times per runner. GitHub's Apple Silicon runners were short that afternoon, and three jobs in a row were cancelled before a runner took them.
 - **Windows and Linux** draw with the CPU renderer by default, so their report-view budget keeps the 16 ms rule. Every budget passed on CI: Windows p95 10.3 ms, Linux 8.8 ms.
   - Windows' GPU comparison runs use CI's software adapter (Dx12). Their idle median was outside 45–250 Hz, so they're reported as unsynced.
 - **The packages grew by 30 to 50 KB each** with the tracing backend: Windows x64 installer 8,254,912 bytes (+30,021), macOS arm64 dmg 7,612,024 (+39,613), all under 15 MB.
@@ -60,5 +63,5 @@ The measurement counted time spent waiting on the display, so the brief called f
 
 ## Still to do
 
-- CI's runs of this PR on all three OSes, and the Mac tester's rerun on a real Mac (the final check).
+- The Mac tester's rerun on a real Mac, the final check. Its report now says, for the report view, the refresh, the refreshes missed and the frames' own work.
 - Delete the probe branch once it's no longer needed.
