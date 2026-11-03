@@ -18,7 +18,7 @@ The README's code signing policy and privacy statement went first, in their own 
 
 | # | Step | Status |
 | --- | --- | --- |
-| A | README: code signing policy and privacy statement (separate PR) | PR TheYungStump/cold-open#20 open, waiting for the owner's go-ahead |
+| A | README: code signing policy and privacy statement (separate PR) | squash-merged as c46d068 (#20), 2026-11-03, with the owner's go-ahead |
 | 0 | Privacy and housekeeping: the name out of `spec.md`, `tools/privacy_scan.py`, CI's privacy job, the milestones | done |
 | 1 | Specs: `crash-reports.md` and `site.md` (new), `editor.md` §23, `release.md` | done |
 | 2 | Crash reports: the hook, the scrubber, the offer at start, the sheet, Crash on purpose | done |
@@ -29,8 +29,8 @@ The README's code signing policy and privacy statement went first, in their own 
 | 7 | User docs, and the generated CLI, command and keyboard references | done |
 | 8 | The website: mdBook, Pages, link and accessibility checks | built and checked here; the first deploy waits for Pages to be turned on |
 | 9 | Tester guide, "what feedback helps", announcement drafts | done: `docs/release/announcements/`; the form's setup is `docs/release/google-form-setup.md` |
-| 10 | Changelog, alpha.2 notes, version bump, rehearsal | changelog, notes and bump done; rehearsal next |
-| 11 | Final checks, the manual test list, this report | |
+| 10 | Changelog, alpha.2 notes, version bump, rehearsal | done; rehearsal run 41585943031 from `rehearsal/v0.1.0-alpha.2` (128a74a) |
+| 11 | Final checks, the manual test list, this report | manual test list `docs/release/manual-test-6b.md`; the Mac page updated; fuzz run 41585968031; checks in progress |
 
 ## Decisions from the project owner (2026-11-02, before the phase)
 
