@@ -140,7 +140,8 @@ The README's code signing policy and privacy statement went first, in their own 
   - The notes carry the file table with sizes, the line saying the symbols file isn't for installing, and the Code signing policy and Privacy links.
 - **Fuzzing:**
   - Run 41585968031 on 128a74a ran every target for ten minutes. Twelve were clean. `crash_scrub` raised the false alarm in decision 26, now fixed.
-  - Run 41654862400 reruns `crash_scrub` for ten minutes on the fix (a483736).
+  - Run 41654862400 reran `crash_scrub` for ten minutes on the fix (a483736): no finds.
+- **CI on fc938ff,** the PR's run and the branch's: every job passed on all three OSes.
 - **The privacy scan, with the private patterns,** before every commit: no findings.
 
 ## What's left
