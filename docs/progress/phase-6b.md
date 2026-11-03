@@ -20,7 +20,7 @@ The README's code signing policy and privacy statement went first, in their own 
 | --- | --- | --- |
 | A | README: code signing policy and privacy statement (separate PR) | PR TheYungStump/cold-open#20 open, waiting for the owner's go-ahead |
 | 0 | Privacy and housekeeping: the name out of `spec.md`, `tools/privacy_scan.py`, CI's privacy job, the milestones | done |
-| 1 | Specs: `crash-reports.md` and `site.md` (new), `editor.md` §23, `release.md` | |
+| 1 | Specs: `crash-reports.md` and `site.md` (new), `editor.md` §23, `release.md` | done |
 | 2 | Crash reports: the hook, the scrubber, the offer at start, the sheet, Crash on purpose | |
 | 3 | Symbols per release, and `tools/symbolicate.py` | |
 | 4 | Report a problem…, the About rows, Open the user guide | |

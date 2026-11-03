@@ -1,7 +1,7 @@
 # The desktop editor
 
 - **Date:** 2026-10-15, updated 2026-10-16
-- **Status:** implemented in `crates/app` (phase 3); the 2026-10-16 changes come from the reviews of phases 1–3; phase 4 (2026-10-16) added .fdx files, the repair report, Recovered versions and one command router (§16). Phase 5a (2026-10-18) added bundles and track changes (§17). Phase 5b (2026-10-22) adds production revisions (§18), the title page editor (§19), reports (§20), comparing drafts (§21) and missing recent files (§11). Phase 6a (2026-10-30) adds §22: About, the bench, the command-line tool on macOS and folders that can't be written.
+- **Status:** implemented in `crates/app` (phase 3); the 2026-10-16 changes come from the reviews of phases 1–3; phase 4 (2026-10-16) added .fdx files, the repair report, Recovered versions and one command router (§16). Phase 5a (2026-10-18) added bundles and track changes (§17). Phase 5b (2026-10-22) adds production revisions (§18), the title page editor (§19), reports (§20), comparing drafts (§21) and missing recent files (§11). Phase 6a (2026-10-30) adds §22: About, the bench, the command-line tool on macOS and folders that can't be written. Phase 6b (2026-11-02) adds §23: Report a problem, the user guide, and crash reports on screen.
 - **Sources:**
   - `docs/spec.md`: Writing, Structure and navigation, Comfort, Reliability.
   - The phase 3 brief and its approved decisions (2026-10-15).
@@ -257,6 +257,8 @@ Shortcuts are looked up by **action** name: a core command (`undo`, `doc.save`, 
 | `app.reports` (§20) | Mod+Shift+I |
 | `app.compare`, `app.import_draft` (§21) | — (palette) |
 | "Remove from recent: <file>" (one palette entry per missing recent file, §11) | — (palette; a button on the start screen) |
+| `app.report_problem`, `app.user_guide` (2026-11-02, §23) | — (palette, About, start screen) |
+| `app.crash_reports`, `app.crash_reports_toggle`, `app.crash_test` (§23) | — (palette; the first also in the crash notice) |
 
 Esc closes the topmost overlay, or the autocomplete list. Movement and editing keys (§4, §5.1) are built in and not listed in the map.
 
@@ -533,3 +535,39 @@ Added 2026-10-30 (phase 6a; `docs/specs/release.md`, `docs/specs/bench.md`).
   - **Resolution:** if `Unsaved/` itself can't be written either, the open fails with the error's message, as any failed open does.
 - **The renderer falls back.** A writer who chooses the GPU renderer on a computer where it can't start gets the CPU renderer (`release.md` §6). The About sheet then says "CPU (the GPU renderer could not start)".
 - **Which renderer draws the window** is asked of the system the first time the About sheet opens, not at start (2026-11-02). Until the answer comes, the sheet names the renderer the settings ask for. **Resolution:** iced's query also reads every running process, on every core; asked at start, it held up the window's frames for about 200 ms, and the bench's report-scrolling step missed its budget on the project owner's PC.
+
+## 23. Feedback, the user guide and crash reports
+
+Added 2026-11-02 (phase 6b; `docs/specs/crash-reports.md`, `docs/specs/site.md`). Nothing here sends anything: every path ends in the writer's browser or clipboard, and the writer submits or pastes it themselves (the privacy statement in `README.md`).
+
+- **Report a problem…** (`app.report_problem`; in the palette, in the About sheet in place of 6a's "Send feedback" row, and in the start screen's links):
+  - A sheet: "Report a problem". It says "Cold Open opens a page in your browser with these details filled in. Nothing is sent until you submit it there."
+  - **The details it adds**, listed in the sheet exactly as they go:
+    - the version and commit;
+    - the build's target;
+    - the OS and its version;
+    - the renderer (as the crash report's `Renderer` line, `crash-reports.md` §3).
+
+    No script text, no file names or paths, no user or computer names.
+  - **Open a GitHub issue** (G), "needs a GitHub account": the bug template (`.github/ISSUE_TEMPLATE/bug.yml`), with those fields filled in from the address's query (each field by its `id`).
+  - **Use the form** (F), "no account needed": the project's Google Form, with the same fields filled in through its prefilled link. **Resolution:** the button shows only when the build names the form's address (`FORM_URL` in `crates/app/src/feedback.rs`), so a build made before the form exists never shows a dead button.
+  - **Copy the details** (C) puts the same lines on the clipboard, as About's "Copy version info" does.
+  - **Close** (Esc).
+- **The user guide** (`app.user_guide`, "Open the user guide"; in the palette, in the About sheet's "User guide" row, and in the start screen's links) opens the website's guide (`site.md`) in the browser.
+- **The start screen's links:** a quiet row under the buttons: **User guide**, **Report a problem…** and **About Cold Open**.
+- **The crash notice** (`crash-reports.md` §6): at start, when an unseen crash report exists and reports are on.
+  - It says "Cold Open closed unexpectedly. A crash report was saved, with no script text.", with **Look at it** and **Never ask again** beside Dismiss.
+  - It queues behind the recovery dialog, as every notice does (§13).
+  - **Never ask again** turns reports off and says how to turn them on again.
+- **The crash report sheet** (`app.crash_reports`, "Look at crash reports"): the report in full, as it is on disk, scrolling, with:
+  - **Send on GitHub** (G);
+  - **Send with the form** (F; shown as Report a problem shows it);
+  - **Copy** (C);
+  - **Delete** (Delete, then Enter to confirm or Esc);
+  - **Older** and **Newer** (Left, Right);
+  - **Close** (Esc).
+
+  Both Send buttons copy the whole report first, and the notice they leave says it's on the clipboard to paste into the page (`crash-reports.md` §7).
+- **Turn crash reports on or off** (`app.crash_reports_toggle`, palette): switches `crash_reports` in `settings.json` and says which it is now.
+- **Crash on purpose (to test recovery)** (`app.crash_test`, palette): asks first (Enter crashes, Esc cancels), then panics (`crash-reports.md` §9). For testers: the next start recovers the journal and offers the report.
+- **Keys in these sheets** are those of the sheet's own buttons, as in the recovery dialog. **Resolution:** single letters, since no text field is open in either sheet.
