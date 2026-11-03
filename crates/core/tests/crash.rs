@@ -4,6 +4,16 @@
 
 use proptest::prelude::*;
 
+/// CI's find (2026-11-03): unquoted `D\0���` after the quoted `"D���"`
+/// reads `D���` once the scrubber takes the NUL out. That text was never
+/// quoted, so the check compares the text around a string as the scrubber
+/// leaves it.
+#[test]
+fn letters_joined_by_a_dropped_control_character_were_never_quoted() {
+    let data = [0, 68, 128, 128, 128, 0, 0, 34, 34, 68, 0, 128, 128, 128, 0];
+    assert_eq!(coldopen_core::fuzzing::crash_scrub(&data), Ok(()));
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(2000))]
 

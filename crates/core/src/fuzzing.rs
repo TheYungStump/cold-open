@@ -731,10 +731,13 @@ pub fn crash_scrub(data: &[u8]) -> Result<(), String> {
     let secret = parts.next().unwrap_or("");
     let after = parts.next().unwrap_or("");
     // Too short to tell apart from what is around it, or from the
-    // scrubber's own words.
+    // scrubber's own words. The text around it is compared as the scrubber
+    // leaves it: taking out control characters can join unquoted letters
+    // into the secret's (2026-11-03, CI's `D\0���` around `"D���"`), which
+    // is text that was never quoted.
     let tell = secret.chars().count() >= 4
-        && !before.contains(secret)
-        && !after.contains(secret)
+        && !crate::crash::one_line(&before).contains(secret)
+        && !crate::crash::one_line(after).contains(secret)
         && !"[quoted][path][home][user]…".contains(secret);
     for quoted in [format!("{secret:?}"), format!("`{secret}`")] {
         let out = scrub_message(&format!("{before}{quoted}{after}"), &private);

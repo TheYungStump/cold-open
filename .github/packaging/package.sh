@@ -299,7 +299,9 @@ symbols() {
       cp "$bin/coldopen_app.pdb" "$bin/coldopen-app.exe" "$out/"
       ;;
     *-apple-darwin)
-      cp -R "$bin/coldopen-app.dSYM" "$out/"
+      # Cargo leaves the dSYM here as a link into deps/: copy what it
+      # points at (-L), not the link.
+      cp -RL "$bin/coldopen-app.dSYM" "$out/"
       strip "$bin/coldopen-app" "$bin/coldopen"
       ;;
     *-linux-*)

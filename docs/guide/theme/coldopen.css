@@ -31,6 +31,15 @@ summary:focus-visible,
   top: 8px;
 }
 
+/* The sidebar's links are at least 24 px tall (WCAG 2.5.8, target size):
+   mdBook draws them 21 px, with less than 24 px between some of them. */
+.chapter li a {
+  display: inline-block;
+  min-height: 24px;
+  padding-block: 2px;
+  box-sizing: border-box;
+}
+
 /* Links in running text are underlined, so they don't rely on color alone
    (WCAG 1.4.1). */
 .content main a:not(.header):not(.footnote-reference) {

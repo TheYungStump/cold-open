@@ -166,7 +166,7 @@ impl Report {
 
 /// A field on one line: line breaks become spaces, other control
 /// characters (but the tab) go.
-fn one_line(s: &str) -> String {
+pub(crate) fn one_line(s: &str) -> String {
     s.chars()
         .filter_map(|c| match c {
             '\n' | '\r' => Some(' '),

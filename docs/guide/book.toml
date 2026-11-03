@@ -18,7 +18,7 @@ default-theme = "light"
 # Followed when the system prefers dark (site.md §6).
 preferred-dark-theme = "navy"
 additional-css = ["theme/coldopen.css"]
-additional-js = ["theme/skip-link.js"]
+additional-js = ["theme/a11y.js"]
 git-repository-url = "https://github.com/TheYungStump/cold-open"
 edit-url-template = "https://github.com/TheYungStump/cold-open/edit/main/docs/guide/{path}"
 # For the 404 page's links; every other link is relative (site.md §9).

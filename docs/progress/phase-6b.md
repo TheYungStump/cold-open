@@ -58,10 +58,17 @@ The README's code signing policy and privacy statement went first, in their own 
 12. **Issue templates use the repository's existing labels** (`bug` only). A `crash` or `feedback` label would need creating first, which is a repository setting.
 13. **Every command parameter has a description now:** 88 short doc comments on the parameter types in `crates/core/src/command.rs`. They feed the agents' tool schemas as well as the command reference, where 56 of 123 parameters had none.
 14. **The site's links are checked by `tools/site_links.py`,** rather than lychee: one tool fewer, since mdBook's HTML is regular enough to read with two patterns. It also checks every `#anchor`.
-15. **mdBook has no footer or skip link,** so a small preprocessor (`tools/site_footer.py`) adds the footer with the code signing policy and privacy links to every page. A short script (`docs/guide/theme/skip-link.js`) adds "Skip to the content". Without scripts, the page's landmarks still let a screen reader skip the sidebar.
+15. **mdBook has no footer or skip link,** so a small preprocessor (`tools/site_footer.py`) adds the footer with the code signing policy and privacy links to every page. A short script (`docs/guide/theme/a11y.js`) adds "Skip to the content". Without scripts, the page's landmarks still let a screen reader skip the sidebar.
 16. **Contrast, checked here in the built site:** every text element of a long page passes WCAG AA in the light theme and in the dark one, except highlight.js's red in dark code blocks (4.46:1). `coldopen.css` lightens it. axe-core runs on every page in CI.
 17. **The guide's first page is `guide/index.md`,** not `README.md`: mdBook turns a README into `index.html` but leaves links to it as `README.html`.
 18. **This PC's Python is missing `html/entities.py`** from its standard library, so the site tools use nothing beyond Python's core modules. Not changed: it's the owner's install.
+19. **What CI found on the draft PR** (2026-11-03, 429bcbf), all fixed:
+    - **axe-core on mdBook's page template:** 108 violations of three rules, every one from the template, none from our pages, and no contrast failures.
+      - The sidebar toggle is a `<label>` that mdBook marks `aria-expanded`, which a label can't carry. The keyboard couldn't reach it either. `a11y.js` (formerly `skip-link.js`) makes it a button, focusable, that Enter and Space press.
+      - The sidebar's links were 21 px tall; `coldopen.css` makes them at least 24 (WCAG 2.5.8).
+      - The keyboard reference's wide table scrolled sideways with no way to reach it by keyboard. A wrapper that overflows now takes focus and is named after its heading.
+    - **The scrubber's property test** (Linux, `random_bytes_scrub_safely`) failed on a false alarm, not a leak. An unquoted `D ���` after the quoted `"D���"` reads `D���` once the NUL is taken out. The check now compares the text around a string as the scrubber leaves it (`crash::one_line`). The input is a regression test.
+    - **macOS symbols:** Cargo leaves `coldopen-app.dSYM` in the release folder as a link into `deps/`, and `cp -R` copied the link. The upload then found only a dangling link. `package.sh` copies what it points at (`cp -RL`).
 
 ## New dependencies
 
