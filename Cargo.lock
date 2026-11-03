@@ -723,6 +723,7 @@ dependencies = [
  "iced",
  "serde_json",
  "tempfile",
+ "winresource",
 ]
 
 [[package]]

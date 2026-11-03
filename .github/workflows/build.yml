@@ -183,7 +183,16 @@ jobs:
             if (-not (Test-Path "HKCU:\Software\Classes\$k\shell\open\command")) { Write-Error "no $k"; exit 1 }
           }
           if ((Get-ItemProperty "HKCU:\Software\Classes\.coldopen").'(default)' -ne 'ColdOpen.coldopen') { Write-Error ".coldopen is not ours"; exit 1 }
-          (Get-Item "$app\Cold Open.exe").VersionInfo | Format-List ProductName, ProductVersion
+          # Every program SignPath signs names the product and the release's
+          # version (release.md §8).
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"').Matches[0].Groups[1].Value
+          foreach ($f in "Cold Open.exe", "bin\coldopen.exe", "unins000.exe") {
+            $info = (Get-Item "$app\$f").VersionInfo
+            $info | Format-List ProductName, ProductVersion
+            if ($f -ne "unins000.exe" -and ($info.ProductName -ne "Cold Open" -or $info.ProductVersion -ne $version)) {
+              Write-Error "$f names '$($info.ProductName)' $($info.ProductVersion), not 'Cold Open' $version"; exit 1
+            }
+          }
           "APP=$app" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
       - name: Start the installed programs
         run: |

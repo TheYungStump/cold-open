@@ -80,6 +80,7 @@ The README's code signing policy and privacy statement went first, in their own 
     - Every draft mentions the AI-assisted development openly, as the README does. Removing that line is the owner's call.
 22. **The Google Form's setup** is written for the owner (`docs/release/google-form-setup.md`): a project account, the seven questions the app's prefill expects (the choices "Bug" and "Crash" by their exact text), settings that need no sign-in, and the prefilled link to send back.
 23. **`tools/site_footer.py` reads and writes UTF-8 itself.** On Windows, Python's stdin follows the code page, and a local build showed "–" as "â€“". CI's Linux wasn't affected.
+24. **`coldopen.exe` carries the product name and version** as the app has since 6a: a `build.rs` with `winresource`, for SignPath's file-metadata condition. The installer already had both: Inno Setup's product name defaults to `AppName`, and the version is passed in. CI's Windows install step now checks the app and the CLI name "Cold Open" and `Cargo.toml`'s version.
 
 ## New dependencies
 
