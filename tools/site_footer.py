@@ -36,12 +36,14 @@ def add_footer(item):
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "supports":
         sys.exit(0)
-    context, book = json.load(sys.stdin)
+    # mdBook speaks UTF-8; Python's stdin and stdout follow the system's
+    # code page on Windows, which turned "–" into "â€“" (2026-11-03).
+    context, book = json.loads(sys.stdin.buffer.read().decode("utf-8"))
     # mdBook 0.5 calls the list "items"; 0.4 called it "sections".
     for key in ("items", "sections"):
         for item in book.get(key, []):
             add_footer(item)
-    json.dump(book, sys.stdout)
+    sys.stdout.buffer.write(json.dumps(book).encode("utf-8"))
 
 
 if __name__ == "__main__":
