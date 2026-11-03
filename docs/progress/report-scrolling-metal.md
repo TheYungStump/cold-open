@@ -39,7 +39,7 @@ The measurement counted time spent waiting on the display, so the brief called f
 
 ### Decisions made along the way
 
-1. **"Within one refresh" means under 1.5 refreshes.** Under vsync, frame times bunch at whole refreshes, with timer jitter either side, so a p95 of 16.8 ms at 60 Hz is one refresh. Holding it to exactly 16.67 ms would fail at random.
+1. **"Within one refresh" means under 1.5 refreshes.** Under vsync, frame times bunch at whole refreshes, with timer jitter either side, so a p95 of 16.8 ms at 60 Hz is one refresh. Holding it to exactly 16.67 ms would fail at random. The owner was asked and kept the allowance (2026-11-03).
 2. **The refresh is measured, not asked for.** iced doesn't report the screen's rate, and the OS calls need unsafe code or new crates. Idle frames under vsync each wait for the refresh, so their median is the refresh.
 3. **Only the report view's budget changed,** as the owner's words say. Keystroke to screen keeps `immediate` and 16 ms. Whether it should be judged with vsync too is a question for the owner.
 4. **On Windows and Linux the default renderer is the CPU renderer,** which doesn't sync to the screen, so the report-view budget there is unchanged. Their GPU comparison runs use vsync and report refreshes.
