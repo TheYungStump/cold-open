@@ -334,7 +334,8 @@ fn measure_all(
             reps.frames,
         )
         .on(&label(d))
-        .with_median(d.median),
+        .with_median(d.median)
+        .with_slow_frames(&d.gaps),
         Err(why) => Budget::skipped("keystroke", "Keystroke to screen", "p95", *why),
     });
 
@@ -351,7 +352,8 @@ fn measure_all(
             reps.frames,
         )
         .on(&label(d))
-        .with_median(d.median),
+        .with_median(d.median)
+        .with_slow_frames(&d.gaps),
         Err(why) => Budget::skipped("report_scrolling", "Scrolling the report view", "p95", *why),
     });
     if let Ok(d) = runner.driven("scrolling", default, reps.frames) {
@@ -569,6 +571,58 @@ mod tests {
                 .get("median_ms")
                 .is_none()
         );
+    }
+
+    /// docs/specs/bench.md §4: a windowed p95 lists its frames over the
+    /// limit, counted from 1, and the text shows the first 20.
+    #[test]
+    fn a_windowed_budget_lists_its_slow_frames() {
+        let mut r = Report::new(
+            Machine::probe(),
+            ScriptInfo {
+                name: SCRIPT_NAME,
+                pages: 119,
+                blocks: 3000,
+            },
+            false,
+        );
+        let mut gaps = vec![6.0; 120];
+        gaps[11] = 21.437;
+        gaps[30] = 16.0;
+        gaps[31] = 16.01;
+        r.budgets.push(
+            Budget::ms(
+                "report_scrolling",
+                "Scrolling the report view",
+                "p95",
+                6.0,
+                16.0,
+                120,
+            )
+            .on("Metal")
+            .with_slow_frames(&gaps),
+        );
+        r.budgets.push(
+            Budget::ms("keystroke", "Keystroke to screen", "p95", 30.0, 16.0, 120)
+                .with_slow_frames(&[30.0; 25]),
+        );
+        r.budgets.push(
+            Budget::ms("open", "Open a 120-page script", "median", 40.0, 200.0, 3)
+                .with_slow_frames(&[6.0; 3]),
+        );
+        r.finish();
+        let v = serde_json::to_value(&r).unwrap();
+        assert_eq!(
+            v["budgets"][0]["slow_frames"],
+            serde_json::json!([[12, 21.44], [32, 16.01]])
+        );
+        assert!(v["budgets"][2].get("slow_frames").is_none());
+        let text = r.to_text();
+        assert!(
+            text.contains("  Scrolling the report view (Metal), 2 of 120: 12: 21.4, 32: 16.0\n")
+        );
+        assert!(text.contains("  Keystroke to screen, 25 of 120: 1: 30.0, "));
+        assert!(text.contains(", 20: 30.0, and 5 more\n"));
     }
 
     #[test]

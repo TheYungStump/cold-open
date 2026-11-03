@@ -10,6 +10,10 @@ use super::machine::Machine;
 /// The report format's version.
 pub const FORMAT: u32 = 1;
 
+/// How many of a budget's slow frames the text report lists; the JSON has
+/// them all.
+const SLOW_SHOWN: usize = 20;
+
 /// Why a step could not run. A fixed list, so no message from the system
 /// (which may hold a path) ever reaches the report.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -35,6 +39,10 @@ pub struct Budget {
     /// from every frame being slow.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub median_ms: Option<f64>,
+    /// The frames over the limit, as frame (from 1) and time, which shows
+    /// whether they come together, at a rhythm or at random.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slow_frames: Option<Vec<(usize, f64)>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit_ms: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -65,6 +73,7 @@ impl Budget {
             stat,
             value_ms: Some(round(value)),
             median_ms: None,
+            slow_frames: None,
             limit_ms: Some(limit),
             value_mib: None,
             limit_mib: None,
@@ -83,6 +92,7 @@ impl Budget {
             stat: "peak",
             value_ms: None,
             median_ms: None,
+            slow_frames: None,
             limit_ms: None,
             value_mib: Some(round(value)),
             limit_mib: Some(limit),
@@ -106,6 +116,7 @@ impl Budget {
             stat,
             value_ms: None,
             median_ms: None,
+            slow_frames: None,
             limit_ms: None,
             value_mib: None,
             limit_mib: None,
@@ -123,6 +134,22 @@ impl Budget {
 
     pub fn with_median(mut self, median: f64) -> Budget {
         self.median_ms = Some(round(median));
+        self
+    }
+
+    /// The frames of `gaps`, in the order measured, that took longer than
+    /// the limit.
+    pub fn with_slow_frames(mut self, gaps: &[f64]) -> Budget {
+        let Some(limit) = self.limit_ms else {
+            return self;
+        };
+        let slow: Vec<(usize, f64)> = gaps
+            .iter()
+            .enumerate()
+            .filter(|(_, g)| **g > limit)
+            .map(|(k, g)| (k + 1, round(*g)))
+            .collect();
+        self.slow_frames = (!slow.is_empty()).then_some(slow);
         self
     }
 }
@@ -281,6 +308,35 @@ impl Report {
                 w1 = w[1],
                 w2 = w[2]
             ));
+        }
+        let slow: Vec<&Budget> = self
+            .budgets
+            .iter()
+            .filter(|b| b.slow_frames.is_some())
+            .collect();
+        if !slow.is_empty() {
+            out.push_str("\nFrames over the limit (frame: ms), counted from the first measured:\n");
+            for b in slow {
+                let frames = b.slow_frames.as_deref().unwrap_or_default();
+                let mut list: Vec<String> = frames
+                    .iter()
+                    .take(SLOW_SHOWN)
+                    .map(|(n, ms)| format!("{n}: {ms:.1}"))
+                    .collect();
+                if frames.len() > SLOW_SHOWN {
+                    list.push(format!("and {} more", frames.len() - SLOW_SHOWN));
+                }
+                let title = match &b.renderer {
+                    Some(r) => format!("{} ({r})", b.title),
+                    None => b.title.to_string(),
+                };
+                out.push_str(&format!(
+                    "  {title}, {} of {}: {}\n",
+                    frames.len(),
+                    b.runs,
+                    list.join(", ")
+                ));
+            }
         }
         if !self.info.is_empty() {
             out.push_str("\nFor comparison:\n");

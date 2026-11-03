@@ -32,6 +32,8 @@ pub struct Driven {
     pub asked: String,
     pub median: f64,
     pub p95: f64,
+    /// Each frame's time, in the order measured.
+    pub gaps: Vec<f64>,
     pub peak_mib: Option<f64>,
     pub adapter: Option<String>,
     pub backend: Option<String>,
@@ -102,6 +104,10 @@ impl Runner {
             asked: backend.to_string(),
             median: f("median_ms").ok_or(Skipped::Failed)?,
             p95: f("p95_ms").ok_or(Skipped::Failed)?,
+            gaps: v["gaps_ms"]
+                .as_array()
+                .map(|a| a.iter().filter_map(Value::as_f64).collect())
+                .unwrap_or_default(),
             peak_mib: f("peak_mib"),
             adapter: s("adapter"),
             backend: s("backend"),

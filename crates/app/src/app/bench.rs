@@ -216,13 +216,14 @@ impl App {
             .unwrap_or(state.times.len())
             .min(state.times.len());
         let t = &state.times[WARM_UP.min(end)..end];
-        let mut gaps: Vec<f64> = t
+        let in_order: Vec<f64> = t
             .windows(2)
             .map(|w| (w[1] - w[0]).as_secs_f64() * 1000.0)
             .collect();
-        if gaps.is_empty() {
+        if in_order.is_empty() {
             return;
         }
+        let mut gaps = in_order.clone();
         gaps.sort_by(f64::total_cmp);
         let at = |q: f64| gaps[((gaps.len() - 1) as f64 * q).round() as usize];
         let kind = match state.bench.kind {
@@ -239,6 +240,15 @@ impl App {
             "median_ms": (at(0.5) * 100.0).round() / 100.0,
             "p95_ms": (at(0.95) * 100.0).round() / 100.0,
             "max_ms": (gaps[gaps.len() - 1] * 100.0).round() / 100.0,
+            // Every gap in the order measured, so the report can say which
+            // frames were slow (docs/specs/bench.md §4). Not for a memory
+            // run, which takes thousands.
+            "gaps_ms": (state.bench.kind != BenchKind::Memory).then(|| {
+                in_order
+                    .iter()
+                    .map(|g| (g * 100.0).round() / 100.0)
+                    .collect::<Vec<_>>()
+            }),
             "peak_mib": state.peak_mib,
             "adapter": adapter,
             "backend": backend,

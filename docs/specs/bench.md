@@ -1,6 +1,6 @@
 # The bench: budgets on real machines
 
-- **Date:** 2026-10-30
+- **Date:** 2026-10-30; slow frames 2026-11-03.
 - **Status:** phase 6a, being implemented in `crates/app` (`coldopen_app::bench`).
 - **Sources:**
   - `docs/spec.md`, "Platforms, size and performance": the budget table.
@@ -76,6 +76,7 @@ Every run uses the synthetic feature script, `coldopen_layout::synthetic::featur
 
 - **`budgets`** holds one entry per budget in §3, with `id`, `value_ms` (or `value_mib` for memory), `stat`, `limit_ms` (or `limit_mib`), `pass`, `runs`, and `renderer` where it applies.
   - The windowed p95 budgets also carry `median_ms` (2026-11-02), which tells a few slow frames from every frame being slow. The text report shows it in brackets.
+  - They also carry `slow_frames` (2026-11-03): each frame that took longer than the limit, as `[frame, ms]`, numbered from 1 in the order measured, so the warm-up isn't counted. It shows whether the slow frames come together, at a steady rhythm or at random. It is left out when no frame was over. The text report lists them under the table, one line per budget, the first 20 of each.
   - A step that couldn't run has `"pass": null` and a `"skipped"` reason drawn from a fixed list: `no_window`, `no_gpu`, `timeout`, `failed`.
 - **`info`** holds the numbers kept for comparison: other renderers, headless frames, p95 of the whole save, page scrolling, and (2026-11-02) each UI-thread step of each kind of save, as `save_ui_<kind>_snapshot`, `_marker` and `_commit`.
 - **`passed`** is true only when every budget passed and none was skipped.
