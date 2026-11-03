@@ -14,6 +14,14 @@ fn letters_joined_by_a_dropped_control_character_were_never_quoted() {
     assert_eq!(coldopen_core::fuzzing::crash_scrub(&data), Ok(()));
 }
 
+/// The fuzz run's find (2026-11-03): `[quoted]` followed by `^����` reads
+/// `]^����`, the string that was quoted, though none of it was kept.
+#[test]
+fn the_scrubbers_own_words_joined_to_the_text_after_were_never_quoted() {
+    let data = [0, 93, 94, 133, 133, 133, 133, 0, 94, 133, 133, 133, 133];
+    assert_eq!(coldopen_core::fuzzing::crash_scrub(&data), Ok(()));
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(2000))]
 

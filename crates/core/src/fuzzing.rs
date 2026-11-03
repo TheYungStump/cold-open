@@ -730,18 +730,21 @@ pub fn crash_scrub(data: &[u8]) -> Result<(), String> {
         .collect();
     let secret = parts.next().unwrap_or("");
     let after = parts.next().unwrap_or("");
-    // Too short to tell apart from what is around it, or from the
-    // scrubber's own words. The text around it is compared as the scrubber
-    // leaves it: taking out control characters can join unquoted letters
-    // into the secret's (2026-11-03, CI's `D\0���` around `"D���"`), which
-    // is text that was never quoted.
-    let tell = secret.chars().count() >= 4
-        && !crate::crash::one_line(&before).contains(secret)
-        && !crate::crash::one_line(after).contains(secret)
-        && !"[quoted][path][home][user]…".contains(secret);
-    for quoted in [format!("{secret:?}"), format!("`{secret}`")] {
+    // Too short to tell apart from what is around it.
+    let tell = secret.chars().count() >= 4;
+    for (quoted, empty) in [
+        (format!("{secret:?}"), "\"\""),
+        (format!("`{secret}`"), "``"),
+    ] {
         let out = scrub_message(&format!("{before}{quoted}{after}"), &private);
-        if tell && out.contains(secret) {
+        // The same message with nothing quoted. What it holds too was never
+        // quoted: the text around, the scrubber's own words, and the two
+        // joined, as when taking out control characters joins unquoted
+        // letters (CI's `D\0���` around `"D���"`) or `[quoted]` ends in the
+        // `]` the text after needs (CI's `]^����` in `[quoted]^����`), both
+        // 2026-11-03.
+        let without = scrub_message(&format!("{before}{empty}{after}"), &private);
+        if tell && out.contains(secret) && !without.contains(secret) {
             return Err(format!("{secret:?} survived in {out:?}"));
         }
     }
