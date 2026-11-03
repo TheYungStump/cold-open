@@ -104,7 +104,7 @@ CI's runners are shared virtual machines with no GPU and a slow, shared disk. Th
 | Memory | asserted (CPU renderer) | reported | judged |
 | Cold start | reported | reported | judged |
 | Keystroke to screen | reported | reported | judged |
-| Report view's scrolling | asserted once phase 6a's fix holds a margin in CI (windowed, CPU renderer) | reported | judged |
+| Report view's scrolling | asserted (windowed, CPU renderer; since phase 6a's fix, p95 about 5 ms against 16) | reported | judged |
 | Installer size | asserted on every OS (`docs/specs/release.md` §7) | asserted | — |
 | Page breaks across OSes | asserted on every OS (layout goldens) | asserted | — |
 

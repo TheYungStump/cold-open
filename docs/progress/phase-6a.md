@@ -4,6 +4,65 @@ Branch `phase-6a-release`, started 2026-10-30 from `main` (eb84cd3). Pull reques
 
 Phase 6 is split in two. **6a** (this phase) builds installable packages for every platform the spec lists, with every budget met on real machines. **6b** brings user docs, the website, the tester group, feedback and opt-in crash reports. 6a builds none of 6b, but leaves room for it: the About sheet shows rows for the user guide and for feedback as soon as their addresses are set (`crates/app/src/about.rs`).
 
+## Final report (2026-11-02)
+
+Phase 6a is done: installable packages for every target the spec lists, each under 15 MB, a bench any tester can run, and a release workflow rehearsed end to end. Every step of the plan below is done. The project owner's manual test passed on Windows, with every budget met on the installed build, and so did each retest. It is squash-merged from TheYungStump/cold-open#19 with the owner's go-ahead. The tag `v0.1.0-alpha.1` is pushed on `main` only with the owner's OK, which publishes the release. The phase changed 106 files: about 5,300 lines in the crates and tests, 1,700 in CI and packaging, and 420 in specs.
+
+### What was built
+
+- **One version everywhere** (`0.1.0-alpha.1`), with the commit in About, `--version` and the bench report, never in a file Cold Open writes (decision 1). The release fails if the tag and `Cargo.toml` differ.
+- **Packages** (`release.md`, new):
+  - Windows, x64 and ARM64: a per-user Inno Setup installer and a zip. The CLI goes on the user's PATH. The installer offers Cold Open under "Open with" for `.fountain` and `.fdx`, and makes it the default for `.coldopen`. The installer and the uninstaller close a running Cold Open themselves (decision 19).
+  - macOS: an Apple Silicon and an Intel disk image, since the universal one is just over the budget. "Install the command-line tool" puts `coldopen` on the PATH.
+  - Linux, x86-64 and ARM64: a .deb, an AppImage and a Flatpak, built on Ubuntu 22.04 (glibc 2.35).
+  - Every package carries the licenses: the GPL, MIT and Apache, the fonts' OFL, and the third-party list made by cargo-about. A stand-in icon goes everywhere, ready for the owner's art (decision 1 of the owner's).
+- **The bench** (`bench.md`, new): "Measure performance" in the app, `coldopen bench`, or `coldopen-app --bench`. It measures every budget in the spec on a generated 120-page script, and writes a JSON and a text report to Downloads that name no person, machine, folder or script. Windowed budgets give their median beside the p95, so a miss shows whether it was a few slow frames or all of them.
+- **The About sheet:** the version, commit, target, renderer, the source at that commit, every license, and "Copy version info".
+- **Off the UI thread:**
+  - Both PDF exports (decision 8).
+  - The journal's restart after a save, which once took 13.4 ms on CI's disk. A crash at any point of it loses nothing, typing during it included (decision 18, `journal.md`).
+- **The report view scrolls in about 5 ms a frame**, down from 50 to 81 ms on CI's CPU renderer: its rows are drawn like the pages (decision 7). The system information query no longer holds up the first frames (decision 17).
+- **Awkward folders.** A script in a folder that can't be written opens as a copy, with a banner. Saves to synced folders are tested against a file held as a sync client holds it.
+- **Workflows:** `build.yml` builds, packages, size-checks and installs every package on its own OS, then starts it, opens a file and uninstalls it. `release.yml` publishes a `v*` tag as a pre-release with `SHA256SUMS.txt` and the notes. Run by hand or from a `rehearsal/` branch, it makes a private draft instead.
+- **Docs:** the release notes, the owner's manual test, the Mac tester's page, and the README's install section.
+
+### Checks
+
+- **Tests:** `cargo test --workspace --locked` on this PC (e101891's code, 2026-11-02): 757 pass, none fail, 1 ignored, the crash, typing and agent gates included. `cargo fmt` and `cargo clippy -D warnings` are clean. CI was green on every OS on e101891.
+- **The crash gate** ran five times in a row after the journal change, 9 of 9 each time. `core/tests/restart.rs` kills a process at each of nine points of the restart, with typing during it.
+- **Corpus and reference** (3b581d4): every corpus .fdx file writes back byte for byte, and the reference gate gives phase 4's numbers. No format, layout or diff crate has changed since.
+- **Fuzzing:** a ten-minute run of every target passed.
+- **Budgets:**
+  - **Windows, the owner's PC:** every budget passed on the installed build of 3a28406, in the full bench, the quick one and the zip's.
+  - **Linux:** CI asserts the headless budgets and the report view's scrolling, and they pass. Cold start and keystroke on a runner's virtual display are reported, not asserted (bench.md §5), and passed there too.
+  - **macOS:** the Mac tester's real Mac missed one budget by 0.3 ms, the report view's scrolling (p95 16.3 ms), on b901828. The Windows cause of the same miss is fixed (decision 17). The Mac tester's rerun on a new build is pending. CI's virtual Mac is reported, not asserted.
+  - **Sizes:** the largest file is the x86-64 AppImage, 12.2 MB.
+- **The rehearsal release:** every file in the draft passes its checksum and the size limit, and carries the draft's commit.
+- **Manual test** (the owner, Windows, 2026-10-31 and two retests on 2026-11-02): six findings, all fixed and retested. They were: the bench printed nothing in a terminal, the installer couldn't close a running Cold Open, then closed it slowly, the uninstaller couldn't remove a running one, the zip's folder name had a space, and the test's own PowerShell commands were wrong.
+
+### Deferred
+
+- **The Mac tester's rerun.** The one budget the real Mac missed needs a rerun on a build with decision 17. If it still misses, the report's median shows whether Metal is slow throughout or has a few slow frames.
+- **Phase 6's gate** asks for every budget on all three OSes on real machines. Windows is done and macOS is pending. Linux is CI's runner only so far: a tester with a Linux machine is a 6b task.
+- **Double-clicking a file on macOS** starts Cold Open without opening the file. Finder sends it as an Apple Event, which iced doesn't expose. Handling it needs a small `unsafe` objc2 handler, left for the owner to approve (decision 13). It is a known issue in the release notes.
+- **Signing.** The builds are unsigned. Setting `WINDOWS_SIGNING=signpath` and a SignPath token turns Windows signing on. Apple notarization waits on a paid account.
+- **OneDrive** wasn't tested by hand: OneDrive is off on the test PC.
+- **The icon** is a stand-in until the owner's art arrives.
+- **Flathub** would need a Flatpak built from source. The release's Flatpak repackages the CI binaries.
+- **`measure.py`** is unused and stays until the owner says to remove it.
+- **The rehearsal's branch and draft** (`rehearsal/v0.1.0-alpha.1`, `rehearsal-1`) stay until the owner says to remove them.
+
+### Decisions
+
+- **The project owner's, before the phase:** the stand-in icon, the copy for a folder that can't be written, Flatpak's home access, and a draft rehearsal before the tag.
+- **During the phase:** 19, listed below. The ones that shape later work:
+  - the commit shows, but is never written into a file (1);
+  - the bench is part of the app, so testers need nothing else (5);
+  - one dmg per architecture while the universal one is over budget (12);
+  - the system is asked about the renderer only when needed (17);
+  - the journal restarts off the UI thread, beside the old one (18);
+  - the installers close Cold Open themselves (19).
+
 ## Plan and status
 
 | # | Step | Status |
@@ -16,8 +75,8 @@ Phase 6 is split in two. **6a** (this phase) builds installable packages for eve
 | 5 | PDFs off the UI thread: the compare view's and the script's | done (52f9974, 56b3b77, c129768) |
 | 6 | First run, read-only and synced folders | done (7771a4c, 332338f) |
 | 7 | Packages: Windows installer and zip, macOS dmg, .deb, AppImage, Flatpak; icon; CLI on each OS | done (6e1d6fd) |
-| 8 | Workflows: build, install and start every package; release on a tag | in CI (see below) |
-| 9 | Manual test, Mac tester's page, README, this report | written; the manual test waits on CI's packages |
+| 8 | Workflows: build, install and start every package; release on a tag | done; rehearsed as the draft `rehearsal-1` (a5d157d) |
+| 9 | Manual test, Mac tester's page, README, this report | done; the manual test and its retests passed |
 
 ## Decisions from the project owner (2026-10-30, before the phase)
 
