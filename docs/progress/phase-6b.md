@@ -99,7 +99,8 @@ The README's code signing policy and privacy statement went first, in their own 
 28. **The Mac tester's rerun on a5d157d missed the report view's scrolling again** (2026-11-03, `docs/progress/phase-6a-bench/…20261103-042802`).
     - **The numbers:** p95 20.3 ms against 16, with a median of 5.9 ms on Metal. On b901828 it was p95 16.3 ms. Every other budget passed: keystroke p95 10.5 ms, page scrolling 14.3 ms, memory 137 MiB.
     - **They point at the GPU path.** At least 7 of the 120 frames took over 20 ms while most took about 6. The CPU renderer scrolled the same view steadily (p95 8.7 ms, median 8.1). CI's virtual Mac showed the same pattern on 6a (median 4.1 ms, p95 19.4 ms), so it can be reproduced there.
-    - **It's a fix of its own,** on its own branch: find which frames are slow and why, then fix it. It's outside this PR, and its result decides when to tag `v0.1.0-alpha.1`.
+    - **It's a fix of its own,** on its own branch: find which frames are slow and why, then fix it. It's outside this PR.
+    - **`v0.1.0-alpha.1` is tagged anyway** (2026-11-03, the owner's go-ahead), on `main` at c46d068, with this miss added to its known issues. It's the quiet release the SignPath application needs, and the fix can be in alpha.2 before the announcement.
 
 ## New dependencies
 
@@ -149,7 +150,7 @@ The README's code signing policy and privacy statement went first, in their own 
 1. **The manual test** in `docs/release/manual-test-6b.md`, about 40 minutes, with the PR's CI packages, once CI and the fuzz rerun are green.
 2. **Make the "Alpha testing" Discussions category** on the web page (decision 27), and remove General, Polls and Show and tell if they aren't wanted. Pages and Discussions are on, and two-factor sign-in is confirmed.
 3. **Send the Mac tester** the updated `docs/release/mac-tester.md`.
-4. **Decide when to tag `v0.1.0-alpha.1`,** given the Mac's report scrolling miss (decision 28). Then OK the line added to its notes, and send the SignPath application.
+4. **`v0.1.0-alpha.1` is tagged** (decision 28). Next: OK the Code signing policy and Privacy line in its notes, then send the SignPath application.
 5. **Merge #21, then tag `v0.1.0-alpha.2`.** Each needs your go-ahead. After that, the rehearsal branches and drafts can go, when you say so.
 6. **The announcements** are drafts for you to read and post (`docs/release/announcements/`). I never post them.
 
