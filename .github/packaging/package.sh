@@ -6,6 +6,7 @@
 #   package.sh macos                                 the universal .dmg (or two)
 #   package.sh linux <x86_64|aarch64> <target>       .deb, AppImage, Flatpak
 #   package.sh sizes                                 checks dist/ (15,000,000 bytes)
+#   package.sh symbols <target>                      the app's symbols, then strips
 #
 # Windows is two steps so the exes can be signed between them, and the
 # installer after (release.md §8). COLDOPEN_THIRD_PARTY names the
@@ -284,6 +285,35 @@ sizes() {
   return "$over"
 }
 
+# The app's symbols, for reading crash reports, into symbols/<target>, then
+# the binaries stripped (release.md §9). The build kept line tables in them
+# (CARGO_PROFILE_RELEASE_DEBUG in build.yml), so what ships is the stripped
+# form of the same link as the symbols.
+symbols() {
+  local target=$1 bin=target/$1/release out=symbols/$1
+  mkdir -p "$out"
+  case "$target" in
+    *-windows-msvc)
+      # The exe holds only the PDB's name; it goes along so a symbolizer
+      # can match the two.
+      cp "$bin/coldopen_app.pdb" "$bin/coldopen-app.exe" "$out/"
+      ;;
+    *-apple-darwin)
+      cp -R "$bin/coldopen-app.dSYM" "$out/"
+      strip "$bin/coldopen-app" "$bin/coldopen"
+      ;;
+    *-linux-*)
+      objcopy --only-keep-debug "$bin/coldopen-app" "$out/coldopen-app.debug"
+      strip --strip-all "$bin/coldopen-app" "$bin/coldopen"
+      ;;
+    *)
+      echo "symbols: unknown target $target" >&2
+      exit 2
+      ;;
+  esac
+  ls -lR "$out"
+}
+
 mkdir -p dist
 case "${1:-}" in
   windows-stage) windows_stage "$2" "$3" ;;
@@ -291,8 +321,9 @@ case "${1:-}" in
   macos) macos ;;
   linux) linux "$2" "$3" ;;
   sizes) sizes ;;
+  symbols) symbols "$2" ;;
   *)
-    sed -n '2,15p' "$0" >&2
+    sed -n '2,16p' "$0" >&2
     exit 2
     ;;
 esac

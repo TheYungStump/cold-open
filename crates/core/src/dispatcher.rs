@@ -583,6 +583,8 @@ impl Dispatcher {
 
     /// Runs one command for an author.
     pub fn execute_as(&mut self, cmd: Command, by: &Author) -> Result<Value, CommandError> {
+        // For a crash report's `Last action` (docs/specs/crash-reports.md §3).
+        crate::crash::note_command(cmd.name());
         match cmd {
             Command::DocNew(p) => self.doc_new(p),
             Command::DocOpen(p) => self.doc_open(p, by),

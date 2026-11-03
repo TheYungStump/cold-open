@@ -49,15 +49,7 @@ impl Machine {
         };
         Machine {
             os: std::env::consts::OS.into(),
-            os_version: match (
-                System::long_os_version().or_else(System::os_version),
-                System::kernel_version(),
-            ) {
-                (Some(os), Some(k)) if !os.contains(&k) => format!("{os} ({k})"),
-                (Some(os), _) => os,
-                (None, Some(k)) => k,
-                (None, None) => "unknown".into(),
-            },
+            os_version: os_version(),
             arch: std::env::consts::ARCH.into(),
             cpu,
             cores: sys
@@ -69,6 +61,21 @@ impl Machine {
             renderer_default: renderer_default.into(),
             screen: None,
         }
+    }
+}
+
+/// The OS's name and version, with the kernel's: no host or user name.
+/// Also a crash report's `OS` line (docs/specs/crash-reports.md §3).
+pub fn os_version() -> String {
+    use sysinfo::System;
+    match (
+        System::long_os_version().or_else(System::os_version),
+        System::kernel_version(),
+    ) {
+        (Some(os), Some(k)) if !os.contains(&k) => format!("{os} ({k})"),
+        (Some(os), _) => os,
+        (None, Some(k)) => k,
+        (None, None) => "unknown".into(),
     }
 }
 

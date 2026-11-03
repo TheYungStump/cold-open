@@ -41,7 +41,7 @@ ALLOWED_EMAIL = re.compile(
 HOME = re.compile(r"(?:[A-Za-z]:[\\/]+Users[\\/]+|/Users/|/home/)([A-Za-z0-9._-]+)", re.IGNORECASE)
 # Made-up people in the tests and docs, CI's own accounts, and placeholders.
 ALLOWED_HOME = {
-    "dana", "maya", "alice", "bob", "jo", "ada", "you", "me", "user", "username",
+    "dana", "maya", "kim", "alice", "bob", "jo", "ada", "fuzz", "you", "me", "user", "username",
     "name", "x", "runner", "runneradmin", "public", "default", "shared",
 }
 

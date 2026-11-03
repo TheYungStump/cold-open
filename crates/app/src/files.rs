@@ -121,6 +121,18 @@ pub struct Settings {
     pub author_name: Option<String>,
     /// The changes panel shows (editor.md §17.3).
     pub changes_panel: bool,
+    /// Whether a crash writes a report and the next start offers it
+    /// (docs/specs/crash-reports.md §8).
+    pub crash_reports: CrashReports,
+}
+
+/// `crash_reports` in `settings.json`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CrashReports {
+    #[default]
+    Ask,
+    Off,
 }
 
 impl Default for Settings {
@@ -135,6 +147,7 @@ impl Default for Settings {
             renderer: Renderer::Auto,
             author_name: None,
             changes_panel: false,
+            crash_reports: CrashReports::Ask,
         }
     }
 }

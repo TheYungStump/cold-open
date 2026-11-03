@@ -1,0 +1,42 @@
+title: "Testing: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for testing the alpha. Everything here is **public**, so please don't paste or attach a script you don't own.
+
+        The [tester guide](https://theyungstump.github.io/cold-open/alpha/tester-guide.html) has two tracks. Tell us which one you followed and how it went. A bug you can repeat is best as an [issue](https://github.com/TheYungStump/cold-open/issues/new/choose).
+  - type: dropdown
+    id: track
+    attributes:
+      label: Which track?
+      options:
+        - For anyone (about 20 minutes)
+        - For screenwriters
+        - My own way
+    validations:
+      required: true
+  - type: input
+    id: setup
+    attributes:
+      label: Version and operating system
+      description: About Cold Open's "Copy version info" gives the version.
+      placeholder: 0.1.0-alpha.2 on Windows 11
+    validations:
+      required: true
+  - type: textarea
+    id: went_well
+    attributes:
+      label: What went well
+  - type: textarea
+    id: got_in_the_way
+    attributes:
+      label: What got in the way
+      description: Where you stopped, guessed, or had to look something up.
+    validations:
+      required: true
+  - type: textarea
+    id: compared
+    attributes:
+      label: Compared with what you use now
+      description: Optional. Which app, and what Cold Open would need before you'd switch.

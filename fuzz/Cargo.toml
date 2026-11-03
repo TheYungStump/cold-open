@@ -105,3 +105,10 @@ path = "fuzz_targets/diff.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "crash_scrub"
+path = "fuzz_targets/crash_scrub.rs"
+test = false
+doc = false
+bench = false

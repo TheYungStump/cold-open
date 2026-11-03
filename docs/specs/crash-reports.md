@@ -123,7 +123,7 @@ Frames are code addresses, which hold nothing personal. Each module is named by 
 
 The crash report sheet (`editor.md` §23) shows:
 
-- "Cold Open crashed on <date, in the writer's own time>. This report holds no script text, file names or user names. Read it before you send it.";
+- "Cold Open crashed on <date>. This report holds no script text, file names or user names. Read it before you send it." **Resolution:** the date is the report's, in UTC, so no time-zone data is read for it;
 - **the whole report,** exactly as it is on disk, in a scrolling area;
 - **Send on GitHub** (G):
   - copies the whole report to the clipboard;

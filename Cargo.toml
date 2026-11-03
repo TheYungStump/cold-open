@@ -101,6 +101,16 @@ sysinfo = { version = "0.33", default-features = false, features = ["system"] }
 # no TOML parser.
 winresource = { version = "0.1.34", default-features = false }
 
+# Crash reports (docs/specs/crash-reports.md §5): the return addresses of a
+# panic's frames. Only its unwinder is used: names are resolved offline,
+# from each release's symbols. MIT OR Apache-2.0, from the Rust project; std
+# holds the same code but doesn't expose the addresses.
+backtrace = "0.3.76"
+# The module that holds each frame, for its offset: dladdr on Linux and
+# macOS, GetModuleHandleExW on Windows. Both already in the tree.
+libc = "0.2"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }
+
 # Dev-only.
 proptest = "1.5"
 tempfile = "3.10"

@@ -64,6 +64,16 @@ jobs:
           pattern: packages-*
           path: dist
           merge-multiple: true
+      # The symbols of every target's app, in one file (release.md §2, §9).
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: symbols-*
+          path: symbols
+          merge-multiple: true
+      - name: Symbols
+        run: |
+          ls symbols
+          (cd symbols && zip -qr "../dist/ColdOpen-$VERSION-symbols.zip" .)
       - name: Checksums
         run: |
           cd dist
@@ -85,6 +95,12 @@ jobs:
             done
             echo
             echo "Check a download with \`sha256sum -c SHA256SUMS.txt --ignore-missing\` (Linux), \`shasum -a 256 -c SHA256SUMS.txt --ignore-missing\` (macOS) or \`Get-FileHash\` (Windows)."
+            echo
+            echo "\`ColdOpen-$VERSION-symbols.zip\` isn't for installing: it lets the project read crash reports from this release."
+            echo
+            # SignPath's terms ask for the words on every release page
+            # (release.md §8).
+            echo "[Code signing policy](https://theyungstump.github.io/cold-open/code-signing.html) · [Privacy](https://theyungstump.github.io/cold-open/privacy.html)"
           } >>notes.md
       - name: Publish (tag) or draft (by hand)
         run: |

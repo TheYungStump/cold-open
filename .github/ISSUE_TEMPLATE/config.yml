@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: No GitHub account?
+    url: https://theyungstump.github.io/cold-open/alpha/feedback.html
+    about: Send a problem or feedback with a form, privately, without an account.
+  - name: Questions and alpha talk
+    url: https://github.com/TheYungStump/cold-open/discussions
+    about: How do I…, ideas, and how testing went.

@@ -23,6 +23,7 @@ mod bench_sheet;
 mod changes;
 mod compare;
 mod copies;
+mod feedback_sheet;
 mod file_ops;
 mod recent;
 mod report_lines;
@@ -37,6 +38,7 @@ pub use bench::{Bench, BenchKind};
 pub use changes::{ALL_AUTHORS, ChangeRow, ChangesPanel, NameThen};
 pub use compare::{CompareInput, CompareRow, CompareView};
 pub use copies::{CopyRow, RecoveredScreen, RepairReport};
+pub use feedback_sheet::FeedbackInput;
 pub use file_ops::{After, ExportForm, Prompt, Recovery, Reply};
 pub use recent::gone as recent_gone;
 pub use router::{Origin, Outcome, Request};
@@ -191,6 +193,9 @@ pub enum Message {
     ChangesPick(usize),
     ChangesSettle(usize, bool),
     ChangesFilter(String),
+    /// Report a problem, the crash notice and the crash report sheet
+    /// (editor.md §23).
+    Feedback(FeedbackInput),
     /// The export form's "Print the current text".
     ExportChanges,
     Noop,
@@ -203,6 +208,9 @@ pub struct Banner {
     pub text: String,
     /// Shows a Recovered versions button.
     pub recovered: bool,
+    /// The crash notice, with Look at it and Never ask again
+    /// (docs/specs/crash-reports.md §6).
+    pub crash: bool,
 }
 
 impl Banner {
@@ -212,6 +220,7 @@ impl Banner {
             text: "Your unsaved changes were set aside. Open Recovered versions to restore them."
                 .into(),
             recovered: true,
+            crash: false,
         }
     }
 
@@ -228,6 +237,7 @@ impl Banner {
                 "Saving took the revision sets and marks out.".into()
             },
             recovered: kept,
+            crash: false,
         }
     }
 
@@ -246,6 +256,18 @@ impl Banner {
                 format!("Saving accepted {changes}.")
             },
             recovered: kept,
+            crash: false,
+        }
+    }
+
+    /// A crash report from an earlier session is waiting
+    /// (docs/specs/crash-reports.md §6).
+    pub fn crash() -> Banner {
+        Banner {
+            text: "Cold Open closed unexpectedly. A crash report was saved, with no script text."
+                .into(),
+            recovered: false,
+            crash: true,
         }
     }
 
@@ -256,6 +278,7 @@ impl Banner {
                 "The file as it was before the repair was kept. Open Recovered versions to see it."
                     .into(),
             recovered: true,
+            crash: false,
         }
     }
 }
@@ -265,6 +288,7 @@ impl From<String> for Banner {
         Banner {
             text,
             recovered: false,
+            crash: false,
         }
     }
 }
@@ -325,6 +349,10 @@ pub enum Sheet {
     History,
     /// Version and licenses.
     About,
+    /// Report a problem (editor.md §23).
+    ReportProblem,
+    /// The crash reports kept (docs/specs/crash-reports.md §7).
+    CrashReport,
 }
 
 /// One line of the palette.
@@ -437,6 +465,11 @@ pub struct App {
     pub sheet: Option<Sheet>,
     /// The About sheet's tab and scrolling (editor.md §22).
     about: about_sheet::AboutState,
+    /// The crash report sheet's reports (editor.md §23).
+    crash_sheet: feedback_sheet::CrashSheet,
+    /// Addresses noted in place of opening them, unless the app was
+    /// started with [`Boot::open_links`].
+    pub opened: Option<Vec<String>>,
     /// The adapter and backend drawing the window, once the system says.
     graphics: Option<(String, String)>,
     /// Whether the system was asked for [`App::graphics`].
@@ -494,6 +527,10 @@ pub struct Boot {
     /// these arguments after them: this program by default (tests name
     /// the built app and add `--quick`).
     pub bench_command: Option<(PathBuf, Vec<String>)>,
+    /// Links open in the browser. Off, they are noted in [`App::opened`]
+    /// instead, so a test never opens a browser; only the real app and
+    /// the driver's `--open-links` turn it on.
+    pub open_links: bool,
 }
 
 fn coverage() -> Box<dyn coldopen_layout::Coverage> {
@@ -575,6 +612,8 @@ impl App {
             export: None,
             sheet: None,
             about: about_sheet::AboutState::default(),
+            crash_sheet: feedback_sheet::CrashSheet::default(),
+            opened: (!boot.open_links).then(Vec::new),
             graphics: None,
             graphics_asked: false,
             bench_run: None,
@@ -612,6 +651,9 @@ impl App {
             }
         }
         app.editor.draft = app.settings.draft;
+        crate::crash::set_on(app.settings.crash_reports == crate::files::CrashReports::Ask);
+        crate::crash::set_renderer(app.renderer_label());
+        app.offer_crash_report();
         let _ = app.after_change(false);
         app
     }
@@ -1435,14 +1477,13 @@ impl App {
             }
             Message::CopyVersionInfo => self.copy_version_info(),
             Message::OpenLink(url) => {
-                if let Err(e) = crate::files::open_link(&url) {
-                    self.banners
-                        .push(format!("Couldn't open {url}: {e}").into());
-                }
+                self.open_address(url);
                 Task::none()
             }
+            Message::Feedback(input) => self.feedback(input),
             Message::SystemInfo(g) => {
                 self.graphics = g;
+                crate::crash::set_renderer(self.renderer_label());
                 Task::none()
             }
             Message::BenchStart | Message::BenchShow | Message::BenchClose => {
@@ -1887,7 +1928,10 @@ impl App {
             }
             return Task::none();
         }
-        if matches!(self.prompt, Some(Prompt::DeleteCopy(_))) {
+        if matches!(
+            self.prompt,
+            Some(Prompt::DeleteCopy(_) | Prompt::DeleteCrashReport(_) | Prompt::CrashTest)
+        ) {
             return if enter || ch == "d" {
                 self.reply(Reply::Save)
             } else if esc || ch == "c" {
@@ -1958,6 +2002,9 @@ impl App {
             return t;
         }
         if let Some(t) = self.bench_key(kp, enter, esc) {
+            return t;
+        }
+        if let Some(t) = self.feedback_key(kp, esc) {
             return t;
         }
         if let Some(sheet) = self.sheet {
@@ -2312,6 +2359,32 @@ impl App {
             }
             "app.bench" => {
                 self.bench_open();
+                scroll = false;
+            }
+            "app.user_guide" => {
+                self.open_address(crate::about::DOCS_URL.to_string());
+                scroll = false;
+            }
+            "app.report_problem" => {
+                self.palette = None;
+                self.sheet = Some(Sheet::ReportProblem);
+                return Task::batch([self.ask_graphics(), self.after_change(false)]);
+            }
+            "app.crash_reports" => {
+                self.palette = None;
+                self.crash_reports_open();
+                scroll = false;
+            }
+            "app.crash_reports_never" => {
+                return self.feedback(FeedbackInput::Never);
+            }
+            "app.crash_reports_toggle" => {
+                self.crash_reports_toggle();
+                scroll = false;
+            }
+            "app.crash_test" => {
+                self.palette = None;
+                self.prompt = Some(Prompt::CrashTest);
                 scroll = false;
             }
             "app.install_cli" => {
