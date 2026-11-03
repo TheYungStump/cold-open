@@ -4,7 +4,7 @@ For the project owner, on the Windows PC. About 40 minutes.
 
 **Before you start**
 
-- **The packages:** take them from the rehearsal draft release (GitHub ▸ Releases ▸ the draft "Rehearsal: Cold Open 0.1.0-alpha.2"), or from the PR's latest CI run (Summary ▸ Artifacts ▸ `packages-windows-x64`). Put them in `C:\ColdOpenTest\packages`, outside the repository.
+- **The packages:** take them from the PR's latest CI run (Summary ▸ Artifacts ▸ `packages-windows-x64`). Put them in `C:\ColdOpenTest\packages`, outside the repository. The rehearsal draft ("Rehearsal: Cold Open 0.1.0-alpha.2") was built from 128a74a, before the feedback form was wired in, so its app has no **Use the form** button: use the draft for §6 only.
 - **Scripts:** use copies in `C:\ColdOpenTest`, never the files in `corpus/`.
 - **The website:** if GitHub Pages isn't on yet, §1 uses the local preview instead: run `mdbook serve docs/guide`, or ask Claude to start it, and open <http://localhost:3000>.
 
@@ -33,7 +33,7 @@ Record each result as **pass** or **fail**, with what you saw. A screenshot help
 3. **The file details:** in `%LOCALAPPDATA%\Programs\Cold Open\bin`, right-click `coldopen.exe` ▸ Properties ▸ Details.
    - **Expected:** Product name "Cold Open", product version `0.1.0-alpha.2`. The same for `Cold Open.exe` one folder up.
 4. Palette (Ctrl+K) ▸ **About Cold Open and licenses**.
-   - **Expected:** "Cold Open 0.1.0-alpha.2", with the rehearsal's commit.
+   - **Expected:** "Cold Open 0.1.0-alpha.2", with the commit of the CI run you took the packages from.
 
 ## 3. The docs links in the app
 
