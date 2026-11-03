@@ -254,9 +254,13 @@ jobs:
         run: |
           npm install --no-save --no-package-lock --silent playwright@1.48.2 @axe-core/playwright@4.10.1
           npx playwright install --with-deps chromium >/dev/null
-          python -m http.server 8000 --bind 127.0.0.1 --directory docs/guide/book >/dev/null 2>&1 &
-          for _ in $(seq 1 50); do curl -fs http://127.0.0.1:8000/ >/dev/null && break; sleep 0.2; done
-          node tools/site_a11y.mjs http://127.0.0.1:8000/ docs/guide/book
+          # Served under /cold-open/, as GitHub Pages serves it: the 404
+          # page's <base href> (book.toml's site-url) points there.
+          mkdir -p _site
+          cp -r docs/guide/book _site/cold-open
+          python -m http.server 8000 --bind 127.0.0.1 --directory _site >/dev/null 2>&1 &
+          for _ in $(seq 1 50); do curl -fs http://127.0.0.1:8000/cold-open/ >/dev/null && break; sleep 0.2; done
+          node tools/site_a11y.mjs http://127.0.0.1:8000/cold-open/ docs/guide/book
 
   # Crash reports and Report a problem, end to end on Linux
   # (docs/specs/crash-reports.md §10; docs/specs/editor.md §23). A build made

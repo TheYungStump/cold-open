@@ -67,6 +67,7 @@ The README's code signing policy and privacy statement went first, in their own 
       - The sidebar toggle is a `<label>` that mdBook marks `aria-expanded`, which a label can't carry. The keyboard couldn't reach it either. `a11y.js` (formerly `skip-link.js`) makes it a button, focusable, that Enter and Space press.
       - The sidebar's links were 21 px tall; `coldopen.css` makes them at least 24 (WCAG 2.5.8).
       - The keyboard reference's wide table scrolled sideways with no way to reach it by keyboard. A wrapper that overflows now takes focus and is named after its heading.
+      - **The rerun (3132049) left 4 violations, all on `404.html`.** Its `<base href="/cold-open/">` (book.toml's `site-url`) points its CSS and scripts at `/cold-open/`, but CI served the site at `/`, so that one page loaded none of them. CI now serves the site under `/cold-open/`, as GitHub Pages does.
     - **The scrubber's property test** (Linux, `random_bytes_scrub_safely`) failed on a false alarm, not a leak. An unquoted `D ���` after the quoted `"D���"` reads `D���` once the NUL is taken out. The check now compares the text around a string as the scrubber leaves it (`crash::one_line`). The input is a regression test.
     - **macOS symbols:** Cargo leaves `coldopen-app.dSYM` in the release folder as a link into `deps/`, and `cp -R` copied the link. The upload then found only a dangling link. `package.sh` copies what it points at (`cp -RL`).
 
