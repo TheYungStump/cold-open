@@ -4,6 +4,8 @@ For the project owner (phase 6b). The form is how testers without a GitHub accou
 
 It takes about 15 minutes. When it's done, send back the two things in the last step, and I'll wire them into the app and the website.
 
+**Done 2026-11-03.** The form is wired into the app (`crates/app/src/feedback.rs`), the website's feedback page and the issue chooser. This page stays as the record of how it was made, and for making it again.
+
 ## 1. Use a project Google account
 
 Make the form from a Google account for the project, not your personal one: for example a new account named "Cold Open project". Respondents don't see the owner's address, but anything later shared from the form (a linked Sheet, a collaborator invite, an email notification forwarded) would show it. A separate account keeps your name out of all of it.

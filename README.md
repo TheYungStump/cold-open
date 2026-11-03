@@ -42,7 +42,7 @@ In practice:
 - **Links open in your browser,** and only when you click them.
 - **Measure performance** writes two report files to your Downloads folder. They leave your computer only if you send them.
 
-Two ways to tell us about a problem are coming in the next alpha, 0.1.0-alpha.2. Both send nothing by themselves:
+From 0.1.0-alpha.2, there are two ways to tell us about a problem from inside the app. Neither sends anything by itself:
 
 - **Report a problem…** opens a page in your browser, ready to fill in: a GitHub issue, or a Google Form for people without a GitHub account. The app fills in Cold Open's version and commit, the build's target, your operating system's name and version, and the renderer drawing the window. It adds no script text, no file names or paths, and no user or computer names. Nothing is sent until you submit the page yourself, and you can change it first.
 - **Crash reports.** If Cold Open crashes, it saves a report on your computer: the error's message with any quoted text taken out, where in Cold Open's code it happened, a backtrace as code addresses with no file paths, the version, the operating system and the renderer. It holds no script text, file names or user names. At the next start, Cold Open asks whether you want to look at it. It shows you the whole report before anything leaves your computer. Then it can open a ready-filled issue or form, or copy the report for you to paste. You can choose **Never ask again**.

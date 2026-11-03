@@ -9,9 +9,11 @@ use coldopen_core::crash::Report;
 /// New issues, by template.
 pub const ISSUES: &str = "https://github.com/TheYungStump/cold-open/issues/new";
 
-/// The Google Form's address (its `viewform` page), once the project
-/// makes it. Until then the form's buttons don't show.
-pub const FORM_URL: Option<&str> = None;
+/// The Google Form's address (its `viewform` page). `None` hides the
+/// form's buttons, for a build without a form.
+pub const FORM_URL: Option<&str> = Some(
+    "https://docs.google.com/forms/d/e/1FAIpQLSfuNuITmor09PTaR-_IX17x8w-yB3xDLDU9JgD6U3zyilyE7g/viewform",
+);
 
 /// The form's question ids, from its "Get pre-filled link" (`entry.<id>`).
 pub struct FormEntries {
@@ -23,14 +25,15 @@ pub struct FormEntries {
     pub report: &'static str,
 }
 
-/// Filled in with [`FORM_URL`].
+/// [`FORM_URL`]'s questions (2026-11-03). The kind's choices include
+/// "Bug" and "Crash", spelled as [`bug_form`] and [`crash_form`] send them.
 pub const FORM_ENTRIES: FormEntries = FormEntries {
-    kind: "",
-    details: "",
-    version: "",
-    os: "",
-    renderer: "",
-    report: "",
+    kind: "1518187895",
+    details: "1721458030",
+    version: "731550696",
+    os: "27572256",
+    renderer: "2093373239",
+    report: "485406472",
 };
 
 /// The longest address opened, which Windows' shell passes on whole
@@ -245,12 +248,37 @@ mod tests {
     }
 
     #[test]
-    fn no_form_until_its_address_is_set() {
-        if FORM_URL.is_none() {
-            assert!(bug_form(&details()).is_none());
-        } else {
-            let url = bug_form(&details()).unwrap();
-            assert!(url.len() <= URL_MAX && url.contains("usp=pp_url"));
-        }
+    fn the_form_holds_the_kind_and_details_and_nothing_else() {
+        let url = bug_form(&details()).expect("the form's address is set");
+        assert!(url.starts_with(&format!("{}?usp=pp_url&", FORM_URL.unwrap())));
+        assert!(url.contains("&entry.1518187895=Bug&"));
+        assert!(url.contains(
+            "&entry.731550696=0.1.0-alpha.2%20%285d6e764a1b2c%29%20%28x86_64-pc-windows-msvc%29"
+        ));
+        assert!(url.contains("&entry.27572256=Windows%2011%20Home%20%2826100%29"));
+        assert!(url.ends_with("&entry.2093373239=CPU"));
+        assert_eq!(url.matches('&').count(), 4, "{url}");
+        // What happened is the writer's to fill in.
+        assert!(!url.contains(&entry(FORM_ENTRIES.details)));
+    }
+
+    #[test]
+    fn the_crash_form_fits_with_a_long_message() {
+        let r = Report {
+            version: "0.1.0-alpha.2 (5d6e764a1b2c)".into(),
+            target: "x86_64-pc-windows-msvc".into(),
+            os: "Windows 11 Home (26100)".into(),
+            renderer: "CPU".into(),
+            location: "crates/app/src/editor/mod.rs:812:22".into(),
+            message: "é".repeat(coldopen_core::crash::MESSAGE_MAX),
+            frames: vec!["Cold Open.exe+0x1".into(); 100],
+            ..Report::default()
+        };
+        let url = crash_form(&r).expect("the form's address is set");
+        assert!(url.len() <= URL_MAX, "{}", url.len());
+        assert!(url.contains("&entry.1518187895=Crash&"));
+        assert!(url.contains("&entry.485406472="));
+        assert!(url.ends_with(&encode("…")), "the summary is cut");
+        assert!(!url.contains("Cold%20Open.exe%2B0x1"));
     }
 }

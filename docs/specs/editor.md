@@ -550,7 +550,7 @@ Added 2026-11-02 (phase 6b; `docs/specs/crash-reports.md`, `docs/specs/site.md`)
 
     No script text, no file names or paths, no user or computer names.
   - **Open a GitHub issue** (G), "needs a GitHub account": the bug template (`.github/ISSUE_TEMPLATE/bug.yml`), with those fields filled in from the address's query (each field by its `id`).
-  - **Use the form** (F), "no account needed": the project's Google Form, with the same fields filled in through its prefilled link. **Resolution:** the button shows only when the build names the form's address (`FORM_URL` in `crates/app/src/feedback.rs`), so a build made before the form exists never shows a dead button.
+  - **Use the form** (F), "no account needed": the project's Google Form, with the same fields filled in through its prefilled link. **Resolution:** the button shows only when the build names the form's address (`FORM_URL` in `crates/app/src/feedback.rs`), so a build made before the form exists never shows a dead button. The form exists from 2026-11-03.
   - **Copy the details** (C) puts the same lines on the clipboard, as About's "Copy version info" does.
   - **Close** (Esc).
 - **The user guide** (`app.user_guide`, "Open the user guide"; in the palette, in the About sheet's "User guide" row, and in the start screen's links) opens the website's guide (`site.md`) in the browser.

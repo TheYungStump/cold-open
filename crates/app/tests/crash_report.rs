@@ -310,6 +310,16 @@ fn the_crash_sheet_sends_by_the_browser_and_the_clipboard() {
     assert!(url.len() <= coldopen_app::feedback::URL_MAX);
     assert!(url.contains("&summary=boom%20at%20crates%2Fapp%2Fsrc%2Feditor%2Fmod.rs%3A812%3A22"));
     assert!(!url.contains("0x1a2b"), "frames go by the clipboard");
+    // The form, for people without a GitHub account: the same lines.
+    let _ = a.update(Message::Feedback(FeedbackInput::SendForm));
+    let opened = a.opened.clone().unwrap();
+    assert_eq!(opened.len(), 2);
+    let url = &opened[1];
+    assert!(url.starts_with("https://docs.google.com/forms/d/e/"));
+    assert!(url.len() <= coldopen_app::feedback::URL_MAX);
+    assert!(url.contains("=Crash&"));
+    assert!(url.ends_with("=boom%20at%20crates%2Fapp%2Fsrc%2Feditor%2Fmod.rs%3A812%3A22"));
+    assert!(!url.contains("0x1a2b"), "frames go by the clipboard");
     // Older, then delete it: the newer one is left.
     let _ = a.update(Message::Feedback(FeedbackInput::Older));
     let _ = a.update(Message::Feedback(FeedbackInput::Delete));
@@ -339,6 +349,15 @@ fn report_a_problem_fills_in_the_details_only() {
     }
     assert_eq!(url.matches('&').count(), 3, "{url}");
     assert_private(&url.replace("%20", " "), home);
+    // The form: the kind and the same details.
+    let _ = a.update(Message::Action("app.report_problem".into()));
+    let _ = a.update(Message::Feedback(FeedbackInput::Form));
+    assert_eq!(a.sheet, None);
+    let url = a.opened.as_ref().unwrap().last().unwrap().clone();
+    assert!(url.starts_with("https://docs.google.com/forms/d/e/"));
+    assert!(url.contains("=Bug&"));
+    assert_eq!(url.matches('&').count(), 4, "{url}");
+    assert_private(&url.replace("%20", " "), home);
     // The user guide opens the site's guide.
     let _ = a.update(Message::Action("app.user_guide".into()));
     assert_eq!(
@@ -359,18 +378,24 @@ fn the_sheets_answer_their_keys() {
     h.run(vec![Message::Action("app.report_problem".into())]);
     h.type_text("g");
     assert_eq!(h.app.sheet, None, "G opened the issue and closed the sheet");
+    h.run(vec![Message::Action("app.report_problem".into())]);
+    h.type_text("f");
+    assert_eq!(h.app.sheet, None, "F opened the form and closed the sheet");
     h.run(vec![Message::Action("app.crash_reports".into())]);
     assert_eq!(h.app.sheet, Some(Sheet::CrashReport));
     h.type_text("g");
+    h.type_text("f");
     h.named(
         iced::keyboard::key::Named::Escape,
         iced::keyboard::Modifiers::empty(),
     );
     assert_eq!(h.app.sheet, None);
     let opened = h.app.opened.clone().unwrap();
-    assert_eq!(opened.len(), 2, "{opened:?}");
+    assert_eq!(opened.len(), 4, "{opened:?}");
     assert!(opened[0].contains("template=bug.yml"));
-    assert!(opened[1].contains("template=crash.yml"));
+    assert!(opened[1].contains("=Bug&"));
+    assert!(opened[2].contains("template=crash.yml"));
+    assert!(opened[3].contains("=Crash&"));
     // Crash on purpose asks first, and Esc keeps the app running.
     h.run(vec![Message::Action("app.crash_test".into())]);
     assert!(matches!(

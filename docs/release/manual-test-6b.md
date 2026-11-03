@@ -49,7 +49,7 @@ Record each result as **pass** or **fail**, with what you saw. A screenshot help
 ## 4. Report a problem
 
 1. Palette ▸ **Report a problem…**.
-2. **Expected:** a sheet showing the version and commit, target, OS and renderer, and saying nothing is sent until you submit. No script text, no paths, no names. **Use the form** isn't shown until the form exists.
+2. **Expected:** a sheet showing the version and commit, target, OS and renderer, and saying nothing is sent until you submit. No script text, no paths, no names. The buttons are **Open a GitHub issue**, **Use the form (no account)**, **Copy the details** and **Close**.
 3. Press **C**.
    - **Expected:** "The details were copied." Paste into Notepad: the four lines, nothing else.
 4. Open it again and press **G**.
@@ -57,6 +57,10 @@ Record each result as **pass** or **fail**, with what you saw. A screenshot help
 5. **Submit a test issue** (this is the end-to-end check): title it "Test: Report a problem (please ignore)", write "Manual test of 6b" in What happened, tick the box and submit.
    - **Expected:** the issue appears, and holds no script text, no path and no name beyond what you typed.
    - Close it afterwards.
+6. Open it again and press **F**, in a private browser window if you can, signed out of Google.
+   - **Expected:** the feedback form, with **Bug** chosen and Version, Operating System and Renderer filled in. It doesn't ask you to sign in.
+7. **Submit a test answer:** write "Manual test of 6b" in What happened and submit.
+   - **Expected:** it appears under the form's Responses, holding only what the page showed. Delete it afterwards (Responses ▸ ⋮ ▸ Delete all responses).
 
 ## 5. A crash report
 
@@ -81,13 +85,15 @@ Record each result as **pass** or **fail**, with what you saw. A screenshot help
    - **Expected:** "The whole report is on your clipboard…" and a new issue from the crash template, with Version, OS, Renderer and "Where it crashed" filled in.
 7. Paste the report into "The whole report" and submit, titled "Test: crash report (please ignore)".
    - **Expected:** the issue holds the report, and nothing private. Close it afterwards.
-8. Back in Cold Open: **Look at crash reports** in the palette, then **Delete** and Enter.
+8. Back in Cold Open, press **F** (Send with the form).
+   - **Expected:** the form, with **Crash** chosen, the details filled in, and the crash report box holding the one-line summary. Paste the whole report over it, write "Manual test of 6b" in What happened, and submit. Delete the response afterwards, as in §4.
+9. Close the sheet, then palette ▸ **Look at crash reports**, then **Delete** and Enter.
    - **Expected:** the report goes.
-9. Crash on purpose again, start again, and click **Never ask again** on the notice.
-   - **Expected:** "Crash reports are off…".
-10. Crash on purpose once more and start again.
+10. Crash on purpose again, start again, and click **Never ask again** on the notice.
+    - **Expected:** "Crash reports are off…".
+11. Crash on purpose once more and start again.
     - **Expected:** no notice, and Look at crash reports shows nothing new.
-11. Turn them back on: palette ▸ **Turn crash reports on or off**.
+12. Turn them back on: palette ▸ **Turn crash reports on or off**.
     - **Expected:** "Crash reports are on…".
 
 ## 6. The rehearsal release

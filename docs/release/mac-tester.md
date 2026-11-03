@@ -52,6 +52,7 @@ This checks that a crash loses nothing, and that the report Cold Open saves hold
 
 1. Press **⌘K**, type **report**, and choose **Report a problem…**.
 2. The sheet lists the version, your macOS, and the renderer, and nothing else. Press **G**. Your browser should open a GitHub page with those filled in. You don't need to submit it: just say whether it opened, and close it.
+3. Open **Report a problem…** again and press **F**. A feedback form should open, with **Bug** chosen and the same details filled in. Again, just say whether it did.
 
 ## 7. Send the files
 

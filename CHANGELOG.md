@@ -8,7 +8,7 @@ The alpha we're inviting testers to.
 
 **Added**
 
-- **Report a problem…** (palette, About, start screen). It opens a prefilled GitHub issue in the browser with the version, commit, OS and renderer only. A form for people without a GitHub account follows once it's set up.
+- **Report a problem…** (palette, About, start screen). It opens a prefilled GitHub issue in the browser, or the feedback form for people without a GitHub account, with the version, commit, OS and renderer only.
 - **Opt-in crash reports.**
   - A crash leaves a local report with no script text, file names or user names, and the next start offers it once.
   - Sending shows the whole report first, then opens a prefilled issue and copies the report to paste.
