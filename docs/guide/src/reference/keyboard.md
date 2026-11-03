@@ -62,6 +62,9 @@ The keys that move the caret and edit text (the arrows, Home, End, Page Up and D
 | Zoom in | `view.zoom_in` | `Ctrl+=` | `Cmd+=` |
 | Zoom out | `view.zoom_out` | `Ctrl+-` | `Cmd+-` |
 | Actual size | `view.zoom_reset` | `Ctrl+0` | `Cmd+0` |
+| Make the interface larger | `view.interface_larger` | — | — |
+| Make the interface smaller | `view.interface_smaller` | — | — |
+| Interface at normal size | `view.interface_reset` | — | — |
 | Toggle the draft view | `view.draft` | `Ctrl+Shift+D` | `Shift+Cmd+D` |
 | Show or hide the navigator | `view.navigator` | `Ctrl+\` | `Cmd+\` |
 | Focus mode | `view.focus` | `Ctrl+Shift+F` | `Shift+Cmd+F` |

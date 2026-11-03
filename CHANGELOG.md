@@ -15,6 +15,7 @@ The alpha we're inviting testers to.
   - **Never ask again**, and **Turn crash reports on or off** in the palette.
 - **Crash on purpose (to test recovery)** in the palette.
 - **Open the user guide** (palette, About, start screen).
+- **Interface size** (palette): **Make the interface larger**, **smaller**, and **Interface at normal size**, from 100% to 200%, kept in the settings.
 - **The website and user guide** (<https://theyungstump.github.io/cold-open/>):
   - install notes for each system;
   - getting started, a Fountain primer, every feature, recovery, AI agents, known limitations and a FAQ;
@@ -28,6 +29,9 @@ The alpha we're inviting testers to.
 
 **Fixed**
 
+- On Windows, links that open a prefilled page, such as Report a problem's, opened the Documents folder instead of the browser.
+- Report a problem's **Close** button ran out of its box.
+- "Crash on purpose?", and two error messages (a script in a folder that can't be written, and `coldopen bench` without the app), had a run of spaces in the middle of a sentence.
 - A test of the journal's restart could fail when a kill landed just after a typed space. Recovery was right; the test read the script through the export, which trims trailing spaces.
 
 **Project**

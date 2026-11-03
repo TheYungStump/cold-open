@@ -510,7 +510,8 @@ fn eighths(n: u64) -> String {
 /// §2), with its output here.
 fn bench(out: Option<&Path>, quick: bool) -> Result<ExitCode, String> {
     let app = find_app().ok_or(
-        "the desktop app was not found next to this command; run the bench from the app          instead (Measure performance in the palette), or with coldopen-app --bench",
+        "the desktop app was not found next to this command; run the bench from the app \
+         instead (Measure performance in the palette), or with coldopen-app --bench",
     )?;
     let mut cmd = std::process::Command::new(&app);
     cmd.arg("--bench");

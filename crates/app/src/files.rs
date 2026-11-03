@@ -124,6 +124,9 @@ pub struct Settings {
     /// Whether a crash writes a report and the next start offers it
     /// (docs/specs/crash-reports.md §8).
     pub crash_reports: CrashReports,
+    /// The whole window's size, in percent, on top of the operating
+    /// system's scale (editor.md §3).
+    pub interface_size: u32,
 }
 
 /// `crash_reports` in `settings.json`.
@@ -148,12 +151,16 @@ impl Default for Settings {
             author_name: None,
             changes_panel: false,
             crash_reports: CrashReports::Ask,
+            interface_size: 100,
         }
     }
 }
 
 /// The zoom steps, in percent (editor.md §3).
 pub const ZOOMS: [u32; 12] = [50, 67, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300];
+
+/// The interface size steps, in percent (editor.md §3).
+pub const INTERFACE_SIZES: [u32; 6] = [100, 110, 125, 150, 175, 200];
 
 impl Settings {
     /// Reads `settings.json`; a missing or broken file gives the defaults
@@ -165,6 +172,10 @@ impl Settings {
             Ok(t) => match serde_json::from_str::<Settings>(&t) {
                 Ok(mut s) => {
                     s.zoom = s.zoom.clamp(0.5, 3.0);
+                    s.interface_size = s.interface_size.clamp(
+                        INTERFACE_SIZES[0],
+                        INTERFACE_SIZES[INTERFACE_SIZES.len() - 1],
+                    );
                     s.recent.truncate(10);
                     (s, None)
                 }
@@ -199,6 +210,17 @@ impl Settings {
             .unwrap_or(ZOOMS.len() - 1) as i32;
         let j = (i + delta).clamp(0, ZOOMS.len() as i32 - 1) as usize;
         self.zoom = ZOOMS[j] as f32 / 100.0;
+    }
+
+    /// The next interface size up (`delta` 1) or down (-1), from the step
+    /// at or above the current one.
+    pub fn interface_step(&mut self, delta: i32) {
+        let i = INTERFACE_SIZES
+            .iter()
+            .position(|&z| z >= self.interface_size)
+            .unwrap_or(INTERFACE_SIZES.len() - 1) as i32;
+        let j = (i + delta).clamp(0, INTERFACE_SIZES.len() as i32 - 1) as usize;
+        self.interface_size = INTERFACE_SIZES[j];
     }
 }
 
@@ -370,11 +392,55 @@ impl Dialogs {
 /// Opens a web address in the system's browser (editor.md §22), or a
 /// folder in its file manager.
 pub fn open_link(target: &str) -> std::io::Result<()> {
-    let mut cmd = if cfg!(windows) {
-        let mut c = std::process::Command::new("explorer");
-        c.arg(target);
-        c
-    } else if cfg!(target_os = "macos") {
+    #[cfg(windows)]
+    {
+        shell_open(target)
+    }
+    #[cfg(not(windows))]
+    {
+        open_with_command(target)
+    }
+}
+
+/// The shell's own "open", as a double-click does. `explorer <address>`
+/// opened the Documents folder instead of the browser for the prefilled
+/// issue and form addresses (the 2026-11-03 manual test).
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn shell_open(target: &str) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    let wide = |s: &std::ffi::OsStr| s.encode_wide().chain([0]).collect::<Vec<u16>>();
+    let verb = wide("open".as_ref());
+    let file = wide(target.as_ref());
+    // SW_SHOWNORMAL.
+    const SHOW: i32 = 1;
+    // SAFETY: both strings end in a NUL and outlive the call; the rest
+    // are null, which the call allows.
+    let h = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SHOW,
+        )
+    };
+    // Above 32 is success; anything else is an error code.
+    if h as usize > 32 {
+        Ok(())
+    } else {
+        Err(std::io::Error::other(format!(
+            "Windows couldn't open it (error {})",
+            h as usize
+        )))
+    }
+}
+
+#[cfg(not(windows))]
+fn open_with_command(target: &str) -> std::io::Result<()> {
+    let mut cmd = if cfg!(target_os = "macos") {
         let mut c = std::process::Command::new("open");
         c.arg(target);
         c
@@ -383,8 +449,7 @@ pub fn open_link(target: &str) -> std::io::Result<()> {
         c.arg(target);
         c
     };
-    // Explorer exits with 1 even when it opened the page, so only a
-    // failure to start counts.
+    // Only a failure to start counts: the opener isn't waited for.
     cmd.spawn().map(|_| ())
 }
 
@@ -567,6 +632,37 @@ mod tests {
             s.zoom_step(1);
         }
         assert_eq!(s.zoom, 3.0);
+    }
+
+    #[test]
+    fn interface_size_steps_and_stays_in_range() {
+        let mut s = Settings::default();
+        assert_eq!(s.interface_size, 100);
+        s.interface_step(-1);
+        assert_eq!(s.interface_size, 100);
+        s.interface_step(1);
+        s.interface_step(1);
+        assert_eq!(s.interface_size, 125);
+        for _ in 0..10 {
+            s.interface_step(1);
+        }
+        assert_eq!(s.interface_size, 200);
+        // A size typed into settings.json between steps goes to a step.
+        s.interface_size = 130;
+        s.interface_step(-1);
+        assert_eq!(s.interface_size, 125);
+
+        let tmp = tempfile::tempdir().unwrap();
+        let dirs = Dirs::under(tmp.path());
+        std::fs::create_dir_all(&dirs.config).unwrap();
+        for (written, read) in [(900, 200), (10, 100)] {
+            std::fs::write(
+                dirs.config.join("settings.json"),
+                format!(r#"{{"interface_size": {written}}}"#),
+            )
+            .unwrap();
+            assert_eq!(Settings::load(&dirs).0.interface_size, read);
+        }
     }
 }
 

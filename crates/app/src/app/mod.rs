@@ -55,6 +55,8 @@ use crate::theme::{Choice, Palette};
 const PAGES: &str = "pages";
 const FIND: &str = "find";
 const PALETTE: &str = "palette";
+/// The card a sheet or question is drawn in, for tests of its layout.
+pub const CARD: &str = "card";
 const EXPORT: &str = "export";
 
 /// Who has keyboard focus.
@@ -725,6 +727,16 @@ impl App {
 
     fn palette_colors(&self) -> Palette {
         Palette::of(self.settings.theme, self.system_dark)
+    }
+
+    /// The interface size, on top of the system's scale (editor.md §3).
+    /// A benchmark always runs at 100%, so its budgets mean the same on
+    /// every computer.
+    pub fn scale_factor(&self) -> f32 {
+        if self.bench.is_some() {
+            return 1.0;
+        }
+        self.settings.interface_size as f32 / 100.0
     }
 
     pub fn theme(&self) -> Theme {
@@ -2503,6 +2515,16 @@ impl App {
                 return self.zoom_to(s.zoom);
             }
             "view.zoom_reset" => return self.zoom_to(1.0),
+            "view.interface_larger" | "view.interface_smaller" | "view.interface_reset" => {
+                match name {
+                    "view.interface_larger" => self.settings.interface_step(1),
+                    "view.interface_smaller" => self.settings.interface_step(-1),
+                    _ => self.settings.interface_size = 100,
+                }
+                self.save_settings();
+                self.banners
+                    .push(format!("Interface size: {}%.", self.settings.interface_size).into());
+            }
             "view.draft" => {
                 self.settings.draft = !self.settings.draft;
                 self.editor.draft = self.settings.draft;

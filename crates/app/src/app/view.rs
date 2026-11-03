@@ -319,10 +319,13 @@ impl App {
         } else {
             if matches!(self.sheet, Some(Sheet::About | Sheet::CrashReport)) {
                 width = 760.0;
+            } else if self.sheet == Some(Sheet::ReportProblem) {
+                width = 640.0;
             }
             self.sheet_view(pal, self.sheet?)
         };
         let card = container(content)
+            .id(super::CARD)
             .padding(18)
             .width(Length::Fixed(width))
             .style(move |_| container::Style {
@@ -513,7 +516,8 @@ impl App {
                 title(pal, "Crash on purpose?"),
                 body(
                     pal,
-                    "Cold Open will close at once, as if it crashed. Everything you've typed                      is in the crash journal and comes back at the next start. Crash now?"
+                    "Cold Open will close at once, as if it crashed. Everything you've typed \
+                     is in the crash journal and comes back at the next start. Crash now?"
                 ),
                 row![
                     dialog_button("Crash now", Message::Reply(Reply::Save), true),

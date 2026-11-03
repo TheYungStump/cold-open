@@ -221,6 +221,18 @@ pub const APP_ACTIONS: &[ActionInfo] = &[
         title: "Actual size",
     },
     ActionInfo {
+        name: "view.interface_larger",
+        title: "Make the interface larger",
+    },
+    ActionInfo {
+        name: "view.interface_smaller",
+        title: "Make the interface smaller",
+    },
+    ActionInfo {
+        name: "view.interface_reset",
+        title: "Interface at normal size",
+    },
+    ActionInfo {
         name: "view.draft",
         title: "Toggle the draft view",
     },

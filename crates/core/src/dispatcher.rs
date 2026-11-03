@@ -429,9 +429,12 @@ fn folder_read_only(path: &Path) -> CommandError {
     CommandError::new(
         "folder_read_only",
         format!(
-            "{} can't be written, so {} has no crash journal there and was not opened;              copy it to a folder you can write to, or open it in the Cold Open app,              which opens a copy",
+            "{} can't be written, so {} has no crash journal there and was not opened; \
+             copy it to a folder you can write to, or open it in the Cold Open app, \
+             which opens a copy",
             folder.display(),
-            path.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+            path.file_name()
+                .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
         ),
     )
     .with_details(json!({ "path": path.display().to_string() }))

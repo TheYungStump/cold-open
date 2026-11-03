@@ -101,13 +101,19 @@ The README's code signing policy and privacy statement went first, in their own 
     - **They point at the GPU path.** At least 7 of the 120 frames took over 20 ms while most took about 6. The CPU renderer scrolled the same view steadily (p95 8.7 ms, median 8.1). CI's virtual Mac showed the same pattern on 6a (median 4.1 ms, p95 19.4 ms), so it can be reproduced there.
     - **It's a fix of its own,** on its own branch: find which frames are slow and why, then fix it. It's outside this PR.
     - **`v0.1.0-alpha.1` is tagged anyway** (2026-11-03, the owner's go-ahead), on `main` at c46d068, with this miss added to its known issues. It's the quiet release the SignPath application needs, and the fix can be in alpha.2 before the announcement.
+29. **The owner's manual test, first pass** (2026-11-03, packages from CI run 41661443732 on 5af0e27). §1 the website: pass. §2 and §3: no faults reported. §4 and §5 found four faults, all fixed:
+    - **G and F opened the Documents folder, not the browser,** on Windows. `explorer <address>` handled the About sheet's short links, but not the prefilled issue and form addresses. Links now open through `ShellExecuteW`, the shell's own "open", as the `open` and `opener` crates do. That needs `windows-sys`'s `Win32_UI_Shell` feature, which adds no crate. The bench sheet's folder link goes the same way. Tests never open links (decision 7), so this needs the owner's retest.
+    - **Report a problem's Close button ran out of the box.** The four buttons need about 545 pixels and the card was 520. The card is 640 now, and both feedback sheets' button rows wrap to a second line if they ever run out of room.
+    - **"Crash on purpose?" had a gap in its sentence.** The string was broken across two lines without a `\`, so the second line's indent was part of it. A search found the same in two error messages (`folder_read_only` in the dispatcher, and `coldopen bench` without the app), now fixed too.
+    - **A new test, `crates/app/tests/sheet_layout.rs`,** opens every question and sheet and fails when text runs past its card, is squeezed narrower than its longest word (how the Close button failed: a squeezed button draws its label past itself), or has a run of spaces mid-line. It failed on Report a problem before the fix.
+30. **Interface size** (2026-11-03, the owner's suggestion that dialog text is small). The palette's **Make the interface larger**, **smaller** and **Interface at normal size** step through 100 to 200%, kept in `settings.json`. It's iced's `scale_factor`, so it scales the whole window like the system's own scale, the pages included. Scaling only the interface's text would mean a size on every one of its few hundred text calls, and the page has its own zoom. No keys: Ctrl+Shift+= types `+` on many layouts. A benchmark always runs at 100%. Specified in `editor.md` §3.
 
 ## New dependencies
 
 | Dependency | Where | Why | License |
 | --- | --- | --- | --- |
 | `backtrace` 0.3.76, with `addr2line`, `gimli`, `object` and `rustc-demangle` | app | A panic's return addresses. Only the unwinder is called; LTO drops the symbolizer | MIT OR Apache-2.0 |
-| `libc` (Unix), `windows-sys` 0.61 (Windows), named directly | app | Which module holds each frame. Both already in the tree | MIT OR Apache-2.0 |
+| `libc` (Unix), `windows-sys` 0.61 (Windows), named directly | app | Which module holds each frame. Both already in the tree. `windows-sys` also has `Win32_UI_Shell` since decision 29, for `ShellExecuteW` | MIT OR Apache-2.0 |
 | mdBook 0.5.4 (CI tool; the release binary, checked by SHA-256) | the website | Builds the site from `docs/guide` | MPL-2.0 |
 | Playwright 1.48.2 and @axe-core/playwright 4.10.1 (CI only, npm) | the `site` job | Accessibility of every page in light and dark mode | Apache-2.0; MPL-2.0 |
 | PyYAML 6.0.2 (CI only) | the `site` job | Checks the issue and discussion templates parse | MIT |
@@ -148,7 +154,7 @@ The README's code signing policy and privacy statement went first, in their own 
 
 **For the project owner:**
 
-1. **The manual test** in `docs/release/manual-test-6b.md`, about 40 minutes, with the PR's CI packages, once CI and the fuzz rerun are green.
+1. **The manual test** in `docs/release/manual-test-6b.md`. §1 passed. Next, with packages from CI on the fixes (decision 29): §3 steps 5 and 6 (interface size), §4 from step 2, all of §5, and §6.
 2. **Make the "Alpha testing" Discussions category** on the web page (decision 27), and remove General, Polls and Show and tell if they aren't wanted. Pages and Discussions are on, and two-factor sign-in is confirmed.
 3. **Send the Mac tester** the updated `docs/release/mac-tester.md`.
 4. **`v0.1.0-alpha.1` is tagged** (decision 28). Next: OK the Code signing policy and Privacy line in its notes, then send the SignPath application.

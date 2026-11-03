@@ -109,7 +109,7 @@ backtrace = "0.3.76"
 # The module that holds each frame, for its offset: dladdr on Linux and
 # macOS, GetModuleHandleExW on Windows. Both already in the tree.
 libc = "0.2"
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_UI_Shell"] }
 
 # Dev-only.
 proptest = "1.5"

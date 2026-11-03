@@ -45,11 +45,15 @@ Record each result as **pass** or **fail**, with what you saw. A screenshot help
    - **Expected:** the row shows **Source code**, **User guide**, **Report a problem…** and **Copy version info**, and each does what it says.
 4. Palette ▸ "Open the user guide".
    - **Expected:** the same page as step 2.
+5. Palette ▸ **Make the interface larger**, twice.
+   - **Expected:** "Interface size: 125%." The whole window grows: menus, dialogs and the page. Open Report a problem: everything is still inside its box.
+6. Close and start Cold Open again.
+   - **Expected:** still at 125%. Palette ▸ **Interface at normal size** brings it back to 100%.
 
 ## 4. Report a problem
 
 1. Palette ▸ **Report a problem…**.
-2. **Expected:** a sheet showing the version and commit, target, OS and renderer, and saying nothing is sent until you submit. No script text, no paths, no names. The buttons are **Open a GitHub issue**, **Use the form (no account)**, **Copy the details** and **Close**.
+2. **Expected:** a sheet showing the version and commit, target, OS and renderer, and saying nothing is sent until you submit. No script text, no paths, no names. The buttons are **Open a GitHub issue**, **Use the form (no account)**, **Copy the details** and **Close**, all inside the box (Close ran out of it before 2026-11-03).
 3. Press **C**.
    - **Expected:** "The details were copied." Paste into Notepad: the four lines, nothing else.
 4. Open it again and press **G**.
@@ -66,7 +70,7 @@ Record each result as **pass** or **fail**, with what you saw. A screenshot help
 
 1. Open a copy of a script, or start a new one, and type a line with a word you'd recognise, such as "Zorvanta".
 2. Palette ▸ **Crash on purpose (to test recovery)**.
-   - **Expected:** a question saying Cold Open will close at once. **Esc** cancels and nothing happens.
+   - **Expected:** a question saying Cold Open will close at once, as one sentence with no gap in it. **Esc** cancels and nothing happens.
 3. Do it again and press **Enter**.
    - **Expected:** Cold Open closes at once.
 4. Start Cold Open again and open the script (from the recent files, or the bar offering unsaved work).
@@ -98,7 +102,7 @@ Record each result as **pass** or **fail**, with what you saw. A screenshot help
 
 ## 6. The rehearsal release
 
-In the draft release:
+In the draft release (just its page, and one download to check: don't install from it):
 
 - **Expected:**
   - every package from 6a, now named `0.1.0-alpha.2`;

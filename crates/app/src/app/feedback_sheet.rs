@@ -310,7 +310,9 @@ impl App {
                 pal,
                 "No script text, no file names or paths, and no user or computer names."
             ),
-            buttons,
+            // On a second line rather than past the card, if it ever
+            // runs out of room.
+            buttons.wrap().vertical_spacing(8),
             hint(pal, format!("{keys}  ·  C: copy  ·  Esc: close")),
         ]
         .spacing(10)
@@ -399,7 +401,7 @@ impl App {
             .width(Length::Fill)
             .height(Length::Fixed(300.0)),
             nav,
-            buttons,
+            buttons.wrap().vertical_spacing(8),
             hint(
                 pal,
                 "Sending copies the whole report and opens a page to paste it into. Nothing is \

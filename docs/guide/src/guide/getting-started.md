@@ -88,6 +88,7 @@ Shift with any of these selects. A double click selects a word, a triple click a
 
 - **Page view** shows the pages as they print. **Draft view** (Mod+Shift+D) is one long column with no page breaks, which also shows sections and synopses as grey lines.
 - **Zoom:** Mod+= and Mod+- (Mod+0 for 100%). A page always fits the window's width.
+- **Interface size:** if the text in dialogs and panels is too small, "Make the interface larger" in the palette makes the whole window bigger, up to 200%. "Make the interface smaller" and "Interface at normal size" take it back.
 - **Focus mode** (Mod+Shift+F) hides everything but the page.
 - **Themes:** light, dark and high contrast, in the palette. The default follows your system.
 - **The renderer:** Cold Open draws with the CPU on Windows and Linux, and with the GPU on macOS. The GPU is smoother on 4K and Retina screens; the CPU uses less memory. "Draw with the GPU" and "Draw with the CPU" in the palette switch, from the next start.

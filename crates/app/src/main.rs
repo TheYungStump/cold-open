@@ -72,6 +72,7 @@ fn app() -> iced::Result {
     iced::application(move || App::boot(boot.clone()), App::update, App::view)
         .title(App::title)
         .theme(App::theme)
+        .scale_factor(App::scale_factor)
         .subscription(App::subscription)
         .settings(coldopen_app::app::iced_settings())
         .window(window)
