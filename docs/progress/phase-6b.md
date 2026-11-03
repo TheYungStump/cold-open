@@ -29,7 +29,7 @@ The README's code signing policy and privacy statement went first, in their own 
 | 7 | User docs, and the generated CLI, command and keyboard references | done |
 | 8 | The website: mdBook, Pages, link and accessibility checks | built and checked here; the first deploy waits for Pages to be turned on |
 | 9 | Tester guide, "what feedback helps", announcement drafts | done: `docs/release/announcements/`; the form's setup is `docs/release/google-form-setup.md` |
-| 10 | Changelog, alpha.2 notes, version bump, rehearsal | |
+| 10 | Changelog, alpha.2 notes, version bump, rehearsal | changelog, notes and bump done; rehearsal next |
 | 11 | Final checks, the manual test list, this report | |
 
 ## Decisions from the project owner (2026-11-02, before the phase)

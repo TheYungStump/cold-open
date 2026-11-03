@@ -2,7 +2,7 @@
 
 Cold Open is a free, open-source screenwriting app. It reads and writes Fountain and Final Draft (.fdx) files and never loses your work. Every action is a command, and you can drive it from the desktop app, the command line, JSON over stdio, or an MCP server.
 
-**Status:** alpha. Phases 1 to 5 built the editor, the command line, the MCP server, .fdx exchange, track changes, revisions, script diff and reports; phase 6a makes the builds a writer installs. See [`docs/spec.md`](docs/spec.md) for the plan and [`docs/progress/`](docs/progress/) for each phase.
+**Status:** alpha, and looking for testers. Phases 1 to 5 built the editor, the command line, the MCP server, .fdx exchange, track changes, revisions, script diff and reports; phase 6a made the builds a writer installs, and 6b the user guide, feedback and crash reports. The website, <https://theyungstump.github.io/cold-open/>, has the [user guide](https://theyungstump.github.io/cold-open/guide/) and [how to join the alpha](https://theyungstump.github.io/cold-open/alpha/join.html). See [`docs/spec.md`](docs/spec.md) for the plan, [`docs/progress/`](docs/progress/) for each phase and [`CHANGELOG.md`](CHANGELOG.md) for each release.
 
 ## Install
 
