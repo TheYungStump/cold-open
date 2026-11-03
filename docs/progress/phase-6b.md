@@ -92,6 +92,14 @@ The README's code signing policy and privacy statement went first, in their own 
     - This covers decision 19's find too, so the two special cases it replaced are gone.
     - The input is a regression test in `crates/core/tests/crash.rs`.
     - The other 12 targets ran ten minutes each with no finds.
+27. **GitHub settings** (2026-11-03, the owner's go-ahead):
+    - **Pages is on,** built by GitHub Actions. Only `main` may deploy, so the site goes live when this PR merges. After that, every push to `main` redeploys it, so styling can change at any time.
+    - **Discussions is on.** GitHub made Announcements, Q&A and Ideas (as planned), and also General, Polls and Show and tell. "Alpha testing" can only be made on the web page. Its slug must be `alpha-testing` to match `.github/DISCUSSION_TEMPLATE/alpha-testing.yml`.
+    - **The owner confirmed two-factor sign-in on GitHub,** as the code signing policy says, and fixed the form's typo.
+28. **The Mac tester's rerun on a5d157d missed the report view's scrolling again** (2026-11-03, `docs/progress/phase-6a-bench/…20261103-042802`).
+    - **The numbers:** p95 20.3 ms against 16, with a median of 5.9 ms on Metal. On b901828 it was p95 16.3 ms. Every other budget passed: keystroke p95 10.5 ms, page scrolling 14.3 ms, memory 137 MiB.
+    - **They point at the GPU path.** At least 7 of the 120 frames took over 20 ms while most took about 6. The CPU renderer scrolled the same view steadily (p95 8.7 ms, median 8.1). CI's virtual Mac showed the same pattern on 6a (median 4.1 ms, p95 19.4 ms), so it can be reproduced there.
+    - **It's a fix of its own,** on its own branch: find which frames are slow and why, then fix it. It's outside this PR, and its result decides when to tag `v0.1.0-alpha.1`.
 
 ## New dependencies
 
@@ -138,14 +146,12 @@ The README's code signing policy and privacy statement went first, in their own 
 
 **For the project owner:**
 
-1. **The manual test** in `docs/release/manual-test-6b.md`, about 40 minutes, from the rehearsal draft.
-2. **Turn on GitHub Pages** (Settings ▸ Pages ▸ Source: GitHub Actions) **and Discussions,** and make the four categories: Announcements, Alpha testing, Q&A and Ideas. Or tell me to turn the two on with `gh`; the categories can only be made on the web page.
-3. **Confirm two-factor sign-in is on for GitHub.** The code signing policy says every team member uses it.
-4. **Fix the form's typo** (decision 25), if you like.
-5. **Send the Mac tester** the updated `docs/release/mac-tester.md`.
-6. **Tag `v0.1.0-alpha.1`** once the Mac rerun is recorded. Then OK the line added to its notes, and send the SignPath application.
-7. **Merge #21, then tag `v0.1.0-alpha.2`.** Each needs your go-ahead. After that, the rehearsal branches and drafts can go, when you say so.
-8. **The announcements** are drafts for you to read and post (`docs/release/announcements/`). I never post them.
+1. **The manual test** in `docs/release/manual-test-6b.md`, about 40 minutes, with the PR's CI packages, once CI and the fuzz rerun are green.
+2. **Make the "Alpha testing" Discussions category** on the web page (decision 27), and remove General, Polls and Show and tell if they aren't wanted. Pages and Discussions are on, and two-factor sign-in is confirmed.
+3. **Send the Mac tester** the updated `docs/release/mac-tester.md`.
+4. **Decide when to tag `v0.1.0-alpha.1`,** given the Mac's report scrolling miss (decision 28). Then OK the line added to its notes, and send the SignPath application.
+5. **Merge #21, then tag `v0.1.0-alpha.2`.** Each needs your go-ahead. After that, the rehearsal branches and drafts can go, when you say so.
+6. **The announcements** are drafts for you to read and post (`docs/release/announcements/`). I never post them.
 
 **Deferred:**
 

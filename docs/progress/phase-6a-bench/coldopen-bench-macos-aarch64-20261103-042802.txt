@@ -1,0 +1,44 @@
+Cold Open bench: 0.1.0-alpha.1 (a5d157ddec46), aarch64-apple-darwin
+When: 2026-11-03T04:28:02Z (UTC)
+Machine: macos (macOS 26.5 (25.5.0)), Apple M1 Pro, 10 cores, 16 GiB
+GPU: Apple M1 Pro
+Screen: 3440x1440 at 1x
+Renderer by default: wgpu
+Script: synthetic feature script, seed 1, 119 pages
+
+Open a 120-page script                     median 32.1 ms            under 200 ms   PASS
+Full repagination                          median 15.4 ms            under 50 ms    PASS
+Journal write per edit                     p95 0.020 ms              under 1 ms     PASS
+Save on the UI thread, Fountain            p95 0.250 ms              under 4 ms     PASS
+Whole save, Fountain                       median 37.0 ms            under 50 ms    PASS
+Save on the UI thread, .fdx                p95 1.5 ms                under 4 ms     PASS
+Whole save, .fdx                           median 27.9 ms            under 50 ms    PASS
+Save on the UI thread, project             p95 0.330 ms              under 4 ms     PASS
+Whole save, project                        median 30.1 ms            under 50 ms    PASS
+Cold start                                 median 185.3 ms           under 1000 ms  PASS
+Keystroke to screen (Metal)                p95 10.5 ms (median 5.7)  under 16 ms    PASS
+Scrolling the report view (Metal)          p95 20.3 ms (median 5.9)  under 16 ms    MISS
+Memory with a feature script open (Metal)  137 MiB                   under 150 MB   PASS
+
+For comparison:
+  keystroke_headless (tiny-skia): median 23.4 ms, p95 25.2 ms
+  edit_and_repaginate: median 3.9 ms, p95 4.3 ms
+  fsync: median 4.8 ms, p95 5.9 ms
+  save_whole_fountain_p95: median 37.0 ms, p95 40.2 ms
+  save_ui_fountain_snapshot: median 0.2 ms, p95 0.2 ms
+  save_ui_fountain_marker: median 0.0 ms, p95 0.0 ms
+  save_ui_fountain_commit: median 0.0 ms, p95 0.0 ms
+  save_whole_fdx_p95: median 27.9 ms, p95 33.1 ms
+  save_ui_fdx_snapshot: median 0.2 ms, p95 0.4 ms
+  save_ui_fdx_marker: median 0.6 ms, p95 1.2 ms
+  save_ui_fdx_commit: median 0.0 ms, p95 0.1 ms
+  save_whole_project_p95: median 30.0 ms, p95 31.9 ms
+  save_ui_project_snapshot: median 0.2 ms, p95 0.3 ms
+  save_ui_project_marker: median 0.0 ms, p95 0.0 ms
+  save_ui_project_commit: median 0.0 ms, p95 0.0 ms
+  scrolling_pages (Metal): median 7.8 ms, p95 14.3 ms
+  typing_windowed (tiny-skia): median 17.8 ms, p95 19.1 ms
+  scrolling_windowed (tiny-skia): median 14.2 ms, p95 14.7 ms
+  reports_windowed (tiny-skia): median 8.1 ms, p95 8.7 ms
+
+1 budget missed, 0 budgets not measured.
