@@ -28,7 +28,7 @@ The README's code signing policy and privacy statement went first, in their own 
 | 6 | The Google Form (made by the owner) and its prefill | waiting for the form's link and entry ids |
 | 7 | User docs, and the generated CLI, command and keyboard references | done |
 | 8 | The website: mdBook, Pages, link and accessibility checks | built and checked here; the first deploy waits for Pages to be turned on |
-| 9 | Tester guide, "what feedback helps", announcement drafts | the guide and the feedback page done; the drafts next |
+| 9 | Tester guide, "what feedback helps", announcement drafts | done: `docs/release/announcements/`; the form's setup is `docs/release/google-form-setup.md` |
 | 10 | Changelog, alpha.2 notes, version bump, rehearsal | |
 | 11 | Final checks, the manual test list, this report | |
 
@@ -71,6 +71,15 @@ The README's code signing policy and privacy statement went first, in their own 
     - **The scrubber's property test** (Linux, `random_bytes_scrub_safely`) failed on a false alarm, not a leak. An unquoted `D ���` after the quoted `"D���"` reads `D���` once the NUL is taken out. The check now compares the text around a string as the scrubber leaves it (`crash::one_line`). The input is a regression test.
     - **macOS symbols:** Cargo leaves `coldopen-app.dSYM` in the release folder as a link into `deps/`, and `cp -R` copied the link. The upload then found only a dangling link. `package.sh` copies what it points at (`cp -RL`).
 20. **The README PR's red check was a test fault, not lost work** (2026-11-03). `restart.rs`, from 6a, failed once on Ubuntu, and only sometimes. A kill at `tidy_started` lands somewhere in the typing. When it lands just after a typed space (`" B1. "`), recovery gives back the space too, but the test read the script through the Fountain export, which trims a trailing space. It then expected `" F."` to follow `"B1."`, not `"B1. "`. The continuation is now checked on the block's own text. It passed five runs in a row here. #20 changed only the README and was squash-merged as c46d068 on the owner's go-ahead.
+21. **The announcement drafts** (`docs/release/announcements/`).
+    - Reddit can't be read from this machine: the fetcher and the built-in browser both refuse it, and its rules weren't read through a mirror. Each draft therefore says what was verified from search results and news, and has a checklist to confirm in the sidebar.
+    - **r/opensource:** its rules of late October 2026 (TNW, RuntimeWire, WinBuzzer) exclude Cold Open: AI-assisted code, an MCP server, under a year old, one contributor. The draft recommends not posting, and gives alternatives.
+    - **r/Screenwriting:** ask the moderators first, with a draft message.
+    - **r/linux:** possibly a 3-month minimum for personal projects, a proposal that may not have been adopted. If it was, the repository qualifies from 2027-01-15.
+    - **Fountain:** a request to fountain.io's apps list, held until there's a project email.
+    - Every draft mentions the AI-assisted development openly, as the README does. Removing that line is the owner's call.
+22. **The Google Form's setup** is written for the owner (`docs/release/google-form-setup.md`): a project account, the seven questions the app's prefill expects (the choices "Bug" and "Crash" by their exact text), settings that need no sign-in, and the prefilled link to send back.
+23. **`tools/site_footer.py` reads and writes UTF-8 itself.** On Windows, Python's stdin follows the code page, and a local build showed "–" as "â€“". CI's Linux wasn't affected.
 
 ## New dependencies
 
