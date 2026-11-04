@@ -162,7 +162,7 @@ The README's code signing policy and privacy statement went first, in their own 
 
 **For the project owner:**
 
-1. **The manual test passed** (decision 31). After the merge: §4 steps 4–5 and §5 steps 6–7 (the issue templates), and the live site.
+1. **The manual test passed** (decision 31), and after the merge, so did the issue-template steps (§4 steps 4–5, §5 steps 6–7; the owner, 2026-11-04) and the live site.
 2. **The "Alpha testing" Discussions category** is made (decision 34). General, Polls and Show and tell can go if they aren't wanted.
 3. **Send the Mac tester** the updated `docs/release/mac-tester.md` and the `.dmg` from `rehearsal-4`, which has #22's vsync rule: their bench is the real-Mac check.
 4. **`v0.1.0-alpha.1` is tagged** (decision 28). Next: OK the Code signing policy and Privacy line in its notes, then send the SignPath application.
