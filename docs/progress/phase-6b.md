@@ -166,7 +166,7 @@ The README's code signing policy and privacy statement went first, in their own 
 2. **The "Alpha testing" Discussions category** is made (decision 34). General, Polls and Show and tell can go if they aren't wanted.
 3. **Send the Mac tester** the updated `docs/release/mac-tester.md` and the `.dmg` from `rehearsal-4`, which has #22's vsync rule: their bench is the real-Mac check.
 4. **`v0.1.0-alpha.1` is tagged** (decision 28). Next: OK the Code signing policy and Privacy line in its notes, then send the SignPath application.
-5. **#21 is merged** (decision 34). Next: tag `v0.1.0-alpha.2` on 9d0f1e6, on your go-ahead. After that, the rehearsal branches and drafts can go, when you say so.
+5. **`v0.1.0-alpha.2` is tagged** on 9d0f1e6 (2026-11-04, the owner's go-ahead), with the Mac's report-scrolling issue added to its known issues, as alpha.1 has it. The rehearsal branches and drafts can go when you say so.
 6. **The announcements** are drafts for you to read and post (`docs/release/announcements/`). I never post them.
 
 **Deferred:**
