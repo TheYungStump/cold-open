@@ -2,7 +2,9 @@
 """Looks for personal details in what Cold Open publishes (docs/specs/site.md §8).
 
 Generic checks, which CI runs on every pull request:
-  - email addresses, other than GitHub's noreply addresses and example domains;
+  - email addresses, other than GitHub's noreply addresses and example domains,
+    and other than a Windows DLL's function as Inno Setup names it
+    (GetTickCount@kernel32.dll);
   - home folders with a user name in them (C:\\Users\\x, /Users/x, /home/x),
     other than the made-up names the tests use.
 
@@ -35,7 +37,7 @@ ROOT = Path(__file__).resolve().parent.parent
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
 ALLOWED_EMAIL = re.compile(
     r"(?:@users\.noreply\.github\.com|^noreply@github\.com|^noreply@anthropic\.com"
-    r"|@example\.(?:com|org|net)|\.example$|\.invalid$|\.test$)$",
+    r"|@example\.(?:com|org|net)|\.example$|\.invalid$|\.test$|@[A-Za-z0-9_-]+\.dll)$",
     re.IGNORECASE,
 )
 HOME = re.compile(r"(?:[A-Za-z]:[\\/]+Users[\\/]+|/Users/|/home/)([A-Za-z0-9._-]+)", re.IGNORECASE)

@@ -225,7 +225,8 @@ jobs:
           $secs = [math]::Round($t.Elapsed.TotalSeconds, 1)
           if ($p.ExitCode -ne 0) { Get-Content upgrade.log; exit 1 }
           if (-not $running.HasExited) { Get-Content upgrade.log; Write-Error "the installer left the app running"; exit 1 }
-          Select-String -Path upgrade.log -Pattern "Cold Open" | Select-Object -First 10
+          # The close's own timings (release.md §3.1), on every run.
+          Select-String -Path upgrade.log -Pattern "Cold Open (is|closed|was|did)"
           "The upgrade took $secs s"
           if ($secs -gt 15) { Write-Error "the upgrade took $secs s"; exit 1 }
       # The uninstaller closes a running Cold Open the same way.
@@ -236,12 +237,20 @@ jobs:
           Start-Sleep -Seconds 5
           if ($running.HasExited) { Write-Error "the app didn't stay open"; exit 1 }
           $t = [Diagnostics.Stopwatch]::StartNew()
-          $p = Start-Process -Wait -PassThru -FilePath "$env:APP\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/LOG=uninstall.log'
-          if ($p.ExitCode -ne 0) { Get-Content uninstall.log -ErrorAction SilentlyContinue; exit 1 }
+          # A full path: the copy the uninstaller hands over to runs
+          # elsewhere.
+          $log = Join-Path $PWD 'uninstall.log'
+          $p = Start-Process -Wait -PassThru -FilePath "$env:APP\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/LOG=`"$log`""
+          $exited = [math]::Round($t.Elapsed.TotalSeconds, 1)
+          if ($p.ExitCode -ne 0) { Get-Content $log -ErrorAction SilentlyContinue; exit 1 }
           # Inno's uninstaller hands over to a copy of itself, which may still
           # be at work when this one exits.
           while ((-not $running.HasExited -or (Test-Path "$env:APP\Cold Open.exe")) -and $t.Elapsed.TotalSeconds -lt 30) { Start-Sleep -Milliseconds 250 }
           $secs = [math]::Round($t.Elapsed.TotalSeconds, 1)
+          # The close's own timings, and when the first copy exited, on
+          # every run (release.md §3.1).
+          Select-String -Path $log -Pattern "Cold Open (is|closed|was|did)" -ErrorAction SilentlyContinue
+          "unins000.exe exited after $exited s"
           if (-not $running.HasExited) { Write-Error "the uninstaller left the app running"; exit 1 }
           if (Test-Path "$env:APP\Cold Open.exe") { Write-Error "the app is still there"; exit 1 }
           "The uninstall took $secs s"
