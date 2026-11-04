@@ -1,6 +1,6 @@
 # Screenwriting App — Product Spec v0.1
 
-Oct 13, 2026 · Brandon Wilde
+Oct 13, 2026 · TheYungStump
 
 ## Overview
 
@@ -286,9 +286,18 @@ These wait so v1 can ship small and solid; the architecture leaves room for each
 
 ## Milestones
 
-We build in six phases, and none starts until the previous phase passes its test gate. Dates come once the phase 1 prototypes show our real pace.
+We build in six phases, and none starts until the previous phase passes its test gate. Phases 5 and 6 were each built in two parts. (2026-11-02: this list replaces a diagram that didn't survive the Markdown export, with the dates each part started and merged. `docs/progress/` has a record of each.)
 
-&#91;embedded content: milestones · 6 phases, each with a test gate\]
+1. **Core and CLI** (Oct 13): the dispatcher, the document model, Fountain read and write, the CLI and JSON over stdio. Gate: our own Fountain test cases, written from the public syntax page.
+2. **Layout and PDF** (Oct 14): the layout engine with bundled fonts, the page-break rules, PDF export, determinism tests on three OSes, and a read-only .fdx loader for the reference tests. Gate: identical goldens on Windows, macOS and Linux, and the reference comparison's thresholds (`docs/specs/layout.md`).
+3. **Desktop editor and MCP** (Oct 15): the editor window, smart element flow, autocomplete, the scene navigator, atomic saves, the crash journal and the MCP server. Gate: a full short script written with no crash and no lost text. The fixes from four reviews of phases 1–3 followed (Oct 16).
+4. **.fdx exchange** (Oct 16 to 17): import and export, unknown elements passed through, the repair report and `repair`. Gate: a lossless round trip on the .fdx test corpus.
+5. **Revisions and output.** Gate: track changes survive save and reload. An .fdx export asks first, then writes them accepted, since no public source describes .fdx change marks; a project keeps them.
+   - **5a** (Oct 18 to 21): the project bundle, track changes, and agents' edits as tracked changes.
+   - **5b** (Oct 22 to 27): production revision sets, script diff, the title page editor and reports. The fixes from four reviews of phases 4–5b followed (Oct 30).
+6. **Alpha release.** Gate: every size and speed budget met on all three OSes.
+   - **6a** (Oct 30 to Nov 2): release engineering: packages for every target, each under 15 MB, the bench and the release workflow.
+   - **6b** (from Nov 2): user docs, the website, feedback, opt-in crash reports and the tester group. It ends with `v0.1.0-alpha.2`.
 
 The command core comes first because everything else, including the editor and agent access, is built on it; .fdx support follows the editor so it can be tested against real use.
 

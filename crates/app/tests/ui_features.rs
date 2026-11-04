@@ -456,3 +456,46 @@ fn about_shows_the_version_and_every_license() {
     esc(&mut h);
     assert_eq!(h.app.about_shown(), None);
 }
+
+#[test]
+fn the_interface_size_steps_and_is_kept_but_a_benchmark_runs_at_100() {
+    let home = tempfile::tempdir().unwrap();
+    let mut h = app(home.path());
+    assert_eq!(h.app.scale_factor(), 1.0);
+    h.run(vec![
+        Message::Action("view.interface_larger".into()),
+        Message::Action("view.interface_larger".into()),
+    ]);
+    assert_eq!(h.app.scale_factor(), 1.25);
+    assert!(
+        h.app
+            .banners
+            .iter()
+            .any(|b| b.text == "Interface size: 125%."),
+        "{:?}",
+        h.app.banners
+    );
+    h.run(vec![Message::Action("view.interface_smaller".into())]);
+    assert_eq!(h.app.settings.interface_size, 110);
+    h.app.d.discard();
+    let mut again = app(home.path());
+    assert_eq!(
+        again.app.settings.interface_size, 110,
+        "kept in settings.json"
+    );
+    again.run(vec![Message::Action("view.interface_reset".into())]);
+    assert_eq!(again.app.scale_factor(), 1.0);
+    again.app.d.discard();
+
+    let mut bench = App::new(Boot {
+        dirs: Some(Dirs::under(home.path())),
+        bench: Some(coldopen_app::app::Bench {
+            kind: coldopen_app::app::BenchKind::Typing,
+            frames: 1,
+            label: String::new(),
+        }),
+        ..Boot::default()
+    });
+    bench.settings.interface_size = 200;
+    assert_eq!(bench.scale_factor(), 1.0, "a benchmark runs at 100%");
+}

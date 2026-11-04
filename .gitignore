@@ -46,3 +46,6 @@ rustc-ice-*.txt
 /cold-open-*-*/
 /cold-open-*-*.zip
 /cold-open-*-*.tar.gz
+
+# The website, built from docs/guide (mdbook build docs/guide)
+/docs/guide/book/

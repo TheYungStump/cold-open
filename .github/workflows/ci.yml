@@ -138,7 +138,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # The permissively licensed crates (CLAUDE.md, "Workspace layout").
-      PERMISSIVE_CRATES: coldopen-screenplay coldopen-fountain coldopen-fonts coldopen-layout coldopen-fdx
+      PERMISSIVE_CRATES: coldopen-screenplay coldopen-fountain coldopen-fonts coldopen-layout coldopen-fdx coldopen-diff
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -213,6 +213,149 @@ jobs:
               fi
             done
           done
+
+  # The website (docs/specs/site.md §7), built and checked as pages.yml
+  # publishes it: links between pages, personal details, and accessibility
+  # in light and dark mode. Also that the GitHub templates read as YAML.
+  site:
+    name: website
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: mdBook, pinned and checked
+        run: bash tools/site_mdbook.sh
+      - name: Build
+        run: mdbook build docs/guide
+      - name: The pages the app opens are there
+        run: |
+          # crates/app/src/about.rs: SITE_URL and DOCS_URL.
+          test -f docs/guide/book/index.html
+          test -f docs/guide/book/guide/index.html
+      - name: Links between pages
+        run: python tools/site_links.py docs/guide/book
+      - name: No personal details
+        run: python tools/privacy_scan.py --no-private --dir docs/guide/book
+      - name: The issue and discussion templates read as YAML
+        run: |
+          pip install --quiet pyyaml==6.0.2
+          python - <<'EOF'
+          import glob, yaml
+          for f in sorted(glob.glob(".github/ISSUE_TEMPLATE/*.yml") + glob.glob(".github/DISCUSSION_TEMPLATE/*.yml")):
+              yaml.safe_load(open(f, encoding="utf-8"))
+              print("ok", f)
+          EOF
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Accessibility, light and dark (axe-core, WCAG 2.2 AA)
+        run: |
+          npm install --no-save --no-package-lock --silent playwright@1.48.2 @axe-core/playwright@4.10.1
+          npx playwright install --with-deps chromium >/dev/null
+          # Served under /cold-open/, as GitHub Pages serves it: the 404
+          # page's <base href> (book.toml's site-url) points there.
+          mkdir -p _site
+          cp -r docs/guide/book _site/cold-open
+          python -m http.server 8000 --bind 127.0.0.1 --directory _site >/dev/null 2>&1 &
+          for _ in $(seq 1 50); do curl -fs http://127.0.0.1:8000/cold-open/ >/dev/null && break; sleep 0.2; done
+          node tools/site_a11y.mjs http://127.0.0.1:8000/cold-open/ docs/guide/book
+
+  # Crash reports and Report a problem, end to end on Linux
+  # (docs/specs/crash-reports.md §10; docs/specs/editor.md §23). A build made
+  # as a release is made crashes on purpose while typing: its report holds
+  # nothing personal, and the symbols kept beside it name the function that
+  # crashed. Then Report a problem opens its address through a stand-in
+  # xdg-open, which writes it down instead of starting a browser.
+  crash-report:
+    name: crash report and Report a problem (Linux)
+    runs-on: ubuntu-latest
+    env:
+      CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
+      CARGO_PROFILE_RELEASE_STRIP: none
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: The gate driver, built and stripped as a release is
+        run: |
+          cargo build --release --locked -p coldopen-app --bin coldopen-driver
+          t=x86_64-unknown-linux-gnu
+          mkdir -p "symbols/$t"
+          objcopy --only-keep-debug target/release/coldopen-driver "symbols/$t/coldopen-driver.debug"
+          strip --strip-all target/release/coldopen-driver
+      - name: A crash while typing
+        run: |
+          home=$(mktemp -d)
+          set +e
+          printf 'char Z\nchar o\nchar r\nchar v\nchar a\nchar n\nchar t\nchar a\naction app.crash_test\nkey enter\n' \
+            | target/release/coldopen-driver --home "$home"
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then echo "::error::the driver didn't crash"; exit 1; fi
+          report=$(ls "$home"/data/crash-reports/crash-*.txt)
+          cat "$report"
+          for private in Zorvanta "$home" "$HOME" "$USER" "$(hostname)"; do
+            if grep -qiF -- "$private" "$report"; then
+              echo "::error::the report holds $private"
+              exit 1
+            fi
+          done
+          grep -q '^Last action: app.crash_test$' "$report"
+          python3 tools/symbolicate.py "$report" symbols | tee resolved.txt
+          grep -q 'crash_on_purpose' resolved.txt
+      - name: Report a problem opens a prefilled issue, and nothing else
+        run: |
+          home=$(mktemp -d)
+          stub=$(mktemp -d)
+          printf '#!/bin/sh\nprintf "%%s\\n" "$1" >>"%s/opened.txt"\n' "$stub" >"$stub/xdg-open"
+          chmod +x "$stub/xdg-open"
+          printf 'action app.report_problem\nchar g\nquit\n' \
+            | PATH="$stub:$PATH" target/release/coldopen-driver --home "$home" --open-links
+          cat "$stub/opened.txt"
+          grep -q '^https://github.com/TheYungStump/cold-open/issues/new?template=bug.yml&version=' "$stub/opened.txt"
+          for private in "$home" "$HOME" "$USER" "$(hostname)"; do
+            if grep -qiF -- "$private" "$stub/opened.txt"; then
+              echo "::error::the address holds $private"
+              exit 1
+            fi
+          done
+
+  # Nothing public names a person, and nothing shipped can reach the network
+  # (docs/specs/site.md §8; the privacy statement in README.md).
+  privacy:
+    name: privacy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Every commit, for the authors and messages.
+          fetch-depth: 0
+      - name: No personal details in the tree or the commits
+        run: |
+          python3 tools/privacy_scan.py --no-private
+          python3 tools/privacy_scan.py --no-private --history
+      - uses: dtolnay/rust-toolchain@stable
+      - name: The programs hold no network client
+        run: |
+          # The crates that would let Cold Open open a connection. The agent
+          # link is a local socket or pipe (std), and the MCP server is stdio.
+          banned='reqwest ureq hyper h2 http curl curl-sys isahc attohttpc surf minreq native-tls openssl openssl-sys rustls tungstenite'
+          if ! tree=$(cargo tree --locked --target all -p coldopen-app -p coldopen-cli -p coldopen-mcp -e normal --prefix none --format '{p}'); then
+            echo "::error::cargo tree failed, so the dependencies were not checked."
+            exit 1
+          fi
+          names=$(sed -e '/^$/d' -e 's/ .*//' <<<"$tree" | sort -u)
+          found=()
+          for crate in $banned; do
+            if grep -qx "$crate" <<<"$names"; then found+=("$crate"); fi
+          done
+          if [ ${#found[@]} -gt 0 ]; then
+            echo "::error::A network crate is in the programs' tree: ${found[*]}. The privacy statement says Cold Open makes no connections."
+            exit 1
+          fi
+          echo "$(wc -l <<<"$names") crates, none of them a network client."
 
   # Every package for every target, sized, installed and started
   # (docs/specs/release.md, build.yml). Every OS on pull requests and main;

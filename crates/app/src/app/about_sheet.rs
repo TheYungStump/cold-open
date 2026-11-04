@@ -118,14 +118,16 @@ impl App {
                 .padding([3, 10])
                 .style(button::secondary)
         };
-        let mut links = row![link("Source code", about::source_link())].spacing(8);
-        if let Some(url) = about::DOCS_URL {
-            links = links.push(link("User guide", url.to_string()));
-        }
-        if let Some(url) = about::FEEDBACK_URL {
-            links = links.push(link("Send feedback", url.to_string()));
-        }
-        links = links.push(
+        let links = row![
+            link("Source code", about::source_link()),
+            link("User guide", about::DOCS_URL.to_string()),
+            button(text("Report a problem…").font(fonts::UI).size(13))
+                .on_press(Message::Action("app.report_problem".into()))
+                .padding([3, 10])
+                .style(button::secondary),
+        ]
+        .spacing(8)
+        .push(
             button(text("Copy version info").font(fonts::UI).size(13))
                 .on_press(Message::CopyVersionInfo)
                 .padding([3, 10])

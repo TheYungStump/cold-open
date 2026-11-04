@@ -7,13 +7,12 @@ use coldopen_core::build_info;
 /// The source code's home.
 pub const SOURCE_URL: &str = "https://github.com/TheYungStump/cold-open";
 
-/// The user guide's address, once phase 6b publishes one. Its row in the
-/// About sheet shows only when this is set.
-pub const DOCS_URL: Option<&str> = None;
+/// The website (docs/specs/site.md §7).
+pub const SITE_URL: &str = "https://theyungstump.github.io/cold-open/";
 
-/// Where testers send feedback, once phase 6b sets it up. Its row shows
-/// only when this is set.
-pub const FEEDBACK_URL: Option<&str> = None;
+/// The user guide on the website: About's "User guide" and "Open the user
+/// guide" (editor.md §23).
+pub const DOCS_URL: &str = "https://theyungstump.github.io/cold-open/guide/";
 
 /// Cold Open's own license, GPL-3.0-or-later.
 pub const GPL: &str = include_str!("../LICENSE");

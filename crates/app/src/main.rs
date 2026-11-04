@@ -22,7 +22,18 @@ fn main() -> std::process::ExitCode {
 
 fn app() -> iced::Result {
     let launched = std::time::Instant::now();
-    choose_renderer();
+    let dirs = coldopen_app::files::Dirs::find();
+    let settings = dirs
+        .as_ref()
+        .map(|d| coldopen_app::files::Settings::load(d).0)
+        .unwrap_or_default();
+    // Crash reports (docs/specs/crash-reports.md), first, so a panic
+    // anywhere after this is reported.
+    coldopen_app::crash::install(
+        dirs.as_ref(),
+        settings.crash_reports == coldopen_app::files::CrashReports::Ask,
+    );
+    choose_renderer(settings.renderer);
     let file = std::env::args_os().nth(1).map(std::path::PathBuf::from);
     let boot = Boot {
         file,
@@ -31,6 +42,7 @@ fn app() -> iced::Result {
             .is_some_and(|v| v == "1")
             .then_some(launched),
         bench: bench(),
+        open_links: true,
         ..Boot::default()
     };
     let mut window = iced::window::Settings {
@@ -60,6 +72,7 @@ fn app() -> iced::Result {
     iced::application(move || App::boot(boot.clone()), App::update, App::view)
         .title(App::title)
         .theme(App::theme)
+        .scale_factor(App::scale_factor)
         .subscription(App::subscription)
         .settings(coldopen_app::app::iced_settings())
         .window(window)
@@ -90,13 +103,10 @@ fn bench() -> Option<Bench> {
 
 /// Tells iced which renderer to use, from `settings.json`, unless
 /// `ICED_BACKEND` is set already (the benchmarks set it).
-fn choose_renderer() {
+fn choose_renderer(renderer: coldopen_app::files::Renderer) {
     if std::env::var_os("ICED_BACKEND").is_some() {
         return;
     }
-    let renderer = coldopen_app::files::Dirs::find()
-        .map(|d| coldopen_app::files::Settings::load(&d).0.renderer)
-        .unwrap_or_default();
     // SAFETY: this runs first in `main`, before any thread exists, so
     // nothing can read the environment while it changes. iced reads this
     // variable only, so there is no safe way to pass the choice.

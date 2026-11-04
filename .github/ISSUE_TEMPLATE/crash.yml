@@ -1,0 +1,43 @@
+name: Crash report
+description: Cold Open closed unexpectedly. "Send on GitHub" in the crash report opens this page.
+title: "Crash: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for sending it. Everything you write here is **public**.
+
+        Cold Open's crash report holds no script text, no file names and no user names. You saw the whole of it before this page opened. The details below were filled in from it.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+  - type: input
+    id: renderer
+    attributes:
+      label: Renderer
+  - type: input
+    id: summary
+    attributes:
+      label: Where it crashed
+      description: The report's message and the place in Cold Open's code.
+  - type: textarea
+    id: report
+    attributes:
+      label: The whole report
+      description: Cold Open copied the whole report to your clipboard. Paste it here (Ctrl+V, or Cmd+V on a Mac).
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: doing
+    attributes:
+      label: What were you doing?
+      description: Typing, saving, exporting a PDF, comparing drafts… Anything you remember helps.

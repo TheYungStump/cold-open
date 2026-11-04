@@ -68,6 +68,10 @@ pub enum Prompt {
     },
     /// Delete this set-aside copy? It cannot be undone.
     DeleteCopy(PathBuf),
+    /// Delete this crash report? (editor.md §23)
+    DeleteCrashReport(PathBuf),
+    /// Crash on purpose now? (docs/specs/crash-reports.md §9)
+    CrashTest,
     /// What name should the writer's changes carry? (editor.md §17.4)
     AuthorName { name: String, then: super::NameThen },
     /// Accept, or reject, every pending change? (editor.md §17.2)
@@ -591,6 +595,11 @@ impl App {
                 self.open_with(&path, "discard");
                 self.after_change(true)
             }
+            (Prompt::DeleteCrashReport(path), Reply::Save) => {
+                self.crash_delete(&path);
+                Task::none()
+            }
+            (Prompt::CrashTest, Reply::Save) => self.crash_now(),
             (Prompt::DeleteCopy(copy), Reply::Save) => {
                 self.run("recovered.delete", json!({ "copy": copy }));
                 self.recovered_refresh();

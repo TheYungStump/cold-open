@@ -1,0 +1,74 @@
+name: A file won't open, or saves wrong
+description: A Fountain, .fdx or Cold Open project file that doesn't open, or doesn't come out as it went in.
+title: "File: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Everything you write here is **public**.
+
+        **Never attach the script itself.** Scripts are copyrighted, including drafts you were sent, and a public issue would publish it. Here are two ways to show us the problem without it:
+
+        1. **The repair report.** For an .fdx file, run this and paste what it prints below. It lists what was wrong, by code and position, and never holds script text:
+
+           ```
+           coldopen repair your-script.fdx repaired-copy.fdx --json
+           ```
+
+           It never changes your file. The repaired copy is written to the second name, so pick one that isn't already taken.
+
+        2. **A short scene of your own** that shows the same problem: a few lines you wrote yourself, in the same format, from the same app if you can.
+  - type: dropdown
+    id: format
+    attributes:
+      label: Which kind of file?
+      options:
+        - Fountain (.fountain)
+        - Final Draft–compatible (.fdx)
+        - Cold Open project (.coldopen)
+        - A PDF Cold Open exported
+        - Something else
+    validations:
+      required: true
+  - type: input
+    id: made_by
+    attributes:
+      label: Which program made the file?
+      description: The program and its version, if you know them, such as a screenwriting app, a text editor, or Cold Open itself.
+  - type: textarea
+    id: what
+    attributes:
+      label: What went wrong?
+      description: Didn't it open? Did something go missing, move or change on saving? Which part of the script (a title page, dual dialogue, a revision…)?
+    validations:
+      required: true
+  - type: textarea
+    id: repair
+    attributes:
+      label: The repair report
+      description: The output of `coldopen repair … --json`, for an .fdx file.
+      render: json
+  - type: textarea
+    id: scene
+    attributes:
+      label: A short scene of your own that shows it
+      description: Paste it as text. Only something you wrote yourself.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: About Cold Open, or `coldopen --version`.
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+  - type: checkboxes
+    id: copyright
+    attributes:
+      label: Scripts
+      options:
+        - label: I haven't attached or pasted a script I don't own.
+          required: true
