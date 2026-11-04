@@ -75,7 +75,8 @@ The app's identifier is `io.github.theyungstump.coldopen` everywhere an OS asks 
     3. Ask each to close, as its window's close button does. A script with nothing unsaved closes cleanly.
     4. After 3 seconds, end any still running (one asking whether to save, say). Its work is in the crash journal, and the next start offers it back.
     5. If one is still running 3 seconds later, say so and stop, changing nothing.
-  - CI starts the app, then installs over it and uninstalls it while it runs, and fails if either leaves it running or takes over 15 seconds.
+    - **The 3 seconds are by the clock** (2026-11-04). Each check for a running copy asks WMI, and on a busy computer a check can take most of a second. The waits used to count only their quarter-second pauses, so "3 seconds" could take 10 or more. CI's uninstall took 11.1 and 15.4 seconds on two runs, against about 2 on most. One WMI connection now serves every check, since connecting is the slow part, and the log notes how long each step took.
+  - CI starts the app, then installs over it and uninstalls it while it runs, and fails if either leaves it running or takes over 15 seconds. It prints the installer's and the uninstaller's logs of the close on every run, so a slow one shows where the time went.
 
 ### 3.2 Windows zip
 
