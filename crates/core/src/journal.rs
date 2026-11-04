@@ -594,7 +594,11 @@ impl Journal {
             drop(old_flusher);
             drop(old_file);
             hook("old_closed");
-            if crate::io::replace(&from, &to).is_err() {
+            // Not flushed to the disk: until it is, a power cut leaves the
+            // old journal and the `.next`, which recovery's step 0 renames
+            // into place (docs/specs/journal.md, 2026-11-04), and the next
+            // save's flush of the folder carries it there anyway.
+            if crate::io::replace_lazily(&from, &to).is_err() {
                 return false;
             }
             at_next.store(false, Ordering::SeqCst);

@@ -63,6 +63,7 @@ Phase 6a is done: installable packages for every target the spec lists, each und
   - the system is asked about the renderer only when needed (17);
   - the journal restarts off the UI thread, beside the old one (18);
   - the installers close Cold Open themselves (19).
+- **After it:** the journal's tidying renames without a folder flush (20, 2026-11-04, from the Mac tester's alpha.2 bench).
 
 ## Plan and status
 
@@ -107,6 +108,7 @@ Phase 6a is done: installable packages for every target the spec lists, each und
 17. **The system is asked which renderer draws the window only when it's needed** (2026-11-02): when About first opens, and in the bench once the frames are measured. iced's query also lists every running process on every core, and at start it held up the window's frames (see "Report scrolling misses" below).
 18. **The journal starts again off the UI thread** (2026-11-02; phase 5a decision 47, done now at the project owner's request). After a save, the commit used to cut the journal back and write its new header on the UI thread, which CI once caught taking 13.4 ms. Now the save's worker writes the next journal beside the old one (`<journal>.next`), the commit only switches which file edits go to, and a background thread renames it into place. Recovery takes the `.next` only when the old journal ends exactly at the save marker its header names (journal.md, "Starting the journal again off the UI thread"). `core/tests/restart.rs` kills a process at each step, with typing during the restart.
 19. **The installer and the uninstaller close a running Cold Open themselves** (2026-11-02, the project owner's retest), instead of through Windows' Restart Manager (`CloseApplications=no`). They find the copies running from the install folder through WMI, say so with OK and Cancel, ask each to close, and end any still open after 3 seconds; its work is in the crash journal. CI starts the app, then installs over it and uninstalls it while it runs, each within 15 seconds.
+20. **The journal's tidying after a save renames without a folder flush** (2026-11-04, after the phase: the Mac tester's alpha.2 bench, "Measurements" below). On a Mac the flush is a flush of the whole drive, and the next .fdx save's marker waited for it on the UI thread. Recovery copes with the rename either on the disk or not, so the flush bought nothing.
 
 ## New dependencies
 
@@ -235,6 +237,57 @@ With the CPU renderer, for comparison: typing p95 19.7 ms, page scrolling 15.3 m
 
   Before, Linux's slowest commits were 13.4 and 55.4 ms. Every save budget passes on every OS. Windows' slowest step is now the .fdx marker, an append like a keystroke's (2.7 ms once), on a shared runner's disk.
 - **CI's macOS bench** (a 3-core virtual Mac, reported, not asserted) missed two windowed budgets with Metal, and the new medians show they are spikes: keystroke p95 16.7 ms with a median of 9.2, the report view p95 19.4 ms with a median of 4.1. The Mac tester's rerun on a real Mac is the gate.
+
+### The Mac tester's alpha.2 bench (2026-11-04, decision 20)
+
+The installed `v0.1.0-alpha.2` (9d0f1e6) on the same Mac: macOS 26.5, an M1 Pro, a 3440×1440 screen at 1×, drawn with Metal (`coldopen-bench-macos-aarch64-20261104-052044`).
+
+| Budget | Result | Limit |
+| --- | --- | --- |
+| Open a 120-page script | 35.8 ms | 200 ms |
+| Full repagination | 16.7 ms | 50 ms |
+| Journal write (p95) | 0.020 ms | 1 ms |
+| Save on the UI thread (p95: Fountain, .fdx, project) | 0.31, **4.87**, 0.27 ms | 4 ms |
+| Whole save (median) | 44.0, 36.6, 38.1 ms | 50 ms |
+| Cold start | 219 ms | 1 s |
+| Keystroke to screen (p95, Metal; median) | 10.1 ms (5.4) | 16 ms |
+| Report view scrolling (p95, Metal; median) | 12.4 ms (10.1), 1 refresh missed in 120 | within a refresh (10.1 ms at 99 Hz) |
+| Memory | 135 MiB | 150 MB |
+
+- **The report view's scrolling passes** under the vsync rule (bench.md §6). That leaves one miss: **.fdx's save on the UI thread**, p95 4.87 ms against 4.
+  - The commit is fine (p95 0.15 ms).
+  - The snapshot's median is 0.23 ms, as for the other kinds, but its p95 is 2.94: two slow saves in 21.
+  - The marker's median is 0.87 ms against 0.02 for the others, and its p95 3.03.
+  - It is a third of a frame. It is fixed for alpha.3, with no release of its own.
+- **Measured here** with `crates/core/examples/save_steps.rs` (new). It saves 41 times as the bench does, times each UI-thread and worker step, notes whether the last save's tidying had finished when the marker was appended, and times the edit typed after each save:
+
+| This PC, median (ms) | Fountain | .fdx | Project |
+| --- | --- | --- | --- |
+| Snapshot / marker / commit | 0.45 / 0.03 / 0.03 | 0.30 / 0.02 / 0.02 | 0.30 / 0.02 / 0.02 |
+| Rendering, on the worker | 23.0 | 9.6 | 10.0 |
+| — the format's writer | 21.0 (15.1 of it reading the text back to check it) | 1.3 | 8.8 (compression) |
+| — the check that no other program changed the file | 0.3 | 4 to 8 (Defender, below) | 0.2 |
+| Atomic write / finisher | 1.4 / 0.8 | 1.4 / 0.8 | 1.3 / 0.8 |
+| Last commit to the marker | 23.5 | 10.0 | 10.4 |
+| The last save's tidying | 0.7 | 0.6 | 0.6 |
+
+- **Ruled out:**
+  - **The .fdx passthrough store** (the owner's first guess). The bench's .fdx is written by Cold Open, so its store is 5.7 KB, with no kept paragraph groups. Copying it takes 0.001 ms, so a shared, copy-on-write store wouldn't change the snapshot. A file from another program keeps more (journal.md: about a tenth of Big Fish's paragraphs), so that is worth measuring when a tester's real .fdx is slow.
+  - **The flusher's lock.** The flusher never holds it during a flush (`flush.rs`), so the marker can't wait behind an fsync through it.
+- **The likeliest cause: the marker waits for the last save's folder flush.**
+  - After each save's commit, a background thread renames the next journal into place, then flushed the folder. On macOS, Rust's `sync_all` is `F_FULLFSYNC`, a flush of the whole drive: the bench's fsync row is 5.0 ms median and 7.6 p95 there, against 0.3 ms here.
+  - The next save's marker goes into that journal on the UI thread, after the edit, the snapshot and the rendering.
+  - An .fdx renders in about 2 ms on a machine without an on-access scanner: its writer is 1.3 ms here, and the header and two fingerprints 0.7. Fountain takes 22 ms, since it reads its text back to check nothing was lost. A project takes 9 ms, for compression. So only the .fdx's marker comes while that flush is still going on.
+  - The same pattern, smaller, showed on CI's Windows runner: an .fdx-only marker cost of 0.48 to 1.41 ms (199ae39, above). On this PC the tidying takes under a millisecond, and no marker of any kind waited.
+  - **Not explained:** the snapshot's two slow saves. The snapshot touches no file. The new bench rows below will show whether they come with the marker's wait.
+- **The fix** (decision 20, journal.md, 2026-11-04): the tidying renames without flushing the folder, and without write-through on Windows. Nothing depends on that flush. Until the rename reaches the disk, a power cut leaves the old journal and the `.next`, which recovery's step 0 already renames into place. The next save's flushes carry the rename to the disk anyway. Here the tidying went from 0.56–0.71 to 0.42–0.44 ms (median).
+- **New bench rows** (bench.md §4): the worker's steps, `save_worker_<kind>_render`, `_write` and `_finish`, and `edit_after_save_<kind>`, the edit typed right after each save. The Mac tester's run of the alpha.3 build confirms the fix, or shows where the wait went.
+- **Windows Defender, found on the way.** The changed-file check reads the file the last save wrote. Here, any read in the first few ms after a file is replaced takes 5 to 9 ms, whatever its name or content, since Defender scans it. Only the .fdx's check comes that soon. It runs on the worker, so it costs only the whole save, which is 12 ms. Kept as it is.
+- **Where the Mac's 44 ms Fountain save goes.** The worker's steps weren't timed in alpha.2, so this is from the code and the numbers above:
+  - **Rendering, about 10 to 15 ms.** Most of it is the Fountain writer reading its own output back to check nothing is lost (15 ms of 21 here). An .fdx has no such check, which is most of the 7.4 ms between the Fountain and .fdx saves.
+  - **About five drive flushes, 5 ms each.** Two for the atomic write (the file, then its folder), one for the marker's flush, which the worker waits for, and two for the next journal (the file, then its folder).
+  - **Decision 18 added the last two.** The Mac's whole saves were 33.7, 22.6 and 26.7 ms before it (2026-11-02), and 44.0, 36.6 and 38.1 after: 10 to 14 ms more on each, two flushes' worth. Fast disks hid it (1 to 3 ms here).
+  - **Ways to win it back, not done yet:** on macOS, a plain `fsync` of each file and then one `F_FULLFSYNC`, which flushes the whole drive and so covers them all, in place of one full flush per file; writing the next journal while the save's file is written, rather than after; or writing the file while the text is read back, renaming only once the check passes. Each is worth about 5 to 15 ms on the Mac. The budget is met (44 against 50), so they wait for the alpha.3 bench's worker rows.
 
 ## The project owner's retest (2026-11-02, 3a28406)
 
