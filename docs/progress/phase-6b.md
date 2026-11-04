@@ -110,6 +110,11 @@ The README's code signing policy and privacy statement went first, in their own 
 31. **The owner's manual test passes** (2026-11-03, the retest with packages from CI run 41734110827 on 2dae886). Every section passed, the fixes of decision 29 and the interface size included. G and F open the browser now. Two steps wait for the merge: §4 steps 4–5 and §5 steps 6–7, since GitHub reads issue templates from `main` only.
 32. **The Windows uninstall sometimes took 11 to 15 seconds on CI** (2026-11-04), against about 2 on most runs, and failed #22's run 41745580352 at 15.4. The installer's close waited "3 seconds" by counting its quarter-second pauses. Each check in between makes a new WMI connection and query, and that time went uncounted. The waits are now by the clock, one connection serves every check, and both logs note how long each step took. CI prints those lines on every run (`release.md` §3.1). The 15-second limit stays.
 33. **CI's Linux test job ran out of disk** (2026-11-04, #23's run 41749850332: "No space left on device"). The linker "Bus error" on #22's run 41726058965 was very likely the same, since a linker writing to a full disk crashes that way. About 100 debug test binaries, each carrying iced's and wgpu's full debug info, came close to the runner's disk. CI's debug builds now keep line tables only (`CARGO_PROFILE_DEV_DEBUG` in `ci.yml`), so backtraces still name files and lines.
+34. **Merged, and rehearsed again** (2026-11-04, each with the owner's go-ahead). #21 merged as e051007, #23 as 4752c73, and #22 (the Mac's vsync rule) as 9d0f1e6, each after main was merged into it and CI passed. The site is live, and the owner made the "Alpha testing" Discussions category (slug `alpha-testing`). The fresh rehearsal, draft `rehearsal-4` from branch `rehearsal/v0.1.0-alpha.2-b` at 9d0f1e6, checks out:
+    - 13 files, every package under 15 MB (the largest is the x86_64 AppImage at 11.7 MB), and the symbols zip at 120 MB;
+    - the Windows x64 setup and zip match `SHA256SUMS.txt`;
+    - `coldopen --version` prints `0.1.0-alpha.2 (9d0f1e66a2c9)`;
+    - the notes have What's new, the interface size, the symbols note, and the code signing policy and privacy links.
 
 ## New dependencies
 
@@ -158,10 +163,10 @@ The README's code signing policy and privacy statement went first, in their own 
 **For the project owner:**
 
 1. **The manual test passed** (decision 31). After the merge: §4 steps 4–5 and §5 steps 6–7 (the issue templates), and the live site.
-2. **Make the "Alpha testing" Discussions category** on the web page (decision 27), and remove General, Polls and Show and tell if they aren't wanted. Pages and Discussions are on, and two-factor sign-in is confirmed.
-3. **Send the Mac tester** the updated `docs/release/mac-tester.md`.
+2. **The "Alpha testing" Discussions category** is made (decision 34). General, Polls and Show and tell can go if they aren't wanted.
+3. **Send the Mac tester** the updated `docs/release/mac-tester.md` and the `.dmg` from `rehearsal-4`, which has #22's vsync rule: their bench is the real-Mac check.
 4. **`v0.1.0-alpha.1` is tagged** (decision 28). Next: OK the Code signing policy and Privacy line in its notes, then send the SignPath application.
-5. **Merge #21, then tag `v0.1.0-alpha.2`.** Each needs your go-ahead. After that, the rehearsal branches and drafts can go, when you say so.
+5. **#21 is merged** (decision 34). Next: tag `v0.1.0-alpha.2` on 9d0f1e6, on your go-ahead. After that, the rehearsal branches and drafts can go, when you say so.
 6. **The announcements** are drafts for you to read and post (`docs/release/announcements/`). I never post them.
 
 **Deferred:**
