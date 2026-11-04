@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quire, a screenplay editor</title>
+  <meta name="description" content="Quire is a screenplay editor for one writer. The alpha is free for a limited time. After that, $10 once. No annual fee. Export .fdx.">
+  <meta name="theme-color" content="#f3efe6">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%23f3efe6' width='32' height='32'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='Georgia' font-size='18' fill='%23211e1a'%3EQ%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400;1,6..72,500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper: #f3efe6;
+      --sheet: #fbf8f2;
+      --ink: #211e1a;
+      --muted: #3f3b36;
+      --label: #5c564e;
+      --line: #ddd4c6;
+      --line-strong: #c9bfb0;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Newsreader", Georgia, "Times New Roman", serif;
+      font-size: 21px;
+      line-height: 1.45;
+      font-weight: 400;
+    }
+
+    ::selection {
+      background: var(--ink);
+      color: var(--paper);
+    }
+
+    a {
+      color: inherit;
+    }
+
+    a:focus-visible,
+    .button:focus-visible,
+    .credit:focus-visible {
+      outline: 2px solid var(--ink);
+      outline-offset: 3px;
+    }
+
+    .wrap {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 28px 24px 88px;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 16px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--line);
+      font-family: "Courier Prime", "Courier New", monospace;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--label);
+    }
+
+    .hero {
+      padding: 72px 0 56px;
+    }
+
+    h1 {
+      margin: 0;
+      font-weight: 400;
+      font-size: clamp(52px, 8vw, 80px);
+      line-height: 0.94;
+      letter-spacing: -0.03em;
+    }
+
+    h1 em {
+      font-style: italic;
+      font-weight: 400;
+    }
+
+    .dek {
+      margin: 28px 0 0;
+      max-width: 38em;
+      color: var(--muted);
+    }
+
+    .offer {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 16px;
+      margin-top: 32px;
+    }
+
+    .offer p {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.4;
+    }
+
+    .button {
+      display: inline-block;
+      background: var(--ink);
+      color: var(--paper);
+      text-decoration: none;
+      padding: 13px 18px;
+      font-family: "Newsreader", Georgia, serif;
+      font-size: 18px;
+      line-height: 1;
+      border-radius: 1px;
+    }
+
+    .button:hover {
+      background: #000;
+    }
+
+    .sheet {
+      position: relative;
+      background: var(--sheet);
+      border: 1px solid var(--line);
+      padding: 36px 28px 40px 36px;
+    }
+
+    .page-number {
+      position: absolute;
+      top: 16px;
+      right: 20px;
+      margin: 0;
+      font-family: "Courier Prime", "Courier New", monospace;
+      font-size: 15px;
+    }
+
+    .script {
+      margin: 28px 0 0;
+      font-family: "Courier Prime", "Courier New", monospace;
+      font-size: 16px;
+      line-height: 1.2;
+    }
+
+    .script p {
+      margin: 0;
+    }
+
+    .script .slug {
+      margin-bottom: 1em;
+    }
+
+    .script .action {
+      margin-bottom: 1em;
+    }
+
+    .script .character {
+      margin-top: 1em;
+      margin-left: 37%;
+    }
+
+    .script .paren {
+      margin-left: 27%;
+      margin-right: 32%;
+    }
+
+    .script .dialogue {
+      margin-left: 17%;
+      margin-right: 25%;
+    }
+
+    .script .transition {
+      margin-top: 1em;
+      text-align: right;
+    }
+
+    .tab-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 8px 14px;
+      margin: 18px 0 0;
+      font-family: "Courier Prime", "Courier New", monospace;
+      font-size: 13px;
+      line-height: 1.4;
+      color: var(--label);
+    }
+
+    kbd {
+      font-family: inherit;
+      font-size: 12px;
+      color: var(--ink);
+      border: 1px solid var(--line-strong);
+      padding: 1px 6px 2px;
+      background: var(--paper);
+    }
+
+    section {
+      margin-top: 72px;
+    }
+
+    h2 {
+      margin: 0 0 8px;
+      font-family: "Courier Prime", "Courier New", monospace;
+      font-size: 13px;
+      font-weight: 400;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--label);
+    }
+
+    dl {
+      margin: 0;
+    }
+
+    .fact {
+      padding: 22px 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .fact:last-child {
+      border-bottom: 1px solid var(--line);
+    }
+
+    dt {
+      font-style: italic;
+      font-size: 26px;
+      line-height: 1.2;
+    }
+
+    dd {
+      margin: 6px 0 0;
+      color: var(--muted);
+    }
+
+    .price {
+      padding-top: 8px;
+    }
+
+    .price-lead {
+      margin: 18px 0 0;
+      font-size: 22px;
+    }
+
+    .amount {
+      margin: 8px 0 0;
+      font-style: italic;
+      font-weight: 400;
+      font-size: clamp(80px, 14vw, 120px);
+      line-height: 0.85;
+      letter-spacing: -0.04em;
+    }
+
+    .currency {
+      font-style: normal;
+      font-size: 0.42em;
+      letter-spacing: 0;
+      position: relative;
+      top: -0.55em;
+      margin-right: 2px;
+    }
+
+    .price-note {
+      margin: 16px 0 28px;
+      max-width: 24em;
+      color: var(--muted);
+    }
+
+    .about p {
+      margin: 18px 0 0;
+      max-width: 36em;
+    }
+
+    .credit {
+      position: relative;
+      display: inline;
+      padding: 0;
+      border: 0;
+      border-bottom: 1px dotted var(--line-strong);
+      background: none;
+      color: inherit;
+      font: inherit;
+      line-height: inherit;
+      cursor: pointer;
+      text-align: inherit;
+    }
+
+    .pill {
+      position: absolute;
+      left: 0;
+      top: calc(100% + 6px);
+      z-index: 1;
+      padding: 5px 9px 6px;
+      border-radius: 999px;
+      background: var(--ink);
+      color: var(--paper);
+      font-family: "Courier Prime", "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      opacity: 0;
+      transform: translateY(-4px);
+      pointer-events: none;
+      transition: opacity 140ms ease, transform 140ms ease;
+    }
+
+    .credit:hover .pill,
+    .credit:focus .pill,
+    .credit:focus-visible .pill {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    footer {
+      margin-top: 72px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      font-family: "Courier Prime", "Courier New", monospace;
+      font-size: 13px;
+      letter-spacing: 0.04em;
+      color: var(--label);
+    }
+
+    footer p {
+      margin: 0;
+    }
+
+    @media (max-width: 600px) {
+      body { font-size: 19px; }
+
+      .hero { padding: 48px 0 40px; }
+
+      .sheet { padding: 32px 18px 28px 18px; }
+
+      dt { font-size: 23px; }
+
+      section { margin-top: 56px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      .pill { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Point every .button href at the alpha download when you have a URL. -->
+  <div class="wrap">
+    <header>
+      <span>Quire</span>
+      <span>Alpha release</span>
+    </header>
+
+    <main>
+      <div class="hero">
+        <h1>Write the<br><em>screenplay.</em></h1>
+        <p class="dek">Quire is a screenplay editor for one writer. Press Tab to move through the format. The draft saves as you write, and you can export an .fdx file.</p>
+        <div class="offer">
+          <a class="button" href="#get">Get the alpha</a>
+          <p>Free for a limited time. $10 once, after the alpha. No annual fee.</p>
+        </div>
+      </div>
+
+      <article class="sheet" aria-label="Screenplay sample">
+        <p class="page-number">1.</p>
+        <div class="script">
+          <p class="slug">INT. APARTMENT - NIGHT</p>
+          <p class="action">ELENA counts the pages. She stops at the last one and taps it once.</p>
+          <p class="character">ELENA</p>
+          <p class="paren">(to herself)</p>
+          <p class="dialogue">That's the movie. I'm done counting.</p>
+          <p class="transition">FADE OUT.</p>
+        </div>
+      </article>
+      <p class="tab-row"><kbd>Tab</kbd> Scene heading · Action · Character · Parenthetical · Dialogue · Transition</p>
+
+      <section aria-labelledby="alpha-heading">
+        <h2 id="alpha-heading">In the alpha</h2>
+        <dl>
+          <div class="fact">
+            <dt>FDX export</dt>
+            <dd>Quire exports the script as an .fdx file. Final Draft opens that file.</dd>
+          </div>
+          <div class="fact">
+            <dt>Automatic save</dt>
+            <dd>The draft saves while you write.</dd>
+          </div>
+          <div class="fact">
+            <dt>Tab to format</dt>
+            <dd>Press Tab to cycle scene heading, action, character, parenthetical, dialogue, and transition.</dd>
+          </div>
+          <div class="fact">
+            <dt>One writer</dt>
+            <dd>Quire is for one writer. It has no collaboration.</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="about" aria-labelledby="about-heading">
+        <h2 id="about-heading">About us</h2>
+        <p>Hi. We are Brandon and Dian, two students from Georgia Tech focused on making insanely great software. We started Quire to help our friend Ludwig. He complained that Final Draft is expensive, and inevitable. Writing is already torturous. We wanted to make his life a little easier.</p>
+        <p>We have worked at FedEx, Caterpillar, and Workday. Brandon has <button type="button" class="credit">played a part on Dynasty, The Tomorrow War, and ABC.<span class="pill">as an extra</span></button></p>
+      </section>
+
+      <section class="price" id="get" aria-labelledby="price-heading">
+        <h2 id="price-heading">The price</h2>
+        <p class="price-lead">Free for a limited time, during the alpha.</p>
+        <p class="amount"><span class="currency">$</span>10</p>
+        <p class="price-note">Once the alpha ends, you pay $10 once. No annual fee.</p>
+        <a class="button" href="#get">Get the alpha</a>
+      </section>
+    </main>
+
+    <footer>
+      <p>Quire. A screenplay editor. Alpha release.</p>
+    </footer>
+  </div>
+</body>
+</html>
