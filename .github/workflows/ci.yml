@@ -18,6 +18,11 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  # Debug builds keep line tables only, so a panic's backtrace still has
+  # files and lines. Full debug info in every test binary, each linking
+  # iced and wgpu, filled the Linux runner's disk: a linker "Bus error" on
+  # #22 and "No space left on device" on #23 (2026-11-03 and 11-04).
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 # Every `run` step uses bash, which GitHub starts as `bash -eo pipefail` on
 # all three OSes (Git Bash on Windows), so any failing command fails the step,

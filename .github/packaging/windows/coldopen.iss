@@ -114,20 +114,31 @@ const
   Cancelled = 1;
   StillOpen = 2;
 
+var
+  { One WMI connection for every check: connecting is the slow part. }
+  Wmi: Variant;
+  WmiReady: Boolean;
+
+function GetTickCount: DWord; external 'GetTickCount@kernel32.dll stdcall';
+
 { The copies of Cold Open running from Exe: counted, asked to close as the
   window's close button does, or ended. WMI names each process's file, so
   a copy run from anywhere else, such as a zip, is left alone. }
 function Running(Exe: string; Action: Integer): Integer;
 var
-  Locator, Service, Items, Item: Variant;
+  Locator, Items, Item: Variant;
   I, Pid, Code: Integer;
   Path: string;
 begin
   Result := 0;
   try
-    Locator := CreateOleObject('WbemScripting.SWbemLocator');
-    Service := Locator.ConnectServer('.', 'root\CIMV2');
-    Items := Service.ExecQuery('SELECT ProcessId, ExecutablePath FROM Win32_Process WHERE Name = ''' + AppExe + '''');
+    if not WmiReady then
+    begin
+      Locator := CreateOleObject('WbemScripting.SWbemLocator');
+      Wmi := Locator.ConnectServer('.', 'root\CIMV2');
+      WmiReady := True;
+    end;
+    Items := Wmi.ExecQuery('SELECT ProcessId, ExecutablePath FROM Win32_Process WHERE Name = ''' + AppExe + '''');
     for I := 0 to Items.Count - 1 do
     begin
       Item := Items.ItemIndex(I);
@@ -152,18 +163,20 @@ begin
   end;
 end;
 
-{ Waits up to Ms milliseconds for every copy running from Exe to end. }
-function GoneWithin(Exe: string; Ms: Integer): Boolean;
+{ Waits up to Ms milliseconds, by the clock, for every copy running from
+  Exe to end. Counting only the pauses let a busy computer's slow checks
+  stretch 3 seconds to 10 or more (release.md §3.1, 2026-11-04). }
+function GoneWithin(Exe: string; Ms: DWord): Boolean;
 var
-  Waited: Integer;
+  Start: DWord;
 begin
-  Waited := 0;
-  while (Running(Exe, JustCount) > 0) and (Waited < Ms) do
+  Start := GetTickCount;
+  Result := Running(Exe, JustCount) = 0;
+  while (not Result) and (GetTickCount - Start < Ms) do
   begin
     Sleep(250);
-    Waited := Waited + 250;
+    Result := Running(Exe, JustCount) = 0;
   end;
-  Result := Running(Exe, JustCount) = 0;
 end;
 
 { Closes the Cold Open running from the install folder before Who (Setup
@@ -173,11 +186,17 @@ end;
 function CloseColdOpen(Who: string): Integer;
 var
   Exe: string;
+  Start: DWord;
 begin
   Exe := ExpandConstant('{app}\' + AppExe);
   Result := Closed;
+  Start := GetTickCount;
   if Running(Exe, JustCount) = 0 then
+  begin
+    Log('Cold Open is not running (checked in ' + IntToStr(GetTickCount - Start) + ' ms).');
     Exit;
+  end;
+  Log('Cold Open is running (found in ' + IntToStr(GetTickCount - Start) + ' ms).');
   if SuppressibleMsgBox('Cold Open is open, so ' + Who + ' will close it first.' + #13#10 + #13#10 +
       'Nothing you typed is lost: Cold Open keeps it, and offers it back when it starts again.',
       mbConfirmation, MB_OKCANCEL, IDOK) <> IDOK then
@@ -187,11 +206,19 @@ begin
   end;
   Running(Exe, AskToClose);
   if GoneWithin(Exe, 3000) then
+  begin
+    Log('Cold Open closed when asked, ' + IntToStr(GetTickCount - Start) + ' ms after it was found.');
     Exit;
-  Log('Cold Open did not close when asked, so it is being ended.');
+  end;
+  Log('Cold Open did not close when asked, so it is being ended (' + IntToStr(GetTickCount - Start) + ' ms).');
   Running(Exe, EndIt);
-  if not GoneWithin(Exe, 3000) then
+  if GoneWithin(Exe, 3000) then
+    Log('Cold Open was ended, ' + IntToStr(GetTickCount - Start) + ' ms after it was found.')
+  else
+  begin
+    Log('Cold Open is still running after ' + IntToStr(GetTickCount - Start) + ' ms.');
     Result := StillOpen;
+  end;
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
