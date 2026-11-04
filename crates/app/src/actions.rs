@@ -105,6 +105,26 @@ pub const APP_ACTIONS: &[ActionInfo] = &[
         title: "Install the command-line tool",
     },
     ActionInfo {
+        name: "app.user_guide",
+        title: "Open the user guide",
+    },
+    ActionInfo {
+        name: "app.report_problem",
+        title: "Report a problem…",
+    },
+    ActionInfo {
+        name: "app.crash_reports",
+        title: "Look at crash reports",
+    },
+    ActionInfo {
+        name: "app.crash_reports_toggle",
+        title: "Turn crash reports on or off",
+    },
+    ActionInfo {
+        name: "app.crash_test",
+        title: "Crash on purpose (to test recovery)",
+    },
+    ActionInfo {
         name: "edit.cut",
         title: "Cut",
     },
@@ -199,6 +219,18 @@ pub const APP_ACTIONS: &[ActionInfo] = &[
     ActionInfo {
         name: "view.zoom_reset",
         title: "Actual size",
+    },
+    ActionInfo {
+        name: "view.interface_larger",
+        title: "Make the interface larger",
+    },
+    ActionInfo {
+        name: "view.interface_smaller",
+        title: "Make the interface smaller",
+    },
+    ActionInfo {
+        name: "view.interface_reset",
+        title: "Interface at normal size",
     },
     ActionInfo {
         name: "view.draft",
@@ -396,6 +428,46 @@ pub fn known(name: &str) -> bool {
     APP_ACTIONS.iter().any(|a| a.name == name) || Command::NAMES.contains(&name)
 }
 
+/// Requests whose names carry an index (`recent:3`), noted by their
+/// prefix alone, after the app actions' codes.
+const INDEXED: [&str; 3] = ["recent", "leftover", "forget"];
+
+/// Notes a request the router runs, for a crash report's `Last action`
+/// (docs/specs/crash-reports.md §3): an app action by its place in
+/// [`APP_ACTIONS`], a command by its name, an indexed request by its
+/// prefix, anything else as `other`.
+pub fn note(name: &str) {
+    use coldopen_core::crash;
+    if Command::NAMES.contains(&name) {
+        crash::note_command(name);
+        return;
+    }
+    let code = match APP_ACTIONS.iter().position(|a| a.name == name) {
+        Some(i) => i,
+        None => {
+            let prefix = name.split(':').next().unwrap_or("");
+            APP_ACTIONS.len()
+                + INDEXED
+                    .iter()
+                    .position(|p| *p == prefix)
+                    .unwrap_or(INDEXED.len())
+        }
+    };
+    crash::note(crash::APP_CODES + code as u32);
+}
+
+/// The name [`note`] noted under `code`.
+pub fn crash_name(code: u32) -> &'static str {
+    let i = code.saturating_sub(coldopen_core::crash::APP_CODES) as usize;
+    match APP_ACTIONS.get(i) {
+        Some(a) => a.name,
+        None => INDEXED
+            .get(i - APP_ACTIONS.len())
+            .copied()
+            .unwrap_or("other"),
+    }
+}
+
 /// Everything the palette lists: (name, title).
 pub fn all() -> Vec<(&'static str, &'static str)> {
     let mut v: Vec<(&'static str, &'static str)> = APP_ACTIONS
@@ -466,6 +538,24 @@ mod tests {
         for (_, a) in crate::keymap::defaults() {
             assert!(known(a), "{a}");
         }
+    }
+
+    #[test]
+    fn crash_codes_name_actions_and_prefixes_only() {
+        use coldopen_core::crash::APP_CODES;
+        let code = |name: &str| {
+            let i = APP_ACTIONS.iter().position(|a| a.name == name);
+            i.map(|i| APP_CODES + i as u32)
+        };
+        assert_eq!(
+            crash_name(code("app.export_pdf").unwrap()),
+            "app.export_pdf"
+        );
+        let after = APP_CODES + APP_ACTIONS.len() as u32;
+        assert_eq!(crash_name(after), "recent");
+        assert_eq!(crash_name(after + 2), "forget");
+        assert_eq!(crash_name(after + 3), "other");
+        assert_eq!(crash_name(after + 99), "other");
     }
 
     #[test]

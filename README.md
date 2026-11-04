@@ -2,7 +2,7 @@
 
 Cold Open is a free, open-source screenwriting app. It reads and writes Fountain and Final Draft (.fdx) files and never loses your work. Every action is a command, and you can drive it from the desktop app, the command line, JSON over stdio, or an MCP server.
 
-**Status:** alpha. Phases 1 to 5 built the editor, the command line, the MCP server, .fdx exchange, track changes, revisions, script diff and reports; phase 6a makes the builds a writer installs. See [`docs/spec.md`](docs/spec.md) for the plan and [`docs/progress/`](docs/progress/) for each phase.
+**Status:** alpha, and looking for testers. Phases 1 to 5 built the editor, the command line, the MCP server, .fdx exchange, track changes, revisions, script diff and reports; phase 6a made the builds a writer installs, and 6b the user guide, feedback and crash reports. The website, <https://theyungstump.github.io/cold-open/>, has the [user guide](https://theyungstump.github.io/cold-open/guide/) and [how to join the alpha](https://theyungstump.github.io/cold-open/alpha/join.html). See [`docs/spec.md`](docs/spec.md) for the plan, [`docs/progress/`](docs/progress/) for each phase and [`CHANGELOG.md`](CHANGELOG.md) for each release.
 
 ## Install
 
@@ -42,7 +42,7 @@ In practice:
 - **Links open in your browser,** and only when you click them.
 - **Measure performance** writes two report files to your Downloads folder. They leave your computer only if you send them.
 
-Two ways to tell us about a problem are coming in the next alpha, 0.1.0-alpha.2. Both send nothing by themselves:
+From 0.1.0-alpha.2, there are two ways to tell us about a problem from inside the app. Neither sends anything by itself:
 
 - **Report a problem…** opens a page in your browser, ready to fill in: a GitHub issue, or a Google Form for people without a GitHub account. The app fills in Cold Open's version and commit, the build's target, your operating system's name and version, and the renderer drawing the window. It adds no script text, no file names or paths, and no user or computer names. Nothing is sent until you submit the page yourself, and you can change it first.
 - **Crash reports.** If Cold Open crashes, it saves a report on your computer: the error's message with any quoted text taken out, where in Cold Open's code it happened, a backtrace as code addresses with no file paths, the version, the operating system and the renderer. It holds no script text, file names or user names. At the next start, Cold Open asks whether you want to look at it. It shows you the whole report before anything leaves your computer. Then it can open a ready-filled issue or form, or copy the report for you to paste. You can choose **Never ask again**.

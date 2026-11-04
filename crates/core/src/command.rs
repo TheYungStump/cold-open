@@ -422,6 +422,7 @@ pub struct Empty {}
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct DocNew {
+    /// Where the new script will be saved; it is journaled next to that path from the first change.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     /// The kind of one empty block the document starts with, so an editor
@@ -446,7 +447,9 @@ pub enum Recover {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct DocOpen {
+    /// The script to open: .fountain, .spmd, .txt, .fdx or .coldopen.
     pub path: String,
+    /// What to do with a crash journal beside the script: `auto` recovers it, `discard` sets it aside unread, `apply` also recovers one written on another computer.
     #[serde(default)]
     pub recover: Recover,
 }
@@ -455,10 +458,13 @@ pub struct DocOpen {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct DocSave {
+    /// Save to this path instead ("Save as"), converting when its extension is another format.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// `fountain`, `fdx` or `coldopen`; from the path's extension when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<String>,
+    /// Save even though the format can't hold everything in the script; the result lists what was lost.
     #[serde(default)]
     pub allow_lossy: bool,
     /// Replace the target even though it is a file other than the open
@@ -476,6 +482,7 @@ fn fountain() -> String {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct DocExport {
+    /// `fountain` (the default), `fdx`, `json` or `pages`.
     #[serde(default = "fountain")]
     pub format: String,
 }
@@ -484,6 +491,7 @@ pub struct DocExport {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct DocClose {
+    /// Close even with unsaved changes; they are kept in a copy of the journal.
     #[serde(default)]
     pub discard: bool,
 }
@@ -496,24 +504,34 @@ fn is_false(b: &bool) -> bool {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct BlockInsert {
+    /// The block to insert after.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after: Option<BlockId>,
+    /// The block to insert before. With neither, the block goes at the end.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub before: Option<BlockId>,
+    /// The element: `scene_heading`, `action`, `character`, `dialogue` and so on.
     #[serde(rename = "type")]
     pub kind: ElementKind,
+    /// The block's text, plain.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// The block's text with styles, as runs, instead of `text`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runs: Option<Vec<Run>>,
+    /// A scene heading's number, such as "12A".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scene_number: Option<String>,
+    /// A character who speaks at the same time as the one before (dual dialogue).
     #[serde(default, skip_serializing_if = "is_false")]
     pub dual: bool,
+    /// Centered action.
     #[serde(default, skip_serializing_if = "is_false")]
     pub centered: bool,
+    /// A section's depth, 1 or more.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub depth: Option<u8>,
+    /// Blank lines above the block, when not the usual.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub space_before: Option<u8>,
     /// Record the edit as a tracked change (docs/specs/changes.md §7).
@@ -558,7 +576,9 @@ impl BlockInsert {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct BlockSetType {
+    /// The block to change.
     pub id: BlockId,
+    /// Its new element.
     #[serde(rename = "type")]
     pub kind: ElementKind,
     /// Record the edit as a tracked change (docs/specs/changes.md §7).
@@ -571,9 +591,12 @@ pub struct BlockSetType {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct BlockSetText {
+    /// The block whose text to replace.
     pub id: BlockId,
+    /// The new text, plain.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// The new text with styles, as runs, instead of `text`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runs: Option<Vec<Run>>,
     /// Record the edit as a tracked change (docs/specs/changes.md §7).
@@ -596,19 +619,25 @@ where
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct BlockSetAttrs {
+    /// The block to change. Attributes not given stay as they are.
     pub id: BlockId,
+    /// A scene heading's number; `null` removes it.
     #[serde(
         default,
         deserialize_with = "double_option",
         skip_serializing_if = "Option::is_none"
     )]
     pub scene_number: Option<Option<String>>,
+    /// Dual dialogue, on a character.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dual: Option<bool>,
+    /// Centered action.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub centered: Option<bool>,
+    /// A section's depth, 1 or more.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub depth: Option<u8>,
+    /// Blank lines above the block; `null` gives the usual.
     #[serde(
         default,
         deserialize_with = "double_option",
@@ -621,6 +650,7 @@ pub struct BlockSetAttrs {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct BlockDelete {
+    /// The block to delete.
     pub id: BlockId,
     /// Record the edit as a tracked change (docs/specs/changes.md §7).
     /// Absent: the document's tracking switch for the author decides.
@@ -632,6 +662,7 @@ pub struct BlockDelete {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Scope {
+    /// The scene heading whose scene to search.
     pub scene: BlockId,
 }
 
@@ -643,10 +674,14 @@ fn yes() -> bool {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct TextReplace {
+    /// The text to find.
     pub find: String,
+    /// What to put in its place.
     pub with: String,
+    /// Only this scene; the whole script when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<Scope>,
+    /// Match capitals exactly (the default).
     #[serde(default = "yes")]
     pub match_case: bool,
     /// Replace only the match starting here.
@@ -662,7 +697,9 @@ pub struct TextReplace {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct ReplaceAt {
+    /// The block the match is in.
     pub id: BlockId,
+    /// Where the match starts, in characters.
     pub from: usize,
 }
 
@@ -670,7 +707,9 @@ pub struct ReplaceAt {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct SceneMove {
+    /// The scene heading of the scene to move.
     pub id: BlockId,
+    /// The scene or section to move it before; the end when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub before: Option<BlockId>,
     /// The last block to move, at or after the scene's own last block;
@@ -688,11 +727,15 @@ pub struct SceneMove {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct ExportPdf {
+    /// The PDF to write.
     pub path: String,
+    /// Text printed diagonally across every page.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub watermark: Option<String>,
+    /// Print scene numbers beside the headings.
     #[serde(default, skip_serializing_if = "is_false")]
     pub scene_numbers: bool,
+    /// Print the title page (the default).
     #[serde(default = "yes")]
     pub title_page: bool,
     /// Print pending tracked changes marked (the default) or accepted
@@ -725,6 +768,7 @@ pub struct DiffParams {
     /// Also write B with the changes marked to this .pdf path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pdf: Option<String>,
+    /// Replace the PDF if it exists.
     #[serde(default, skip_serializing_if = "is_false")]
     pub overwrite: bool,
 }
@@ -784,14 +828,20 @@ pub enum TitleAlign {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct TitleLineParam {
+    /// The line's text, plain.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// The line's text with styles, instead of `text`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runs: Option<Vec<Run>>,
+    /// `left`, `center` or `right` in its column.
     #[serde(default)]
     pub align: TitleAlign,
+    /// The column's left edge, in points from the paper's left edge.
     pub left: f64,
+    /// The column's right edge, in points from the paper's left edge.
     pub right: f64,
+    /// Space above the line, in points.
     #[serde(default)]
     pub space_before: f64,
 }
@@ -801,6 +851,7 @@ pub struct TitleLineParam {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct TitleSetLines {
+    /// Every positioned title line, in order.
     pub lines: Vec<TitleLineParam>,
 }
 
@@ -824,6 +875,7 @@ fn is_white(p: &RevisionPages) -> bool {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct ExportFile {
+    /// The copy to write.
     pub path: String,
     /// Write even though the format cannot hold everything. Writers only.
     #[serde(default, skip_serializing_if = "is_false")]
@@ -882,10 +934,13 @@ pub struct RecoveredDelete {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct StyleSpec {
+    /// Bold.
     #[serde(default, skip_serializing_if = "is_false")]
     pub bold: bool,
+    /// Italic.
     #[serde(default, skip_serializing_if = "is_false")]
     pub italic: bool,
+    /// Underlined.
     #[serde(default, skip_serializing_if = "is_false")]
     pub underline: bool,
 }
@@ -914,9 +969,13 @@ impl From<Style> for StyleSpec {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct TextInsert {
+    /// The block to type into.
     pub id: BlockId,
+    /// Where, in characters from the block's start.
     pub at: usize,
+    /// The text to insert.
     pub text: String,
+    /// The inserted text's style; the style before it when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub style: Option<StyleSpec>,
     /// Record the edit as a tracked change (docs/specs/changes.md §7).
@@ -934,8 +993,11 @@ pub struct TextInsert {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct TextDelete {
+    /// The block to delete from.
     pub id: BlockId,
+    /// The first character to delete.
     pub from: usize,
+    /// The character after the last one to delete.
     pub to: usize,
     /// Record the edit as a tracked change (docs/specs/changes.md §7).
     /// Absent: the document's tracking switch for the author decides.
@@ -947,13 +1009,19 @@ pub struct TextDelete {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct TextStyle {
+    /// The block to style.
     pub id: BlockId,
+    /// The first character to style.
     pub from: usize,
+    /// The character after the last one.
     pub to: usize,
+    /// Bold on or off; unchanged when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bold: Option<bool>,
+    /// Italic on or off; unchanged when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub italic: Option<bool>,
+    /// Underline on or off; unchanged when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub underline: Option<bool>,
 }
@@ -962,8 +1030,11 @@ pub struct TextStyle {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct BlockSplit {
+    /// The block to split.
     pub id: BlockId,
+    /// Where, in characters; the end of the block starts a new one.
     pub at: usize,
+    /// The new block's element; the same as the first when absent.
     #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<ElementKind>,
     /// Record the edit as a tracked change (docs/specs/changes.md §7).
@@ -980,6 +1051,7 @@ pub struct BlockSplit {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct BlockJoin {
+    /// The block to join to the one before it.
     pub id: BlockId,
     /// Record the edit as a tracked change (docs/specs/changes.md §7).
     /// Absent: the document's tracking switch for the author decides.
@@ -996,7 +1068,9 @@ fn empty_object() -> Value {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct BatchItem {
+    /// The command's name, such as `block.insert`.
     pub command: String,
+    /// Its parameters.
     #[serde(default = "empty_object")]
     pub params: Value,
 }
@@ -1014,7 +1088,9 @@ impl BatchItem {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Batch {
+    /// The commands, run in order. One that fails undoes the whole batch.
     pub commands: Vec<BatchItem>,
+    /// The undo history's name for the batch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
 }
@@ -1023,9 +1099,12 @@ pub struct Batch {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct TextFind {
+    /// The text to find.
     pub find: String,
+    /// Only this scene; the whole script when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<Scope>,
+    /// Match capitals exactly (the default).
     #[serde(default = "yes")]
     pub match_case: bool,
 }
@@ -1034,7 +1113,9 @@ pub struct TextFind {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct TextComplete {
+    /// The block being typed in.
     pub id: BlockId,
+    /// The caret's place in it, in characters.
     pub at: usize,
 }
 
@@ -1054,11 +1135,13 @@ pub struct ChangesList {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct ChangesSettle {
+    /// One change, such as `c_3`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<ChangeId>,
     /// The marks inside this scene.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scene: Option<BlockId>,
+    /// Every pending change.
     #[serde(default, skip_serializing_if = "is_false")]
     pub all: bool,
 }
@@ -1068,8 +1151,10 @@ pub struct ChangesSettle {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct ChangesTrack {
+    /// Track the writer's edits.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub writer: Option<bool>,
+    /// Track agents' edits.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agents: Option<bool>,
 }
@@ -1098,6 +1183,7 @@ pub struct RevisionStart {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct RevisionColors {
+    /// The color names, in the order sets take them.
     pub colors: Vec<String>,
 }
 
@@ -1106,8 +1192,10 @@ pub struct RevisionColors {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct RevisionClear {
+    /// The set whose marks to clear.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub set: Option<crate::revisions::RevisionId>,
+    /// Clear every set's marks.
     #[serde(default, skip_serializing_if = "is_false")]
     pub all: bool,
     /// With `all`: the sets go too, and the table is the default again, as

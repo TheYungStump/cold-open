@@ -1,7 +1,7 @@
 # Release builds and packages
 
-- **Date:** 2026-10-30
-- **Status:** phase 6a, being implemented.
+- **Date:** 2026-10-30, updated 2026-11-02 (phase 6b: the symbols file in §2 and §9, the code signing policy and file metadata in §8)
+- **Status:** phase 6a, implemented; the 6b additions are being implemented.
 - **Sources:**
   - `docs/spec.md`, "Platforms, size and performance" (targets, the 15 MB installer budget) and "Open questions" (code signing: ship unsigned, apply to SignPath Foundation, pay Apple later).
   - The phase 6a brief and the project owner's decisions of 2026-10-30, recorded in `docs/progress/phase-6a.md`.
@@ -33,6 +33,7 @@ A release `v<version>` holds these files. `<v>` is the version without the `v`, 
 | Linux | x86-64 | `ColdOpen-<v>-x86_64.AppImage` | Single-file app (§3.5) |
 | Linux | x86-64 | `ColdOpen-<v>-x86_64.flatpak` | Flatpak bundle (§3.6) |
 | Linux | ARM64 | `cold-open_<v>_arm64.deb`, `ColdOpen-<v>-aarch64.AppImage`, `ColdOpen-<v>-aarch64.flatpak` | The same three |
+| All | | `ColdOpen-<v>-symbols.zip` | The debug symbols of every target's app, for reading crash reports (§9; added 2026-11-02). Not an install file, so not under the size budget |
 | All | | `SHA256SUMS.txt` | One line per file above, `<sha256>  <name>`, sorted by name |
 
 **Resolution (macOS):** one universal disk image if it stays under the size budget. If it doesn't, the release holds `ColdOpen-<v>-macos-arm64.dmg` and `ColdOpen-<v>-macos-x64.dmg` instead. The packaging step measures the universal image and decides; the release notes name what was shipped.
@@ -209,6 +210,8 @@ No package writes a setting at install time, so a new install over nothing start
   - unset, it skips those steps, and the release notes say the build is unsigned and how to get past SmartScreen ("More info" ▸ "Run anyway").
   - Nothing else changes between a signed and an unsigned build.
 - **Linux:** packages are not signed. `SHA256SUMS.txt` is the check.
+- **The code signing policy** (2026-11-02, SignPath Foundation's terms): the README and the website's "Code signing policy" page carry SignPath's credit, the team's roles, and how a release is built and approved (`docs/specs/site.md` §3). SignPath asks for the words "Code signing policy" on release pages too. The release workflow ends every release's notes with links to the policy and the privacy statement.
+- **File metadata** (the same terms): every signed Windows program names the product "Cold Open" and carries the release's version. The app has had it since 6a (`crates/app/build.rs`). The CLI gets the same resource in 6b, and so does the installer, through Inno Setup's version fields.
 
 ## 9. Version and commit
 
@@ -224,6 +227,15 @@ No package writes a setting at install time, so a new install over nothing start
   A test checks the programs agree.
 - **Pre-releases:** `0.1.0-alpha.1`, `0.1.0-alpha.2`, and so on, then `0.1.0-beta.1`. A tag is `v` plus the version. The release workflow fails when the tag and `Cargo.toml` disagree, and marks any version with a `-` as a pre-release.
 - **Commit:** the commit a build came from, 12 hex digits, appears in the About sheet, `coldopen --version` and the bench report. It comes from `COLDOPEN_COMMIT` at build time (CI sets it), else from `git` when the build runs in a clone, else `unknown`. It is information only: nothing reads it back, and no file Cold Open writes depends on it. **Resolution:** the journal header and `meta.json` keep the version alone, so a script saved by two builds of one version reads the same.
+- **Symbols** (2026-11-02, the project owner's decision for crash reports, `docs/specs/crash-reports.md` §5). A crash report's frames are offsets into the build's binaries, so each release keeps the symbols that name them:
+  - CI's release builds add line tables (`CARGO_PROFILE_RELEASE_DEBUG=line-tables-only`) and keep the symbols out of the binary:
+    - Linux: `objcopy --only-keep-debug` copies them to `coldopen-app.debug`, then the binary is stripped;
+    - macOS: `split-debuginfo=packed` writes `coldopen-app.dSYM`, then the binary is stripped;
+    - Windows: the linker writes `coldopen_app.pdb` beside the exe.
+  - Each shipped binary is the stripped form of the same link as its symbols, so the offsets match. The packages are the same size as before, and CI's size check still applies.
+  - The release's `ColdOpen-<v>-symbols.zip` holds one folder per target, named by its target triple, with the app's symbols.
+  - `tools/symbolicate.py <report> <folder>` resolves a report with `llvm-symbolizer` (rustup's `llvm-tools` component).
+  - **Resolution:** the app only, since crash reports are the app's (`crash-reports.md` §2).
 
 ## 10. Licenses
 

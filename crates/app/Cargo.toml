@@ -38,6 +38,14 @@ unicode-width.workspace = true
 sysinfo.workspace = true
 # Inflates the third-party license list compiled into the About sheet.
 miniz_oxide.workspace = true
+# Crash reports (docs/specs/crash-reports.md §5).
+backtrace.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
 
 [build-dependencies]
 # Deflates that list at build time (build.rs).

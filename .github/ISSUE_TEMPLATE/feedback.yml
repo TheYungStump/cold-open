@@ -1,0 +1,35 @@
+name: Feedback or an idea
+description: What worked, what didn't feel right, or what you'd like Cold Open to do.
+title: "Feedback: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Everything you write here is **public**. For a longer conversation, the [alpha discussions](https://github.com/TheYungStump/cold-open/discussions) may suit better.
+
+        What helps us most is what you were trying to do, and what got in the way. See [what feedback helps](https://theyungstump.github.io/cold-open/alpha/what-helps.html).
+  - type: textarea
+    id: what
+    attributes:
+      label: Your feedback
+      description: What were you trying to do? What happened, and what would you have liked instead?
+    validations:
+      required: true
+  - type: dropdown
+    id: track
+    attributes:
+      label: Which tester guide were you following, if any?
+      options:
+        - None
+        - For anyone (about 20 minutes)
+        - For screenwriters
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: About Cold Open shows it.
+  - type: input
+    id: os
+    attributes:
+      label: Operating system

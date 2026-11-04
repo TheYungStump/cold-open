@@ -20,6 +20,10 @@ coldopen-fonts.workspace = true
 serde_json.workspace = true
 clap.workspace = true
 
+[target.'cfg(windows)'.build-dependencies]
+# The .exe's icon and version details (build.rs).
+winresource.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true
 # The diff budget's drafts: the synthetic script, written as Fountain.

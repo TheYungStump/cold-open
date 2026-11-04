@@ -1,7 +1,7 @@
 # The desktop editor
 
 - **Date:** 2026-10-15, updated 2026-10-16
-- **Status:** implemented in `crates/app` (phase 3); the 2026-10-16 changes come from the reviews of phases 1–3; phase 4 (2026-10-16) added .fdx files, the repair report, Recovered versions and one command router (§16). Phase 5a (2026-10-18) added bundles and track changes (§17). Phase 5b (2026-10-22) adds production revisions (§18), the title page editor (§19), reports (§20), comparing drafts (§21) and missing recent files (§11). Phase 6a (2026-10-30) adds §22: About, the bench, the command-line tool on macOS and folders that can't be written.
+- **Status:** implemented in `crates/app` (phase 3); the 2026-10-16 changes come from the reviews of phases 1–3; phase 4 (2026-10-16) added .fdx files, the repair report, Recovered versions and one command router (§16). Phase 5a (2026-10-18) added bundles and track changes (§17). Phase 5b (2026-10-22) adds production revisions (§18), the title page editor (§19), reports (§20), comparing drafts (§21) and missing recent files (§11). Phase 6a (2026-10-30) adds §22: About, the bench, the command-line tool on macOS and folders that can't be written. Phase 6b (2026-11-02) adds §23: Report a problem, the user guide, and crash reports on screen.
 - **Sources:**
   - `docs/spec.md`: Writing, Structure and navigation, Comfort, Reliability.
   - The phase 3 brief and its approved decisions (2026-10-15).
@@ -44,6 +44,7 @@
 - **Draft view.** One continuous column with the same wrapping as the pages, from layout's draft lines (`docs/specs/layout.md` §15.3). There are no page breaks, (MORE) or (CONT'D). A thin rule and the page number mark where each body page starts. Transparent elements show as grey, non-printing lines, so sections and synopses can be read and edited.
 - **Zoom.** The steps are 50, 67, 80, 90, 100, 110, 125, 150, 175, 200, 250 and 300 percent. At 100% a page is drawn at its paper size on a 96-pixels-per-inch logical display; the operating system's scale factor applies on top. Zooming keeps what is in view in place: the caret's line stays at the same height on screen when the caret is in view, and otherwise the middle of the view stays put (2026-10-15).
   - **A page always fits the page area's width** (2026-10-21). The page area never scrolls sideways, so a page wider than the area at the chosen zoom is drawn at the largest zoom that fits it, with its margins, and never below 50%. The status bar then shows the zoom drawn with "(fit)", such as "83% (fit)". Zoom out steps down from the zoom drawn. Zoom in can't go past the fit until the area is wider: a wider window, or a side panel closed. The chosen zoom stays in the settings and comes back as soon as it fits. Before, a page at 100% in a window 1280 pixels wide, with both the navigator and the changes panel open, was cut off on the right (phase 5a decision 41). The area's width is the one it reports when redrawn, so the fit follows a resize or a panel opening on the next frame.
+- **Interface size** (2026-11-03, from the owner's manual test: dialog text is small at 100%). The steps are 100, 110, 125, 150, 175 and 200 percent, through the palette's **Make the interface larger** (`view.interface_larger`), **Make the interface smaller** (`view.interface_smaller`) and **Interface at normal size** (`view.interface_reset`); each says the size in a notice. They have no keys: the zoom keys' Shift forms type `+` and `_` on many layouts. The size scales the whole window, the pages included, on top of the operating system's scale factor, as that factor does. So a page at 100% zoom with the interface at 125% is drawn a quarter larger than its paper size, and the fit to the page area's width still applies. The size is kept in `settings.json` (`interface_size`), and a value outside the steps' range is brought back into it. A benchmark always runs at 100%, so its budgets mean the same on every computer.
 - **The bars stay clear.** Pages scroll under the hint bar and the status bar, never over them: page text is clipped to the page area.
 - **Themes.**
 
@@ -257,6 +258,8 @@ Shortcuts are looked up by **action** name: a core command (`undo`, `doc.save`, 
 | `app.reports` (§20) | Mod+Shift+I |
 | `app.compare`, `app.import_draft` (§21) | — (palette) |
 | "Remove from recent: <file>" (one palette entry per missing recent file, §11) | — (palette; a button on the start screen) |
+| `app.report_problem`, `app.user_guide` (2026-11-02, §23) | — (palette, About, start screen) |
+| `app.crash_reports`, `app.crash_reports_toggle`, `app.crash_test` (§23) | — (palette; the first also in the crash notice) |
 
 Esc closes the topmost overlay, or the autocomplete list. Movement and editing keys (§4, §5.1) are built in and not listed in the map.
 
@@ -289,7 +292,7 @@ Esc closes the topmost overlay, or the autocomplete list. Movement and editing k
 | Data: `Unsaved/` | `%LOCALAPPDATA%\Cold Open` | `~/Library/Application Support/Cold Open` | `$XDG_DATA_HOME/coldopen` (default `~/.local/share/coldopen`) |
 | Run: agent link session files (`docs/specs/mcp.md`) | `%LOCALAPPDATA%\Cold Open\run` | `~/Library/Application Support/Cold Open/run` | `$XDG_RUNTIME_DIR/coldopen`, or `run/` in the data folder |
 
-`settings.json` holds the theme, zoom, view, panel visibility, agent access (§12), the writer's name for tracked changes (`author_name`, 2026-10-18, §17) and up to 10 recent files. Like `keymap.json`, an unreadable file is ignored with a banner and never stops the app.
+`settings.json` holds the theme, zoom, interface size (§3), view, panel visibility, agent access (§12), the writer's name for tracked changes (`author_name`, 2026-10-18, §17) and up to 10 recent files. Like `keymap.json`, an unreadable file is ignored with a banner and never stops the app.
 
 - **New.** **Resolution:** a new script is created with `doc.new` at `Unsaved/Untitled-<n>.fountain` in the data folder, with `start: "scene_heading"`, so it has a crash journal from its first keystroke and begins clean, on an empty scene heading. A script nobody typed in is never offered as lost work and never asks to be saved. The file itself is written only by "Save as". Mod+S on such a script opens "Save as".
 - **No script open.** After Close, the window shows New, Open and the recent files. Mod+N, Mod+O and the palette work there too.
@@ -523,7 +526,7 @@ Added 2026-10-30 (phase 6a; `docs/specs/release.md`, `docs/specs/bench.md`).
   - **Licenses**, in four tabs: Cold Open (GPL-3.0-or-later, with the notice), the format libraries (MIT or Apache-2.0), the fonts (SIL OFL 1.1), and third-party crates (`release.md` §10). Tab and Shift+Tab change tabs. Each license scrolls in its own area, drawn a line at a time, so the long third-party list scrolls as fast as a short one.
   - Esc or Enter closes the sheet.
   - **Room for 6b:** rows for the user guide and for sending feedback appear when the build names their addresses. 6a's builds name neither, so neither row shows.
-  - Links open in the system's browser.
+  - Links open in the system's browser. On Windows, through the shell's own "open" (`ShellExecuteW`), as a double-click does; on macOS `open`, on Linux `xdg-open`. Until 2026-11-03 Windows ran `explorer <address>`, which opened the Documents folder instead for the prefilled issue and form addresses (the owner's manual test of alpha.2).
 - **Measure performance…** (palette): the bench (`docs/specs/bench.md` §2).
 - **Install the command-line tool** (palette, macOS only): `docs/specs/release.md` §3.3.
 - **A script in a folder that can't be written** (the project owner's decision, 2026-10-30).
@@ -533,3 +536,39 @@ Added 2026-10-30 (phase 6a; `docs/specs/release.md`, `docs/specs/bench.md`).
   - **Resolution:** if `Unsaved/` itself can't be written either, the open fails with the error's message, as any failed open does.
 - **The renderer falls back.** A writer who chooses the GPU renderer on a computer where it can't start gets the CPU renderer (`release.md` §6). The About sheet then says "CPU (the GPU renderer could not start)".
 - **Which renderer draws the window** is asked of the system the first time the About sheet opens, not at start (2026-11-02). Until the answer comes, the sheet names the renderer the settings ask for. **Resolution:** iced's query also reads every running process, on every core; asked at start, it held up the window's frames for about 200 ms, and the bench's report-scrolling step missed its budget on the project owner's PC.
+
+## 23. Feedback, the user guide and crash reports
+
+Added 2026-11-02 (phase 6b; `docs/specs/crash-reports.md`, `docs/specs/site.md`). Nothing here sends anything: every path ends in the writer's browser or clipboard, and the writer submits or pastes it themselves (the privacy statement in `README.md`).
+
+- **Report a problem…** (`app.report_problem`; in the palette, in the About sheet in place of 6a's "Send feedback" row, and in the start screen's links):
+  - A sheet: "Report a problem". It says "Cold Open opens a page in your browser with these details filled in. Nothing is sent until you submit it there."
+  - **The details it adds**, listed in the sheet exactly as they go:
+    - the version and commit;
+    - the build's target;
+    - the OS and its version;
+    - the renderer (as the crash report's `Renderer` line, `crash-reports.md` §3).
+
+    No script text, no file names or paths, no user or computer names.
+  - **Open a GitHub issue** (G), "needs a GitHub account": the bug template (`.github/ISSUE_TEMPLATE/bug.yml`), with those fields filled in from the address's query (each field by its `id`).
+  - **Use the form** (F), "no account needed": the project's Google Form, with the same fields filled in through its prefilled link. **Resolution:** the button shows only when the build names the form's address (`FORM_URL` in `crates/app/src/feedback.rs`), so a build made before the form exists never shows a dead button. The form exists from 2026-11-03.
+  - **Copy the details** (C) puts the same lines on the clipboard, as About's "Copy version info" does.
+  - **Close** (Esc).
+- **The user guide** (`app.user_guide`, "Open the user guide"; in the palette, in the About sheet's "User guide" row, and in the start screen's links) opens the website's guide (`site.md`) in the browser.
+- **The start screen's links:** a quiet row under the buttons: **User guide**, **Report a problem…** and **About Cold Open**.
+- **The crash notice** (`crash-reports.md` §6): at start, when an unseen crash report exists and reports are on.
+  - It says "Cold Open closed unexpectedly. A crash report was saved, with no script text.", with **Look at it** and **Never ask again** beside Dismiss.
+  - It queues behind the recovery dialog, as every notice does (§13).
+  - **Never ask again** turns reports off and says how to turn them on again.
+- **The crash report sheet** (`app.crash_reports`, "Look at crash reports"): the report in full, as it is on disk, scrolling, with:
+  - **Send on GitHub** (G);
+  - **Send with the form** (F; shown as Report a problem shows it);
+  - **Copy** (C);
+  - **Delete** (Delete, then Enter to confirm or Esc);
+  - **Older** and **Newer** (Left, Right);
+  - **Close** (Esc).
+
+  Both Send buttons copy the whole report first, and the notice they leave says it's on the clipboard to paste into the page (`crash-reports.md` §7).
+- **Turn crash reports on or off** (`app.crash_reports_toggle`, palette): switches `crash_reports` in `settings.json` and says which it is now.
+- **Crash on purpose (to test recovery)** (`app.crash_test`, palette): asks first (Enter crashes, Esc cancels), then panics (`crash-reports.md` §9). For testers: the next start recovers the journal and offers the report.
+- **Keys in these sheets** are those of the sheet's own buttons, as in the recovery dialog. **Resolution:** single letters, since no text field is open in either sheet.

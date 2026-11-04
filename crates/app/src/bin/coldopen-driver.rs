@@ -3,8 +3,12 @@
 //! shipped.
 //!
 //! ```text
-//! coldopen-driver --home DIR [SCRIPT]
+//! coldopen-driver --home DIR [--open-links] [SCRIPT]
 //! ```
+//!
+//! With `--open-links`, links open in the browser as in the app (CI's
+//! check of Report a problem with a stand-in `xdg-open`); without it they
+//! are only noted.
 //!
 //! SCRIPT may be a .fountain, an .fdx or a .coldopen file.
 //!
@@ -19,6 +23,10 @@
 //! - `saveas PATH`: Save as PATH, as if the save dialog had answered with
 //!   it; the extension picks the format, so this converts;
 //! - `quit`: closes the script cleanly and exits.
+//!
+//! The driver installs the app's crash hook, with reports written under
+//! `--home` (docs/specs/crash-reports.md §10), unless its settings turn
+//! them off.
 //!
 //! After each line has gone through the app's update, and so has been
 //! journaled, it prints `ack N` and flushes. It also runs whatever the
@@ -55,9 +63,11 @@ fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
     let mut home: Option<PathBuf> = None;
     let mut file: Option<PathBuf> = None;
+    let mut open_links = false;
     while let Some(a) = args.next() {
         match a.as_str() {
             "--home" => home = args.next().map(PathBuf::from),
+            "--open-links" => open_links = true,
             _ => file = Some(PathBuf::from(a)),
         }
     }
@@ -65,9 +75,14 @@ fn main() -> ExitCode {
         eprintln!("usage: coldopen-driver --home DIR [SCRIPT]");
         return ExitCode::FAILURE;
     };
+    let dirs = Dirs::under(&home);
+    let on = coldopen_app::files::Settings::load(&dirs).0.crash_reports
+        == coldopen_app::files::CrashReports::Ask;
+    coldopen_app::crash::install(Some(&dirs), on);
     let mut app = App::new(Boot {
         file,
-        dirs: Some(Dirs::under(&home)),
+        dirs: Some(dirs),
+        open_links,
         ..Boot::default()
     });
     app.set_dialogs(Dialogs::scripted(|_| None));

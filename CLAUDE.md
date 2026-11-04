@@ -32,14 +32,18 @@ The MIT/Apache crates must never depend on GPL crates.
 
 ## Milestones
 
-Each phase starts only after the previous gate passes.
+Each phase starts only after the previous gate passes. Phases 5 and 6 were each built in two parts. Dates are when each part started and merged; `docs/progress/` has a record of each.
 
-1. **Core and CLI** — dispatcher, document model, Fountain read/write, CLI, JSON over stdio. Gate: passes our own Fountain test cases, written from the public syntax page at fountain.io.
-2. **Layout and PDF** — layout engine with bundled fonts, page-break rules, PDF export, cross-platform determinism tests, a minimal read-only .fdx loader for the reference tests, and the `EXT/INT` and `E/I` scene-heading fix. Gate: layout and PDF goldens identical on Windows, macOS and Linux, and the reference comparison against the Final Draft PDFs meets the thresholds in `docs/specs/layout.md` (wraps ≥ 99%, resynced breaks ≥ 95% exact and all within 2 lines, page counts exact or ±1 on Big Fish, scene starts ≥ 90% exact and all within 1 page).
-3. **Desktop editor and MCP** — editor window, smart element flow, autocomplete, scene navigator, atomic saves, crash journal, MCP server. Gate: a full short script written with no crash and no lost text.
-4. **.fdx exchange** — import/export, unknown-element passthrough, repair report and `repair` command. Gate: lossless round trip on the .fdx test corpus.
-5. **Revisions and output** — track changes, revision colors, script diff, title page, reports. Gate: track changes survive save, reload and .fdx export.
-6. **Alpha release** — builds for all three OSes, user docs, website, tester group. Gate: every size and speed budget in the spec met on all three OSes.
+1. **Core and CLI** (2026-10-13) — dispatcher, document model, Fountain read/write, CLI, JSON over stdio. Gate: passes our own Fountain test cases, written from the public syntax page at fountain.io.
+2. **Layout and PDF** (2026-10-14) — layout engine with bundled fonts, page-break rules, PDF export, cross-platform determinism tests, a minimal read-only .fdx loader for the reference tests, and the `EXT/INT` and `E/I` scene-heading fix. Gate: layout and PDF goldens identical on Windows, macOS and Linux, and the reference comparison against the Final Draft PDFs meets the thresholds in `docs/specs/layout.md` (wraps ≥ 99%, resynced breaks ≥ 95% exact and all within 2 lines, page counts exact or ±1 on Big Fish, scene starts ≥ 90% exact and all within 1 page).
+3. **Desktop editor and MCP** (2026-10-15) — editor window, smart element flow, autocomplete, scene navigator, atomic saves, crash journal, MCP server. Gate: a full short script written with no crash and no lost text. The fixes from four reviews of phases 1–3 followed (2026-10-16).
+4. **.fdx exchange** (2026-10-16 to 10-17) — import/export, unknown-element passthrough, repair report and `repair` command. Gate: lossless round trip on the .fdx test corpus.
+5. **Revisions and output** — gate: track changes survive save and reload. An .fdx export asks first, then writes them accepted, since no public source describes .fdx change marks; a project keeps them.
+   - **5a** (2026-10-18 to 10-21) — the `.coldopen` project bundle, track changes, agents' edits as tracked changes.
+   - **5b** (2026-10-22 to 10-27) — production revision sets and colors, script diff, the title page editor, reports. The fixes from four reviews of phases 4–5b followed (2026-10-30).
+6. **Alpha release** — gate: every size and speed budget in the spec met on all three OSes.
+   - **6a** (2026-10-30 to 11-02) — release engineering: packages for every target, each under 15 MB; the bench; the release workflow.
+   - **6b** (from 2026-11-02) — the alpha: user docs, website, feedback, opt-in crash reports, tester group. Ends with `v0.1.0-alpha.2`.
 
 ## Rules
 

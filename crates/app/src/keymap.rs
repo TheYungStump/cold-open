@@ -45,6 +45,12 @@ const NAMED: [(&str, Named); 15] = [
 impl Chord {
     /// Reads `Mod+Shift+K` and the like. `None` for anything malformed.
     pub fn parse(s: &str) -> Option<Chord> {
+        Chord::parse_for(s, MAC)
+    }
+
+    /// [`Chord::parse`] as on macOS (`mac`) or on the other OSes, for the
+    /// keyboard reference, which lists both (docs/specs/site.md §4).
+    pub fn parse_for(s: &str, mac: bool) -> Option<Chord> {
         let mut c = Chord {
             ctrl: false,
             alt: false,
@@ -63,7 +69,7 @@ impl Chord {
         for m in mods {
             match m.trim().to_ascii_lowercase().as_str() {
                 "mod" => {
-                    if MAC {
+                    if mac {
                         c.logo = true;
                     } else {
                         c.ctrl = true;
@@ -121,18 +127,23 @@ impl Chord {
 
     /// How the chord reads in menus and the palette.
     pub fn label(&self) -> String {
+        self.label_for(MAC)
+    }
+
+    /// [`Chord::label`] as macOS (`mac`) or the other OSes write it.
+    pub fn label_for(&self, mac: bool) -> String {
         let mut s = String::new();
         if self.ctrl {
             s.push_str("Ctrl+");
         }
         if self.alt {
-            s.push_str(if MAC { "Option+" } else { "Alt+" });
+            s.push_str(if mac { "Option+" } else { "Alt+" });
         }
         if self.shift {
             s.push_str("Shift+");
         }
         if self.logo {
-            s.push_str(if MAC { "Cmd+" } else { "Super+" });
+            s.push_str(if mac { "Cmd+" } else { "Super+" });
         }
         let k = match self.key.as_str() {
             "pageup" => "Page Up".to_string(),
@@ -152,6 +163,11 @@ impl Chord {
 
 /// The built-in shortcuts (editor.md §10).
 pub fn defaults() -> Vec<(&'static str, &'static str)> {
+    defaults_for(MAC)
+}
+
+/// [`defaults`] on macOS (`mac`) or on the other OSes.
+pub fn defaults_for(mac: bool) -> Vec<(&'static str, &'static str)> {
     let mut v = vec![
         ("Mod+K", "app.palette"),
         ("Mod+Shift+P", "app.palette"),
@@ -203,7 +219,7 @@ pub fn defaults() -> Vec<(&'static str, &'static str)> {
         ("Mod+Shift+I", "app.reports"),
         ("Mod+Shift+T", "app.title_page"),
     ];
-    if MAC {
+    if mac {
         v.push(("Mod+Alt+F", "edit.replace"));
     } else {
         v.push(("Mod+H", "edit.replace"));

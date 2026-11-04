@@ -18,6 +18,11 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # Line tables for crash reports' symbols (release.md §9; crash-reports.md
+  # §5). The binaries are stripped after the build, so the shipped files are
+  # the same link as the symbols kept beside them, and no bigger than before.
+  CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
+  CARGO_PROFILE_RELEASE_STRIP: none
   # The commit every program names (release.md §9).
   # A pull request builds a merge commit; name the branch's head instead.
   COLDOPEN_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -86,6 +91,15 @@ jobs:
           path: third-party
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }} -p coldopen-app -p coldopen-cli
+      # The linker writes the symbols to a PDB beside the exe, which holds
+      # only the PDB's name.
+      - name: Symbols
+        run: bash .github/packaging/package.sh symbols ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: symbols-${{ matrix.target }}
+          path: symbols
+          if-no-files-found: error
       - name: Stage
         run: bash .github/packaging/package.sh windows-stage ${{ matrix.arch }} ${{ matrix.target }}
 
@@ -169,7 +183,16 @@ jobs:
             if (-not (Test-Path "HKCU:\Software\Classes\$k\shell\open\command")) { Write-Error "no $k"; exit 1 }
           }
           if ((Get-ItemProperty "HKCU:\Software\Classes\.coldopen").'(default)' -ne 'ColdOpen.coldopen') { Write-Error ".coldopen is not ours"; exit 1 }
-          (Get-Item "$app\Cold Open.exe").VersionInfo | Format-List ProductName, ProductVersion
+          # Every program SignPath signs names the product and the release's
+          # version (release.md §8).
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"').Matches[0].Groups[1].Value
+          foreach ($f in "Cold Open.exe", "bin\coldopen.exe", "unins000.exe") {
+            $info = (Get-Item "$app\$f").VersionInfo
+            $info | Format-List ProductName, ProductVersion
+            if ($f -ne "unins000.exe" -and ($info.ProductName -ne "Cold Open" -or $info.ProductVersion -ne $version)) {
+              Write-Error "$f names '$($info.ProductName)' $($info.ProductVersion), not 'Cold Open' $version"; exit 1
+            }
+          }
           "APP=$app" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
       - name: Start the installed programs
         run: |
@@ -251,11 +274,24 @@ jobs:
           name: third-party
           path: third-party
       - name: Build both architectures
+        env:
+          # A dSYM beside each binary (release.md §9).
+          CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO: packed
         run: |
           for t in aarch64-apple-darwin x86_64-apple-darwin; do
             COLDOPEN_THIRD_PARTY="$PWD/third-party/$t.txt" \
               cargo build --release --locked --target "$t" -p coldopen-app -p coldopen-cli
           done
+      - name: Symbols, then strip
+        run: |
+          for t in aarch64-apple-darwin x86_64-apple-darwin; do
+            bash .github/packaging/package.sh symbols "$t"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: symbols-macos
+          path: symbols
+          if-no-files-found: error
       - name: App bundle and disk image
         run: bash .github/packaging/package.sh macos
       - name: Sizes (15,000,000 bytes each)
@@ -323,6 +359,13 @@ jobs:
           flatpak install --user -y --noninteractive flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }} -p coldopen-app -p coldopen-cli
+      - name: Symbols, then strip
+        run: bash .github/packaging/package.sh symbols ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: symbols-${{ matrix.target }}
+          path: symbols
+          if-no-files-found: error
       - name: .deb, AppImage and Flatpak
         run: bash .github/packaging/package.sh linux ${{ matrix.arch }} ${{ matrix.target }}
       - name: Sizes (15,000,000 bytes each)

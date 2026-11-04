@@ -16,6 +16,7 @@ pub mod bundle;
 pub mod changes;
 pub mod command;
 pub mod complete;
+pub mod crash;
 pub mod diff;
 pub mod dispatcher;
 pub mod document;

@@ -80,7 +80,10 @@ impl App {
     /// Runs one request from any source (editor.md §16).
     pub fn dispatch(&mut self, request: Request, origin: Origin) -> Outcome {
         match (request, origin) {
-            (Request::Action(name), o) if !o.is_agent() => Outcome::task(self.action_by(&name, &o)),
+            (Request::Action(name), o) if !o.is_agent() => {
+                crate::actions::note(&name);
+                Outcome::task(self.action_by(&name, &o))
+            }
             (Request::Action(name), _) => Outcome::answer(Err(CommandError::new(
                 "not_allowed_attached",
                 format!("{name} is an app action; agents send commands"),

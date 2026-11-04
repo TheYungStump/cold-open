@@ -704,6 +704,53 @@ pub fn diff(data: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// Crash report scrubbing (docs/specs/crash-reports.md §10): it never
+/// panics, never goes over its cap, and nothing of a string quoted the way
+/// Rust quotes one (its `Debug` form, or in backticks) survives it. `data`
+/// is split at NUL bytes into the text before, the string, and the text
+/// after; quote characters are taken out of the text before, since an
+/// unmatched one there would open a span of its own.
+pub fn crash_scrub(data: &[u8]) -> Result<(), String> {
+    use crate::crash::{MESSAGE_MAX, Private, scrub_message};
+    let s = String::from_utf8_lossy(data);
+    let private = Private {
+        home: Some("/home/fuzz".into()),
+        user: Some("fuzzer".into()),
+    };
+    let whole = scrub_message(&s, &private);
+    if whole.chars().count() > MESSAGE_MAX {
+        return Err(format!("{} characters", whole.chars().count()));
+    }
+    let mut parts = s.splitn(3, '\0');
+    let before: String = parts
+        .next()
+        .unwrap_or("")
+        .chars()
+        .filter(|c| !matches!(c, '"' | '`' | '\'' | '\\'))
+        .collect();
+    let secret = parts.next().unwrap_or("");
+    let after = parts.next().unwrap_or("");
+    // Too short to tell apart from what is around it.
+    let tell = secret.chars().count() >= 4;
+    for (quoted, empty) in [
+        (format!("{secret:?}"), "\"\""),
+        (format!("`{secret}`"), "``"),
+    ] {
+        let out = scrub_message(&format!("{before}{quoted}{after}"), &private);
+        // The same message with nothing quoted. What it holds too was never
+        // quoted: the text around, the scrubber's own words, and the two
+        // joined, as when taking out control characters joins unquoted
+        // letters (CI's `D\0���` around `"D���"`) or `[quoted]` ends in the
+        // `]` the text after needs (CI's `]^����` in `[quoted]^����`), both
+        // 2026-11-03.
+        let without = scrub_message(&format!("{before}{empty}{after}"), &private);
+        if tell && out.contains(secret) && !without.contains(secret) {
+            return Err(format!("{secret:?} survived in {out:?}"));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

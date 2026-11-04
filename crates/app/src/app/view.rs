@@ -154,6 +154,21 @@ impl App {
         ]
         .spacing(14)
         .align_x(Center);
+        // Help, quietly (editor.md §23).
+        let quiet = |label: &'static str, action: &str| {
+            button(text(label).font(fonts::UI).size(12).color(pal.text_quiet))
+                .on_press(Message::Action(action.into()))
+                .style(button::text)
+                .padding([2, 8])
+        };
+        col = col.push(
+            row![
+                quiet("User guide", "app.user_guide"),
+                quiet("Report a problem…", "app.report_problem"),
+                quiet("About Cold Open", "app.about"),
+            ]
+            .spacing(4),
+        );
         if !self.settings.recent.is_empty() {
             col = col.push(
                 text(format!(
@@ -302,12 +317,15 @@ impl App {
             let revised = self.d.session().is_some_and(|s| s.doc.has_revision_data());
             export_view(pal, f, marks, revised)
         } else {
-            if self.sheet == Some(Sheet::About) {
+            if matches!(self.sheet, Some(Sheet::About | Sheet::CrashReport)) {
                 width = 760.0;
+            } else if self.sheet == Some(Sheet::ReportProblem) {
+                width = 640.0;
             }
             self.sheet_view(pal, self.sheet?)
         };
         let card = container(content)
+            .id(super::CARD)
             .padding(18)
             .width(Length::Fixed(width))
             .style(move |_| container::Style {
@@ -482,6 +500,34 @@ impl App {
             ]
             .spacing(12)
             .into(),
+            Prompt::DeleteCrashReport(_) => column![
+                title(pal, "Delete this report?"),
+                body(pal, "It can't be undone."),
+                row![
+                    dialog_button("Delete", Message::Reply(Reply::Save), true),
+                    dialog_button("Cancel", Message::Reply(Reply::Cancel), false),
+                ]
+                .spacing(8),
+                hint(pal, "Enter: Delete  ·  Esc: Cancel"),
+            ]
+            .spacing(12)
+            .into(),
+            Prompt::CrashTest => column![
+                title(pal, "Crash on purpose?"),
+                body(
+                    pal,
+                    "Cold Open will close at once, as if it crashed. Everything you've typed \
+                     is in the crash journal and comes back at the next start. Crash now?"
+                ),
+                row![
+                    dialog_button("Crash now", Message::Reply(Reply::Save), true),
+                    dialog_button("Cancel", Message::Reply(Reply::Cancel), false),
+                ]
+                .spacing(8),
+                hint(pal, "Enter: Crash now  ·  Esc: Cancel"),
+            ]
+            .spacing(12)
+            .into(),
             Prompt::DeleteCopy(_) => column![
                 title(pal, "Delete this copy?"),
                 body(pal, "It can't be undone."),
@@ -576,6 +622,8 @@ impl App {
                 .into()
             }
             Sheet::About => self.about_view(pal),
+            Sheet::ReportProblem => self.report_problem_view(pal),
+            Sheet::CrashReport => self.crash_view(pal),
         }
     }
 
@@ -1021,6 +1069,17 @@ impl App {
                     "Recovered versions".into(),
                     Message::Action("app.recovered".into()),
                 ));
+            }
+            if b.crash {
+                r = r
+                    .push(small(
+                        "Look at it".into(),
+                        Message::Action("app.crash_reports".into()),
+                    ))
+                    .push(small(
+                        "Never ask again".into(),
+                        Message::Action("app.crash_reports_never".into()),
+                    ));
             }
             r.push(small("Dismiss".into(), dismiss))
         };
