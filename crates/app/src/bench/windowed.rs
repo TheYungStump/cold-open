@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
+use super::measure::{self, Stats};
 use super::report::Skipped;
 
 /// How long one windowed run may take.
@@ -32,6 +33,13 @@ pub struct Driven {
     pub asked: String,
     pub median: f64,
     pub p95: f64,
+    /// Each frame's time, in the order measured.
+    pub gaps: Vec<f64>,
+    /// How much of each frame's time was the wait for a drawable.
+    pub waits: Vec<f64>,
+    /// The median time of the frames drawn idle before the warm-up: under
+    /// vsync, the screen's refresh (docs/specs/bench.md §6).
+    pub idle_ms: Option<f64>,
     pub peak_mib: Option<f64>,
     pub adapter: Option<String>,
     pub backend: Option<String>,
@@ -90,6 +98,10 @@ impl Runner {
         c.env("COLDOPEN_BENCH", kind)
             .env("COLDOPEN_BENCH_FRAMES", frames.to_string())
             .arg(&copy);
+        if kind == "reports" {
+            // With vsync, as writers run it (docs/specs/bench.md §6).
+            c.env("ICED_PRESENT_MODE", "fifo");
+        }
         let out = finish(c)?;
         let line = out
             .lines()
@@ -98,10 +110,18 @@ impl Runner {
         let v: Value = serde_json::from_str(line).map_err(|_| Skipped::Failed)?;
         let f = |k: &str| v[k].as_f64();
         let s = |k: &str| v[k].as_str().filter(|s| !s.is_empty()).map(str::to_string);
+        let list = |k: &str| {
+            v[k].as_array()
+                .map(|a| a.iter().filter_map(Value::as_f64).collect())
+                .unwrap_or_default()
+        };
         Ok(Driven {
             asked: backend.to_string(),
             median: f("median_ms").ok_or(Skipped::Failed)?,
             p95: f("p95_ms").ok_or(Skipped::Failed)?,
+            gaps: list("gaps_ms"),
+            waits: list("waits_ms"),
+            idle_ms: f("idle_ms"),
             peak_mib: f("peak_mib"),
             adapter: s("adapter"),
             backend: s("backend"),
@@ -111,6 +131,36 @@ impl Runner {
                 _ => None,
             },
         })
+    }
+}
+
+impl Driven {
+    /// Whether a GPU renderer drew the frames.
+    pub fn gpu(&self) -> bool {
+        self.backend.as_deref().is_some_and(|b| b != "tiny-skia")
+    }
+
+    /// The screen's refresh in ms, when a GPU renderer drew the frames
+    /// with vsync: their idle median, if it is that of 45 to 250 Hz
+    /// (docs/specs/bench.md §6).
+    pub fn refresh_ms(&self) -> Option<f64> {
+        self.idle_ms
+            .filter(|p| self.gpu() && (1000.0 / 250.0..=1000.0 / 45.0).contains(p))
+    }
+
+    /// The frames' own work on a GPU renderer: each frame's time less its
+    /// wait for a drawable, for diagnosis only (docs/specs/bench.md §6).
+    pub fn work(&self) -> Option<Stats> {
+        if !self.gpu() || self.waits.len() != self.gaps.len() || self.gaps.is_empty() {
+            return None;
+        }
+        let work = self
+            .gaps
+            .iter()
+            .zip(&self.waits)
+            .map(|(g, w)| (g - w).max(0.0))
+            .collect();
+        Some(measure::stats(work))
     }
 }
 

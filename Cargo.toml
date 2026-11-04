@@ -95,6 +95,12 @@ rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 # The bench's machine probe (docs/specs/bench.md §4): the OS, CPU and memory.
 # Already in the tree through iced's `sysinfo` feature, at this version.
 sysinfo = { version = "0.33", default-features = false, features = ["system"] }
+# The bench's wait for a drawable on the GPU renderer (docs/specs/bench.md
+# §6): wgpu marks it with a `profiling` scope, which this backend turns into
+# a tracing span that a small subscriber times in bench runs. Both already
+# in the tree (wgpu; rmcp), both MIT (profiling also Apache-2.0).
+profiling = { version = "1.0.18", default-features = false, features = ["profile-with-tracing"] }
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 
 # Windows only, at build time: the app's icon and version details in its
 # .exe (docs/specs/release.md §3.1). MIT; without default features it needs
