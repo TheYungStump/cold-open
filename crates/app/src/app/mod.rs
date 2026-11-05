@@ -31,6 +31,7 @@ mod reports;
 mod revisions;
 mod router;
 mod title;
+mod usage_sheet;
 mod view;
 
 pub use agents::Agent;
@@ -42,6 +43,7 @@ pub use feedback_sheet::FeedbackInput;
 pub use file_ops::{After, ExportForm, Prompt, Recovery, Reply};
 pub use recent::gone as recent_gone;
 pub use router::{Origin, Outcome, Request};
+pub use usage_sheet::{SettingsInput, ShareInput, UsageInput};
 pub use view::eighths;
 
 use crate::actions;
@@ -198,6 +200,14 @@ pub enum Message {
     /// Report a problem, the crash notice and the crash report sheet
     /// (editor.md §23).
     Feedback(FeedbackInput),
+    /// The usage summary's sheet (docs/specs/usage-summary.md §7).
+    Usage(UsageInput),
+    /// Settings… chosen in the macOS app menu (editor.md §24).
+    MenuSettings,
+    /// Share feedback… (editor.md §23).
+    Share(ShareInput),
+    /// The Settings sheet (editor.md §24).
+    SettingsSheet(SettingsInput),
     /// The export form's "Print the current text".
     ExportChanges,
     Noop,
@@ -355,6 +365,12 @@ pub enum Sheet {
     ReportProblem,
     /// The crash reports kept (docs/specs/crash-reports.md §7).
     CrashReport,
+    /// Settings (editor.md §24).
+    Settings,
+    /// The usage summary (docs/specs/usage-summary.md §7).
+    Usage,
+    /// Share feedback (editor.md §23).
+    ShareFeedback,
 }
 
 /// One line of the palette.
@@ -469,6 +485,10 @@ pub struct App {
     about: about_sheet::AboutState,
     /// The crash report sheet's reports (editor.md §23).
     crash_sheet: feedback_sheet::CrashSheet,
+    /// The local usage summary (docs/specs/usage-summary.md).
+    pub usage: usage_sheet::UsageState,
+    share: usage_sheet::ShareState,
+    settings_sheet: usage_sheet::SettingsState,
     /// Addresses noted in place of opening them, unless the app was
     /// started with [`Boot::open_links`].
     pub opened: Option<Vec<String>>,
@@ -533,6 +553,10 @@ pub struct Boot {
     /// instead, so a test never opens a browser; only the real app and
     /// the driver's `--open-links` turn it on.
     pub open_links: bool,
+    /// Count the usage summary when its setting allows
+    /// (docs/specs/usage-summary.md §2.2). Off in tests and benches, which
+    /// turn it on only to test it; the real app turns it on.
+    pub count_usage: bool,
 }
 
 fn coverage() -> Box<dyn coldopen_layout::Coverage> {
@@ -615,6 +639,9 @@ impl App {
             sheet: None,
             about: about_sheet::AboutState::default(),
             crash_sheet: feedback_sheet::CrashSheet::default(),
+            usage: usage_sheet::UsageState::default(),
+            share: usage_sheet::ShareState::default(),
+            settings_sheet: usage_sheet::SettingsState::default(),
             opened: (!boot.open_links).then(Vec::new),
             graphics: None,
             graphics_asked: false,
@@ -642,6 +669,9 @@ impl App {
             let w = app.flow.apply_overrides(&text);
             app.banners.extend(w.into_iter().map(Banner::from));
         }
+        // Before the script opens, so its opening counts (usage-summary.md
+        // §2.2).
+        app.usage_start(boot.count_usage);
         app.clean_up_copies();
         match boot.file {
             Some(f) => app.open(&f),
@@ -862,6 +892,7 @@ impl App {
         match opened {
             Some(r) => {
                 self.notices(&r);
+                self.usage_opened();
                 if let Some(s) = self.d.session() {
                     self.editor = self.fresh_editor(&s.doc);
                 }
@@ -1342,6 +1373,10 @@ impl App {
                     self.refresh_nav();
                 }
                 self.bench_tick();
+                self.usage_tick();
+                // winit has made its menu by the first tick.
+                #[cfg(target_os = "macos")]
+                crate::macos_menu::install();
                 Task::none()
             }
             Message::Scrolled(vp) => {
@@ -1493,6 +1528,18 @@ impl App {
                 Task::none()
             }
             Message::Feedback(input) => self.feedback(input),
+            Message::Usage(input) => self.usage_input(input),
+            // Not over a question about the writer's work, which must be
+            // answered first.
+            Message::MenuSettings => {
+                if self.prompt.is_some() || self.recovery.is_some() {
+                    Task::none()
+                } else {
+                    self.action("app.settings")
+                }
+            }
+            Message::Share(input) => self.share_input(input),
+            Message::SettingsSheet(input) => self.settings_input(input),
             Message::SystemInfo(g) => {
                 self.graphics = g;
                 crate::crash::set_renderer(self.renderer_label());
@@ -2019,6 +2066,9 @@ impl App {
         if let Some(t) = self.feedback_key(kp, esc) {
             return t;
         }
+        if let Some(t) = self.usage_sheet_key(kp, esc) {
+            return t;
+        }
         if let Some(sheet) = self.sheet {
             if sheet == Sheet::About
                 && !esc
@@ -2377,8 +2427,26 @@ impl App {
                 self.open_address(crate::about::DOCS_URL.to_string());
                 scroll = false;
             }
+            "app.settings" => {
+                self.settings_open();
+                scroll = false;
+            }
+            "app.share_feedback" => {
+                let t = self.share_open();
+                return Task::batch([t, self.after_change(false)]);
+            }
+            "app.usage_summary" => {
+                self.usage_open();
+                scroll = false;
+            }
+            "app.usage_toggle" => {
+                self.usage_toggle();
+                scroll = false;
+            }
             "app.report_problem" => {
                 self.palette = None;
+                self.share.summary = self.usage_text();
+                self.share.problem_include = false;
                 self.sheet = Some(Sheet::ReportProblem);
                 return Task::batch([self.ask_graphics(), self.after_change(false)]);
             }
@@ -2745,9 +2813,15 @@ impl App {
         } else {
             Subscription::none()
         };
+        // Settings… in the macOS app menu (editor.md §24).
+        #[cfg(target_os = "macos")]
+        let menu = Subscription::run(crate::macos_menu::requests).map(|()| Message::MenuSettings);
+        #[cfg(not(target_os = "macos"))]
+        let menu = Subscription::none();
         Subscription::batch([
             frames,
             link,
+            menu,
             keys,
             iced::window::close_requests().map(|_| Message::CloseRequested),
             iced::time::every(Duration::from_millis(530)).map(|_| Message::Tick),

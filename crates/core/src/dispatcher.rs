@@ -53,6 +53,26 @@ pub struct Dispatcher {
     /// The writer `execute` runs commands as: their name is what their
     /// tracked changes carry (docs/specs/commands.md, "Authors").
     writer: Author,
+    /// Told each command's name and author as it runs: the desktop app's
+    /// usage summary counts with it (docs/specs/usage-summary.md §2.2).
+    hook: CommandHook,
+}
+
+/// A function told each command's name and author as the dispatcher runs
+/// it (see [`Dispatcher::set_command_hook`]).
+pub type CommandHookFn = dyn Fn(&'static str, &Author) + Send + Sync;
+
+#[derive(Clone, Default)]
+struct CommandHook(Option<std::sync::Arc<CommandHookFn>>);
+
+impl std::fmt::Debug for CommandHook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() {
+            "CommandHook(set)"
+        } else {
+            "CommandHook(none)"
+        })
+    }
 }
 
 /// A save in place, prepared on the UI thread so the file can be written
@@ -492,6 +512,7 @@ impl Dispatcher {
             durability: None,
             agent_tracking: None,
             writer: Author::writer(),
+            hook: CommandHook::default(),
         }
     }
 
@@ -578,6 +599,13 @@ impl Dispatcher {
         s
     }
 
+    /// Sets the function told each command's name and author as it runs,
+    /// or none. It's called on the dispatcher's thread, before the command
+    /// runs, and must be quick.
+    pub fn set_command_hook(&mut self, hook: Option<std::sync::Arc<CommandHookFn>>) {
+        self.hook = CommandHook(hook);
+    }
+
     /// Runs one command as a writer.
     pub fn execute(&mut self, cmd: Command) -> Result<Value, CommandError> {
         let writer = self.writer.clone();
@@ -588,6 +616,9 @@ impl Dispatcher {
     pub fn execute_as(&mut self, cmd: Command, by: &Author) -> Result<Value, CommandError> {
         // For a crash report's `Last action` (docs/specs/crash-reports.md §3).
         crate::crash::note_command(cmd.name());
+        if let Some(hook) = &self.hook.0 {
+            hook(cmd.name(), by);
+        }
         match cmd {
             Command::DocNew(p) => self.doc_new(p),
             Command::DocOpen(p) => self.doc_open(p, by),

@@ -116,6 +116,12 @@ backtrace = "0.3.76"
 # macOS, GetModuleHandleExW on Windows. Both already in the tree.
 libc = "0.2"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_UI_Shell"] }
+# "Settings…" in the macOS app menu (docs/specs/editor.md §24, phase 6c).
+# The versions rfd already brings in, so no crate is added; only these
+# AppKit classes' features.
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSMenuItem", "NSResponder"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSThread"] }
 
 # Dev-only.
 proptest = "1.5"

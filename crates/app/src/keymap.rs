@@ -178,6 +178,8 @@ pub fn defaults_for(mac: bool) -> Vec<(&'static str, &'static str)> {
         ("Mod+W", "app.close"),
         ("Mod+Shift+E", "app.export_pdf"),
         ("Mod+Q", "app.quit"),
+        // Settings, by the standard shortcut on every OS (editor.md §24).
+        ("Mod+,", "app.settings"),
         ("Mod+Z", "undo"),
         ("Mod+Shift+Z", "redo"),
         ("Mod+Alt+Z", "app.undo_agent"),

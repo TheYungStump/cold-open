@@ -164,7 +164,9 @@ impl App {
         col = col.push(
             row![
                 quiet("User guide", "app.user_guide"),
+                quiet("Share feedback…", "app.share_feedback"),
                 quiet("Report a problem…", "app.report_problem"),
+                quiet("Settings", "app.settings"),
                 quiet("About Cold Open", "app.about"),
             ]
             .spacing(4),
@@ -317,9 +319,15 @@ impl App {
             let revised = self.d.session().is_some_and(|s| s.doc.has_revision_data());
             export_view(pal, f, marks, revised)
         } else {
-            if matches!(self.sheet, Some(Sheet::About | Sheet::CrashReport)) {
+            if matches!(
+                self.sheet,
+                Some(Sheet::About | Sheet::CrashReport | Sheet::Settings | Sheet::Usage)
+            ) {
                 width = 760.0;
-            } else if self.sheet == Some(Sheet::ReportProblem) {
+            } else if matches!(
+                self.sheet,
+                Some(Sheet::ReportProblem | Sheet::ShareFeedback)
+            ) {
                 width = 640.0;
             }
             self.sheet_view(pal, self.sheet?)
@@ -624,6 +632,9 @@ impl App {
             Sheet::About => self.about_view(pal),
             Sheet::ReportProblem => self.report_problem_view(pal),
             Sheet::CrashReport => self.crash_view(pal),
+            Sheet::Settings => self.settings_view(pal),
+            Sheet::Usage => self.usage_view(pal),
+            Sheet::ShareFeedback => self.share_view(pal),
         }
     }
 

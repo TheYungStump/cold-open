@@ -35,13 +35,18 @@ fn app() -> iced::Result {
     );
     choose_renderer(settings.renderer);
     let file = std::env::args_os().nth(1).map(std::path::PathBuf::from);
+    // CI's cold-start measurement and windowed smoke test.
+    let exit_after_first_frame = std::env::var_os("COLDOPEN_EXIT_AFTER_FIRST_FRAME")
+        .is_some_and(|v| v == "1")
+        .then_some(launched);
+    let bench = bench();
     let boot = Boot {
         file,
-        // CI's cold-start measurement and windowed smoke test.
-        exit_after_first_frame: std::env::var_os("COLDOPEN_EXIT_AFTER_FIRST_FRAME")
-            .is_some_and(|v| v == "1")
-            .then_some(launched),
-        bench: bench(),
+        // The local usage summary (docs/specs/usage-summary.md): the real
+        // app only, never a measurement run or a bench.
+        count_usage: exit_after_first_frame.is_none() && bench.is_none(),
+        exit_after_first_frame,
+        bench,
         open_links: true,
         ..Boot::default()
     };

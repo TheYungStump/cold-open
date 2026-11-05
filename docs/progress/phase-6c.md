@@ -12,9 +12,9 @@ The owner's constraints: no cost; no personal details anywhere public; the app m
 | --- | --- | --- |
 | 0 | Branch, this record, specs first: `usage-summary.md` (new), `site.md`, `release.md` §2, §7, §11, §12, `editor.md` §23 and §24, `bench.md` §5 | done |
 | 1 | The Mac save: confirm #27 on CI's Mac (asserted), explain the 44 ms Fountain save, widen the headroom if cheap, the crash gate five times, a bench build for the Mac tester | CI assertion and the analysis done (below). The crash gate and the bench build follow step 2, so they cover the release profile that ships. The headroom waits for the Mac tester's worker rows (decision 6). |
-| 2 | The universal Mac build: fat LTO, sizes and budgets before and after | |
-| 3 | The brand stand-in (Opening Frame): the icon, the mark, the image templates | |
-| 4 | The usage summary, the Settings sheet, Share feedback… | |
+| 2 | The universal Mac build: fat LTO, sizes and budgets before and after | done here (below); the universal .dmg's size comes from CI's packaging job |
+| 3 | The brand stand-in (Opening Frame): the icon, the mark, the image templates | icon, mark and templates done; images rendered once the sample screenshots are made |
+| 4 | The usage summary, the Settings sheet, Share feedback… | done; tests pass here (below) |
 | 5 | The website: two landing pages, the download page and its recommendation, the started pages, analytics behind a switch, the search pages and tags, the site root | |
 | 6 | Store packages: Flathub, winget, Homebrew, Microsoft Store (MSIX), itch.io | |
 | 7 | Listings and outreach drafts: AlternativeTo, MCP directories, list authors, ads, Show HN, the GitHub repository's details | |
@@ -89,10 +89,46 @@ What's left for 6c (step 1): confirm it on CI's Mac with the budget asserted, ex
   3. A faster Fountain parser. That's real work on a fuzzed parser, not cheap.
 - **Decision 6:** none is done before the tester's bench of this phase's build, which reports `save_worker_*_render`, `_write` and `_finish` on a real Mac. The budget is met there (44 against 50).
 
+7. **The universal .dmg ships beside the two per-architecture ones** (`package.sh macos`), so a writer who knows their Mac can take the smaller file, and the website recommends the universal one. Only the universal .dmg is exempt from the size check, and only if it's over.
+8. **The icon is redrawn from Opening Frame's geometry** in `make_icons.py`, not cut from the board's raster: a C-shaped frame (outer edges 0.24 to 0.72 across and 0.24 to 0.76 down, 0.115 thick) and a red cursor bar (0.675 to 0.765, 0.385 to 0.615) on the rounded navy tile, in the stand-in's own navy, paper and red. It also writes `coldopen.svg` and `mark.svg` (the frame in `currentColor`, for both site themes). Every package's icon follows.
+9. **Brand images are HTML rendered by Playwright** (`tools/brand/card.html`, `render.mjs`, `images.json`), with the app's own Atkinson Hyperlegible Next, so a layout change is an edit and a rerun. Their screenshots come from a short scene of our own (`tools/brand/the-night-ferry.fountain`), through `screenshots.rs` with `COLDOPEN_SHOT_SCRIPT`, since the synthetic script's filler words would look odd in an ad.
+10. **The usage summary counts in three places** (`usage-summary.md` §2.2):
+    - the dispatcher's new command hook (`Dispatcher::set_command_hook`, one `Arc` call per command, as the writer or an agent), which covers typing and agents' commands;
+    - the router, for the app's own actions;
+    - the in-place save, which goes through the save worker rather than `execute`.
+
+    Opens and saves are counted by format where the app finishes them. Tests and benches never count: `Boot::count_usage` is on only in the real app's `main`.
+11. **The summary's file holds three formats, not four:** a `.txt` opens as Fountain, so `text` was dropped from the spec.
+12. **Share feedback keeps the letter keys** of the other sheets (spec updated): iced's buttons can't take keyboard focus, so a Tab order through them isn't possible. The text box's own key binding sends Mod+Enter to the form, and Esc or Tab let go of it.
+13. **Both issue templates gained an optional "Usage summary" field** (`usage`), and the feedback template a "Renderer" field, so the issue addresses carry what the sheet showed. The Google Form needs no change: the summary goes in its existing `report` box.
+14. **"Settings…" in the macOS app menu** (`crates/app/src/macos_menu.rs`): an `NSMenuItem` with Cmd+, after About, whose target sends `app.settings` through a channel the app's subscription reads. Three `unsafe` calls (the target's `init`, the item's `init`, `setTarget`), each with its SAFETY note, approved with the plan. It's installed on the first timer tick, once winit has made its menu. Checked here with `cargo clippy --target aarch64-apple-darwin`; it runs on CI's Mac and the Mac tester's.
+
 ## New dependencies
 
-None yet.
+| Dependency | Where | Why | License |
+| --- | --- | --- | --- |
+| `objc2` 0.6, `objc2-app-kit` 0.3, `objc2-foundation` 0.3, named directly (macOS only) | app | "Settings…" in the app menu. All three are already in the tree through `rfd`, at these versions: `Cargo.lock` gains no package. Only the `NSApplication`, `NSMenu`, `NSMenuItem`, `NSResponder`, `NSString` and `NSThread` features are asked for | MIT |
+
+## Step 2: the universal Mac build
+
+Release binaries on this PC (x86_64-pc-windows-msvc, `strip = true`), before and after `lto = "fat"`:
+
+| Binary | Thin LTO | Fat LTO | Change |
+| --- | --- | --- | --- |
+| `coldopen-app.exe` | 18,684,416 | 17,667,072 | −5.4% |
+| `coldopen.exe` | 8,949,760 | 8,465,920 | −5.4% |
+
+- The universal .dmg was 15,218,928 to 15,404,028 bytes in phase 6a. 5.4% off that is about 14.4 to 14.6 MB, so it should fit; CI's packaging job measures it.
+- **Every budget passes on the fat build** (the quick bench, this PC, `…20261105-224732`): open 40.7 ms, repagination 22.6 ms, journal write p95 0.10 ms, save on the UI thread p95 0.57 / 0.70 / 0.70 ms, whole save median 27.7 / 5.9 / 13.9 ms, cold start 228 ms, keystroke p95 11.8 ms (median 8.1), report scrolling p95 7.7 ms (median 6.7), memory 55 MiB. 6a's quick runs on this PC were in the same range.
+- A fat build takes 3.5 minutes here, against 2.2 for thin.
 
 ## Checks
 
-None yet.
+- **Step 4, here (Windows):** `cargo test -p coldopen-app --test usage --test sheet_layout --test reference`, and the `usage` and `feedback` unit tests, pass:
+  - the sentinel session: typing, renaming a character and a scene, saving, and Save as under a new name in a folder with a private name. Neither `usage.json` nor the plain words hold any of it, or the home folder, or the user name;
+  - counting off: no file is made, and an existing file's bytes and modified time don't change;
+  - Reset, and turning counting off mid-session;
+  - Share feedback's issue address holds the text and, only when ticked, the summary;
+  - Settings by the keyboard alone (Mod+, then the arrows, Space, Tab, Enter, Esc);
+  - every sheet, ticks ticked, fits its card.
+- `cargo clippy -D warnings` is clean for Windows, and for the app and core on Linux and macOS.

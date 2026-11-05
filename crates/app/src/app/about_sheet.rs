@@ -118,13 +118,21 @@ impl App {
                 .padding([3, 10])
                 .style(button::secondary)
         };
+        let action = |label: &'static str, name: &'static str| {
+            button(text(label).font(fonts::UI).size(13))
+                .on_press(Message::Action(name.into()))
+                .padding([3, 10])
+                .style(button::secondary)
+        };
+        // 2026-11-05 (editor.md §23): Share feedback, Settings and the
+        // usage summary join the rows.
         let links = row![
             link("Source code", about::source_link()),
             link("User guide", about::DOCS_URL.to_string()),
-            button(text("Report a problem…").font(fonts::UI).size(13))
-                .on_press(Message::Action("app.report_problem".into()))
-                .padding([3, 10])
-                .style(button::secondary),
+            action("Share feedback…", "app.share_feedback"),
+            action("Report a problem…", "app.report_problem"),
+            action("Settings…", "app.settings"),
+            action("Usage summary…", "app.usage_summary"),
         ]
         .spacing(8)
         .push(
@@ -176,7 +184,7 @@ impl App {
                     self.renderer_label()
                 )
             ),
-            links,
+            links.wrap().vertical_spacing(8),
             tabs,
             scrollable(lines)
                 .id(ABOUT_TEXT)

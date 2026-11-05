@@ -131,22 +131,11 @@ impl App {
 
     pub(super) fn feedback(&mut self, input: FeedbackInput) -> Task<Message> {
         match input {
-            FeedbackInput::Issue | FeedbackInput::Form | FeedbackInput::CopyDetails => {
-                let d = Details::now(self.renderer_label());
-                match input {
-                    FeedbackInput::Issue => self.open_address(feedback::bug_issue(&d)),
-                    FeedbackInput::Form => {
-                        if let Some(url) = feedback::bug_form(&d) {
-                            self.open_address(url);
-                        }
-                    }
-                    _ => {
-                        self.banners.push("The details were copied.".into());
-                        return iced::clipboard::write(d.lines());
-                    }
-                }
-                self.sheet = None;
-                Task::none()
+            FeedbackInput::Issue => self.problem_send(false),
+            FeedbackInput::Form => self.problem_send(true),
+            FeedbackInput::CopyDetails => {
+                self.banners.push("The details were copied.".into());
+                iced::clipboard::write(self.problem_copy_text())
             }
             FeedbackInput::SendGithub | FeedbackInput::SendForm => {
                 let Some(r) = self.crash_shown() else {
@@ -259,6 +248,9 @@ impl App {
             (Sheet::ReportProblem, "g", _) => FeedbackInput::Issue,
             (Sheet::ReportProblem, "f", _) if form => FeedbackInput::Form,
             (Sheet::ReportProblem, "c", _) => FeedbackInput::CopyDetails,
+            (Sheet::ReportProblem, "u", _) => {
+                return Some(self.share_input(super::ShareInput::ProblemInclude));
+            }
             (Sheet::CrashReport, "g", _) => FeedbackInput::SendGithub,
             (Sheet::CrashReport, "f", _) if form => FeedbackInput::SendForm,
             (Sheet::CrashReport, "c", _) => FeedbackInput::CopyReport,
@@ -310,10 +302,18 @@ impl App {
                 pal,
                 "No script text, no file names or paths, and no user or computer names."
             ),
+            self.summary_tick(
+                pal,
+                self.share.problem_include,
+                Message::Share(super::ShareInput::ProblemInclude)
+            ),
             // On a second line rather than past the card, if it ever
             // runs out of room.
             buttons.wrap().vertical_spacing(8),
-            hint(pal, format!("{keys}  ·  C: copy  ·  Esc: close")),
+            hint(
+                pal,
+                format!("{keys}  ·  C: copy  ·  U: include the usage summary  ·  Esc: close")
+            ),
         ]
         .spacing(10)
         .into()

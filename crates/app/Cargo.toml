@@ -51,6 +51,11 @@ libc.workspace = true
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+objc2-app-kit.workspace = true
+objc2-foundation.workspace = true
+
 [build-dependencies]
 # Deflates that list at build time (build.rs).
 miniz_oxide.workspace = true

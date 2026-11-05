@@ -127,6 +127,10 @@ pub struct Settings {
     /// The whole window's size, in percent, on top of the operating
     /// system's scale (editor.md §3).
     pub interface_size: u32,
+    /// Whether the app counts the local usage summary
+    /// (docs/specs/usage-summary.md §6). On by default (the project
+    /// owner's decision, 2026-11-05).
+    pub count_usage: bool,
 }
 
 /// `crash_reports` in `settings.json`.
@@ -152,6 +156,7 @@ impl Default for Settings {
             changes_panel: false,
             crash_reports: CrashReports::Ask,
             interface_size: 100,
+            count_usage: true,
         }
     }
 }

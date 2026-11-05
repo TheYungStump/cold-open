@@ -29,8 +29,8 @@ Every key comes from a fixed table compiled into the app, and every value is a w
 | `session_lengths` | Finished sessions by length, in four buckets: `under_5_min`, `5_to_30_min`, `30_min_to_2_h`, `over_2_h`. |
 | `commands` | The writer's requests by name, with a count each: core commands from `Command::NAMES` (`text.insert`, `doc.save`, `changes.accept`…), and app actions from the action table (`app.palette`, `view.zoom_in`, `edit.find`…). A request named with an index (`recent:3`) counts under its prefix (`recent`). |
 | `agent_commands` | Core commands an agent ran through the agent link, by name, with a count each. Not the agent's name. |
-| `opened` | Scripts opened, by format: `fountain`, `fdx`, `project`, `text`. |
-| `saved` | Saves of the script, by format, the same four. Exports count as commands (`export.pdf`, `export.fdx`, `export.fountain`). |
+| `opened` | Scripts opened, by format: `fountain` (a `.txt` opens as Fountain), `fdx`, `project`. |
+| `saved` | Saves of the script, by format, the same three. Exports count as commands (`export.pdf`, `export.fdx`, `export.fountain`). |
 | `renderer` | Sessions by what drew the window: `cpu`, `gpu`, `cpu_fallback` (the GPU renderer couldn't start), or `not_asked` (the system wasn't asked this session, §2.1). |
 
 ### 2.1 The renderer
