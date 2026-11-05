@@ -125,6 +125,9 @@ tempfile = "3.10"
 unsafe_code = "deny"
 
 [profile.release]
-lto = "thin"
+# Fat LTO since 2026-11-05 (docs/specs/release.md §7): smaller binaries, so
+# the universal macOS image comes closer to the 15 MB budget. Never
+# `panic = "abort"`: the crash journal and crash reports rely on unwinding.
+lto = "fat"
 codegen-units = 1
 strip = true
