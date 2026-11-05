@@ -155,7 +155,21 @@ fn main() {
     );
     std::fs::create_dir_all(&out).unwrap();
     let work = tempfile::tempdir().unwrap();
-    let text = coldopen_fountain::write(&coldopen_layout::synthetic::feature_script(1)).text;
+    // `COLDOPEN_SHOT_SCRIPT=<file>` (2026-11-05, docs/specs/release.md §12):
+    // the brand images' screenshots, from our own sample scene
+    // (tools/brand/the-night-ferry.fountain), of the writing view and the
+    // changes panel only, under the sample's own name.
+    let sample = std::env::var_os("COLDOPEN_SHOT_SCRIPT").map(std::path::PathBuf::from);
+    let (text, file_name) = match &sample {
+        Some(p) => (
+            std::fs::read_to_string(p).unwrap(),
+            p.file_name().unwrap().to_string_lossy().into_owned(),
+        ),
+        None => (
+            coldopen_fountain::write(&coldopen_layout::synthetic::feature_script(1)).text,
+            "low-tide.fountain".to_string(),
+        ),
+    };
     for (name, theme) in [
         ("light", Choice::Light),
         ("dark", Choice::Dark),
@@ -164,7 +178,7 @@ fn main() {
         // A fresh copy each time, so no run recovers another's journal.
         let home = work.path().join(name);
         std::fs::create_dir_all(&home).unwrap();
-        let script = home.join("low-tide.fountain");
+        let script = home.join(&file_name);
         std::fs::write(&script, &text).unwrap();
         let mut app = App::new(Boot {
             file: Some(script.clone()),
@@ -176,6 +190,39 @@ fn main() {
         app.demo_autocomplete();
         shot(&app, &out, name);
         app.d.discard();
+
+        if sample.is_some() {
+            // The writing view without the autocomplete demo, then the
+            // changes panel, and nothing else.
+            let mut app = App::new(Boot {
+                file: Some(script.clone()),
+                dirs: Some(coldopen_app::files::Dirs::under(&home)),
+                theme: Some(theme),
+                ..Boot::default()
+            });
+            app.banners.clear();
+            settle(&mut app);
+            shot(&app, &out, &format!("{name}-page"));
+            app.d.discard();
+            let mut app = App::new(Boot {
+                file: Some(script.clone()),
+                dirs: Some(coldopen_app::files::Dirs::under(&home)),
+                theme: Some(theme),
+                every_entry: true,
+                ..Boot::default()
+            });
+            app.banners.clear();
+            app.settings.author_name = Some("Dana".into());
+            app.d.set_writer_name(Some("Dana".into()));
+            let _ = app.update(Message::Action("changes.track_mine".into()));
+            tracked_demo(&mut app);
+            let _ = app.update(Message::Action("view.changes".into()));
+            app.banners.clear();
+            settle(&mut app);
+            shot(&app, &out, &format!("{name}-changes"));
+            app.d.discard();
+            continue;
+        }
 
         // The palette with recent scripts deep in long folders
         // (editor.md §9): each row on one line, the folder shortened in the

@@ -8,10 +8,13 @@ Writes, beside this script:
 - coldopen.ico (Windows: the .exe and the installer), holding 16 to 256;
 - coldopen.icns (macOS), holding 16 to 1024.
 
-Without --from it draws the stand-in: a page on a dark tile with a red bar,
-plain on purpose, until the project owner's artwork arrives. With --from,
-it takes <size>.png files at those sizes from FOLDER (exported from the
-artwork) and only packs them. Pure Python, no image library.
+Without --from it draws the mark from its geometry: since 2026-11-05 the
+"Opening Frame" stand-in the project owner chose (a C-shaped frame with a
+red cursor bar on a navy tile; release.md §12), until final artwork
+arrives. It also writes coldopen.svg (the icon) and mark.svg (the mark
+alone, its frame in currentColor) for the website and the store graphics.
+With --from, it takes <size>.png files at those sizes from FOLDER (exported
+from the artwork) and only packs them. Pure Python, no image library.
 """
 
 import os
@@ -25,7 +28,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TILE = (31, 42, 68)
 PAGE = (247, 245, 239)
 BAR = (214, 69, 65)
-LINE = (150, 156, 170)
 
 
 def rounded(x, y, x0, y0, x1, y1, r):
@@ -37,19 +39,71 @@ def rounded(x, y, x0, y0, x1, y1, r):
     return (x - cx) ** 2 + (y - cy) ** 2 <= r * r
 
 
+# The mark, "Opening Frame" (docs/specs/release.md §12; the project owner's
+# stand-in of 2026-11-05, from design/brand-explorations/2026-11-05/
+# 01-opening-frame.png): a C-shaped frame open to the right, with a red
+# cursor bar standing in the opening. In 0..1 of the icon's square,
+# measured from the concept board's app icon and evened out.
+TILE_BOX = (0.04, 0.04, 0.96, 0.96)
+TILE_RADIUS = 0.2
+FRAME = (0.24, 0.24, 0.72, 0.76)  # the frame's outer edges: left, top, right, bottom
+STROKE = 0.115  # the frame's thickness
+CURSOR = (0.675, 0.385, 0.765, 0.615)  # the red bar: left, top, right, bottom
+
+
+def in_box(u, v, box):
+    return box[0] <= u <= box[2] and box[1] <= v <= box[3]
+
+
+def in_frame(u, v):
+    """Whether (u, v) is on the C-shaped frame."""
+    left, top, right, bottom = FRAME
+    if not in_box(u, v, FRAME):
+        return False
+    return u <= left + STROKE or v <= top + STROKE or v >= bottom - STROKE
+
+
 def colour_at(u, v):
-    """The stand-in's colour at (u, v) in 0..1, or None where transparent."""
-    if not rounded(u, v, 0.04, 0.04, 0.96, 0.96, 0.2):
+    """The icon's colour at (u, v) in 0..1, or None where transparent."""
+    if not rounded(u, v, *TILE_BOX, TILE_RADIUS):
         return None
-    if rounded(u, v, 0.26, 0.18, 0.74, 0.84, 0.04):
-        if 0.18 <= v <= 0.31:
-            return BAR
-        for top in (0.42, 0.52, 0.62, 0.72):
-            right = 0.62 if top in (0.52, 0.72) else 0.66
-            if top <= v <= top + 0.035 and 0.33 <= u <= right:
-                return LINE
+    if in_box(u, v, CURSOR):
+        return BAR
+    if in_frame(u, v):
         return PAGE
     return TILE
+
+
+def svg(tile=True):
+    """The mark as SVG, in a 1000-unit square: on its navy tile, or alone,
+    with the frame in `currentColor` so a page can set it for its theme."""
+    k = 1000
+
+    def rect(box, fill, r=0):
+        x0, y0, x1, y1 = (round(c * k) for c in box)
+        rr = f' rx="{round(r * k)}"' if r else ""
+        return f'<rect x="{x0}" y="{y0}" width="{x1 - x0}" height="{y1 - y0}"{rr} fill="{fill}"/>'
+
+    def hexc(c):
+        return "#%02x%02x%02x" % c
+
+    left, top, right, bottom = FRAME
+    frame_fill = hexc(PAGE) if tile else "currentColor"
+    parts = []
+    if tile:
+        parts.append(rect(TILE_BOX, hexc(TILE), TILE_RADIUS))
+    parts += [
+        rect((left, top, right, top + STROKE), frame_fill),
+        rect((left, bottom - STROKE, right, bottom), frame_fill),
+        rect((left, top, left + STROKE, bottom), frame_fill),
+        rect(CURSOR, hexc(BAR)),
+    ]
+    view = "0 0 1000 1000" if tile else "200 200 600 600"
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{view}" role="img" aria-label="Cold Open">'
+        + "".join(parts)
+        + "</svg>\n"
+    )
 
 
 def draw(size):
@@ -147,7 +201,13 @@ def main():
         f.write(ico(pngs))
     with open(os.path.join(HERE, "coldopen.icns"), "wb") as f:
         f.write(icns(pngs))
-    print("wrote", ", ".join(f"{s}.png" for s in SIZES), "coldopen.ico, coldopen.icns")
+    written = ["coldopen.ico", "coldopen.icns"]
+    if not source:
+        for name, tile in (("coldopen.svg", True), ("mark.svg", False)):
+            with open(os.path.join(HERE, name), "w", encoding="utf-8", newline="\n") as f:
+                f.write(svg(tile))
+            written.append(name)
+    print("wrote", ", ".join(f"{s}.png" for s in SIZES), ", ".join(written))
 
 
 if __name__ == "__main__":
