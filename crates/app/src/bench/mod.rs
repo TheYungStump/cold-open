@@ -302,6 +302,18 @@ fn measure_all(
             r.info
                 .push(info(&format!("save_ui_{}_{step}", row.id), None, s));
         }
+        // The worker's steps, and the edit typed right after a save
+        // (2026-11-04, docs/specs/bench.md §4), so the whole save's time
+        // shows where it went, and a stall after a save shows at all.
+        for (step, s) in ["render", "write", "finish"].iter().zip(row.worker) {
+            r.info
+                .push(info(&format!("save_worker_{}_{step}", row.id), None, s));
+        }
+        r.info.push(info(
+            &format!("edit_after_save_{}", row.id),
+            None,
+            row.edit_after,
+        ));
     }
 
     let runner = windowed::Runner {

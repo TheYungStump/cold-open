@@ -172,12 +172,17 @@ pub fn journal(dir: &Path, edits: usize) -> Result<(Stats, Stats, Stats), String
 
 /// One kind of save measured: the UI thread's time, the whole save, and
 /// each of the UI thread's steps: the snapshot, the marker and the commit.
+/// Since 2026-11-04 also the worker's steps (rendering, the atomic write,
+/// and the finisher, which waits for the marker's flush and writes the
+/// next journal), and the edit typed right after each save.
 pub struct SaveRow {
     pub label: &'static str,
     pub id: &'static str,
     pub ui: Stats,
     pub whole: Stats,
     pub steps: [Stats; 3],
+    pub worker: [Stats; 3],
+    pub edit_after: Stats,
 }
 
 /// One save of each kind of file, as the desktop app saves (journal.md,
@@ -237,32 +242,50 @@ pub fn saves(dir: &Path, source: &str, runs: usize) -> Result<Vec<SaveRow>, Stri
         let (mut ui, mut whole) = (Vec::new(), Vec::new());
         // Each step's times, so a stall shows where it fell.
         let mut steps: [Vec<f64>; 3] = Default::default();
-        let save = |d: &mut Dispatcher| -> Result<[f64; 3], String> {
+        let mut worker: [Vec<f64>; 3] = Default::default();
+        let mut edit_after = Vec::new();
+        // The UI thread's steps, then the worker's.
+        let save = |d: &mut Dispatcher| -> Result<([f64; 3], [f64; 3]), String> {
             let t = Instant::now();
             let job = d.save_prepare(&DocSave::default()).map_err(|e| e.message)?;
             let snapshot = ms(t);
             // The worker.
+            let t = Instant::now();
             let rendered = job.render();
+            let render = ms(t);
             let t = Instant::now();
             let prepared = d.save_mark(rendered).map_err(|e| e.message)?;
             let mark = ms(t);
             // The worker again, as the app's: the write, the wait for the
             // journal's flush of the marker, and the next journal.
+            let t = Instant::now();
             let written = coldopen_core::io::atomic_write(&prepared.target, &prepared.bytes);
+            let write = ms(t);
+            let t = Instant::now();
             prepared.finisher().run(written.is_ok());
+            let finish = ms(t);
             let t = Instant::now();
             d.save_commit(prepared, written).map_err(|e| e.message)?;
-            Ok([snapshot, mark, ms(t)])
+            Ok(([snapshot, mark, ms(t)], [render, write, finish]))
         };
         for i in 0..runs {
             let text = if i % 2 == 0 { "x" } else { "y" };
+            let t = Instant::now();
             run(
                 &mut d,
                 "text.insert",
                 json!({"id": block, "at": 0, "text": text}),
             )?;
-            let s = save(&mut d)?;
+            // Right after the last save's commit, while its tidying may
+            // still be going on (docs/specs/journal.md).
+            if i > 0 {
+                edit_after.push(ms(t));
+            }
+            let (s, w) = save(&mut d)?;
             for (times, v) in steps.iter_mut().zip(s) {
+                times.push(v);
+            }
+            for (times, v) in worker.iter_mut().zip(w) {
                 times.push(v);
             }
             ui.push(s.iter().sum());
@@ -286,6 +309,8 @@ pub fn saves(dir: &Path, source: &str, runs: usize) -> Result<Vec<SaveRow>, Stri
             ui: stats(ui),
             whole: stats(whole),
             steps: steps.map(stats),
+            worker: worker.map(stats),
+            edit_after: stats(edit_after),
         });
     }
     Ok(out)

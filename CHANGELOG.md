@@ -2,7 +2,17 @@
 
 What changed in each release of Cold Open, newest first. Each release's notes, with its files, are on the [releases page](https://github.com/TheYungStump/cold-open/releases); `docs/progress/` has the full record of how each part was built.
 
-## 0.1.0-alpha.2 (not yet released)
+## Unreleased
+
+**Fixed**
+
+- **Saving an .fdx file on a Mac could pause the app for a few milliseconds.** After each save, Cold Open flushed the drive once more than it needed to, and the next save's first step could wait for it.
+
+**For testers**
+
+- **Measure performance** also times the save's background steps, and an edit typed right after a save.
+
+## 0.1.0-alpha.2 (2026-11-04)
 
 The alpha we're inviting testers to.
 

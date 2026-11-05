@@ -1,0 +1,52 @@
+Cold Open bench: 0.1.0-alpha.2 (9d0f1e66a2c9), aarch64-apple-darwin
+When: 2026-11-04T05:20:44Z (UTC)
+Machine: macos (macOS 26.5 (25.5.0)), Apple M1 Pro, 10 cores, 16 GiB
+GPU: Apple M1 Pro
+Screen: 3440x1440 at 1x
+Renderer by default: wgpu
+Script: synthetic feature script, seed 1, 119 pages
+
+Open a 120-page script                     median 35.8 ms                               under 200 ms                         PASS
+Full repagination                          median 16.7 ms                               under 50 ms                          PASS
+Journal write per edit                     p95 0.020 ms                                 under 1 ms                           PASS
+Save on the UI thread, Fountain            p95 0.310 ms                                 under 4 ms                           PASS
+Whole save, Fountain                       median 44.0 ms                               under 50 ms                          PASS
+Save on the UI thread, .fdx                p95 4.9 ms                                   under 4 ms                           MISS
+Whole save, .fdx                           median 36.6 ms                               under 50 ms                          PASS
+Save on the UI thread, project             p95 0.270 ms                                 under 4 ms                           PASS
+Whole save, project                        median 38.1 ms                               under 50 ms                          PASS
+Cold start                                 median 219.1 ms                              under 1000 ms                        PASS
+Keystroke to screen (Metal)                p95 10.1 ms (median 5.4)                     under 16 ms                          PASS
+Scrolling the report view (Metal)          p95 12.4 ms (median 10.1; 1 refresh missed)  within a refresh (10.1 ms at 99 Hz)  PASS
+Memory with a feature script open (Metal)  135 MiB                                      under 150 MB                         PASS
+
+Slow frames (frame: ms), counted from the first measured:
+  Keystroke to screen (Metal), 2 of 120 over 16 ms: 9: 25.5, 19: 17.9
+  Scrolling the report view (Metal), 1 of 120 missed a refresh: 39: 15.5
+
+The app's own work per frame, less the wait for a drawable (for diagnosis):
+  Keystroke to screen (Metal): median 4.6 ms, p95 6.3 ms
+  Scrolling the report view (Metal): median 2.1 ms, p95 3.2 ms
+
+For comparison:
+  keystroke_headless (tiny-skia): median 24.1 ms, p95 25.9 ms
+  edit_and_repaginate: median 3.9 ms, p95 4.7 ms
+  fsync: median 5.0 ms, p95 7.6 ms
+  save_whole_fountain_p95: median 44.0 ms, p95 45.9 ms
+  save_ui_fountain_snapshot: median 0.2 ms, p95 0.2 ms
+  save_ui_fountain_marker: median 0.0 ms, p95 0.0 ms
+  save_ui_fountain_commit: median 0.0 ms, p95 0.1 ms
+  save_whole_fdx_p95: median 36.6 ms, p95 43.6 ms
+  save_ui_fdx_snapshot: median 0.2 ms, p95 2.9 ms
+  save_ui_fdx_marker: median 0.9 ms, p95 3.0 ms
+  save_ui_fdx_commit: median 0.0 ms, p95 0.1 ms
+  save_whole_project_p95: median 38.1 ms, p95 42.3 ms
+  save_ui_project_snapshot: median 0.2 ms, p95 0.2 ms
+  save_ui_project_marker: median 0.0 ms, p95 0.0 ms
+  save_ui_project_commit: median 0.0 ms, p95 0.0 ms
+  scrolling_pages (Metal): median 6.8 ms, p95 11.8 ms; own work median 1.8 ms, p95 3.7 ms
+  typing_windowed (tiny-skia): median 17.6 ms, p95 18.4 ms
+  scrolling_windowed (tiny-skia): median 14.2 ms, p95 14.9 ms
+  reports_windowed (tiny-skia): median 7.8 ms, p95 8.4 ms
+
+1 budget missed, 0 budgets not measured.

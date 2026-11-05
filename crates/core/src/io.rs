@@ -279,11 +279,37 @@ pub(crate) fn replace(tmp: &Path, target: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// Renames `from` over `to` without waiting for the rename to reach the
+/// disk: no folder flush, and on Windows no write-through. Only for a
+/// rename that recovery copes with either way, as the journal's tidying
+/// after a save (docs/specs/journal.md, "Starting the journal again off
+/// the UI thread", 2026-11-04). On a Mac the folder flush is a flush of
+/// the whole drive, which held up the next journal write on the UI thread.
+#[cfg(unix)]
+pub(crate) fn replace_lazily(from: &Path, to: &Path) -> io::Result<()> {
+    fs::rename(from, to)
+}
+
+/// Renames `from` over `to` without waiting for the rename to reach the
+/// disk; see the Unix version. Retries for about a second while another
+/// program holds either file, as [`replace`] does.
+#[cfg(windows)]
+pub(crate) fn replace_lazily(from: &Path, to: &Path) -> io::Result<()> {
+    replace_with(from, to, false)
+}
+
 /// Renames `tmp` over `target`, durably, as an atomic save does: on
 /// Windows, retrying for about a second while another program holds
 /// either file.
 #[cfg(windows)]
 pub(crate) fn replace(tmp: &Path, target: &Path) -> io::Result<()> {
+    replace_with(tmp, target, true)
+}
+
+/// [`replace`], with the rename written through to the disk before it
+/// returns when `durable`.
+#[cfg(windows)]
+fn replace_with(tmp: &Path, target: &Path, durable: bool) -> io::Result<()> {
     // Antivirus, indexers and sync clients briefly hold files open; retry
     // those failures for about a second.
     const ACCESS_DENIED: i32 = 5;
@@ -292,7 +318,7 @@ pub(crate) fn replace(tmp: &Path, target: &Path) -> io::Result<()> {
     let mut delay = std::time::Duration::from_millis(10);
     let mut waited = std::time::Duration::ZERO;
     loop {
-        match win::move_replace(tmp, target) {
+        match win::move_replace(tmp, target, durable) {
             Ok(()) => return Ok(()),
             Err(e)
                 if matches!(
@@ -354,20 +380,19 @@ mod win {
         p.as_os_str().encode_wide().chain(Some(0)).collect()
     }
 
-    /// Renames `from` over `to`, replacing it, and returns only once the
-    /// rename is on disk.
-    pub fn move_replace(from: &Path, to: &Path) -> io::Result<()> {
+    /// Renames `from` over `to`, replacing it; when `durable`, returns
+    /// only once the rename is on disk.
+    pub fn move_replace(from: &Path, to: &Path, durable: bool) -> io::Result<()> {
         let from = wide(from);
         let to = wide(to);
+        let flags = if durable {
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH
+        } else {
+            MOVEFILE_REPLACE_EXISTING
+        };
         // SAFETY: both buffers are NUL-terminated UTF-16 strings that live
         // until the call returns; MoveFileExW does not keep the pointers.
-        let ok = unsafe {
-            MoveFileExW(
-                from.as_ptr(),
-                to.as_ptr(),
-                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-            )
-        };
+        let ok = unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), flags) };
         if ok == 0 {
             Err(io::Error::last_os_error())
         } else {

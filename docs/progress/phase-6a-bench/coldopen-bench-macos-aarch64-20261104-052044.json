@@ -1,0 +1,270 @@
+{
+  "bench": 1,
+  "app": {
+    "version": "0.1.0-alpha.2",
+    "commit": "9d0f1e66a2c9",
+    "target": "aarch64-apple-darwin"
+  },
+  "when": "2026-11-04T05:20:44Z",
+  "quick": false,
+  "machine": {
+    "os": "macos",
+    "os_version": "macOS 26.5 (25.5.0)",
+    "arch": "aarch64",
+    "cpu": "Apple M1 Pro",
+    "cores": 10,
+    "memory_gib": 16,
+    "gpus": [
+      "Apple M1 Pro"
+    ],
+    "renderer_default": "wgpu",
+    "screen": {
+      "width": 3440,
+      "height": 1440,
+      "scale": 1.0
+    }
+  },
+  "script": {
+    "name": "synthetic feature script, seed 1",
+    "pages": 119,
+    "blocks": 2269
+  },
+  "budgets": [
+    {
+      "id": "open",
+      "stat": "median",
+      "value_ms": 35.77,
+      "limit_ms": 200.0,
+      "pass": true,
+      "runs": 11
+    },
+    {
+      "id": "repagination",
+      "stat": "median",
+      "value_ms": 16.66,
+      "limit_ms": 50.0,
+      "pass": true,
+      "runs": 11
+    },
+    {
+      "id": "journal_write",
+      "stat": "p95",
+      "value_ms": 0.02,
+      "limit_ms": 1.0,
+      "pass": true,
+      "runs": 300
+    },
+    {
+      "id": "save_ui_fountain",
+      "stat": "p95",
+      "value_ms": 0.31,
+      "limit_ms": 4.0,
+      "pass": true,
+      "runs": 21
+    },
+    {
+      "id": "save_whole_fountain",
+      "stat": "median",
+      "value_ms": 44.0,
+      "limit_ms": 50.0,
+      "pass": true,
+      "runs": 21
+    },
+    {
+      "id": "save_ui_fdx",
+      "stat": "p95",
+      "value_ms": 4.87,
+      "limit_ms": 4.0,
+      "pass": false,
+      "runs": 21
+    },
+    {
+      "id": "save_whole_fdx",
+      "stat": "median",
+      "value_ms": 36.57,
+      "limit_ms": 50.0,
+      "pass": true,
+      "runs": 21
+    },
+    {
+      "id": "save_ui_project",
+      "stat": "p95",
+      "value_ms": 0.27,
+      "limit_ms": 4.0,
+      "pass": true,
+      "runs": 21
+    },
+    {
+      "id": "save_whole_project",
+      "stat": "median",
+      "value_ms": 38.13,
+      "limit_ms": 50.0,
+      "pass": true,
+      "runs": 21
+    },
+    {
+      "id": "cold_start",
+      "stat": "median",
+      "value_ms": 219.08,
+      "limit_ms": 1000.0,
+      "pass": true,
+      "runs": 7
+    },
+    {
+      "id": "keystroke",
+      "stat": "p95",
+      "value_ms": 10.12,
+      "median_ms": 5.43,
+      "slow_frames": [
+        [
+          9,
+          25.51
+        ],
+        [
+          19,
+          17.94
+        ]
+      ],
+      "limit_ms": 16.0,
+      "pass": true,
+      "runs": 120,
+      "renderer": "Metal",
+      "work_median_ms": 4.56,
+      "work_p95_ms": 6.31
+    },
+    {
+      "id": "report_scrolling",
+      "stat": "p95",
+      "value_ms": 12.43,
+      "median_ms": 10.11,
+      "slow_frames": [
+        [
+          39,
+          15.54
+        ]
+      ],
+      "limit_ms": 10.12,
+      "pass": true,
+      "runs": 120,
+      "renderer": "Metal",
+      "refresh_hz": 98.8,
+      "missed_refreshes": 1,
+      "work_median_ms": 2.13,
+      "work_p95_ms": 3.24
+    },
+    {
+      "id": "memory",
+      "stat": "peak",
+      "value_mib": 135.05,
+      "limit_mib": 150.0,
+      "pass": true,
+      "runs": 1,
+      "renderer": "Metal"
+    }
+  ],
+  "info": [
+    {
+      "id": "keystroke_headless",
+      "renderer": "tiny-skia",
+      "median_ms": 24.12,
+      "p95_ms": 25.95
+    },
+    {
+      "id": "edit_and_repaginate",
+      "median_ms": 3.91,
+      "p95_ms": 4.66
+    },
+    {
+      "id": "fsync",
+      "median_ms": 4.97,
+      "p95_ms": 7.61
+    },
+    {
+      "id": "save_whole_fountain_p95",
+      "median_ms": 44.004292,
+      "p95_ms": 45.942458
+    },
+    {
+      "id": "save_ui_fountain_snapshot",
+      "median_ms": 0.18,
+      "p95_ms": 0.21
+    },
+    {
+      "id": "save_ui_fountain_marker",
+      "median_ms": 0.02,
+      "p95_ms": 0.04
+    },
+    {
+      "id": "save_ui_fountain_commit",
+      "median_ms": 0.03,
+      "p95_ms": 0.09
+    },
+    {
+      "id": "save_whole_fdx_p95",
+      "median_ms": 36.566625,
+      "p95_ms": 43.613166
+    },
+    {
+      "id": "save_ui_fdx_snapshot",
+      "median_ms": 0.23,
+      "p95_ms": 2.94
+    },
+    {
+      "id": "save_ui_fdx_marker",
+      "median_ms": 0.87,
+      "p95_ms": 3.03
+    },
+    {
+      "id": "save_ui_fdx_commit",
+      "median_ms": 0.04,
+      "p95_ms": 0.15
+    },
+    {
+      "id": "save_whole_project_p95",
+      "median_ms": 38.126875,
+      "p95_ms": 42.315666
+    },
+    {
+      "id": "save_ui_project_snapshot",
+      "median_ms": 0.19,
+      "p95_ms": 0.21
+    },
+    {
+      "id": "save_ui_project_marker",
+      "median_ms": 0.02,
+      "p95_ms": 0.03
+    },
+    {
+      "id": "save_ui_project_commit",
+      "median_ms": 0.03,
+      "p95_ms": 0.03
+    },
+    {
+      "id": "scrolling_pages",
+      "renderer": "Metal",
+      "median_ms": 6.82,
+      "p95_ms": 11.76,
+      "work_median_ms": 1.79,
+      "work_p95_ms": 3.68
+    },
+    {
+      "id": "typing_windowed",
+      "renderer": "tiny-skia",
+      "median_ms": 17.56,
+      "p95_ms": 18.45
+    },
+    {
+      "id": "scrolling_windowed",
+      "renderer": "tiny-skia",
+      "median_ms": 14.18,
+      "p95_ms": 14.86
+    },
+    {
+      "id": "reports_windowed",
+      "renderer": "tiny-skia",
+      "median_ms": 7.83,
+      "p95_ms": 8.38
+    }
+  ],
+  "passed": false
+}
