@@ -437,6 +437,22 @@ jobs:
           print(b)
           sys.exit(0 if b.get("pass") else 1)
           EOF
+      # Since 2026-11-05 (phase 6c, bench.md §5): the UI thread does no
+      # disk work in a save but append a marker, so a runner's slow disk no
+      # longer decides it, and the Mac tester's alpha.2 bench missed it.
+      - name: A save's UI thread time within its budget (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          python3 - bench/*.json <<'EOF'
+          import json, sys
+          r = json.load(open(sys.argv[1]))
+          ok = True
+          for kind in ("fountain", "fdx", "project"):
+              b = next(b for b in r["budgets"] if b["id"] == f"save_ui_{kind}")
+              print(b)
+              ok = ok and bool(b.get("pass"))
+          sys.exit(0 if ok else 1)
+          EOF
       - name: Measure performance from the app's sheet (Linux)
         if: runner.os == 'Linux'
         env:

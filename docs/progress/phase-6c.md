@@ -11,7 +11,7 @@ The owner's constraints: no cost; no personal details anywhere public; the app m
 | # | Step | Status |
 | --- | --- | --- |
 | 0 | Branch, this record, specs first: `usage-summary.md` (new), `site.md`, `release.md` §2, §7, §11, §12, `editor.md` §23 and §24, `bench.md` §5 | done |
-| 1 | The Mac save: confirm #27 on CI's Mac (asserted), explain the 44 ms Fountain save, widen the headroom if cheap, the crash gate five times, a bench build for the Mac tester | |
+| 1 | The Mac save: confirm #27 on CI's Mac (asserted), explain the 44 ms Fountain save, widen the headroom if cheap, the crash gate five times, a bench build for the Mac tester | CI assertion and the analysis done (below). The crash gate and the bench build follow step 2, so they cover the release profile that ships. The headroom waits for the Mac tester's worker rows (decision 6). |
 | 2 | The universal Mac build: fat LTO, sizes and budgets before and after | |
 | 3 | The brand stand-in (Opening Frame): the icon, the mark, the image templates | |
 | 4 | The usage summary, the Settings sheet, Share feedback… | |
@@ -63,7 +63,31 @@ What's left for 6c (step 1): confirm it on CI's Mac with the budget asserted, ex
 2. **The website keeps mdBook for the docs, at their addresses,** and builds the landing, download, started and search pages with a small Python script (`site.md` §2). The docs' sidebar lists the AI agents page, and the writers' pages mustn't mention AI, so those pages can't be mdBook chapters.
 3. **The download page recommends nothing on Windows without client hints** (Firefox, Safari, old Edge), since those browsers report x64 on ARM computers too, and an x64 build doesn't run on Windows 10 on ARM. The brief says not to guess. The Windows group comes first, with how to tell.
 4. **Linux's recommendation is the AppImage,** which needs no install and runs on any distribution.
-5. **macOS CI asserts the UI thread's save** (`bench.md` §5), so the gate "under 4 ms on CI's Mac" is checked on every pull request.
+5. **macOS CI asserts the UI thread's save** (`bench.md` §5), so the gate "under 4 ms on CI's Mac" is checked on every pull request. It's a new step in `ci.yml`'s budgets job, which reads the bench's JSON as the Linux report-scrolling step does.
+6. **The Fountain save's headroom waits for the Mac tester's worker rows** (step 1, below). On CI's Mac the save is mostly rendering, and on the tester's Mac it's most likely drive flushes. Neither has a change that is both cheap and safe without the tester's per-step numbers, which #27 added to the bench and which the alpha.3 bench build will report.
+
+## Step 1: the Mac save
+
+### CI's Mac on main after #27 (4573d48, run 42107453249, the full bench)
+
+| Save | UI thread p95 (snapshot / marker / commit, p95) | Whole save, median | Worker: render / write / finish, median |
+| --- | --- | --- | --- |
+| Fountain | 0.51 ms (0.4 / 0.1 / 0.1) | 27.6 ms | 19.0 / 3.7 / 2.0 ms |
+| .fdx | **0.52 ms** (0.4 / 0.1 / 0.1) | 8.6 ms | 2.9 / 3.1 / 1.6 ms |
+| Project | 0.42 ms (0.3 / 0.1 / 0.1) | 13.3 ms | 10.6 / 3.0 / 1.7 ms |
+
+- **The .fdx marker no longer waits:** p95 0.1 ms, against 3.03 ms on the Mac tester's alpha.2 bench. The edit typed right after each save takes 0.1 ms (p95 0.2) for every kind.
+- **CI's virtual Mac flushes in 0.8 ms** (the bench's fsync row), where the tester's real Mac took 5.0 ms (p95 7.6), since a real drive's `F_FULLFSYNC` empties its cache. So CI can't show the flushes' cost, only the rest.
+
+### Where a Fountain save's time goes
+
+- **The render, 19 ms on CI's Mac and 21 ms on this PC,** is mostly the Fountain writer reading its own text back to check that nothing is lost. Timed here on the synthetic 120-page script (145 KB): `write` 21.5 ms, `write_text` alone 6.5 ms, `parse` of the text 14.5 ms, the comparison 0.1 ms. The parser reads about 10 MB/s, building one atom per character before classifying lines (`crates/fountain/src/scan.rs`).
+- **On the tester's Mac,** the same 15 to 20 ms of rendering, plus about five drive flushes at about 5 ms each (`phase-6a.md`, "Where the Mac's 44 ms Fountain save goes"), make the 44 ms.
+- **The ways to win it back,** each worth about 5 to 15 ms on that Mac:
+  1. Fewer full drive flushes on macOS: `F_BARRIERFSYNC` for order, and one `F_FULLFSYNC` at the end. The biggest lever, but it's invisible on CI's virtual disk, and it changes when a save is durable, so it needs the tester's per-step numbers to justify it.
+  2. Write the file while the text is read back, renaming only once the check passes. That saves the write step: about 4 ms on CI, more on a real Mac.
+  3. A faster Fountain parser. That's real work on a fuzzed parser, not cheap.
+- **Decision 6:** none is done before the tester's bench of this phase's build, which reports `save_worker_*_render`, `_write` and `_finish` on a real Mac. The budget is met there (44 against 50).
 
 ## New dependencies
 
