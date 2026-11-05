@@ -1,7 +1,7 @@
 # Release builds and packages
 
-- **Date:** 2026-10-30, updated 2026-11-02 (phase 6b: the symbols file in §2 and §9, the code signing policy and file metadata in §8)
-- **Status:** phase 6a, implemented; the 6b additions are being implemented.
+- **Date:** 2026-10-30, updated 2026-11-02 (phase 6b: the symbols file in §2 and §9, the code signing policy and file metadata in §8), and 2026-11-05 (phase 6c: the universal disk image in §2, §3.3 and §7, and the stores in §11)
+- **Status:** phase 6a and 6b, implemented; the 6c additions are being implemented.
 - **Sources:**
   - `docs/spec.md`, "Platforms, size and performance" (targets, the 15 MB installer budget) and "Open questions" (code signing: ship unsigned, apply to SignPath Foundation, pay Apple later).
   - The phase 6a brief and the project owner's decisions of 2026-10-30, recorded in `docs/progress/phase-6a.md`.
@@ -37,6 +37,8 @@ A release `v<version>` holds these files. `<v>` is the version without the `v`, 
 | All | | `SHA256SUMS.txt` | One line per file above, `<sha256>  <name>`, sorted by name |
 
 **Resolution (macOS):** one universal disk image if it stays under the size budget. If it doesn't, the release holds `ColdOpen-<v>-macos-arm64.dmg` and `ColdOpen-<v>-macos-x64.dmg` instead. The packaging step measures the universal image and decides; the release notes name what was shipped.
+
+**Since 2026-11-05 (phase 6c, the project owner's decision):** every release holds the universal disk image, which the website recommends for every Mac, since a browser can't always tell an Apple chip from Intel (Safari reports Intel on both). The release profile uses fat link-time optimization to make it smaller (§7). The per-architecture images `ColdOpen-<v>-macos-arm64.dmg` and `ColdOpen-<v>-macos-x64.dmg` are shipped beside it, as smaller downloads for writers who know their Mac.
 
 **Resolution (Debian versions):** a `-` in a Cargo pre-release becomes `~` in the .deb's own version field (`0.1.0~alpha.1`), so that apt sorts the alpha before `0.1.0`. The file name keeps `<v>`.
 
@@ -127,7 +129,7 @@ The same files as the installer, in one folder named `ColdOpen` (no space, so a 
 ### 3.6 Flatpak
 
 - **A bundle file** (`flatpak build-bundle`), on the `org.freedesktop.Platform` 25.08 runtime, made with Flatpak's own build commands (`build-init`, `build-finish`, `build-export`) in `package.sh`.
-- **Resolution:** it holds the same release binaries the other Linux packages hold, so all three run identical code. `flatpak-builder` builds from a manifest, and the builder adds nothing for prebuilt binaries. Also, Ubuntu 22.04's builder calls a tool the 25.08 SDK no longer has, and Flathub's builder can't see the runner's SDK from its sandbox (CI, 2026-10-30). Flathub requires a manifest and a build from source; that is for a later phase.
+- **Resolution:** it holds the same release binaries the other Linux packages hold, so all three run identical code. `flatpak-builder` builds from a manifest, and the builder adds nothing for prebuilt binaries. Also, Ubuntu 22.04's builder calls a tool the 25.08 SDK no longer has, and Flathub's builder can't see the runner's SDK from its sandbox (CI, 2026-10-30). Flathub requires a manifest and a build from source; that is for a later phase. (2026-11-05: phase 6c prepares it, §11.1.)
 - **Permissions:**
 
   | Permission | Why |
@@ -202,6 +204,7 @@ No package writes a setting at install time, so a new install over nothing start
 - The budget is 15,000,000 bytes for each installer or package a writer downloads: `setup.exe`, `.zip`, `.dmg`, `.deb`, `.AppImage` and `.flatpak`. **Resolution:** decimal megabytes, the stricter of the two readings of "15 MB".
 - A Flatpak bundle doesn't include its runtime, which Flatpak downloads once for every app that uses it. The budget is the bundle file.
 - CI measures every file on every pull request, writes the sizes to the job summary, and fails the job when one is over.
+- **The universal disk image** (2026-11-05, the project owner's decision). The release profile uses `lto = "fat"`, with `codegen-units = 1` and `strip = true`, to make every binary smaller. `opt-level` stays at 3 unless a budget improves, and `panic` stays `unwind`, since the crash journal and crash reports depend on it. If the universal image is still over 15,000,000 bytes, it ships anyway: **the budget applies per architecture**, and the universal image holds two. CI checks the per-architecture images against the budget, and reports the universal one's size without failing on it.
 
 ## 8. Signing
 
@@ -251,3 +254,80 @@ Every package holds a `licenses` folder:
 
 - **The third-party file** is generated at build time by `cargo-about`, for the target being built, from `about.toml` at the root. That file lists the licenses we accept. A crate under any other license fails the build, which also guards the license boundary. CI runs the same check on every pull request.
 - **The app's About sheet** shows all of these. The third-party text is compiled into the app from the generated file. A build without it (a developer's `cargo build`) says where to find it instead.
+
+## 11. Stores
+
+Added 2026-11-05 (phase 6c). Each store is free to list in, and each has rules of its own. `docs/progress/phase-6c.md` quotes the rules that apply, with their addresses and the date read. Nothing is submitted, uploaded or published without the project owner, who holds every store account. The files live in `.github/packaging/<store>/`, and each folder's `README.md` gives the owner's steps.
+
+- **Every store gets the same build** as the release: the same binaries, version and licenses. No store build adds a network connection, an update checker or a store SDK.
+- **Personal details:** each store's listing names the publisher as the project owner chooses. The files here use `TheYungStump`, the GitHub account, and the project's addresses, never a person's name or email.
+
+### 11.1 Flathub
+
+- **A manifest that builds from source** (`io.github.theyungstump.coldopen.yml`), as Flathub's requirements ask. It uses the `org.freedesktop.Platform` and `Sdk` 25.08 runtimes, with the `rust-stable` SDK extension, and builds the tagged commit with `cargo build --release --offline --locked`.
+- **Crates come from `cargo-sources.json`,** generated from `Cargo.lock` by `flatpak-cargo-generator` (from `flatpak-builder-tools`, pinned by commit), since Flathub's builders have no network.
+- **The same AppStream metainfo** as the other Linux packages, extended for Flathub:
+  - screenshots by their full addresses at the tag;
+  - a `<releases>` entry per version;
+  - OARS content rating (none);
+  - `<developer id="io.github.theyungstump">`;
+  - `<url>` for the homepage, bugs, help and the source;
+  - `<branding>` colors.
+- **The desktop entry and MIME types** are the .deb's (§3.4, §5).
+- **The permissions** are those of §3.6. **Resolution:** Flathub's reviewers may ask why `--filesystem=home` is needed. The answer is §3.6's: a script's crash journal and atomic save need its folder, which a portal doesn't give. The owner's decision of 2026-10-30 stands unless the reviewers refuse it.
+- **CI builds it:** `flatpak-builder` in Flathub's own container (`flatpak/flatpak-github-actions`), and `flatpak-builder-lint` on the manifest, the metainfo and the build.
+- **The owner's step:** a pull request to `flathub/flathub` with the manifest, `cargo-sources.json` and the metainfo, following Flathub's submission page. Flathub then makes a repository for the app, where updates go.
+
+### 11.2 winget
+
+- **Three manifests** (version, installer, default locale), in the community repository's layout: `manifests/t/TheYungStump/ColdOpen/<v>/`.
+- **The installer manifest:**
+  - `InstallerType: inno`, `Scope: user`;
+  - the x64 and arm64 setup files, by their release addresses, with their SHA-256;
+  - the `.fountain`, `.fdx` and `.coldopen` file extensions;
+  - `Commands: [coldopen]`.
+- **The release workflow writes them** for each release, from the published files' hashes, as a workflow artifact. CI checks them with `winget validate` on Windows.
+- **The owner's step:** a pull request to `microsoft/winget-pkgs` with the three files. The `wingetcreate` tool or a fork both work; the README gives both.
+
+### 11.3 Homebrew
+
+- **Our own tap,** `TheYungStump/homebrew-tap` (the owner's decision, 2026-11-05), since Homebrew's official cask repository deprecates and disables casks whose apps don't pass Gatekeeper, and Cold Open isn't notarized (§8).
+- **The cask** (`Casks/cold-open.rb`):
+  - the universal disk image, by its release address, with its SHA-256;
+  - `app "Cold Open.app"`;
+  - `binary` for `coldopen`, so the CLI is on the PATH;
+  - `depends_on macos: ">= :monterey"`;
+  - `zap` for the app's folder in `~/Library/Application Support/Cold Open`;
+  - a caveat on opening an app that isn't notarized (§8).
+- **The release workflow writes it** for each release, as a workflow artifact. CI checks it with `brew style` and `brew audit --cask` on macOS, in a temporary tap.
+- **The owner's steps:** create the tap repository, then copy each release's cask into it. Writers then run `brew install theyungstump/tap/cold-open`.
+
+### 11.4 Microsoft Store
+
+- **An MSIX package,** which the Store signs for free when it's submitted. Built with `makeappx`, from the Windows SDK on the runner, from the release's x64 and arm64 binaries: one package per architecture, joined in a bundle (`.msixbundle`).
+- **The manifest** (`AppxManifest.xml`):
+  - `Identity` and `PublisherDisplayName`: the values Partner Center gives the owner's app reservation. Until then, placeholders, which CI fills with a test identity;
+  - the `runFullTrust` capability, since Cold Open is a desktop app;
+  - file type associations for `.fountain`, `.fdx` and `.coldopen`;
+  - an app execution alias, `coldopen.exe`, so the CLI runs from a terminal;
+  - the visual assets, made from the icon (§12), at the sizes the Store asks for.
+- **What changes inside a package:** Windows redirects an MSIX app's writes to its own `AppData` folders into the package's private storage. Cold Open's settings, `Unsaved/` and crash journals for untitled scripts then live there, and the agent link's run folder too. The CLI, run through the alias, is in the same package, so it finds the app. CI installs the package (signed with a throwaway certificate made for that run), starts the app, and runs `coldopen --version` through the alias.
+- **The publisher name** the Store shows is chosen in Partner Center. `docs/progress/phase-6c.md` says what Microsoft's documentation requires of an individual account's name, and the owner decides before anything is submitted.
+- **The owner's steps:** the developer account and its identity check, the app's name reservation, the identity values for the manifest, the listing (from `docs/marketing/`), and the submission.
+
+### 11.5 itch.io
+
+- **A page in itch.io's tools section,** made by the owner, with its text drafted in `docs/marketing/itch.md`.
+- **Uploads by `butler`,** itch.io's free command-line uploader, from the release workflow:
+  - one channel per build: `windows-x64`, `windows-arm64`, `mac-universal`, `linux-x64` (the AppImage), `linux-arm64`;
+  - butler pinned by version and checked by SHA-256;
+  - the job runs only when the repository has a `BUTLER_API_KEY` secret, so a release without it isn't held up.
+- **The owner's steps:** the itch.io account and page, an API key, and the secret.
+
+## 12. Brand assets
+
+Added 2026-11-05 (phase 6c, the owner's decision 5). The icon and every image made from it come from **01 / Opening Frame** in `design/brand-explorations/2026-11-05/`: a C-shaped frame with a red cursor bar, navy on paper. It's still subject to change, so every asset is made by a script:
+
+- **`.github/packaging/icon/make_icons.py`** draws the mark from its geometry, at every size, and writes the `.ico`, the `.icns`, the PNGs and an SVG. `--from <folder>` still takes final artwork's PNGs instead.
+- **`tools/brand/`** renders the share image, the GitHub social preview, the store graphics and the ads from HTML templates with Playwright. The wordmark is set in the app's own Atkinson Hyperlegible Next (SIL OFL), not the board's generated letters.
+- **Swapping the brand later** means new geometry or artwork, then rerunning both scripts.

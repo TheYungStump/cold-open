@@ -1,6 +1,6 @@
 # The bench: budgets on real machines
 
-- **Date:** 2026-10-30; slow frames, and the report view judged with vsync, 2026-11-03.
+- **Date:** 2026-10-30; slow frames, and the report view judged with vsync, 2026-11-03; the UI thread's save asserted on CI's Mac, 2026-11-05 (§5).
 - **Status:** phase 6a, being implemented in `crates/app` (`coldopen_app::bench`).
 - **Sources:**
   - `docs/spec.md`, "Platforms, size and performance": the budget table.
@@ -102,7 +102,7 @@ CI's runners are shared virtual machines with no GPU and a slow, shared disk. Th
 | Open | asserted | reported | judged |
 | Full repagination | asserted | reported | judged |
 | Journal write | asserted | reported | judged |
-| Save on the UI thread | asserted (p95) | reported | judged |
+| Save on the UI thread | asserted (p95) | asserted on macOS (p95, since 2026-11-05); reported on Windows | judged |
 | Whole save | asserted (median) | reported | judged |
 | Memory | asserted (CPU renderer) | reported | judged |
 | Cold start | reported | reported | judged |
@@ -112,6 +112,7 @@ CI's runners are shared virtual machines with no GPU and a slow, shared disk. Th
 | Page breaks across OSes | asserted on every OS (layout goldens) | asserted | — |
 
 - **Why some are reported only:** cold start and keystroke on a runner measure its virtual display and the CPU it is lent, not the app. Asserting them would fail builds at random. macOS and Windows runners vary more than Linux ones, so the headless budgets are asserted on Linux only, as since phase 3.
+- **The UI thread's save on macOS** (2026-11-05, phase 6c). The Mac tester's alpha.2 bench missed it for .fdx (p95 4.87 ms), and phase 6c's gate asks for it under 4 ms on CI's Mac too. Since phase 6a's decision 18 the UI thread does no disk work during a save but append a marker, so a runner's slow disk no longer decides it: CI's Mac measured 0.63 to 0.75 ms at p95 on 199ae39. It's asserted there for all three kinds. Windows' runner, whose marker append is slowed by its antivirus (phase 6a, decision 20), stays reported.
 - **The release gate** (`docs/spec.md`, milestone 6) is the real machines' reports: the project owner's Windows PC, the macOS tester, and Linux from CI plus any Linux machine available. Their files go into `docs/progress/` with the phase's report.
 
 ## 6. Metal's wait for a drawable (2026-11-03)

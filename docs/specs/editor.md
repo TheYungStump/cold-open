@@ -1,7 +1,7 @@
 # The desktop editor
 
 - **Date:** 2026-10-15, updated 2026-10-16
-- **Status:** implemented in `crates/app` (phase 3); the 2026-10-16 changes come from the reviews of phases 1–3; phase 4 (2026-10-16) added .fdx files, the repair report, Recovered versions and one command router (§16). Phase 5a (2026-10-18) added bundles and track changes (§17). Phase 5b (2026-10-22) adds production revisions (§18), the title page editor (§19), reports (§20), comparing drafts (§21) and missing recent files (§11). Phase 6a (2026-10-30) adds §22: About, the bench, the command-line tool on macOS and folders that can't be written. Phase 6b (2026-11-02) adds §23: Report a problem, the user guide, and crash reports on screen.
+- **Status:** implemented in `crates/app` (phase 3); the 2026-10-16 changes come from the reviews of phases 1–3; phase 4 (2026-10-16) added .fdx files, the repair report, Recovered versions and one command router (§16). Phase 5a (2026-10-18) added bundles and track changes (§17). Phase 5b (2026-10-22) adds production revisions (§18), the title page editor (§19), reports (§20), comparing drafts (§21) and missing recent files (§11). Phase 6a (2026-10-30) adds §22: About, the bench, the command-line tool on macOS and folders that can't be written. Phase 6b (2026-11-02) adds §23: Report a problem, the user guide, and crash reports on screen. Phase 6c (2026-11-05) adds Share feedback… and the usage summary's tick to §23, and §24: the Settings sheet.
 - **Sources:**
   - `docs/spec.md`: Writing, Structure and navigation, Comfort, Reliability.
   - The phase 3 brief and its approved decisions (2026-10-15).
@@ -260,6 +260,9 @@ Shortcuts are looked up by **action** name: a core command (`undo`, `doc.save`, 
 | "Remove from recent: <file>" (one palette entry per missing recent file, §11) | — (palette; a button on the start screen) |
 | `app.report_problem`, `app.user_guide` (2026-11-02, §23) | — (palette, About, start screen) |
 | `app.crash_reports`, `app.crash_reports_toggle`, `app.crash_test` (§23) | — (palette; the first also in the crash notice) |
+| `app.settings` (the Settings sheet, 2026-11-05, §24) | Mod+, (and Settings… in the macOS app menu) |
+| `app.share_feedback` (2026-11-05, §23) | — (palette, About, start screen) |
+| `app.usage_summary`, `app.usage_toggle` (2026-11-05, `usage-summary.md`) | — (palette, Settings, About) |
 
 Esc closes the topmost overlay, or the autocomplete list. Movement and editing keys (§4, §5.1) are built in and not listed in the map.
 
@@ -553,9 +556,22 @@ Added 2026-11-02 (phase 6b; `docs/specs/crash-reports.md`, `docs/specs/site.md`)
   - **Open a GitHub issue** (G), "needs a GitHub account": the bug template (`.github/ISSUE_TEMPLATE/bug.yml`), with those fields filled in from the address's query (each field by its `id`).
   - **Use the form** (F), "no account needed": the project's Google Form, with the same fields filled in through its prefilled link. **Resolution:** the button shows only when the build names the form's address (`FORM_URL` in `crates/app/src/feedback.rs`), so a build made before the form exists never shows a dead button. The form exists from 2026-11-03.
   - **Copy the details** (C) puts the same lines on the clipboard, as About's "Copy version info" does.
+  - **Include my usage summary** (U; 2026-11-05, `usage-summary.md` §8), a tick, unticked each time the sheet opens. Ticked, the summary shows in full under the details, exactly as it goes out, and goes with them: into the issue's body, the form's `report` box, or the copied text.
   - **Close** (Esc).
+- **Share feedback…** (`app.share_feedback`, 2026-11-05; in the palette, in the About sheet's "Share feedback" row, and in the start screen's links):
+  - A sheet: "Share feedback". It says "Tell us what works, what doesn't, and what you'd like. Cold Open opens a page in your browser with your text filled in. Nothing is sent until you submit it there."
+  - **A text box** for the feedback, focused when the sheet opens. Its text stays while the app runs, so closing the sheet by mistake loses nothing. It's cleared once the feedback has gone to the browser or the clipboard.
+  - **Include my usage summary**, a tick, unticked each time the sheet opens. Ticked, the summary shows in full below it (`usage-summary.md` §8).
+  - **The details** of Report a problem (version, target, OS, renderer) go too, listed in the sheet. They say which build the feedback is about.
+  - **Open the form** (no account needed): the Google Form with the kind left for the writer to choose, the text in `details`, the details in their own boxes, and the summary, if ticked, in `report`.
+  - **Open a GitHub issue** (needs a GitHub account): the feedback template (`.github/ISSUE_TEMPLATE/feedback.yml`), with the text, the details and the summary in its fields.
+  - **Copy all**: the text, the details and the summary, if ticked, as one block.
+  - **When an address would be longer than `URL_MAX`,** the whole text is copied first, the page opens with what fits, and the notice says it's on the clipboard to paste.
+  - **Keys:** the text box takes letters, so the buttons have none. Tab and Shift+Tab move between the text box, the tick and the buttons. Space ticks, Enter presses the focused button, Mod+Enter opens the form (or the issue, in a build without one). Esc closes.
+  - **It works with no summary** and with an empty text box. The form and the issue then open with the details only.
 - **The user guide** (`app.user_guide`, "Open the user guide"; in the palette, in the About sheet's "User guide" row, and in the start screen's links) opens the website's guide (`site.md`) in the browser.
-- **The start screen's links:** a quiet row under the buttons: **User guide**, **Report a problem…** and **About Cold Open**.
+- **The start screen's links:** a quiet row under the buttons: **User guide**, **Share feedback…**, **Report a problem…**, **Settings** and **About Cold Open** (the middle two since 2026-11-05).
+- **About's rows** (2026-11-05): User guide, Share feedback, Report a problem, Settings, and Usage summary (View, which opens `app.usage_summary`).
 - **The crash notice** (`crash-reports.md` §6): at start, when an unseen crash report exists and reports are on.
   - It says "Cold Open closed unexpectedly. A crash report was saved, with no script text.", with **Look at it** and **Never ask again** beside Dismiss.
   - It queues behind the recovery dialog, as every notice does (§13).
@@ -572,3 +588,29 @@ Added 2026-11-02 (phase 6b; `docs/specs/crash-reports.md`, `docs/specs/site.md`)
 - **Turn crash reports on or off** (`app.crash_reports_toggle`, palette): switches `crash_reports` in `settings.json` and says which it is now.
 - **Crash on purpose (to test recovery)** (`app.crash_test`, palette): asks first (Enter crashes, Esc cancels), then panics (`crash-reports.md` §9). For testers: the next start recovers the journal and offers the report.
 - **Keys in these sheets** are those of the sheet's own buttons, as in the recovery dialog. **Resolution:** single letters, since no text field is open in either sheet.
+
+## 24. Settings
+
+Added 2026-11-05 (phase 6c; the project owner's decision 7 in `docs/progress/phase-6c.md`, `docs/specs/usage-summary.md`). Every setting already had a palette command, and `settings.json` keeps them. The sheet gathers them in one place, and adds nothing but the usage summary's switch, which the summary itself requires.
+
+- **Settings…** (`app.settings`; Mod+, on every OS; the palette, the start screen's links, About's "Settings" row; on macOS also **Settings…** in the app menu, with Cmd+, shown beside it).
+- **The rows,** each showing its current value, and each changing it through the command the palette already has:
+
+  | Row | Values | The command |
+  | --- | --- | --- |
+  | Theme | Follow the system, Light, Dark, High contrast | `view.theme_*` |
+  | Interface size | 100% to 200%, in the steps of §3 | `view.interface_larger`, `_smaller` |
+  | Renderer | Automatic, CPU, GPU, taking effect at the next start (§22) | `app.renderer_cpu`, `app.renderer_gpu`; Automatic sets `renderer` back to `auto` |
+  | Your name on tracked changes | the name, or "Writer" | `app.author_name` (Enter opens its question) |
+  | Agents can attach | On, Off | `app.agent_access` |
+  | Crash reports | Ask after a crash, Off | `app.crash_reports_toggle` |
+  | Usage summary | Counting on, Counting off; **View…**; **Reset…** | `app.usage_toggle`, `app.usage_summary`, and the View sheet's Reset |
+
+- **The keyboard,** the whole sheet without a mouse:
+  - Up and Down move between rows, stopping at the first and last (§2, Lists).
+  - Left and Right step a row's value; Space or Enter does the same for an on-or-off row.
+  - On the Usage summary row, Tab moves between its switch, View… and Reset…, and Enter presses the focused one.
+  - The focused row is outlined, as buttons are.
+  - Esc closes the sheet.
+- **A change applies at once,** as from the palette, and is saved to `settings.json`. A banner names the renderer's change, since it waits for the next start.
+- **macOS's app menu.** winit gives a Mac app the standard app menu (About, Hide, Quit). Cold Open adds **Settings…** after About, with the key equivalent Cmd+,, through AppKit's `NSMenu` and `NSMenuItem`. Its action sends `app.settings` to the app through a channel the app listens on. **Resolution:** this needs a few `unsafe` calls into AppKit through `objc2`, which winit already depends on. Each has its SAFETY note, and the project owner approved them with the phase's plan. Without the item, AppKit would still send Cmd+, to the window, and the keymap would handle it there.

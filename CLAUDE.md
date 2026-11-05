@@ -43,7 +43,8 @@ Each phase starts only after the previous gate passes. Phases 5 and 6 were each 
    - **5b** (2026-10-22 to 10-27) — production revision sets and colors, script diff, the title page editor, reports. The fixes from four reviews of phases 4–5b followed (2026-10-30).
 6. **Alpha release** — gate: every size and speed budget in the spec met on all three OSes.
    - **6a** (2026-10-30 to 11-02) — release engineering: packages for every target, each under 15 MB; the bench; the release workflow.
-   - **6b** (from 2026-11-02) — the alpha: user docs, website, feedback, opt-in crash reports, tester group. Ends with `v0.1.0-alpha.2`.
+   - **6b** (2026-11-02 to 11-04) — the alpha: user docs, website, feedback, opt-in crash reports, tester group. Ends with `v0.1.0-alpha.2`.
+   - **6c** (from 2026-11-05) — distribution and discovery: the writers' and AI landing pages, the download page's recommendation, SEO, store packages, the local usage summary and Settings, listing and ad drafts. Ends with `v0.1.0-alpha.3`.
 
 ## Rules
 

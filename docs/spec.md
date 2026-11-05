@@ -297,7 +297,8 @@ We build in six phases, and none starts until the previous phase passes its test
    - **5b** (Oct 22 to 27): production revision sets, script diff, the title page editor and reports. The fixes from four reviews of phases 4–5b followed (Oct 30).
 6. **Alpha release.** Gate: every size and speed budget met on all three OSes.
    - **6a** (Oct 30 to Nov 2): release engineering: packages for every target, each under 15 MB, the bench and the release workflow.
-   - **6b** (from Nov 2): user docs, the website, feedback, opt-in crash reports and the tester group. It ends with `v0.1.0-alpha.2`.
+   - **6b** (Nov 2 to 4): user docs, the website, feedback, opt-in crash reports and the tester group. It ends with `v0.1.0-alpha.2`.
+   - **6c** (from Nov 5): distribution and discovery: a writers' page and an AI page, a download page that recommends the right build, search pages, packages for free stores, a local usage summary, and drafts of listings and ads. It ends with `v0.1.0-alpha.3`.
 
 The command core comes first because everything else, including the editor and agent access, is built on it; .fdx support follows the editor so it can be tested against real use.
 
