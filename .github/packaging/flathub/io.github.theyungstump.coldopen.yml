@@ -1,0 +1,68 @@
+# Cold Open on Flathub (docs/specs/release.md §11.1): built from the tagged
+# source, offline, with every crate from cargo-sources.json. The release
+# workflow fills the @…@ values from the release (.github/packaging/stores.py);
+# CI builds the same manifest from the checkout instead of the tag.
+app-id: io.github.theyungstump.coldopen
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: coldopen-app
+finish-args:
+  # The window, on Wayland or X11.
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  # The GPU renderer.
+  - --device=dri
+  # A script's crash journal and atomic save are written beside it, in its
+  # folder, which a file chooser portal doesn't give (release.md §3.6).
+  - --filesystem=home
+  # The agent link's run folder, so `coldopen mcp` outside the sandbox can
+  # reach the app inside it (mcp.md §5).
+  - --filesystem=xdg-run/coldopen:create
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+modules:
+  - name: cold-open
+    buildsystem: simple
+    build-options:
+      env:
+        CARGO_HOME: /run/build/cold-open/cargo
+        CARGO_NET_OFFLINE: 'true'
+        # The commit for About and --version (release.md §9): the tag's,
+        # since Flathub's checkout keeps no git history.
+        COLDOPEN_COMMIT: '@COMMIT@'
+        # The third-party license list cargo-about made for this release.
+        COLDOPEN_THIRD_PARTY: /run/build/cold-open/third-party.txt
+    build-commands:
+      - cargo --offline build --release --locked -p coldopen-app -p coldopen-cli
+      - install -Dm755 target/release/coldopen-app -t /app/bin
+      - install -Dm755 target/release/coldopen -t /app/bin
+      - install -Dm644 .github/packaging/linux/io.github.theyungstump.coldopen.desktop -t /app/share/applications
+      # The source's metainfo keeps its placeholders; this fills them. (The
+      # quotes split the names, so stores.py fills only the values.)
+      - mkdir -p /app/share/metainfo && sed -e "s|@VERSION""@|@VERSION@|g" -e "s|@DATE""@|@DATE@|g" .github/packaging/flathub/io.github.theyungstump.coldopen.metainfo.xml > /app/share/metainfo/io.github.theyungstump.coldopen.metainfo.xml
+      - install -Dm644 .github/packaging/linux/io.github.theyungstump.coldopen.xml -t /app/share/mime/packages
+      - install -Dm644 .github/packaging/icon/coldopen.svg /app/share/icons/hicolor/scalable/apps/io.github.theyungstump.coldopen.svg
+      - for s in 16 24 32 48 64 128 256 512; do install -Dm644 .github/packaging/icon/png/$s.png /app/share/icons/hicolor/${s}x${s}/apps/io.github.theyungstump.coldopen.png; done
+      - install -Dm644 LICENSE -t /app/share/licenses/io.github.theyungstump.coldopen
+      - install -Dm644 LICENSE-MIT LICENSE-APACHE -t /app/share/licenses/io.github.theyungstump.coldopen
+      - install -Dm644 third-party.txt /app/share/licenses/io.github.theyungstump.coldopen/THIRD-PARTY-LICENSES.txt
+    sources:
+      - type: git
+        url: https://github.com/TheYungStump/cold-open.git
+        tag: v@VERSION@
+        commit: '@COMMIT@'
+      - type: file
+        url: https://github.com/TheYungStump/cold-open/releases/download/v@VERSION@/ColdOpen-@VERSION@-third-party-licenses-linux-x86_64.txt
+        sha256: '@SHA_THIRD_PARTY_X86_64@'
+        dest-filename: third-party.txt
+        only-arches: [x86_64]
+      - type: file
+        url: https://github.com/TheYungStump/cold-open/releases/download/v@VERSION@/ColdOpen-@VERSION@-third-party-licenses-linux-aarch64.txt
+        sha256: '@SHA_THIRD_PARTY_AARCH64@'
+        dest-filename: third-party.txt
+        only-arches: [aarch64]
+      - cargo-sources.json

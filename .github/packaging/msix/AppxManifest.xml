@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cold Open's MSIX package for the Microsoft Store (docs/specs/release.md
+     §11.4). build_msix.ps1 fills the @…@ values: the identity from the
+     owner's Partner Center reservation (a test identity in CI), the
+     architecture, and the version as four numbers. The Store signs the
+     package when it's submitted. -->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap3 uap5 desktop rescap">
+
+  <Identity Name="@IDENTITY_NAME@" Publisher="@PUBLISHER@" Version="@VERSION4@" ProcessorArchitecture="@ARCH@" />
+
+  <Properties>
+    <DisplayName>Cold Open</DisplayName>
+    <PublisherDisplayName>@PUBLISHER_DISPLAY@</PublisherDisplayName>
+    <Logo>assets\StoreLogo.png</Logo>
+    <Description>A free, open-source screenwriting app that never loses your work.</Description>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="ColdOpen" Executable="Cold Open.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="Cold Open"
+        Description="Write screenplays in Fountain and .fdx"
+        BackgroundColor="transparent"
+        Square150x150Logo="assets\Square150x150Logo.png"
+        Square44x44Logo="assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="assets\Wide310x150Logo.png" />
+      </uap:VisualElements>
+      <Extensions>
+        <!-- The CLI from any terminal: `coldopen` (release.md §4). -->
+        <uap3:Extension Category="windows.appExecutionAlias" Executable="bin\coldopen.exe" EntryPoint="Windows.FullTrustApplication">
+          <uap3:AppExecutionAlias>
+            <desktop:ExecutionAlias Alias="coldopen.exe" />
+          </uap3:AppExecutionAlias>
+        </uap3:Extension>
+        <!-- Open with, for the three file types (release.md §5). -->
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="fountain">
+            <uap:DisplayName>Fountain screenplay</uap:DisplayName>
+            <uap:SupportedFileTypes><uap:FileType>.fountain</uap:FileType></uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="fdx">
+            <uap:DisplayName>Final Draft-compatible screenplay</uap:DisplayName>
+            <uap:SupportedFileTypes><uap:FileType>.fdx</uap:FileType></uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="coldopen">
+            <uap:DisplayName>Cold Open project</uap:DisplayName>
+            <uap:SupportedFileTypes><uap:FileType>.coldopen</uap:FileType></uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <!-- A desktop app, running as the user. -->
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

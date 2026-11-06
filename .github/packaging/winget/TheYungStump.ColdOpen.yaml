@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.10.0.schema.json
+# Cold Open in winget (docs/specs/release.md §11.2). The release workflow
+# fills the @…@ values (stores.py); the result goes in microsoft/winget-pkgs
+# as manifests/t/TheYungStump/ColdOpen/<version>/.
+PackageIdentifier: TheYungStump.ColdOpen
+PackageVersion: '@VERSION@'
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.10.0

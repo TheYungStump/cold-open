@@ -74,6 +74,16 @@ jobs:
         run: |
           ls symbols
           (cd symbols && zip -qr "../dist/ColdOpen-$VERSION-symbols.zip" .)
+      # The Linux builds' third-party license lists, for Flathub's build from
+      # source, which can't run cargo-about offline (release.md §11.1).
+      - uses: actions/download-artifact@v5
+        with:
+          name: third-party
+          path: third-party
+      - name: Third-party license lists (Linux)
+        run: |
+          cp third-party/x86_64-unknown-linux-gnu.txt "dist/ColdOpen-$VERSION-third-party-licenses-linux-x86_64.txt"
+          cp third-party/aarch64-unknown-linux-gnu.txt "dist/ColdOpen-$VERSION-third-party-licenses-linux-aarch64.txt"
       - name: Checksums
         run: |
           cd dist
@@ -96,12 +106,27 @@ jobs:
             echo
             echo "Check a download with \`sha256sum -c SHA256SUMS.txt --ignore-missing\` (Linux), \`shasum -a 256 -c SHA256SUMS.txt --ignore-missing\` (macOS) or \`Get-FileHash\` (Windows)."
             echo
-            echo "\`ColdOpen-$VERSION-symbols.zip\` isn't for installing: it lets the project read crash reports from this release."
+            echo "\`ColdOpen-$VERSION-symbols.zip\` isn't for installing: it lets the project read crash reports from this release. The \`third-party-licenses\` files list the licenses of the crates in the Linux builds, for building them from source."
             echo
             # SignPath's terms ask for the words on every release page
             # (release.md §8).
             echo "[Code signing policy](https://theyungstump.github.io/cold-open/code-signing.html) · [Privacy](https://theyungstump.github.io/cold-open/privacy.html)"
           } >>notes.md
+      # The store files for this release, filled with its files' hashes
+      # (release.md §11): Flathub, winget and the Homebrew cask, for the
+      # project owner to submit.
+      - name: Store files
+        run: |
+          python3 .github/packaging/stores.py "$VERSION" "$GITHUB_SHA" "$(date -u +%F)" dist stores
+          pip install --quiet "aiohttp==3.10.10" "tomlkit==0.13.2"
+          curl -fsSL -o flatpak-cargo-generator.py \
+            "https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/9d86d336a39b9af38b86f114b6ce5820fe260f91/cargo/flatpak-cargo-generator.py"
+          python3 flatpak-cargo-generator.py Cargo.lock -o stores/flathub/cargo-sources.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: store-files
+          path: stores
+          if-no-files-found: error
       - name: Publish (tag) or draft (by hand)
         run: |
           args=(--title "Cold Open $VERSION" --notes-file notes.md)
@@ -113,3 +138,41 @@ jobs:
               --title "Rehearsal: Cold Open $VERSION" --notes-file notes.md \
               $(case "$VERSION" in *-*) echo --prerelease ;; esac) dist/*
           fi
+
+  # itch.io (release.md §11.5): each build pushed to its channel with butler,
+  # itch.io's free uploader, for a published release only, and only when the
+  # repository has the BUTLER_API_KEY secret and the ITCH_PROJECT variable
+  # (the page's "user/game").
+  itch:
+    needs: [version, publish]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+      ITCH_PROJECT: ${{ vars.ITCH_PROJECT }}
+    steps:
+      - name: Skipped without the key and the project
+        if: env.BUTLER_API_KEY == '' || env.ITCH_PROJECT == ''
+        run: echo "No BUTLER_API_KEY secret or ITCH_PROJECT variable; itch.io isn't updated."
+      - uses: actions/download-artifact@v5
+        if: env.BUTLER_API_KEY != '' && env.ITCH_PROJECT != ''
+        with:
+          pattern: packages-*
+          path: dist
+          merge-multiple: true
+      - name: butler, pinned and checked
+        if: env.BUTLER_API_KEY != '' && env.ITCH_PROJECT != ''
+        run: |
+          curl -fsSL -o butler.zip https://broth.itch.zone/butler/linux-amd64/15.32.0/archive/default
+          echo "2335971394ef6596f95ded0833e85ee28755e13761716ef4c91d6b11f69162f5  butler.zip" | sha256sum -c -
+          unzip -q butler.zip -d butler && chmod +x butler/butler
+      - name: Push each build to its channel
+        if: env.BUTLER_API_KEY != '' && env.ITCH_PROJECT != ''
+        run: |
+          push() { butler/butler push "dist/$1" "$ITCH_PROJECT:$2" --userversion "$VERSION"; }
+          push "ColdOpen-$VERSION-windows-x64-setup.exe" windows-x64
+          push "ColdOpen-$VERSION-windows-arm64-setup.exe" windows-arm64
+          push "ColdOpen-$VERSION-macos-universal.dmg" mac-universal
+          push "ColdOpen-$VERSION-x86_64.AppImage" linux-x64
+          push "ColdOpen-$VERSION-aarch64.AppImage" linux-arm64

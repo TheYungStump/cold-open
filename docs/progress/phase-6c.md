@@ -36,6 +36,11 @@ The owner's constraints: no cost; no personal details anywhere public; the app m
    - It's fully keyboard-navigable.
    - It holds existing settings only: no new options in this phase, beyond the usage summary's switch that item 6 of the brief requires.
 
+## The project owner's changes during the phase
+
+8. **The brand is final** (2026-11-06), replacing the Opening Frame stand-in (decision 5): a rounded C in blue `#0C447C` whose open side is a dark `#232326` arc, cut off by two diagonal gaps, around three lines of a script; COLD OPEN in a typewriter slab; `#2A2A2D` for dark bands and paper `#F7F5EF`. The wordmark uses Courier Prime Bold, which the app already bundles. The app icon (`make_icons.py`, 52191a4), the website and the brand images all follow it.
+9. **The website goes first** (2026-11-06), since the ads link to it: it's TheYungStump/cold-open#29, from `main` on branch `site-landing-pages`, so it can merge, and deploy, before the rest of the phase. GitHub Pages deploys only from `main`, so the pages go live when #29 merges, on the owner's go-ahead. Pages that describe alpha.3's features (the usage summary, Settings, the universal Mac image) say "from 0.1.0-alpha.3". This branch takes `main` back in after #29 merges.
+
 ## Where the brief's item 1 stood at the start
 
 The brief's two candidates for the Mac's slow .fdx save were already checked on 2026-11-04, after alpha.2 (`docs/progress/phase-6a.md`, decision 20 and "The Mac tester's alpha.2 bench"; TheYungStump/cold-open#27, merged as 4573d48):
@@ -50,6 +55,11 @@ What's left for 6c (step 1): confirm it on CI's Mac with the budget asserted, ex
 - **Cloudflare Web Analytics** (its FAQ, read 2026-11-05: developers.cloudflare.com/web-analytics/faq/): it doesn't record query strings, to avoid collecting sensitive data. Hence decision 1.
 - **Homebrew** (Homebrew's discussions and issues, read 2026-11-05): casks whose apps fail Gatekeeper are deprecated, with existing ones disabled from 2026-09-01, and Homebrew's cask policy doesn't accept bypassing Gatekeeper. Cold Open's Mac build is unsigned, so the official repository would refuse it. Hence decision 4.
 - **The Microsoft Store** (Microsoft's announcements of 2025-05-19 and 2025-09-10): an individual developer account is free, with an ID and selfie check. Microsoft's Partner Center documentation says customers see the account's **publisher display name**, chosen at sign-up, and that for an individual account Microsoft checks only that no one else uses it. A community answer on Microsoft Q&A, citing policy 10.14, says a name that a customer would read as a business may need a company account, which costs $99. **To confirm in step 6 from Microsoft's own pages, and report before anything is submitted.**
+- **The Microsoft Store's publisher name, confirmed from Microsoft's own pages** (2026-11-06; <https://learn.microsoft.com/en-us/windows/apps/publish/partner-center/open-a-developer-account> and the Store Policies v7.20, <https://learn.microsoft.com/en-us/windows/apps/publish/store-policies>, in force since 2026-10-22):
+  - An **individual** account publishes "under your own name"; a **company** account publishes under a registered business's name. Individual accounts need a government ID and a selfie check.
+  - Policy 10.14: a company account is required "if a reasonable consumer would interpret your application or publisher name to be that of a business entity", and for anyone acting in their trade or profession. Company accounts cost $99 and show customer support contact details in some regions.
+  - Policy 10.5.1: Win32 and Desktop Bridge apps must always have a privacy policy (the site's privacy page serves).
+  - **So a free individual account would put the owner's own name on the public listing**, against the rule that nothing personal is public, and a company account costs money. The MSIX is built and tested in CI, but **nothing goes near the Store until the owner decides** (see "What's left").
 - **Flathub** (its requirements and forum, read 2026-11-05): building from source is expected where the source is open, and reviewers have refused wrapped binaries. Hence a manifest that builds from source (`release.md` §11.1), unlike the release's bundle.
 - **robots.txt** is read only at a host's root (RFC 9309), and the site lives at `theyungstump.github.io/cold-open/`. Hence decision 3.
 - **The app has no Help menu or Settings screen:** its menu is the palette (`editor.md` §9), and its settings are palette commands. "Share feedback…" goes in the palette, About and the start screen's links. Settings is decision 7.
@@ -108,6 +118,15 @@ What's left for 6c (step 1): confirm it on CI's Mac with the budget asserted, ex
 | Dependency | Where | Why | License |
 | --- | --- | --- | --- |
 | `objc2` 0.6, `objc2-app-kit` 0.3, `objc2-foundation` 0.3, named directly (macOS only) | app | "Settings…" in the app menu. All three are already in the tree through `rfd`, at these versions: `Cargo.lock` gains no package. Only the `NSApplication`, `NSMenu`, `NSMenuItem`, `NSResponder`, `NSString` and `NSThread` features are asked for | MIT |
+
+## The analytics and SignPath's terms (step 5)
+
+SignPath Foundation's terms (<https://signpath.org/terms>, reread 2026-11-05) were checked against the analytics and the usage summary:
+
+- **The privacy rule is about the signed program.** Under "Respect user privacy and security", software that collects data and sends it to systems the user didn't specify must say so in a privacy policy, show it at install, and offer a way to turn it off. The terms suggest the line "This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it", which the README and the site's privacy page already carry.
+- **Cold Open still sends nothing.** The usage summary stays on the computer; it leaves only when the writer ticks it into feedback, reads it, and submits the page themselves: "specifically requested by the user". CI's privacy job still checks that no network client is in the app, the CLI or the MCP server.
+- **The terms say nothing about a project's website analytics.** Their website requirements are the code signing policy (on the home page; the words "Code signing policy" on the home, download and release pages) and the privacy link or statement. The site keeps both, and the privacy statement now says, in the owner's words, that the website counts visits anonymously with Cloudflare Web Analytics, without cookies, and the app sends nothing. Cloudflare's own privacy policy is linked beside it, as the terms ask for third parties whose users are affected.
+- **The download page must describe the program's functionality,** so its first paragraph now says what Cold Open does.
 
 ## Step 2: the universal Mac build
 

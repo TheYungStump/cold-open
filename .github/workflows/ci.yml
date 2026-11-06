@@ -472,3 +472,85 @@ jobs:
             bench
             screenshots/*.png
           if-no-files-found: ignore
+
+  # The store packages (docs/specs/release.md §11), built and checked as
+  # far as CI can without the stores' accounts. Pull requests only: the
+  # Flatpak builds the whole app from source.
+  store-flathub:
+    name: store, Flathub (from source)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-25.08
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v5
+      - name: Crates as Flatpak sources, and the manifest for this checkout
+        run: |
+          pip install --quiet --break-system-packages "aiohttp==3.10.10" "tomlkit==0.13.2" || pip install --quiet "aiohttp==3.10.10" "tomlkit==0.13.2"
+          curl -fsSL -o /tmp/flatpak-cargo-generator.py \
+            "https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/9d86d336a39b9af38b86f114b6ce5820fe260f91/cargo/flatpak-cargo-generator.py"
+          d=.github/packaging/flathub
+          python3 /tmp/flatpak-cargo-generator.py Cargo.lock -o "$d/cargo-sources.json"
+          # The release's manifest builds the tag, with the release's
+          # license lists; here, this checkout, with a stand-in list.
+          echo "The third-party license list, made by cargo-about in a release." >"$d/third-party.txt"
+          python3 .github/packaging/flathub/ci_manifest.py
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: cold-open-flathub-ci.flatpak
+          manifest-path: .github/packaging/flathub/ci.yml
+          cache-key: flatpak-builder-${{ github.sha }}
+      - name: Flathub's linter on the metainfo and the manifest
+        run: |
+          flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install -y --user flathub org.flatpak.Builder
+          sed -e "s|@VERSION@|0.0.0|g" -e "s|@DATE@|2026-01-01|g" \
+            .github/packaging/flathub/io.github.theyungstump.coldopen.metainfo.xml >/tmp/io.github.theyungstump.coldopen.metainfo.xml
+          flatpak run --command=flatpak-builder-lint org.flatpak.Builder appstream /tmp/io.github.theyungstump.coldopen.metainfo.xml
+          flatpak run --command=flatpak-builder-lint org.flatpak.Builder manifest .github/packaging/flathub/io.github.theyungstump.coldopen.yml || \
+            echo "::warning::the release manifest's lint above names what Flathub's reviewers will ask about"
+
+  store-winget-msix:
+    name: store, winget and Microsoft Store (MSIX)
+    if: github.event_name == 'pull_request'
+    needs: packages
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: packages-windows-x64
+          path: dist
+      - name: The winget manifests, filled from these packages
+        run: ./.github/packaging/msix/ci_winget.ps1
+      - name: The MSIX, packed from the zip's files, installed, started, its CLI run
+        run: ./.github/packaging/msix/ci_msix.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: store-msix-and-manifests
+          path: |
+            msix/*.msix
+            stores
+
+  store-homebrew:
+    name: store, Homebrew cask
+    if: github.event_name == 'pull_request'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: The cask, filled, in a temporary tap, checked
+        run: |
+          v=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          mkdir -p fake
+          for n in windows-x64-setup.exe windows-arm64-setup.exe macos-universal.dmg third-party-licenses-linux-x86_64.txt third-party-licenses-linux-aarch64.txt; do echo x >"fake/ColdOpen-$v-$n"; done
+          python3 .github/packaging/stores.py "$v" ci 2026-01-01 fake stores
+          brew tap-new --no-git local/coldopen-ci
+          tap=$(brew --repository)/Library/Taps/local/homebrew-coldopen-ci
+          mkdir -p "$tap/Casks"
+          cp stores/homebrew/Casks/cold-open.rb "$tap/Casks/"
+          brew style "$tap/Casks/cold-open.rb"
+          brew audit --cask --strict local/coldopen-ci/cold-open
