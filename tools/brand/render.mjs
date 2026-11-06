@@ -20,11 +20,12 @@ const images = JSON.parse(readFileSync(join(here, "images.json"), "utf8"));
 const only = process.argv.slice(2);
 
 const browser = await chromium.launch();
-const page = await browser.newPage({ deviceScaleFactor: 1 });
 for (const img of images) {
   if (only.length && !only.includes(img.name)) continue;
   const { out, name, ...card } = img;
-  await page.setViewportSize({ width: card.w, height: card.h });
+  // A fresh page each time: the same file with only a new #fragment
+  // wouldn't load again, and every image would be the first.
+  const page = await browser.newPage({ deviceScaleFactor: 1, viewport: { width: card.w, height: card.h } });
   const url = pathToFileURL(join(here, "card.html")).href + "#" + encodeURIComponent(JSON.stringify(card));
   await page.goto(url);
   await page.waitForSelector("body[data-ready='1']");
@@ -32,5 +33,6 @@ for (const img of images) {
   mkdirSync(dirname(file), { recursive: true });
   await page.locator("#card").screenshot({ path: file });
   console.log(`${name}: ${out} (${card.w}x${card.h})`);
+  await page.close();
 }
 await browser.close();
