@@ -251,11 +251,14 @@ jobs:
             docs/site/static/share.png
             docs/marketing/images/*.png
       # A fixture release with every build, so the download page's checks
-      # don't depend on what the newest release holds (site.md §7).
+      # don't depend on what the newest release holds (site.md §7). The
+      # analytics beacon is off in this build (--token ""), so the checks
+      # and the browser tests never reach Cloudflare; the switch's own
+      # step builds it on.
       - name: Build
         run: |
           mdbook build docs/guide
-          python tools/site_pages.py docs/guide/book --release tools/site_release_fixture.json
+          python tools/site_pages.py docs/guide/book --release tools/site_release_fixture.json --token ""
       - name: The pages the app opens are there
         run: |
           # crates/app/src/about.rs: SITE_URL and DOCS_URL.
@@ -273,7 +276,7 @@ jobs:
         run: python tools/privacy_scan.py --no-private --dir docs/guide/book
       - name: The analytics switch, both ways (site.md §8)
         run: |
-          # Off (site.toml's token is empty): no page names Cloudflare.
+          # Off (--token "" above): no page names Cloudflare.
           if grep -rl cloudflareinsights docs/guide/book; then
             echo "::error::the beacon is on a page while its switch is off"; exit 1
           fi

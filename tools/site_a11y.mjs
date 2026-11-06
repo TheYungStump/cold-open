@@ -35,9 +35,10 @@ for (const scheme of ["light", "dark"]) {
   // A fresh context each time: no theme remembered, so mdBook follows the
   // system's scheme, as a first visit does.
   const context = await browser.newContext({ colorScheme: scheme });
-  // A started page sends the browser to its file on GitHub; the check
-  // stays on the page.
-  await context.route("https://github.com/**/releases/download/**", (r) => r.abort());
+  // A started page sends the browser to its file on GitHub. "204 No
+  // Content" keeps the browser on the page; an aborted request sometimes
+  // still counted as a navigation, and axe lost its page mid-check.
+  await context.route("https://github.com/**/releases/download/**", (r) => r.fulfill({ status: 204 }));
   for (const page of pages) {
     const tab = await context.newPage();
     await tab.goto(base + page, { waitUntil: "load" });

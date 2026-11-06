@@ -10,7 +10,7 @@ version_note = "alpha"
 # The project owner sets the site token from Cloudflare's dashboard
 # (Web Analytics > Add a site > the JS snippet's "token"). It's public:
 # every page that carries the beacon shows it.
-cloudflare_token = ""
+cloudflare_token = "3a863754c29a49e99f410a069cf6c401"
 
 # The docs' descriptions for search and sharing (site.md §10.1), by page.
 # A page not listed takes its first paragraph.
