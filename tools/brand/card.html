@@ -98,7 +98,9 @@
       box.style.width = Math.round(w * 0.62) + "px";
     } else {
       box.style.left = pad + "px";
-      box.style.width = Math.round((w - pad) * 1.15) + "px";
+      // Taller formats (Stories, 9:16) get a larger screenshot, to fill
+      // the height rather than leave its lower half empty.
+      box.style.width = Math.round((w - pad) * (h / w > 1.4 ? 1.85 : 1.15)) + "px";
       box.style.top = Math.round(words.getBoundingClientRect().bottom + pad * 0.8) + "px";
     }
   }
