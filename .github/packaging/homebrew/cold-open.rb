@@ -16,7 +16,7 @@ cask "cold-open" do
     strategy :github_releases
   end
 
-  depends_on macos: ">= :monterey"
+  depends_on macos: :monterey
 
   app "Cold Open.app"
   binary "#{appdir}/Cold Open.app/Contents/MacOS/coldopen"

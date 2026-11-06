@@ -553,9 +553,12 @@ jobs:
         run: |
           flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
           flatpak install -y --user flathub org.flatpak.Builder
+          # In the checkout, not /tmp: the linter runs in its own sandbox,
+          # which sees the working folder but not /tmp.
+          mkdir -p flathub-lint
           sed -e "s|@VERSION@|0.0.0|g" -e "s|@DATE@|2026-01-01|g" \
-            .github/packaging/flathub/io.github.theyungstump.coldopen.metainfo.xml >/tmp/io.github.theyungstump.coldopen.metainfo.xml
-          flatpak run --command=flatpak-builder-lint org.flatpak.Builder appstream /tmp/io.github.theyungstump.coldopen.metainfo.xml
+            .github/packaging/flathub/io.github.theyungstump.coldopen.metainfo.xml >flathub-lint/io.github.theyungstump.coldopen.metainfo.xml
+          flatpak run --command=flatpak-builder-lint org.flatpak.Builder appstream flathub-lint/io.github.theyungstump.coldopen.metainfo.xml
           flatpak run --command=flatpak-builder-lint org.flatpak.Builder manifest .github/packaging/flathub/io.github.theyungstump.coldopen.yml || \
             echo "::warning::the release manifest's lint above names what Flathub's reviewers will ask about"
 
@@ -600,5 +603,11 @@ jobs:
           tap=$(brew --repository)/Library/Taps/local/homebrew-coldopen-ci
           mkdir -p "$tap/Casks"
           cp stores/homebrew/Casks/cold-open.rb "$tap/Casks/"
-          brew style "$tap/Casks/cold-open.rb"
+          # On a style offense, show the fix brew would make, then fail.
+          if ! brew style "$tap/Casks/cold-open.rb"; then
+            cp "$tap/Casks/cold-open.rb" /tmp/before.rb
+            brew style --fix "$tap/Casks/cold-open.rb" || true
+            diff -u /tmp/before.rb "$tap/Casks/cold-open.rb" || true
+            exit 1
+          fi
           brew audit --cask --strict local/coldopen-ci/cold-open

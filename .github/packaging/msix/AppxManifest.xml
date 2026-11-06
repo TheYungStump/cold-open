@@ -42,7 +42,7 @@
       </uap:VisualElements>
       <Extensions>
         <!-- The CLI from any terminal: `coldopen` (release.md §4). -->
-        <uap3:Extension Category="windows.appExecutionAlias" Executable="bin\coldopen.exe" EntryPoint="Windows.FullTrustApplication">
+        <uap3:Extension Category="windows.appExecutionAlias" Executable="@CLI@" EntryPoint="Windows.FullTrustApplication">
           <uap3:AppExecutionAlias>
             <desktop:ExecutionAlias Alias="coldopen.exe" />
           </uap3:AppExecutionAlias>

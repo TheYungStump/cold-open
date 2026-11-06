@@ -46,10 +46,16 @@ Copy-Item -Recurse -Force (Join-Path $Stage "*") $dir
 python (Join-Path $here "make_assets.py") (Join-Path $dir "assets")
 if ($LASTEXITCODE) { throw "make_assets.py failed" }
 
+# The CLI is in bin\ in the installer's layout and beside the app in the
+# zip's; the alias names whichever this stage has.
+$cli = if (Test-Path (Join-Path $dir "bin\coldopen.exe")) { "bin\coldopen.exe" }
+  elseif (Test-Path (Join-Path $dir "coldopen.exe")) { "coldopen.exe" }
+  else { throw "build_msix.ps1: no coldopen.exe in $Stage" }
+
 $manifest = Get-Content -Raw -Encoding utf8 (Join-Path $here "AppxManifest.xml")
 $values = @{
   "IDENTITY_NAME" = $IdentityName; "PUBLISHER" = $Publisher; "PUBLISHER_DISPLAY" = $PublisherDisplay
-  "VERSION4" = $v4; "ARCH" = $Arch
+  "VERSION4" = $v4; "ARCH" = $Arch; "CLI" = $cli
 }
 foreach ($k in $values.Keys) { $manifest = $manifest.Replace("@$k@", [System.Security.SecurityElement]::Escape($values[$k])) }
 if ($manifest -match '@[A-Z0-9_]+@') { throw "build_msix.ps1: the manifest still has $($Matches[0])" }
