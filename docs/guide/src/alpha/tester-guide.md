@@ -8,7 +8,7 @@ Two tracks: one for anyone, and a deeper one for screenwriters. Do either, or bo
 
 ### 1. Install (5 minutes)
 
-[Download](../download.md) the alpha and follow [Install](../guide/install.md) for your system. Note anything about the warnings or the install that was unclear.
+[Download](../download/) the alpha and follow [Install](../guide/install.md) for your system. Note anything about the warnings or the install that was unclear.
 
 ### 2. Write a short scene (5 minutes)
 

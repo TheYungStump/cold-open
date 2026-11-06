@@ -232,17 +232,68 @@ jobs:
           python-version: "3.12"
       - name: mdBook, pinned and checked
         run: bash tools/site_mdbook.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Playwright, pinned
+        run: |
+          npm install --no-save --no-package-lock --silent playwright@1.48.2 @axe-core/playwright@4.10.1
+          npx playwright install --with-deps chromium >/dev/null
+      # The share image and the other brand images (release.md §12), from
+      # tools/brand/. They're committed; this renders them again and keeps
+      # them as an artifact, so a change to the brand shows here.
+      - name: Brand images
+        run: node tools/brand/render.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: brand-images
+          path: |
+            docs/site/static/share.png
+            docs/marketing/images/*.png
+      # A fixture release with every build, so the download page's checks
+      # don't depend on what the newest release holds (site.md §7). The
+      # analytics beacon is off in this build (--token ""), so the checks
+      # and the browser tests never reach Cloudflare; the switch's own
+      # step builds it on.
       - name: Build
-        run: mdbook build docs/guide
+        run: |
+          mdbook build docs/guide
+          python tools/site_pages.py docs/guide/book --release tools/site_release_fixture.json --token ""
       - name: The pages the app opens are there
         run: |
           # crates/app/src/about.rs: SITE_URL and DOCS_URL.
           test -f docs/guide/book/index.html
           test -f docs/guide/book/guide/index.html
+          test -f docs/guide/book/code-signing.html
+          test -f docs/guide/book/privacy.html
       - name: Links between pages
         run: python tools/site_links.py docs/guide/book
+      - name: Search tags, structured data, sitemap (site.md §10)
+        run: python tools/site_seo.py docs/guide/book
+      - name: No AI words on the writers' path (site.md §11)
+        run: python tools/site_words.py docs/guide/book
       - name: No personal details
         run: python tools/privacy_scan.py --no-private --dir docs/guide/book
+      - name: The analytics switch, both ways (site.md §8)
+        run: |
+          # Off (--token "" above): no page names Cloudflare.
+          if grep -rl cloudflareinsights docs/guide/book; then
+            echo "::error::the beacon is on a page while its switch is off"; exit 1
+          fi
+          # On, with a test token: every page carries it exactly once.
+          mdbook build docs/guide -d book-beacon
+          python tools/site_pages.py docs/guide/book-beacon --release tools/site_release_fixture.json --token test-token
+          python - <<'EOF'
+          import pathlib, sys
+          bad = 0
+          pages = sorted(pathlib.Path("docs/guide/book-beacon").rglob("*.html"))
+          for f in pages:
+              n = f.read_text(encoding="utf-8").count("static.cloudflareinsights.com/beacon.min.js")
+              if n != 1 and f.name != "404.html":
+                  print(f, n); bad += 1
+          print(len(pages), "pages,", bad, "without exactly one beacon")
+          sys.exit(1 if bad else 0)
+          EOF
       - name: The issue and discussion templates read as YAML
         run: |
           pip install --quiet pyyaml==6.0.2
@@ -252,13 +303,8 @@ jobs:
               yaml.safe_load(open(f, encoding="utf-8"))
               print("ok", f)
           EOF
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
       - name: Accessibility, light and dark (axe-core, WCAG 2.2 AA)
         run: |
-          npm install --no-save --no-package-lock --silent playwright@1.48.2 @axe-core/playwright@4.10.1
-          npx playwright install --with-deps chromium >/dev/null
           # Served under /cold-open/, as GitHub Pages serves it: the 404
           # page's <base href> (book.toml's site-url) points there.
           mkdir -p _site
@@ -266,6 +312,8 @@ jobs:
           python -m http.server 8000 --bind 127.0.0.1 --directory _site >/dev/null 2>&1 &
           for _ in $(seq 1 50); do curl -fs http://127.0.0.1:8000/cold-open/ >/dev/null && break; sleep 0.2; done
           node tools/site_a11y.mjs http://127.0.0.1:8000/cold-open/ docs/guide/book
+      - name: The download page's recommendation and the started pages (site.md §5)
+        run: node tools/site_browser.mjs http://127.0.0.1:8000/cold-open/
 
   # Crash reports and Report a problem, end to end on Linux
   # (docs/specs/crash-reports.md §10; docs/specs/editor.md §23). A build made

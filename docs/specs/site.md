@@ -155,7 +155,7 @@ The page as served lists every build, grouped by OS, with no recommendation. Wit
 ## 6. Look, accessibility and themes
 
 - **The docs:** mdBook's light theme by default, and its dark theme (`navy`) when the system prefers dark (`preferred-dark-theme`). mdBook's theme menu offers the rest.
-- **The standalone pages** follow the system's light or dark setting (`prefers-color-scheme`), with the same colors as the docs and the stand-in brand: navy, paper and a red accent (the owner's decision 5, 2026-11-05). They use the system's own sans-serif fonts, so nothing is fetched.
+- **The standalone pages** follow the system's light or dark setting (`prefers-color-scheme`), in the project owner's brand (finalized 2026-11-06): blue `#0C447C`, dark `#232326` and `#2A2A2D`, paper `#F7F5EF`, the mark (`docs/site/static/mark.svg`; reversed, in paper, on dark), and COLD OPEN in Courier Prime Bold, bundled from `crates/fonts` with its SIL OFL beside it. Body text uses the system's own sans-serif, so nothing is fetched from another site.
 - **`theme/coldopen.css` and `static/site.css`** set:
   - link and text colors at a contrast of 4.5:1 or more (3:1 for large text and interface parts);
   - a focus outline at least 2 pixels wide on every link and button;

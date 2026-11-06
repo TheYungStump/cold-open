@@ -6,7 +6,7 @@ Cold Open is a new screenwriting app, and we'd like your help to make it good. T
 
 ## How to take part
 
-1. **[Download](../download.md)** the latest alpha and [install](../guide/install.md) it. It takes a few minutes.
+1. **[Download](../download/)** the latest alpha and [install](../guide/install.md) it. It takes a few minutes.
 2. **Follow one track of the [tester guide](tester-guide.md):**
    - **For anyone:** about 20 minutes. Write a short scene, crash it on purpose, track a friend's changes, export a PDF.
    - **For screenwriters:** longer. Bring in a draft of your own, revise it, compare drafts, read the reports.

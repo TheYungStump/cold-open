@@ -9,6 +9,7 @@ on:
     branches: [main]
     paths:
       - "docs/guide/**"
+      - "docs/site/**"
       - "tools/site_*.py"
       - "tools/privacy_scan.py"
       - ".github/workflows/pages.yml"
@@ -39,14 +40,20 @@ jobs:
           python-version: "3.12"
       - name: mdBook, pinned and checked
         run: bash tools/site_mdbook.sh
-      - name: The download page, from the newest release
+      - name: The newest release, for the download and started pages
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python tools/site_download.py docs/guide/src/download-files.md
+        run: python tools/site_download.py release.json
       - name: Build
-        run: mdbook build docs/guide
+        run: |
+          mdbook build docs/guide
+          python tools/site_pages.py docs/guide/book --release release.json
       - name: Links between pages
         run: python tools/site_links.py docs/guide/book
+      - name: Search tags, structured data, sitemap
+        run: python tools/site_seo.py docs/guide/book
+      - name: No AI words on the writers' path
+        run: python tools/site_words.py docs/guide/book
       - name: No personal details
         run: python tools/privacy_scan.py --no-private --dir docs/guide/book
       - uses: actions/configure-pages@v5

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{title}}</title>
+<meta name="description" content="{{description}}">
+{{head}}<link rel="icon" href="{{root}}static/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="{{root}}static/site.css">
+</head>
+<body class="{{audience}}">
+<a class="skip" href="#content">Skip to the content</a>
+<header class="top">
+  <nav aria-label="Main">
+    <a class="brand" href="{{home}}" aria-label="Cold Open, home">{{mark}}<span>Cold Open</span></a>
+    <ul>
+      <li><a href="{{root}}download/{{from}}">Download</a></li>
+      <li><a href="{{root}}guide/index.html">Docs</a></li>
+      <li><a href="https://github.com/TheYungStump/cold-open">Source</a></li>
+    </ul>
+  </nav>
+</header>
+<main id="content">
+{{body}}
+</main>
+<footer class="foot">
+  <p>Cold Open is free software: the app is under the GPL-3.0-or-later, and its format and layout libraries under MIT or Apache-2.0.</p>
+  <p><a href="{{root}}code-signing.html">Code signing policy</a> · <a href="{{root}}privacy.html">Privacy</a> · <a href="{{root}}contribute.html">Contribute</a> · <a href="https://github.com/TheYungStump/cold-open">Source code</a></p>
+  <p class="quiet">"Final Draft" is a trademark of Final Draft, Inc. Cold Open isn't made by, or connected with, Final Draft, Inc. It opens and saves .fdx files.</p>
+</footer>
+{{scripts}}</body>
+</html>

@@ -53,7 +53,7 @@
 >
 > **Why:** I wanted a writing app I could install anywhere, that never loses a word, and that I can't be locked out of.
 >
-> In the open: much of the code is written with AI coding assistants under my direction, and I review every change. The app itself has no AI in it. You can connect your own assistant if you want one, and its edits come in as tracked changes you accept or reject.
+> In the open: much of the code is written with AI coding assistants under my direction, and I review every change. The app uses AI only if you connect an assistant yourself. Nothing connects by default, and an assistant's edits come in as tracked changes you accept or reject.
 >
 > **What would help most:** try the 20-minute tester guide, or bring in a copy of a draft you own and tell me where it fell short. The page count against what you're used to is especially useful.
 >

@@ -1,0 +1,93 @@
+<!--
+path: ai/
+title: Cold Open for AI agents: a screenwriting app with MCP
+description: Connect Claude, Cursor or any MCP client to Cold Open, a free screenwriting app. Every edit your agent makes arrives as a tracked change you accept or reject.
+audience: ai
+from: ai
+-->
+<section class="hero">
+  <div>
+    <h1>A real screenwriting app your AI agent can drive</h1>
+    <p class="lede">Cold Open is a free, open-source screenwriting app with an MCP server built in. Connect Claude, Cursor or any MCP client, and watch your agent's edits land in the script as tracked changes, for you to accept or reject.</p>
+    <div class="actions">
+      <a class="button" href="download/?from=ai">Download free</a>
+      <a class="button secondary" href="#connect">Connect your agent</a>
+    </div>
+    <p class="quiet">Version {{version}}, an early alpha. Windows, macOS and Linux. Nothing connects to any agent unless you set it up.</p>
+  </div>
+  <picture>
+    <source srcset="static/shot-changes-dark.png" media="(prefers-color-scheme: dark)">
+    <img class="shot" src="static/shot-changes-light.png" width="1280" height="860" alt="Cold Open's changes panel listing a writer's edits and an agent's edit, each with Accept and Reject, beside the page where the agent's sentence is marked in its own color.">
+  </picture>
+</section>
+
+<ul class="points">
+  <li><strong>Edits you review</strong>An agent's edits arrive as tracked changes under its name, in its own color. You accept or reject each one, by scene, or all at once.</li>
+  <li><strong>A real editor, not a text file</strong>Your agent works on the same script you see: scene headings, characters, dialogue, the title page, revisions. Page breaks follow screenplay rules on every OS.</li>
+  <li><strong>Every action is a command</strong>The app, the <code>coldopen</code> command line, JSON over stdio and the MCP server share one set of commands. Anything you can do, a script or an agent can do.</li>
+</ul>
+
+<h2 id="connect">Connect your agent</h2>
+<p>The MCP server is <code>coldopen mcp</code>, a local server over standard input and output. Install Cold Open, make sure <code>coldopen</code> is on your PATH (the Windows installer and the Linux .deb put it there; on macOS, choose <strong>Install the command-line tool</strong> in the app's palette), then add it to your client.</p>
+
+<h3>Claude Code</h3>
+<pre><code>claude mcp add coldopen -- coldopen mcp</code></pre>
+<p class="quiet">From Claude Code's documentation on MCP: <a href="https://code.claude.com/docs/en/mcp">code.claude.com/docs/en/mcp</a>.</p>
+
+<h3>Claude Desktop</h3>
+<p>In Claude Desktop, open Settings ▸ Developer ▸ Edit Config, add this to <code>claude_desktop_config.json</code>, then restart Claude Desktop:</p>
+<pre><code>{
+  "mcpServers": {
+    "coldopen": { "command": "coldopen", "args": ["mcp"] }
+  }
+}</code></pre>
+<p class="quiet">From the MCP project's guide to local servers in Claude Desktop: <a href="https://modelcontextprotocol.io/docs/develop/connect-local-servers">modelcontextprotocol.io</a>.</p>
+
+<h3>Cursor</h3>
+<p>Add the same <code>mcpServers</code> entry to <code>.cursor/mcp.json</code> in your project, or to <code>~/.cursor/mcp.json</code> for every project.</p>
+<p class="quiet">From Cursor's documentation: <a href="https://docs.cursor.com/context/mcp">docs.cursor.com/context/mcp</a>.</p>
+
+<h3>VS Code</h3>
+<p>Add this to <code>.vscode/mcp.json</code> in your workspace:</p>
+<pre><code>{
+  "servers": {
+    "coldopen": { "type": "stdio", "command": "coldopen", "args": ["mcp"] }
+  }
+}</code></pre>
+<p class="quiet">From VS Code's documentation: <a href="https://code.visualstudio.com/docs/copilot/customization/mcp-servers">code.visualstudio.com</a>.</p>
+
+<h3>Any other client</h3>
+<p>Every client that runs a local ("stdio") server needs the same two things: the command <code>coldopen</code> and the argument <code>mcp</code>. A desktop app may not see your terminal's PATH; then give the full path, which <a href="guide/agents.html">the agents guide</a> lists for each OS.</p>
+
+<h2>How it works with the app</h2>
+<ul>
+  <li><strong>It attaches to the open script.</strong> When the script is open in Cold Open, your agent's edits go into it live, and you watch them appear.</li>
+  <li><strong>Tracked by default.</strong> Each edit is a tracked change under the agent's name. You settle it like a note from a collaborator. "Track agent edits" in the app turns this off for a script, if you want.</li>
+  <li><strong>Undo is per author.</strong> One key undoes the agent's latest steps without touching yours.</li>
+  <li><strong>Without the app,</strong> <code>coldopen mcp</code> opens a .fountain, .fdx or project file itself, so an agent can work on scripts headless.</li>
+</ul>
+
+<h2>What agents can't do</h2>
+<ul>
+  <li><strong>Accept a change,</strong> theirs or anyone's. Only you settle changes. An agent can withdraw its own suggestion.</li>
+  <li><strong>Discard your changes,</strong> or another agent's.</li>
+  <li><strong>Edit the title page</strong> while tracking is on, since a title page edit can't be tracked.</li>
+  <li><strong>Open, close, revert or rename your script</strong> while it's attached to the app. It can save in place and export copies.</li>
+</ul>
+
+<h2>The command line and the commands</h2>
+<p>The same commands work without an agent:</p>
+<pre><code>coldopen export script.fountain script.pdf
+coldopen convert draft.fdx draft.fountain
+coldopen diff draft2.fdx draft3.fdx
+coldopen repair broken.fdx repaired.fdx
+coldopen serve --stdio      # newline-delimited JSON, for any language</code></pre>
+<p>See the <a href="reference/cli.html">command-line reference</a> and <a href="reference/commands.html">every command and its parameters</a>.</p>
+
+<h2>Privacy</h2>
+<p>Cold Open makes no network connections. Nothing connects to an agent by default: the app and <code>coldopen mcp</code> talk through a socket or pipe only your user account can open. <strong>An agent you connect is a separate program,</strong> and what it reads from your script, and where it sends it, is up to that agent and its own privacy policy. See <a href="privacy.html">Privacy</a>.</p>
+
+<div class="actions">
+  <a class="button" href="download/?from=ai">Download Cold Open</a>
+  <a class="button secondary" href="guide/agents.html">The agents guide</a>
+</div>

@@ -1,0 +1,31 @@
+# The website's settings (docs/specs/site.md). tools/site_pages.py reads it.
+
+# The site's address, with its trailing slash. Canonical links, the
+# sitemap and the share image's address are made from it (site.md §9).
+base_url = "https://theyungstump.github.io/cold-open/"
+repo = "https://github.com/TheYungStump/cold-open"
+version_note = "alpha"
+
+# Cloudflare Web Analytics (site.md §8). Empty: no page has the beacon.
+# The project owner sets the site token from Cloudflare's dashboard
+# (Web Analytics > Add a site > the JS snippet's "token"). It's public:
+# every page that carries the beacon shows it.
+cloudflare_token = "3a863754c29a49e99f410a069cf6c401"
+
+# The docs' descriptions for search and sharing (site.md §10.1), by page.
+# A page not listed takes its first paragraph.
+[descriptions]
+"guide/index.html" = "The Cold Open user guide: install the free screenwriting app, write your first scene, and learn Fountain, .fdx exchange, revisions and recovery."
+"guide/install.html" = "How to install Cold Open, the free screenwriting app, on Windows, macOS and Linux, and what to click when your system warns about an unsigned app."
+"guide/getting-started.html" = "Write your first scene in Cold Open: scene headings, action, characters and dialogue, with Enter and Tab moving to the element that usually comes next."
+"guide/fountain.html" = "A short primer on Fountain, the plain-text screenplay format that Cold Open reads and writes natively."
+"guide/fdx.html" = "Open, save and repair Final Draft-compatible .fdx files in Cold Open, free, on Windows, macOS and Linux."
+"guide/pdf.html" = "Export a screenplay to PDF in Cold Open, laid out the same way on every computer, with optional scene numbers, a watermark and revision colors."
+"guide/recovery.html" = "How Cold Open keeps your work safe: a crash journal written before each keystroke shows, atomic saves, and recovery at the next start."
+"guide/faq.html" = "Answers about Cold Open, the free screenwriting app: price, offline use, .fdx files, AI, platforms and the alpha."
+"guide/agents.html" = "Connect an AI agent to Cold Open over MCP. Nothing connects by default, and every agent edit arrives as a tracked change you accept or reject."
+"reference/cli.html" = "Every coldopen command-line command: convert, repair, export, report, diff, run, serve and mcp."
+"reference/commands.html" = "The commands Cold Open's app, CLI, JSON interface and MCP server share, with their parameters."
+"reference/keyboard.html" = "Cold Open's keyboard shortcuts on Windows, Linux and macOS."
+"privacy.html" = "What Cold Open and its website collect: the app sends nothing; the site counts visits anonymously, without cookies."
+"code-signing.html" = "Cold Open's code signing policy: how releases are built, reviewed and signed."

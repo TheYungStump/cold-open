@@ -27,4 +27,4 @@ Much of Cold Open's code is written with AI coding agents, working under the aut
 ## What the programs do to your system
 
 - The Windows installer installs for you alone, needs no administrator rights, and asks before putting the command-line tool on your PATH. Settings ▸ Apps removes everything it installed.
-- Cold Open makes no network connections. See [Privacy](privacy.md).
+- Cold Open makes no network connections. Its usage summary stays on your computer, unless you include it in feedback. This website counts visits anonymously with Cloudflare Web Analytics, without cookies. See [Privacy](privacy.md).

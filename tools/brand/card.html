@@ -8,8 +8,10 @@
        sub         the line under it
        line        a small line under that
        shot        a screenshot's path, relative to this file
-       dark        true for the navy background (the default), false for paper
-     The fonts are the app's own (crates/fonts), the mark is make_icons.py's. -->
+       dark        true for the reversed card on #2A2A2D; paper (#F7F5EF) by default
+     The brand is the project owner's of 2026-11-06: the mark (docs/site/static/
+     mark.svg), COLD OPEN in Courier Prime Bold, blue #0C447C, dark #232326.
+     The fonts are the app's own (crates/fonts). -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -17,15 +19,15 @@
 <style>
   @font-face { font-family: "Atkinson"; font-weight: 400; src: url("../../crates/fonts/fonts/AtkinsonHyperlegibleNext-Regular.ttf"); }
   @font-face { font-family: "Atkinson"; font-weight: 700; src: url("../../crates/fonts/fonts/AtkinsonHyperlegibleNext-Bold.ttf"); }
-  :root { --navy: #1f2a44; --paper: #f7f5ef; --red: #d64541; --muted: #b9c0d0; }
+  @font-face { font-family: "Courier Prime"; font-weight: 700; src: url("../../crates/fonts/fonts/CourierPrime-Bold.ttf"); }
+  :root { --blue: #0C447C; --ink: #232326; --band: #2A2A2D; --paper: #F7F5EF; }
   html, body { margin: 0; padding: 0; }
   body { font-family: "Atkinson", sans-serif; overflow: hidden; }
-  .card { position: relative; overflow: hidden; background: var(--navy); color: var(--paper); box-sizing: border-box; }
-  .card.light { background: var(--paper); color: var(--navy); --muted: #4a5568; }
+  .card { position: relative; overflow: hidden; background: var(--paper); color: var(--ink); box-sizing: border-box; --muted: #4a4a50; --ring: var(--blue); --arc: var(--ink); --lines: var(--ink); }
+  .card.dark { background: var(--band); color: var(--paper); --muted: #c9c9cd; --ring: var(--paper); --arc: var(--paper); --lines: var(--paper); }
   .words { position: absolute; display: flex; flex-direction: column; gap: 0.35em; }
-  .brand { display: flex; align-items: center; gap: 0.32em; font-weight: 700; letter-spacing: -0.01em; }
-  .brand svg { height: 1em; width: 1em; color: var(--paper); flex: none; }
-  .card.light .brand svg { color: var(--navy); }
+  .brand { display: flex; align-items: center; gap: 0.4em; font-family: "Courier Prime", monospace; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; }
+  .brand svg { height: 1.25em; width: 1.25em; flex: none; }
   .headline { font-weight: 700; line-height: 1.08; letter-spacing: -0.01em; }
   .sub { line-height: 1.25; }
   .line { color: var(--muted); line-height: 1.3; }
@@ -50,13 +52,17 @@
   const card = document.getElementById("card");
   card.style.width = w + "px";
   card.style.height = h + "px";
-  if (p.dark === false) card.classList.add("light");
-  // The mark: make_icons.py's geometry, in its own 600-unit box.
-  const mark = '<svg viewBox="200 200 600 600" aria-hidden="true">'
-    + '<rect x="240" y="240" width="480" height="115" fill="currentColor"/>'
-    + '<rect x="240" y="645" width="480" height="115" fill="currentColor"/>'
-    + '<rect x="240" y="240" width="115" height="520" fill="currentColor"/>'
-    + '<rect x="675" y="385" width="90" height="230" fill="#d64541"/></svg>';
+  if (p.dark === true) card.classList.add("dark");
+  // The mark (docs/site/static/mark.svg), its colors from the card's.
+  const ring = "M30 0H70A30 30 0 0 1 100 30V70A30 30 0 0 1 70 100H30A30 30 0 0 1 0 70V30A30 30 0 0 1 30 0ZM32 13H68A18 18 0 0 1 86 31V69A18 18 0 0 1 68 87H32A18 18 0 0 1 14 69V31A18 18 0 0 1 32 13Z";
+  const mark = '<svg viewBox="0 0 100 100" aria-hidden="true"><defs>'
+    + '<clipPath id="arc"><polygon points="42.6,50 112.6,-20 130,-20 130,120 112.6,120"/></clipPath>'
+    + '<mask id="gaps" maskUnits="userSpaceOnUse" x="-10" y="-10" width="120" height="120"><rect x="-10" y="-10" width="120" height="120" fill="#fff"/>'
+    + '<path d="M66 26.6 104 -11.4M66 73.4 104 111.4" stroke="#000" stroke-width="3.6"/></mask></defs>'
+    + '<g mask="url(#gaps)"><path fill="var(--ring)" fill-rule="evenodd" d="' + ring + '"/>'
+    + '<path fill="var(--arc)" fill-rule="evenodd" clip-path="url(#arc)" d="' + ring + '"/></g>'
+    + '<g fill="var(--lines)"><rect x="34" y="39.5" width="33" height="4.2"/><rect x="39.5" y="48" width="31" height="4.2"/>'
+    + '<rect x="34" y="56.5" width="27.5" height="4.2"/></g></svg>';
   const brand = document.getElementById("brand");
   brand.innerHTML = mark + "<span>Cold Open</span>";
   const set = (id, text) => { const el = document.getElementById(id); if (text) el.textContent = text; else el.remove(); };
@@ -92,7 +98,9 @@
       box.style.width = Math.round(w * 0.62) + "px";
     } else {
       box.style.left = pad + "px";
-      box.style.width = Math.round((w - pad) * 1.15) + "px";
+      // Taller formats (Stories, 9:16) get a larger screenshot, to fill
+      // the height rather than leave its lower half empty.
+      box.style.width = Math.round((w - pad) * (h / w > 1.4 ? 1.85 : 1.15)) + "px";
       box.style.top = Math.round(words.getBoundingClientRect().bottom + pad * 0.8) + "px";
     }
   }

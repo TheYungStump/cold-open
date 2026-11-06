@@ -35,9 +35,12 @@ Much of Cold Open's code is written with AI coding agents, working under the aut
 
 This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
 
+**In short: the website counts visits anonymously with Cloudflare Web Analytics, without cookies; the app sends nothing.**
+
 In practice:
 
-- **Cold Open makes no network connections.** It doesn't check for updates, count anything or contact any server.
+- **Cold Open makes no network connections.** It doesn't check for updates or contact any server.
+- **A usage summary, on your computer only** (from 0.1.0-alpha.3). Cold Open counts which features you use, on this computer only, and it's never sent unless you include it in feedback. It holds counts, never your text, names or file paths. **Settings** (Ctrl+, or Cmd+,) shows it in full, resets it, or turns counting off. ([`docs/specs/usage-summary.md`](docs/specs/usage-summary.md))
 - **The agent link stays on your computer.** The app and `coldopen mcp` talk through a socket or a pipe that only your user account can open ([`docs/specs/mcp.md`](docs/specs/mcp.md)). An AI agent you connect is a separate program: what it reads from your script, and where it sends it, is up to that program and its own privacy policy.
 - **Links open in your browser,** and only when you click them.
 - **Measure performance** writes two report files to your Downloads folder. They leave your computer only if you send them.
@@ -46,6 +49,8 @@ From 0.1.0-alpha.2, there are two ways to tell us about a problem from inside th
 
 - **Report a problem…** opens a page in your browser, ready to fill in: a GitHub issue, or a Google Form for people without a GitHub account. The app fills in Cold Open's version and commit, the build's target, your operating system's name and version, and the renderer drawing the window. It adds no script text, no file names or paths, and no user or computer names. Nothing is sent until you submit the page yourself, and you can change it first.
 - **Crash reports.** If Cold Open crashes, it saves a report on your computer: the error's message with any quoted text taken out, where in Cold Open's code it happened, a backtrace as code addresses with no file paths, the version, the operating system and the renderer. It holds no script text, file names or user names. At the next start, Cold Open asks whether you want to look at it. It shows you the whole report before anything leaves your computer. Then it can open a ready-filled issue or form, or copy the report for you to paste. You can choose **Never ask again**.
+
+**The website** counts visits anonymously with Cloudflare Web Analytics, without cookies, in aggregate; nothing else measures visitors ([the site's privacy page](https://theyungstump.github.io/cold-open/privacy.html)).
 
 GitHub issues are public, under [GitHub's privacy statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement). Form answers go privately to the project, through Google Forms, under [Google's privacy policy](https://policies.google.com/privacy).
 
