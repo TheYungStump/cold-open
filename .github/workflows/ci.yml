@@ -610,4 +610,7 @@ jobs:
             diff -u /tmp/before.rb "$tap/Casks/cold-open.rb" || true
             exit 1
           fi
+          # Homebrew loads casks only from taps the user trusts, as a writer
+          # using ours will (release.md §11.3).
+          brew trust local/coldopen-ci
           brew audit --cask --strict local/coldopen-ci/cold-open

@@ -300,7 +300,7 @@ Added 2026-11-05 (phase 6c). Each store is free to list in, and each has rules o
   - `zap` for the app's folder in `~/Library/Application Support/Cold Open`;
   - a caveat on opening an app that isn't notarized (§8).
 - **The release workflow writes it** for each release, as a workflow artifact. CI checks it with `brew style` and `brew audit --cask` on macOS, in a temporary tap.
-- **The owner's steps:** create the tap repository, then copy each release's cask into it. Writers then run `brew install theyungstump/tap/cold-open`.
+- **The owner's steps:** create the tap repository, then copy each release's cask into it. Writers then run `brew tap theyungstump/tap`, `brew trust theyungstump/tap` (current Homebrew loads casks only from taps the user trusts) and `brew install --cask cold-open`.
 
 ### 11.4 Microsoft Store
 
