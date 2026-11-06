@@ -11,7 +11,7 @@ Cold Open is an alpha. Everything in this guide works, and it's careful with you
 - **The builds aren't signed** by Microsoft or notarized by Apple yet, so Windows and macOS warn the first time (see [Install](install.md)). Windows signing comes with SignPath Foundation's approval; Apple's notarization needs a paid account.
 - **On macOS, double-clicking a script** in Finder starts Cold Open but doesn't open the script. Use Open (Cmd+O).
 - **On Windows, Cold Open isn't made the default app** for `.fountain` and `.fdx` files. It's offered in "Open with", and Windows lets only you choose a default.
-- **No automatic updates.** Cold Open never checks the internet. New releases are on the [download page](../download.md).
+- **No automatic updates.** Cold Open never checks the internet. New releases are on the [download page](../download/).
 - **The Flatpak** isn't on Flathub yet, and sees only your home folder unless you give it more (see [Install](install.md#linux)).
 - **The icon** is a stand-in.
 

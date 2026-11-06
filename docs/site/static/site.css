@@ -1,0 +1,136 @@
+/* The standalone pages (docs/specs/site.md §6), in the project owner's
+   brand of 2026-11-06: blue #0C447C, dark #232326 and #2A2A2D, paper
+   #F7F5EF, and COLD OPEN in Courier Prime Bold (SIL OFL, bundled, with its
+   license beside it). Light or dark with the system. The body text uses
+   the system's own sans-serif, so nothing is fetched from elsewhere. */
+@font-face {
+  font-family: "Courier Prime";
+  font-weight: 700;
+  font-display: swap;
+  src: url("CourierPrime-Bold.ttf") format("truetype");
+}
+:root {
+  --bg: #F7F5EF;
+  --surface: #ffffff;
+  --text: #232326;
+  --quiet: #4a4a50;
+  --heading: #232326;
+  --accent: #0C447C;
+  --button: #0C447C;
+  --button-ink: #F7F5EF;
+  --border: #d9d5ca;
+  --focus: #0C447C;
+  --code: #ece9e1;
+  --ring: #0C447C;
+  --arc: #232326;
+  --lines: #232326;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #232326;
+    --surface: #2A2A2D;
+    --text: #F7F5EF;
+    --quiet: #c9c9cd;
+    --heading: #F7F5EF;
+    --accent: #8fbcf0;
+    --button: #F7F5EF;
+    --button-ink: #0C447C;
+    --border: #45454a;
+    --focus: #8fbcf0;
+    --code: #34343a;
+    /* The reversed mark, as on the brand's dark band. */
+    --ring: #F7F5EF;
+    --arc: #F7F5EF;
+    --lines: #F7F5EF;
+    color-scheme: dark;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+a { color: var(--accent); text-underline-offset: 0.15em; }
+a:focus-visible, button:focus-visible, summary:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+img { max-width: 100%; height: auto; }
+code, pre { font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 0.9em; }
+code { background: var(--code); padding: 0.1em 0.3em; border-radius: 4px; }
+pre { background: var(--code); padding: 12px 14px; border-radius: 8px; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+
+.skip { position: absolute; left: -9999px; top: 8px; }
+.skip:focus { left: 16px; z-index: 10; background: var(--surface); padding: 6px 10px; }
+
+.top { border-bottom: 1px solid var(--border); background: var(--surface); }
+.top nav {
+  max-width: 1080px; margin: 0 auto; padding: 10px 16px;
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+}
+.brand { display: flex; align-items: center; gap: 10px; font-family: "Courier Prime", ui-monospace, monospace; font-weight: 700; font-size: 1.3rem; letter-spacing: 0.03em; text-transform: uppercase; color: var(--heading); text-decoration: none; }
+.brand svg { width: 34px; height: 34px; }
+.brand .ring { fill: var(--ring); }
+.brand .arc { fill: var(--arc); }
+.brand .lines { fill: var(--lines); }
+.top ul { list-style: none; display: flex; gap: 18px; margin: 0 0 0 auto; padding: 0; flex-wrap: wrap; }
+.top li a { color: var(--text); text-decoration: none; font-weight: 600; padding: 6px 2px; display: inline-block; min-height: 24px; }
+.top li a:hover { text-decoration: underline; }
+
+main { max-width: 1080px; margin: 0 auto; padding: 24px 16px 48px; }
+.narrow { max-width: 760px; }
+h1 { font-size: clamp(1.9rem, 4.5vw, 2.9rem); line-height: 1.15; margin: 0.6em 0 0.35em; color: var(--heading); letter-spacing: -0.01em; }
+h2 { font-size: 1.5rem; line-height: 1.25; margin: 1.8em 0 0.5em; color: var(--heading); }
+h3 { font-size: 1.15rem; margin: 1.4em 0 0.3em; }
+.lede { font-size: 1.2rem; color: var(--quiet); max-width: 46em; }
+
+.hero { display: grid; gap: 28px; grid-template-columns: 1fr; align-items: center; }
+@media (min-width: 900px) { .hero { grid-template-columns: 5fr 6fr; } }
+.shot { border-radius: 10px; border: 1px solid var(--border); box-shadow: 0 18px 44px rgba(0,0,0,0.18); display: block; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 20px 0; }
+.button {
+  display: inline-block; background: var(--button); color: var(--button-ink);
+  padding: 12px 22px; border-radius: 8px; font-weight: 700; text-decoration: none;
+}
+.button:hover { filter: brightness(1.12); }
+.button.secondary { background: transparent; color: var(--text); border: 2px solid var(--border); }
+
+.points { display: grid; gap: 18px; grid-template-columns: 1fr; padding: 0; list-style: none; margin: 28px 0; }
+@media (min-width: 700px) { .points { grid-template-columns: 1fr 1fr; } }
+@media (min-width: 1000px) { .points { grid-template-columns: 1fr 1fr 1fr; } }
+.points li { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
+.points strong { display: block; font-size: 1.05rem; margin-bottom: 4px; color: var(--heading); }
+
+.note { border-left: 4px solid var(--accent); background: var(--surface); padding: 10px 14px; border-radius: 0 8px 8px 0; }
+.quiet { color: var(--quiet); font-size: 0.92rem; }
+
+/* The download page (site.md §5). */
+.recommend { background: var(--surface); border: 2px solid var(--accent); border-radius: 12px; padding: 18px 20px; margin: 20px 0 28px; }
+.recommend .button { font-size: 1.15rem; padding: 14px 26px; }
+.recommend p { margin: 6px 0; }
+.downloads { display: grid; gap: 18px; grid-template-columns: 1fr; }
+@media (min-width: 900px) { .downloads { grid-template-columns: 1fr 1fr 1fr; } }
+.downloads section { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 6px 18px 14px; }
+.downloads h2 { font-size: 1.2rem; margin-top: 0.8em; }
+.downloads ul { list-style: none; padding: 0; margin: 0; }
+.downloads li { padding: 8px 0; border-top: 1px solid var(--border); }
+.downloads li:first-child { border-top: 0; }
+.downloads .size { color: var(--quiet); font-size: 0.9rem; }
+.downloads .file { display: block; font-size: 0.85rem; color: var(--quiet); overflow-wrap: anywhere; }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.95rem; }
+th, td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
+th { background: var(--surface); }
+.table-wrap { overflow-x: auto; }
+.table-wrap:focus-visible { outline: 3px solid var(--focus); }
+
+.foot { border-top: 1px solid var(--border); max-width: 1080px; margin: 0 auto; padding: 18px 16px 40px; font-size: 0.92rem; }
+.foot p { margin: 6px 0; }

@@ -1,0 +1,35 @@
+<!--
+path: screenwriting-on-linux/
+title: Screenwriting software for Linux: Cold Open screenwriting app
+description: Cold Open is a free, native screenwriting app for Linux, as an AppImage, a .deb or a Flatpak, for x86-64 and ARM64, that opens and saves .fdx files.
+audience: writers
+from: writers
+-->
+<div class="narrow">
+<h1>Screenwriting on Linux</h1>
+<p class="lede">Cold Open is a free, open-source screenwriting app that runs natively on Linux: the same app, and the same page breaks, as on Windows and macOS. It opens and saves .fdx files, so you can exchange scripts with writers and producers who use Final Draft, which doesn't run on Linux.</p>
+<div class="actions">
+  <a class="button" href="download/?from=writers">Download for Linux</a>
+</div>
+
+<h2>Three ways to install it</h2>
+<ul>
+  <li><strong>AppImage:</strong> one file that runs on any distribution, without installing. <code>chmod +x</code> it and run it.</li>
+  <li><strong>.deb:</strong> for Debian, Ubuntu, Mint and Pop!_OS, with a menu entry and file types. <code>sudo apt install ./cold-open_*_amd64.deb</code></li>
+  <li><strong>Flatpak:</strong> for any distribution with Flatpak.</li>
+</ul>
+<p>Each comes for x86-64 and ARM64, and is under 15 MB. Cold Open needs glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora 36 and later), and runs on Wayland and X11. <a href="guide/install.html#linux">Install</a> has the details.</p>
+
+<h2>Made for it, not ported to it</h2>
+<ul>
+  <li><strong>Native code,</strong> written in Rust, with its own fonts bundled, so a script lays out the same on every computer whatever fonts you have.</li>
+  <li><strong>Plain files.</strong> <a href="fountain-screenplay-format/">Fountain</a>, Cold Open's own format, is plain text: it works with git, diff and any editor.</li>
+  <li><strong>A command line.</strong> <code>coldopen export script.fountain script.pdf</code>, <code>coldopen convert draft.fdx draft.fountain</code>, <code>coldopen diff a.fdx b.fdx</code>: batch work without opening the app.</li>
+  <li><strong>Free software:</strong> the app is under the GPL-3.0-or-later, and its format and layout libraries under MIT or Apache-2.0.</li>
+</ul>
+
+<h2>Everything a script needs</h2>
+<p>Standard screenplay format with smart element flow, autocomplete for names and places, track changes, production revision colors, a title page editor, reports, PDF export, and a crash journal that means a crash never costs you what you typed.</p>
+
+<p class="note">Cold Open is in alpha: careful with your work, but new. Keep copies of anything that matters, and <a href="alpha/join.html">tell us</a> how it runs on your distribution.</p>
+</div>

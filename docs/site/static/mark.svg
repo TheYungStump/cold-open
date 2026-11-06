@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Cold Open">
+  <!-- The Cold Open mark (the project owner's brand, 2026-11-06): a
+       rounded C in blue whose open side is a dark arc, cut off by two
+       diagonal gaps, around three lines of a script. -->
+  <defs>
+    <clipPath id="co-arc"><polygon points="42.6,50 112.6,-20 130,-20 130,120 112.6,120"/></clipPath>
+    <mask id="co-gaps" maskUnits="userSpaceOnUse" x="-10" y="-10" width="120" height="120">
+      <rect x="-10" y="-10" width="120" height="120" fill="#fff"/>
+      <path d="M66 26.6 104 -11.4M66 73.4 104 111.4" stroke="#000" stroke-width="3.6"/>
+    </mask>
+  </defs>
+  <g mask="url(#co-gaps)">
+    <path fill="#0C447C" fill-rule="evenodd" d="M30 0H70A30 30 0 0 1 100 30V70A30 30 0 0 1 70 100H30A30 30 0 0 1 0 70V30A30 30 0 0 1 30 0ZM32 13H68A18 18 0 0 1 86 31V69A18 18 0 0 1 68 87H32A18 18 0 0 1 14 69V31A18 18 0 0 1 32 13Z"/>
+    <path fill="#232326" fill-rule="evenodd" clip-path="url(#co-arc)" d="M30 0H70A30 30 0 0 1 100 30V70A30 30 0 0 1 70 100H30A30 30 0 0 1 0 70V30A30 30 0 0 1 30 0ZM32 13H68A18 18 0 0 1 86 31V69A18 18 0 0 1 68 87H32A18 18 0 0 1 14 69V31A18 18 0 0 1 32 13Z"/>
+  </g>
+  <g fill="#232326">
+    <rect x="34" y="39.5" width="33" height="4.2"/>
+    <rect x="39.5" y="48" width="31" height="4.2"/>
+    <rect x="34" y="56.5" width="27.5" height="4.2"/>
+  </g>
+</svg>

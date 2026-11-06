@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Writes the download page's file table (docs/specs/site.md §5) from the
-newest release that isn't a draft, pre-releases included: GitHub's
-/releases/latest address skips pre-releases, and every alpha is one.
+"""Writes release.json for the download page and the started pages
+(docs/specs/site.md §5.1) from the newest release that isn't a draft,
+pre-releases included: GitHub's /releases/latest address skips
+pre-releases, and every alpha is one.
 
-Usage: site_download.py OUT.md
+Usage: site_download.py OUT.json
 Reads the releases with `gh api` (GH_TOKEN in CI). With no release yet, it
-leaves OUT.md as it is: the committed page points at the releases page.
+writes nothing, and the pages point at the releases page.
 """
 
 import json
@@ -13,10 +14,6 @@ import subprocess
 import sys
 
 REPO = "TheYungStump/cold-open"
-
-
-def size(n):
-    return f"{n / 1_000_000:.1f} MB"
 
 
 def main():
@@ -28,36 +25,28 @@ def main():
     releases = [r for r in json.loads(raw) if not r.get("draft")]
     releases.sort(key=lambda r: r.get("published_at") or "", reverse=True)
     if not releases:
-        print("no published release: the page keeps its link to the releases page")
+        print("no published release: the pages point at the releases page")
         return 0
     r = releases[0]
-    version = r["tag_name"].lstrip("v")
-    date = (r.get("published_at") or "")[:10]
-    kind = "a pre-release" if r.get("prerelease") else "a release"
-    lines = [
-        "<!-- Written at deploy by tools/site_download.py from the newest release. -->",
-        "",
-        f"**Cold Open {version}**, {kind} of {date}. "
-        f"[Release notes]({r['html_url']}).",
-        "",
-        "| File | Size |",
-        "| --- | --- |",
-    ]
-    sums = None
-    for a in sorted(r.get("assets", []), key=lambda a: a["name"]):
-        if a["name"] == "SHA256SUMS.txt":
-            sums = a["browser_download_url"]
-            continue
-        lines.append(f"| [`{a['name']}`]({a['browser_download_url']}) | {size(a['size'])} |")
-    lines.append("")
-    if sums:
-        lines.append(
-            f"Checksums: [`SHA256SUMS.txt`]({sums}). "
-            "[Install](guide/install.md#check-a-download) says how to check a download."
-        )
+    assets = sorted(r.get("assets", []), key=lambda a: a["name"])
+    data = {
+        "version": r["tag_name"].lstrip("v"),
+        "date": (r.get("published_at") or "")[:10],
+        "notes": r["html_url"],
+        "prerelease": bool(r.get("prerelease")),
+        "assets": [
+            {"name": a["name"], "size": a["size"], "url": a["browser_download_url"]}
+            for a in assets
+            if a["name"] != "SHA256SUMS.txt"
+        ],
+        "sums": next(
+            (a["browser_download_url"] for a in assets if a["name"] == "SHA256SUMS.txt"), None
+        ),
+    }
     with open(out, "w", encoding="utf-8", newline="\n") as f:
-        f.write("\n".join(lines) + "\n")
-    print(f"{out}: {version} ({len(r.get('assets', []))} files)")
+        json.dump(data, f, indent=2)
+        f.write("\n")
+    print(f"{out}: {data['version']} ({len(data['assets'])} files)")
     return 0
 
 

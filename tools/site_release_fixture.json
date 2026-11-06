@@ -1,0 +1,74 @@
+{
+  "version": "0.1.0-alpha.3",
+  "date": "2026-11-20",
+  "notes": "https://github.com/TheYungStump/cold-open/releases/tag/v0.1.0-alpha.3",
+  "prerelease": true,
+  "assets": [
+    {
+      "name": "ColdOpen-0.1.0-alpha.3-windows-x64-setup.exe",
+      "size": 7000000,
+      "url": "https://github.com/TheYungStump/cold-open/releases/download/v0.1.0-alpha.3/ColdOpen-0.1.0-alpha.3-windows-x64-setup.exe"
+    },
+    {
+      "name": "ColdOpen-0.1.0-alpha.3-windows-arm64-setup.exe",
+      "size": 7250000,
+      "url": "https://github.com/TheYungStump/cold-open/releases/download/v0.1.0-alpha.3/ColdOpen-0.1.0-alpha.3-windows-arm64-setup.exe"
+    },
+    {
+      "name": "ColdOpen-0.1.0-alpha.3-windows-x64.zip",
+      "size": 7500000,
+      "url": "https://github.com/TheYungStump/cold-open/releases/download/v0.1.0-alpha.3/ColdOpen-0.1.0-alpha.3-windows-x64.zip"
+    },
+    {
+      "name": "ColdOpen-0.1.0-alpha.3-windows-arm64.zip",
+      "size": 7750000,
+      "url": "https://github.com/TheYungStump/cold-open/releases/download/v0.1.0-alpha.3/ColdOpen-0.1.0-alpha.3-windows-arm64.zip"
+    },
+    {
+      "name": "ColdOpen-0.1.0-alpha.3-macos-universal.dmg",
+      "size": 8000000,
+      "url": "https://github.com/TheYungStump/cold-open/releases/download/v0.1.0-alpha.3/ColdOpen-0.1.0-alpha.3-macos-universal.dmg"
+    },
+    {
+      "name": "ColdOpen-0.1.0-alpha.3-macos-arm64.dmg",
+      "size": 8250000,
+      "url": "https://github.com/TheYungStump/cold-open/releases/download/v0.1.0-alpha.3/ColdOpen-0.1.0-alpha.3-macos-arm64.dmg"
+    },
+    {
+      "name": "ColdOpen-0.1.0-alpha.3-macos-x64.dmg",
+      "size": 8500000,
+      "url": "https://github.com/TheYungStump/cold-open/releases/download/v0.1.0-alpha.3/ColdOpen-0.1.0-alpha.3-macos-x64.dmg"
+    },
+    {
+      "name": "ColdOpen-0.1.0-alpha.3-x86_64.AppImage",
+      "size": 8750000,
+      "url": "https://github.com/TheYungStump/cold-open/releases/download/v0.1.0-alpha.3/ColdOpen-0.1.0-alpha.3-x86_64.AppImage"
+    },
+    {
+      "name": "cold-open_0.1.0-alpha.3_amd64.deb",
+      "size": 9000000,
+      "url": "https://github.com/TheYungStump/cold-open/releases/download/v0.1.0-alpha.3/cold-open_0.1.0-alpha.3_amd64.deb"
+    },
+    {
+      "name": "ColdOpen-0.1.0-alpha.3-x86_64.flatpak",
+      "size": 9250000,
+      "url": "https://github.com/TheYungStump/cold-open/releases/download/v0.1.0-alpha.3/ColdOpen-0.1.0-alpha.3-x86_64.flatpak"
+    },
+    {
+      "name": "ColdOpen-0.1.0-alpha.3-aarch64.AppImage",
+      "size": 9500000,
+      "url": "https://github.com/TheYungStump/cold-open/releases/download/v0.1.0-alpha.3/ColdOpen-0.1.0-alpha.3-aarch64.AppImage"
+    },
+    {
+      "name": "cold-open_0.1.0-alpha.3_arm64.deb",
+      "size": 9750000,
+      "url": "https://github.com/TheYungStump/cold-open/releases/download/v0.1.0-alpha.3/cold-open_0.1.0-alpha.3_arm64.deb"
+    },
+    {
+      "name": "ColdOpen-0.1.0-alpha.3-aarch64.flatpak",
+      "size": 10000000,
+      "url": "https://github.com/TheYungStump/cold-open/releases/download/v0.1.0-alpha.3/ColdOpen-0.1.0-alpha.3-aarch64.flatpak"
+    }
+  ],
+  "sums": "https://github.com/TheYungStump/cold-open/releases/download/v0.1.0-alpha.3/SHA256SUMS.txt"
+}
