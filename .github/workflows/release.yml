@@ -139,6 +139,38 @@ jobs:
               $(case "$VERSION" in *-*) echo --prerelease ;; esac) dist/*
           fi
 
+  # The Microsoft Store's package (release.md §11.4): an MSIX per Windows
+  # architecture, joined in an .msixbundle, with the identity the owner's
+  # Partner Center reservation gives, from repository variables. Kept as a
+  # workflow artifact for the owner to upload; the Store signs it. Skipped
+  # until MSIX_PUBLISHER is set.
+  msix:
+    needs: [version, build]
+    if: vars.MSIX_PUBLISHER != ''
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      MSIX_IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME }}
+      MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER }}
+      MSIX_PUBLISHER_DISPLAY: ${{ vars.MSIX_PUBLISHER_DISPLAY }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: packages-windows-*
+          path: dist
+          merge-multiple: true
+      - name: An MSIX per architecture, and the bundle
+        run: ./.github/packaging/msix/store_bundle.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: store-msix
+          path: store/*
+          if-no-files-found: error
+
   # itch.io (release.md §11.5): each build pushed to its channel with butler,
   # itch.io's free uploader, for a published release only, and only when the
   # repository has the BUTLER_API_KEY secret and the ITCH_PROJECT variable
