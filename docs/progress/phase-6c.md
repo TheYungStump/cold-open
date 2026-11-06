@@ -13,10 +13,10 @@ The owner's constraints: no cost; no personal details anywhere public; the app m
 | 0 | Branch, this record, specs first: `usage-summary.md` (new), `site.md`, `release.md` §2, §7, §11, §12, `editor.md` §23 and §24, `bench.md` §5 | done |
 | 1 | The Mac save: confirm #27 on CI's Mac (asserted), explain the 44 ms Fountain save, widen the headroom if cheap, the crash gate five times, a bench build for the Mac tester | CI assertion and the analysis done (below). The crash gate and the bench build follow step 2, so they cover the release profile that ships. The headroom waits for the Mac tester's worker rows (decision 6). |
 | 2 | The universal Mac build: fat LTO, sizes and budgets before and after | done here (below); the universal .dmg's size comes from CI's packaging job |
-| 3 | The brand stand-in (Opening Frame): the icon, the mark, the image templates | icon, mark and templates done; images rendered once the sample screenshots are made |
+| 3 | The brand: the icon, the mark, the image templates | done in the finalized brand (owner's change 8): icon 52191a4; images rendered by CI in #29 |
 | 4 | The usage summary, the Settings sheet, Share feedback… | done; tests pass here (below) |
-| 5 | The website: two landing pages, the download page and its recommendation, the started pages, analytics behind a switch, the search pages and tags, the site root | |
-| 6 | Store packages: Flathub, winget, Homebrew, Microsoft Store (MSIX), itch.io | |
+| 5 | The website: two landing pages, the download page and its recommendation, the started pages, analytics behind a switch, the search pages and tags, the site root | in TheYungStump/cold-open#29, first (owner's change 9); its website checks pass in CI; merge waits for the owner |
+| 6 | Store packages: Flathub, winget, Homebrew, Microsoft Store (MSIX), itch.io | built (54efeeb); CI jobs added; the Store waits for the owner's decision on the publisher name |
 | 7 | Listings and outreach drafts: AlternativeTo, MCP directories, list authors, ads, Show HN, the GitHub repository's details | |
 | 8 | alpha.3: version, notes, changelog, the rehearsal | |
 | 9 | Final checks, the manual test list, this report | |
