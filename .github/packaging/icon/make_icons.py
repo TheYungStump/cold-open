@@ -8,11 +8,12 @@ Writes, beside this script:
 - coldopen.ico (Windows: the .exe and the installer), holding 16 to 256;
 - coldopen.icns (macOS), holding 16 to 1024.
 
-Without --from it draws the mark from its geometry: since 2026-11-05 the
-"Opening Frame" stand-in the project owner chose (a C-shaped frame with a
-red cursor bar on a navy tile; release.md §12), until final artwork
-arrives. It also writes coldopen.svg (the icon) and mark.svg (the mark
-alone, its frame in currentColor) for the website and the store graphics.
+Without --from it draws the mark from its geometry: the project owner's
+brand, finalized 2026-11-06 (release.md §12): a rounded C, its open side a
+separate arc cut off by two diagonal gaps, around three lines of a script,
+in paper on a blue tile. It also writes coldopen.svg (the icon) and
+mark.svg (the mark in its colors: blue C, dark arc and lines) for the
+website and the store graphics.
 With --from, it takes <size>.png files at those sizes from FOLDER (exported
 from the artwork) and only packs them. Pure Python, no image library.
 """
@@ -25,9 +26,9 @@ import zlib
 SIZES = [16, 24, 32, 48, 64, 128, 256, 512, 1024]
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-TILE = (31, 42, 68)
-PAGE = (247, 245, 239)
-BAR = (214, 69, 65)
+TILE = (12, 68, 124)  # #0C447C
+PAGE = (247, 245, 239)  # #F7F5EF
+INK = (35, 35, 38)  # #232326
 
 
 def rounded(x, y, x0, y0, x1, y1, r):
@@ -39,75 +40,76 @@ def rounded(x, y, x0, y0, x1, y1, r):
     return (x - cx) ** 2 + (y - cy) ** 2 <= r * r
 
 
-# The mark, "Opening Frame" (docs/specs/release.md §12; the project owner's
-# stand-in of 2026-11-05, from design/brand-explorations/2026-11-05/
-# 01-opening-frame.png): a C-shaped frame open to the right, with a red
-# cursor bar standing in the opening. In 0..1 of the icon's square,
-# measured from the concept board's app icon and evened out.
-TILE_BOX = (0.04, 0.04, 0.96, 0.96)
-TILE_RADIUS = 0.2
-FRAME = (0.24, 0.24, 0.72, 0.76)  # the frame's outer edges: left, top, right, bottom
-STROKE = 0.115  # the frame's thickness
-CURSOR = (0.675, 0.385, 0.765, 0.615)  # the red bar: left, top, right, bottom
+# The mark, in its own 100-unit square (docs/site/static/mark.svg): the
+# ring between two rounded rectangles, cut by two diagonal gaps along
+# x + y = 92.6 and x - y = -7.4; the part beyond them is the arc; three
+# lines inside. On the icon it sits at 15 + 0.7 * m in a 100-unit tile.
+OUTER = (0, 0, 100, 100, 30)
+INNER = (14, 13, 86, 87, 18)
+GAP = 1.8  # half the gaps' width
+LINES = [(34, 39.5, 67, 43.7), (39.5, 48, 70.5, 52.2), (34, 56.5, 61.5, 60.7)]
+TILE_RADIUS = 24  # in the tile's 100 units
+MARK_AT, MARK_SCALE = 15, 0.7
 
 
-def in_box(u, v, box):
-    return box[0] <= u <= box[2] and box[1] <= v <= box[3]
+def in_ring(x, y):
+    return rounded(x, y, *OUTER) and not rounded(x, y, *INNER)
 
 
-def in_frame(u, v):
-    """Whether (u, v) is on the C-shaped frame."""
-    left, top, right, bottom = FRAME
-    if not in_box(u, v, FRAME):
-        return False
-    return u <= left + STROKE or v <= top + STROKE or v >= bottom - STROKE
+def in_gap(x, y):
+    return x > 60 and (abs(x + y - 92.6) < GAP * 2 ** 0.5 or abs(x - y + 7.4) < GAP * 2 ** 0.5)
+
+
+def in_arc(x, y):
+    return x + y > 92.6 and x - y > -7.4
+
+
+def in_lines(x, y):
+    return any(x0 <= x <= x1 and y0 <= y <= y1 for x0, y0, x1, y1 in LINES)
 
 
 def colour_at(u, v):
-    """The icon's colour at (u, v) in 0..1, or None where transparent."""
-    if not rounded(u, v, *TILE_BOX, TILE_RADIUS):
+    """The icon's colour at (u, v) in 0..1, or None where transparent:
+    paper on a blue tile, as the brand's app icon."""
+    x, y = u * 100, v * 100
+    if not rounded(x, y, 0, 0, 100, 100, TILE_RADIUS):
         return None
-    if in_box(u, v, CURSOR):
-        return BAR
-    if in_frame(u, v):
+    mx, my = (x - MARK_AT) / MARK_SCALE, (y - MARK_AT) / MARK_SCALE
+    if (in_ring(mx, my) and not in_gap(mx, my)) or in_lines(mx, my):
         return PAGE
     return TILE
 
 
+RING_PATH = ("M30 0H70A30 30 0 0 1 100 30V70A30 30 0 0 1 70 100H30A30 30 0 0 1 0 70V30A30 30 0 0 1 30 0Z"
+             "M32 13H68A18 18 0 0 1 86 31V69A18 18 0 0 1 68 87H32A18 18 0 0 1 14 69V31A18 18 0 0 1 32 13Z")
+GAPS = ('<mask id="co-gaps" maskUnits="userSpaceOnUse" x="-10" y="-10" width="120" height="120">'
+        '<rect x="-10" y="-10" width="120" height="120" fill="#fff"/>'
+        '<path d="M66 26.6 104 -11.4M66 73.4 104 111.4" stroke="#000" stroke-width="3.6"/></mask>')
+
+
 def svg(tile=True):
-    """The mark as SVG, in a 1000-unit square: on its navy tile, or alone,
-    with the frame in `currentColor` so a page can set it for its theme."""
-    k = 1000
-
-    def rect(box, fill, r=0):
-        x0, y0, x1, y1 = (round(c * k) for c in box)
-        rr = f' rx="{round(r * k)}"' if r else ""
-        return f'<rect x="{x0}" y="{y0}" width="{x1 - x0}" height="{y1 - y0}"{rr} fill="{fill}"/>'
-
+    """The icon (paper on the blue tile), or the mark in its colors."""
     def hexc(c):
-        return "#%02x%02x%02x" % c
+        return "#%02X%02X%02X" % c
 
-    left, top, right, bottom = FRAME
-    frame_fill = hexc(PAGE) if tile else "currentColor"
-    parts = []
+    lines = "".join(f'<rect x="{x0}" y="{y0}" width="{round(x1 - x0, 1)}" height="{round(y1 - y0, 1)}"/>'
+                    for x0, y0, x1, y1 in LINES)
     if tile:
-        parts.append(rect(TILE_BOX, hexc(TILE), TILE_RADIUS))
-    parts += [
-        rect((left, top, right, top + STROKE), frame_fill),
-        rect((left, bottom - STROKE, right, bottom), frame_fill),
-        rect((left, top, left + STROKE, bottom), frame_fill),
-        rect(CURSOR, hexc(BAR)),
-    ]
-    view = "0 0 1000 1000" if tile else "200 200 600 600"
-    return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{view}" role="img" aria-label="Cold Open">'
-        + "".join(parts)
-        + "</svg>\n"
-    )
+        body = (f'<defs>{GAPS}</defs><rect width="100" height="100" rx="{TILE_RADIUS}" fill="{hexc(TILE)}"/>'
+                f'<g transform="translate({MARK_AT} {MARK_AT}) scale({MARK_SCALE})" fill="{hexc(PAGE)}">'
+                f'<path mask="url(#co-gaps)" fill-rule="evenodd" d="{RING_PATH}"/>{lines}</g>')
+    else:
+        body = (f'<defs><clipPath id="co-arc"><polygon points="42.6,50 112.6,-20 130,-20 130,120 112.6,120"/>'
+                f'</clipPath>{GAPS}</defs><g mask="url(#co-gaps)">'
+                f'<path fill="{hexc(TILE)}" fill-rule="evenodd" d="{RING_PATH}"/>'
+                f'<path fill="{hexc(INK)}" fill-rule="evenodd" clip-path="url(#co-arc)" d="{RING_PATH}"/></g>'
+                f'<g fill="{hexc(INK)}">{lines}</g>')
+    return ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Cold Open">'
+            + body + "</svg>\n")
 
 
 def draw(size):
-    """RGBA rows of the stand-in at `size`, 4x4 supersampled."""
+    """RGBA rows of the icon at `size`, 4x4 supersampled."""
     n = 4
     rows = []
     for y in range(size):
