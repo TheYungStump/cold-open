@@ -42,6 +42,8 @@ def main():
             if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", href) or href.startswith("//"):
                 continue
             path, _, frag = href.partition("#")
+            # A query (?from=…) names no other page.
+            path = path.partition("?")[0]
             target = (f.parent / urllib.parse.unquote(path)).resolve() if path else f
             if target.is_dir():
                 target = target / "index.html"

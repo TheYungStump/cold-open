@@ -1,0 +1,18 @@
+[
+  {
+    "name": "share",
+    "out": "docs/site/static/share.png",
+    "w": 1200, "h": 630, "layout": "side",
+    "sub": "Free, open-source screenwriting app",
+    "line": "Windows · macOS · Linux. Fountain and .fdx. Works offline.",
+    "shot": "shots/cold-open-light-page-tiny-skia.png"
+  },
+  {
+    "name": "github-social",
+    "out": "docs/marketing/images/github-social-preview.png",
+    "w": 1280, "h": 640, "layout": "side",
+    "sub": "Free, open-source screenwriting app",
+    "line": "Fountain and .fdx. Windows, macOS and Linux. Every action a command: CLI, JSON and MCP.",
+    "shot": "shots/cold-open-light-page-tiny-skia.png"
+  }
+]

@@ -37,7 +37,7 @@
 >
 > **For writing:** smart element flow and autocomplete, a crash journal that saves every keystroke before it's drawn, track changes, production revisions, scene-by-scene compare, reports, title page and PDF export.
 >
-> **Status:** alpha. It's written in Rust with iced. Much of the code is written with AI coding assistants under my direction, and I review every change. The app has no AI built in.
+> **Status:** alpha. It's written in Rust with iced. Much of the code is written with AI coding assistants under my direction, and I review every change. The app uses AI only if you connect an agent yourself: nothing connects by default, and every agent edit is a tracked change you approve.
 >
 > **What would help:** install it on your distro and tell me what broke: packaging, Wayland or X11, fonts, HiDPI, the Flatpak's file access. **Measure performance** in the app writes a small report with model names and timings, which helps a lot.
 >

@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://theyungstump.github.io/cold-open/sitemap.xml

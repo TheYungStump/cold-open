@@ -19,7 +19,12 @@ const pages = [];
     if (statSync(p).isDirectory()) walk(p);
     // The print page repeats every page; the 404 page is checked as any.
     else if (name.endsWith(".html") && name !== "print.html" && name !== "toc.html") {
-      pages.push(relative(dir, p).split("\\").join("/"));
+      const rel = relative(dir, p).split("\\").join("/");
+      // The started pages are one template: one stands for all, and
+      // site_browser.mjs checks its download. download.html only moves on.
+      if (rel.startsWith("download/started/") && rel !== "download/started/windows-x64/index.html") continue;
+      if (rel === "download.html") continue;
+      pages.push(rel);
     }
   }
 })(dir);
@@ -30,6 +35,9 @@ for (const scheme of ["light", "dark"]) {
   // A fresh context each time: no theme remembered, so mdBook follows the
   // system's scheme, as a first visit does.
   const context = await browser.newContext({ colorScheme: scheme });
+  // A started page sends the browser to its file on GitHub; the check
+  // stays on the page.
+  await context.route("https://github.com/**/releases/download/**", (r) => r.abort());
   for (const page of pages) {
     const tab = await context.newPage();
     await tab.goto(base + page, { waitUntil: "load" });

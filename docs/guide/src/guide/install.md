@@ -1,6 +1,6 @@
 # Install
 
-Download the file for your computer from the [download page](../download.md). Every download is under 15 MB. Cold Open needs no account and no internet connection, before or after you install it.
+Download the file for your computer from the [download page](../download/). Every download is under 15 MB. Cold Open needs no account and no internet connection, before or after you install it.
 
 **What it runs on:**
 

@@ -1,0 +1,112 @@
+<!doctype html>
+<!-- One brand card (docs/specs/release.md §12), sized and filled from the
+     address's #fragment, a JSON object that render.mjs writes:
+       w, h        the image's size in pixels
+       layout      "side" (words left, screenshot right) or "stack"
+                   (words above, screenshot below) or "plain" (no screenshot)
+       headline    the big line; the wordmark when left out
+       sub         the line under it
+       line        a small line under that
+       shot        a screenshot's path, relative to this file
+       dark        true for the reversed card on #2A2A2D; paper (#F7F5EF) by default
+     The brand is the project owner's of 2026-11-06: the mark (docs/site/static/
+     mark.svg), COLD OPEN in Courier Prime Bold, blue #0C447C, dark #232326.
+     The fonts are the app's own (crates/fonts). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Brand card</title>
+<style>
+  @font-face { font-family: "Atkinson"; font-weight: 400; src: url("../../crates/fonts/fonts/AtkinsonHyperlegibleNext-Regular.ttf"); }
+  @font-face { font-family: "Atkinson"; font-weight: 700; src: url("../../crates/fonts/fonts/AtkinsonHyperlegibleNext-Bold.ttf"); }
+  @font-face { font-family: "Courier Prime"; font-weight: 700; src: url("../../crates/fonts/fonts/CourierPrime-Bold.ttf"); }
+  :root { --blue: #0C447C; --ink: #232326; --band: #2A2A2D; --paper: #F7F5EF; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: "Atkinson", sans-serif; overflow: hidden; }
+  .card { position: relative; overflow: hidden; background: var(--paper); color: var(--ink); box-sizing: border-box; --muted: #4a4a50; --ring: var(--blue); --arc: var(--ink); --lines: var(--ink); }
+  .card.dark { background: var(--band); color: var(--paper); --muted: #c9c9cd; --ring: var(--paper); --arc: var(--paper); --lines: var(--paper); }
+  .words { position: absolute; display: flex; flex-direction: column; gap: 0.35em; }
+  .brand { display: flex; align-items: center; gap: 0.4em; font-family: "Courier Prime", monospace; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; }
+  .brand svg { height: 1.25em; width: 1.25em; flex: none; }
+  .headline { font-weight: 700; line-height: 1.08; letter-spacing: -0.01em; }
+  .sub { line-height: 1.25; }
+  .line { color: var(--muted); line-height: 1.3; }
+  .shot { position: absolute; border-radius: 14px; overflow: hidden;
+          box-shadow: 0 24px 60px rgba(0,0,0,0.35), 0 0 0 1px rgba(0,0,0,0.12); background: #fff; }
+  .shot img { display: block; width: 100%; height: auto; }
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <div class="words" id="words">
+    <div class="brand" id="brand"></div>
+    <div class="headline" id="headline"></div>
+    <div class="sub" id="sub"></div>
+    <div class="line" id="line"></div>
+  </div>
+  <div class="shot" id="shot" hidden><img id="shotimg" alt=""></div>
+</div>
+<script>
+  const p = JSON.parse(decodeURIComponent(location.hash.slice(1) || "{}"));
+  const w = p.w || 1200, h = p.h || 630, layout = p.layout || "side";
+  const card = document.getElementById("card");
+  card.style.width = w + "px";
+  card.style.height = h + "px";
+  if (p.dark === true) card.classList.add("dark");
+  // The mark (docs/site/static/mark.svg), its colors from the card's.
+  const ring = "M30 0H70A30 30 0 0 1 100 30V70A30 30 0 0 1 70 100H30A30 30 0 0 1 0 70V30A30 30 0 0 1 30 0ZM32 13H68A18 18 0 0 1 86 31V69A18 18 0 0 1 68 87H32A18 18 0 0 1 14 69V31A18 18 0 0 1 32 13Z";
+  const mark = '<svg viewBox="0 0 100 100" aria-hidden="true"><defs>'
+    + '<clipPath id="arc"><polygon points="42.6,50 112.6,-20 130,-20 130,120 112.6,120"/></clipPath>'
+    + '<mask id="gaps" maskUnits="userSpaceOnUse" x="-10" y="-10" width="120" height="120"><rect x="-10" y="-10" width="120" height="120" fill="#fff"/>'
+    + '<path d="M66 26.6 104 -11.4M66 73.4 104 111.4" stroke="#000" stroke-width="3.6"/></mask></defs>'
+    + '<g mask="url(#gaps)"><path fill="var(--ring)" fill-rule="evenodd" d="' + ring + '"/>'
+    + '<path fill="var(--arc)" fill-rule="evenodd" clip-path="url(#arc)" d="' + ring + '"/></g>'
+    + '<g fill="var(--lines)"><rect x="34" y="39.5" width="33" height="4.2"/><rect x="39.5" y="48" width="31" height="4.2"/>'
+    + '<rect x="34" y="56.5" width="27.5" height="4.2"/></g></svg>';
+  const brand = document.getElementById("brand");
+  brand.innerHTML = mark + "<span>Cold Open</span>";
+  const set = (id, text) => { const el = document.getElementById(id); if (text) el.textContent = text; else el.remove(); };
+  set("headline", p.headline);
+  set("sub", p.sub);
+  set("line", p.line);
+  const words = document.getElementById("words");
+  const unit = Math.min(w, h * 1.6) / 100; // type scales with the card
+  const pad = Math.round(unit * 6);
+  words.style.left = pad + "px";
+  words.style.top = pad + "px";
+  brand.style.fontSize = Math.round(unit * (p.headline ? 4.4 : 7.6)) + "px";
+  const hl = document.getElementById("headline");
+  if (hl) hl.style.fontSize = Math.round(unit * (p.big || 6.4)) + "px";
+  const sub = document.getElementById("sub");
+  if (sub) sub.style.fontSize = Math.round(unit * 3.0) + "px";
+  const ln = document.getElementById("line");
+  if (ln) ln.style.fontSize = Math.round(unit * 2.1) + "px";
+  if (layout === "side") {
+    words.style.width = Math.round(w * 0.44 - pad) + "px";
+    words.style.top = "50%";
+    words.style.transform = "translateY(-50%)";
+  } else {
+    words.style.width = (w - 2 * pad) + "px";
+  }
+  if (p.shot && layout !== "plain") {
+    const box = document.getElementById("shot");
+    document.getElementById("shotimg").src = p.shot;
+    box.hidden = false;
+    if (layout === "side") {
+      box.style.left = Math.round(w * 0.5) + "px";
+      box.style.top = Math.round(h * 0.12) + "px";
+      box.style.width = Math.round(w * 0.62) + "px";
+    } else {
+      box.style.left = pad + "px";
+      box.style.width = Math.round((w - pad) * 1.15) + "px";
+      box.style.top = Math.round(words.getBoundingClientRect().bottom + pad * 0.8) + "px";
+    }
+  }
+  document.fonts.ready.then(() => {
+    const img = document.getElementById("shotimg");
+    const done = () => { document.body.dataset.ready = "1"; };
+    if (p.shot && layout !== "plain" && !img.complete) img.onload = done; else done();
+  });
+</script>
+</body>
+</html>

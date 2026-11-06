@@ -26,7 +26,7 @@ Every keystroke goes into a crash journal as you type, so nothing needs autosavi
 
 ## Does Cold Open use AI? Does it send my script to an AI?
 
-Cold Open has no AI built in, and sends your script nowhere. You can connect an AI agent of your own, if you want one, through [MCP](agents.md). Then the agent's edits arrive as tracked changes you accept or reject. What the agent does with your script is up to that agent and its own privacy policy.
+**Only if you connect an agent yourself.** Nothing connects by default, and Cold Open sends your script nowhere. If you want an AI agent's help, you can connect one of your own through [MCP](agents.md). Then **every edit the agent makes is a tracked change** under its name, which you accept or reject, as you would a collaborator's note. What the agent does with what it reads is up to that agent and its own privacy policy.
 
 ## Why does my computer warn me when I first open it?
 

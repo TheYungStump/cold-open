@@ -1,0 +1,24 @@
+# Cold Open
+
+> Cold Open is a free, open-source screenwriting app for Windows, macOS and Linux. It reads and writes Fountain and Final Draft-compatible .fdx files, lays out pages the same way on every computer, journals every keystroke so a crash never loses work, and exposes every action as a command through a CLI, JSON over stdio and an MCP server (`coldopen mcp`). The app is GPL-3.0-or-later; its format and layout libraries are MIT or Apache-2.0. It is in alpha.
+
+## Docs
+
+- [Download](https://theyungstump.github.io/cold-open/download/): Windows, macOS and Linux builds, each under 15 MB
+- [User guide](https://theyungstump.github.io/cold-open/guide/index.html): install, getting started, and every feature
+- [Install](https://theyungstump.github.io/cold-open/guide/install.html): per OS, including the unsigned-build warnings
+- [A Fountain primer](https://theyungstump.github.io/cold-open/guide/fountain.html): the plain-text screenplay format Cold Open writes natively
+- [.fdx exchange and repair](https://theyungstump.github.io/cold-open/guide/fdx.html): opening, saving and repairing Final Draft-compatible files
+- [Recovery](https://theyungstump.github.io/cold-open/guide/recovery.html): the crash journal and atomic saves
+- [FAQ](https://theyungstump.github.io/cold-open/guide/faq.html): price, offline use, AI, platforms
+- [Known limitations](https://theyungstump.github.io/cold-open/guide/limitations.html): what the alpha doesn't do yet
+- [For AI agents](https://theyungstump.github.io/cold-open/ai/): connecting an MCP client; agents' edits arrive as tracked changes
+- [AI agents (MCP) guide](https://theyungstump.github.io/cold-open/guide/agents.html): setup, what agents can and can't do
+- [Command line](https://theyungstump.github.io/cold-open/reference/cli.html): every coldopen command
+- [Commands](https://theyungstump.github.io/cold-open/reference/commands.html): the command set shared by the app, CLI, JSON and MCP
+- [Privacy](https://theyungstump.github.io/cold-open/privacy.html): the app sends nothing; the site counts visits without cookies
+
+## Optional
+
+- [Source code](https://github.com/TheYungStump/cold-open): the repository, with the specs in docs/specs/
+- [Releases](https://github.com/TheYungStump/cold-open/releases): every version and its notes

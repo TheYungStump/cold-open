@@ -14,6 +14,7 @@ import sys
 
 FOOTER = (
     '\n\n<footer class="site-footer">\n\n'
+    "[Cold Open home]({root}index.html) · [Download]({root}download/) · "
     "[Code signing policy]({root}code-signing.md) · [Privacy]({root}privacy.md) · "
     "[Source code](https://github.com/TheYungStump/cold-open) · "
     "Cold Open is free software under the GPL-3.0-or-later.\n\n"
