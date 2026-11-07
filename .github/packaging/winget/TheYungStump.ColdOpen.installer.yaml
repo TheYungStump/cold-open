@@ -8,7 +8,6 @@ InstallModes:
   - silent
   - silentWithProgress
 UpgradeBehavior: install
-# Inno Setup's uninstall key: the installer's AppId with "_is1".
 ProductCode: '{5E0B7C2A-3F4D-4E8B-9A61-0C7D2B8E4F19}_is1'
 FileExtensions:
   - fountain

@@ -2,6 +2,8 @@
 
 The three manifests for Cold Open in the Windows Package Manager's community repository (docs/specs/release.md §11.2). The release workflow fills them with each release's addresses and hashes: download the **store-files** artifact from the release run, and the manifests are in `winget/manifests/t/TheYungStump/ColdOpen/<version>/`. CI checks them with `winget validate` on every pull request.
 
+The templates here hold only the schema line as a comment, since they're copied into Microsoft's repository as they are. `stores.py` fills their `@…@` values. `ProductCode` is Inno Setup's uninstall key: the installer's `AppId` (`.github/packaging/windows/coldopen.iss`) with `_is1`.
+
 ## The rules that apply (Microsoft's pages, read 2026-11-06)
 
 From <https://learn.microsoft.com/en-us/windows/package-manager/package/repository> and the policies page, <https://learn.microsoft.com/en-us/windows/package-manager/package/windows-package-manager-policies>:
