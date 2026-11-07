@@ -46,7 +46,12 @@ In the app's page in Partner Center, **Start your submission**:
 - **Packages:** upload the `.msixbundle` from step 4.
 - **The restricted capability (`runFullTrust`):** Partner Center asks why. Use the text below.
 - **Store listings (English):** the text below, and the screenshots in `docs/site/static/` (`shot-light.png`, `shot-dark.png`, `shot-changes-light.png`; each is 2560x1720, which the Store accepts).
-- **Submission options ▸ Notes for certification:** the text below.
+  - **Store logos:** the 1:1 300x300 one is `docs/marketing/images/microsoft-store-logo-300x300.png`. Without it the Store uses the package's own logo, which is only 50 pixels. It's the app icon, drawn by `make_icons.py` at 300 pixels.
+  - **Additional information:**
+    - **Developed by:** `TheYungStump`.
+    - **Copyright and trademark info:** `Copyright (c) 2026 The Cold Open contributors. "Final Draft" is a trademark of Final Draft, Inc.; Cold Open isn't made by, or connected with, Final Draft, Inc.`
+    - **Additional license terms:** `Free and open source under the GNU General Public License, version 3 or later: https://github.com/TheYungStump/cold-open/blob/main/LICENSE`
+- **Submission options ▸ Notes for certification:** the text below. Submission options is its own page in the submission's list, beside Pricing and availability, Properties and the others, not part of the Store listing.
 
 Then **Submit to the Store**. Certification usually takes a few days, and Partner Center emails the result.
 

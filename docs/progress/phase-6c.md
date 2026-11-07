@@ -10,6 +10,18 @@ The owner's constraints: no cost; no personal details anywhere public; the app m
 
 Phase 6c is done, up to the steps that are the project owner's: Cold Open is easy to find and to install, and both ad campaigns have somewhere to land. `v0.1.0-alpha.3` is rehearsed (below) and not tagged.
 
+### Merged and released (2026-11-07)
+
+- **#28 squash-merged** on the owner's go-ahead as 3c64bb7, after CI passed on its last commit (b69ea2f, the store jobs included).
+- **`v0.1.0-alpha.3` tagged** on 3c64bb7, on the owner's go-ahead; release run 42346060036 passed every job. The release is published as a pre-release with 18 files. The checksums match, and `coldopen --version` prints `coldopen 0.1.0-alpha.3 (3c64bb735bfc)`. The universal .dmg is 14,898,829 bytes.
+- **The website rebuilt itself:** the release started `pages.yml` (run 42347454911, `workflow_dispatch`), the first release to do so. The live download page names alpha.3, and its started pages point at the alpha.3 files.
+- **itch.io:** the release's job found no key and stopped, as designed. The owner then made the page and set the key and the project (`theyungstump/cold-open`). Rerunning that one job, on the owner's go-ahead (attempt 2), pushed all five builds, each to its channel: `windows-x64`, `windows-arm64`, `mac-universal`, `linux-x64`, `linux-arm64`. Butler warns that installers and single files patch poorly. That only makes updates bigger to download, and the itch.io app is the only thing that patches.
+- **Microsoft Store:** the owner submitted the `.msixbundle` (identity `TheYungStump.ColdOpen`, version 0.1.3.0, checked before upload). It's in Microsoft's certification.
+- **winget:** the owner opened microsoft/winget-pkgs#473898 with the three manifests. The installers' hashes match the release, the product code matches an installed copy, and `winget validate` passes. The CLA is signed; it waits for a reviewer.
+- **Homebrew:** on the owner's go-ahead, the tap `TheYungStump/homebrew-tap` was created, public, with a README and the release's `Casks/cold-open.rb`, committed with the noreply address. The copy on GitHub matches the release's cask, whose checksum matches the universal .dmg.
+- **The Official MCP Registry:** the owner published alpha.3's `server.json` with `mcp-publisher`, signed in as TheYungStump. The registry lists `io.github.TheYungStump/cold-open` 0.1.0-alpha.3 as active and latest (published 2026-11-07 14:17 UTC). Before that, the bundle's SHA-256 was checked against the release's file, and the file against the registry's schema. Glama reads the registry; its search needs an API key, so whether it has the listing yet is the owner's to look at on glama.ai.
+- **`store-files` and `store-msix`** from run 42346060036 are what the owner submits. They are kept until 2027-02-05.
+
 ### What was built
 
 - **The website, first** (TheYungStump/cold-open#29, merged as 5245636 and live; `docs/specs/site.md`):
@@ -82,8 +94,8 @@ Release run 42335444493, from `rehearsal/v0.1.0-alpha.3` at 17a55a8, made the dr
 3. **After the release:**
    - Microsoft Store: upload the `store-msix` artifact's bundle in your submission (`docs/marketing/microsoft-store.md`).
    - winget: one pull request with the `store-files` artifact's manifests (`.github/packaging/winget/README.md`).
-   - Homebrew: create `homebrew-tap` and add the cask (`.github/packaging/homebrew/README.md`).
-   - The MCP registry: `mcp-publisher publish` with the `store-files` artifact's `server.json` (`docs/marketing/mcp-directories.md`).
+   - Homebrew: create `homebrew-tap` and add the cask (`.github/packaging/homebrew/README.md`). Done 2026-11-07.
+   - The MCP registry: `mcp-publisher publish` with the `store-files` artifact's `server.json` (`docs/marketing/mcp-directories.md`). Done 2026-11-07.
    - itch.io: the page, the API key secret and the project variable (`docs/marketing/itch.md`).
 4. **Send Dian** the alpha.3 `.dmg` for the bench.
 5. **The drafts** in `docs/marketing/`, to send or post when you choose; the GitHub repository's details (`docs/marketing/github.md`).

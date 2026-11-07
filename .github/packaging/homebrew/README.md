@@ -8,12 +8,11 @@ Cold Open's cask, for our own tap, `TheYungStump/homebrew-tap` (docs/specs/relea
 - A tap's repository name should "start with `homebrew-`" so the short command works (<https://docs.brew.sh/How-to-Create-and-Maintain-a-Tap>).
 - **Since Homebrew 6.0.0, "non-official taps require explicit trust by default"** (<https://docs.brew.sh/Tap-Trust>): writers run `brew trust` once.
 
-## Setting up the tap (your step, once)
+## The tap
 
-1. On GitHub, create a public repository named exactly `homebrew-tap` under TheYungStump, with a short README.
-2. Add a `Casks` folder holding `cold-open.rb` from the release's `store-files` artifact, and push it, with the noreply address as the author.
+<https://github.com/TheYungStump/homebrew-tap>, set up on 2026-11-07 with alpha.3's cask and a README for writers.
 
-For each new release, replace `Casks/cold-open.rb` with that release's.
+For each new release, replace `Casks/cold-open.rb` in the tap with that release's, and commit it with the noreply address as the author.
 
 ## What writers run
 

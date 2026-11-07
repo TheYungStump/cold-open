@@ -14,7 +14,7 @@ For the project owner. Nothing has been created or uploaded.
    - **AI generation disclosure:** itch.io asks projects to "accurately tag your project if it contains materials produced by generative AI". Cold Open's code is AI-assisted, as its README says, so answer that question yes and describe it as below.
    - **Visibility:** Draft until the first upload is in, then Public.
 3. **An API key:** <https://itch.io/user/settings/api-keys> ▸ Generate new API key. In the cold-open repository, add it as an Actions **secret** named `BUTLER_API_KEY`, and add a **variable** named `ITCH_PROJECT` holding `<your itch username>/cold-open`.
-4. **The uploads:** the next tagged release's `itch` job pushes each build with butler to its own channel. The channel names tag the platforms automatically: `windows-x64`, `windows-arm64` (Windows), `mac-universal` (macOS), `linux-x64`, `linux-arm64` (Linux, the AppImages). itch.io asks that you only mark platforms you've tested; all five are installed and started in CI.
+4. **The uploads:** each tagged release's `itch` job pushes each build with butler to its own channel. For a release made before the key was set, such as alpha.3, rerun just that job: open the release's run in Actions, choose the `itch` job, and **Re-run job**. A rerun reads the secret and the variable as they are now. The project must exist first, as a draft or public. The channel names tag the platforms automatically: `windows-x64`, `windows-arm64` (Windows), `mac-universal` (macOS), `linux-x64`, `linux-arm64` (Linux, the AppImages). itch.io asks that you only mark platforms you've tested; all five are installed and started in CI.
 
 ## Page text
 
@@ -36,4 +36,4 @@ It's in alpha: careful with your work, but new. Website and docs: https://theyun
 
 **Tags:** screenwriting, writing, screenplay, open-source, linux, productivity
 
-**Screenshots:** `docs/site/static/shot-light.png`, `shot-dark.png`, `shot-changes-light.png`. **Cover image** (630x500): crop the share image, `docs/site/static/share.png`.
+**Screenshots:** `docs/site/static/shot-light.png`, `shot-dark.png`, `shot-changes-light.png`. **Cover image** (630x500): `docs/marketing/images/itch-cover-630x500.png`, rendered from `tools/brand/` like the other brand images.
