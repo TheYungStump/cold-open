@@ -18,7 +18,7 @@ exclude = ["fuzz", "tools/refpdf"]
 [workspace.package]
 # One version for every program, file and report (docs/specs/release.md §9).
 # The dependency requirements below follow it.
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 edition = "2024"
 # File::lock (used for journal locking) was stabilized in 1.89.
 rust-version = "1.89"
@@ -26,16 +26,16 @@ repository = "https://github.com/TheYungStump/cold-open"
 authors = ["The Cold Open contributors"]
 
 [workspace.dependencies]
-coldopen-screenplay = { path = "crates/screenplay", version = "0.1.0-alpha.2" }
-coldopen-fountain = { path = "crates/fountain", version = "0.1.0-alpha.2" }
-coldopen-fonts = { path = "crates/fonts", version = "0.1.0-alpha.2" }
-coldopen-layout = { path = "crates/layout", version = "0.1.0-alpha.2" }
-coldopen-core = { path = "crates/core", version = "0.1.0-alpha.2" }
-coldopen-fdx = { path = "crates/fdx", version = "0.1.0-alpha.2" }
-coldopen-link = { path = "crates/link", version = "0.1.0-alpha.2" }
-coldopen-app = { path = "crates/app", version = "0.1.0-alpha.2" }
-coldopen-mcp = { path = "crates/mcp", version = "0.1.0-alpha.2" }
-coldopen-diff = { path = "crates/diff", version = "0.1.0-alpha.2" }
+coldopen-screenplay = { path = "crates/screenplay", version = "0.1.0-alpha.3" }
+coldopen-fountain = { path = "crates/fountain", version = "0.1.0-alpha.3" }
+coldopen-fonts = { path = "crates/fonts", version = "0.1.0-alpha.3" }
+coldopen-layout = { path = "crates/layout", version = "0.1.0-alpha.3" }
+coldopen-core = { path = "crates/core", version = "0.1.0-alpha.3" }
+coldopen-fdx = { path = "crates/fdx", version = "0.1.0-alpha.3" }
+coldopen-link = { path = "crates/link", version = "0.1.0-alpha.3" }
+coldopen-app = { path = "crates/app", version = "0.1.0-alpha.3" }
+coldopen-mcp = { path = "crates/mcp", version = "0.1.0-alpha.3" }
+coldopen-diff = { path = "crates/diff", version = "0.1.0-alpha.3" }
 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

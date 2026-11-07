@@ -32,7 +32,7 @@ body:
     attributes:
       label: Version
       description: About Cold Open shows it, and "Copy version info" copies it. Or run `coldopen --version`.
-      placeholder: 0.1.0-alpha.2 (5d6e764a1b2c) (x86_64-pc-windows-msvc)
+      placeholder: 0.1.0-alpha.3 (5d6e764a1b2c) (x86_64-pc-windows-msvc)
     validations:
       required: true
   - type: input
