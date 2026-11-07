@@ -119,6 +119,21 @@ What's left for 6c (step 1): confirm it on CI's Mac with the budget asserted, ex
 | --- | --- | --- | --- |
 | `objc2` 0.6, `objc2-app-kit` 0.3, `objc2-foundation` 0.3, named directly (macOS only) | app | "Settings…" in the app menu. All three are already in the tree through `rfd`, at these versions: `Cargo.lock` gains no package. Only the `NSApplication`, `NSMenu`, `NSMenuItem`, `NSResponder`, `NSString` and `NSThread` features are asked for | MIT |
 
+## The stores' rules (step 6; each store's own pages, read 2026-11-05 and 11-06)
+
+Each store's folder under `.github/packaging/` has its README with the owner's steps; these are the rules that shape them.
+
+- **Flathub** (<https://docs.flathub.org/docs/for-app-authors/requirements>, `/submission`, `/verification`):
+  - "Flathub manifests must not contain AI-generated or AI-assisted content", and "AI tools or agents must not open or automate Flathub submission pull requests". **The manifest here was written with an AI assistant, so it can't be the one submitted.** It stays as CI's proof that Cold Open builds offline from source in Flathub's container; the owner writes the submitted one.
+  - "The Flathub stable repository is dedicated to hosting only stable software." Cold Open is an alpha, so Flathub waits for a stable release.
+  - "All source available submissions must be built entirely from source code"; "There is no network access during the build process."
+  - An `io.github.` ID's repository is taken from its last part "as-is": `coldopen` against the repository `cold-open`. An exception or a new ID, before submitting.
+  - "Static permissions must be kept to an absolute minimum"; explain each in the pull request (`--filesystem=home`, for the crash journal beside each script).
+- **winget** (<https://learn.microsoft.com/en-us/windows/package-manager/package/repository>, `/windows-package-manager-policies`): one package version per pull request; the installer supports "non-interactive modes", comes "directly from the publisher's website", and installs "for both administrators and non-administrators"; Defender scans every installer. Unsigned installers and pre-releases aren't addressed.
+- **Homebrew** (<https://docs.brew.sh/Acceptable-Casks>, `/How-to-Create-and-Maintain-a-Tap`, `/Tap-Trust`): official casks must "pass Homebrew's Gatekeeper checks", which an unnotarized app fails, hence our own tap, named `homebrew-tap`; "non-official taps require explicit trust by default since Homebrew 6.0.0", so writers run `brew trust theyungstump/tap`.
+- **Microsoft Store** (above, "Found before the work"): an individual account publishes under the display name Partner Center shows (`TheYungStump` for this account); policy 10.5.1 asks every Win32 app for a privacy policy; the company option now shows no fee, but needs a work email at the organization's own domain.
+- **itch.io** (<https://itch.io/docs/creators/faq>, `/quality-guidelines`, <https://itch.io/docs/butler/>): free tools are fine ("a minimum price ... which can be 0"); channel names containing `win`, `mac` or `linux` tag the platform; mark only platforms "you've actually tested"; "accurately tag your project if it contains materials produced by generative AI", which `docs/marketing/itch.md` does.
+
 ## The analytics and SignPath's terms (step 5)
 
 SignPath Foundation's terms (<https://signpath.org/terms>, reread 2026-11-05) were checked against the analytics and the usage summary:
