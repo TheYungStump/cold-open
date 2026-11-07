@@ -35,6 +35,10 @@ Phase 6c is done, up to the steps that are the project owner's: Cold Open is eas
 - **CI on #28** (8241210): every job passed on Windows, macOS and Linux, the store jobs included; on #29, the site's checks (links, tags, structured data, the AI words, accessibility, the download page in 11 browsers, JavaScript off, the analytics switch both ways).
 - **The live site** (5245636, checked 2026-11-06): all 33 pages in the sitemap answer 200, and the Cloudflare beacon is on.
 
+### Removed
+
+- **Three unused pages** of the docs, `docs/guide/src/index.md`, `download.md` and `download-files.md`, removed on the owner's go-ahead (2026-11-07). The new site replaced them, and no page, check or script used them. Afterwards, the site's checks pass with no broken links.
+
 ### The alpha.3 rehearsal
 
 Release run 42335444493, from `rehearsal/v0.1.0-alpha.3` at 17a55a8, made the draft `rehearsal-6`. Every job passed; itch.io's was skipped, as it should be until its key is set.
@@ -57,7 +61,6 @@ Release run 42335444493, from `rehearsal/v0.1.0-alpha.3` at 17a55a8, made the dr
 - **The Fountain save's headroom on a Mac** (decision 6): waits for the Mac tester's numbers on the alpha.3 build.
 - **Flathub** waits for a stable release, and for a manifest the owner writes (decision 15).
 - **The usage summary end to end on Linux** is covered by the integration tests CI runs there (the addresses and the file), not by a submitted form; the owner's form submission on Windows is the end-to-end check.
-- **Three unused source files** of the docs: `docs/guide/src/index.md`, `download.md` and `download-files.md`, which the new site replaced. They're not built; they go when the owner says.
 
 ### What's left for the project owner
 
