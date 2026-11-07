@@ -42,7 +42,7 @@ It's kept in `usage.json` in Cold Open's own folder (see [Install](install.md#wh
 
 1. Type your feedback.
 2. If you'd like, tick **Include my usage summary**. The whole summary appears under the tick, exactly as it will go.
-3. Choose **Open the form** (no account needed), **Open a GitHub issue**, or **Copy all**.
+3. Choose **Open the form** (no account needed), **Open a GitHub issue**, or **Copy all**. Copy all leaves the sheet open, with your text, so you can still open the form after pasting it somewhere.
 
 Cold Open opens the page in your browser with your text filled in, along with Cold Open's version and your system. **Nothing is sent until you submit that page yourself.** If it's too long for the page's address, Cold Open copies it all to your clipboard and says so: paste it into the page.
 

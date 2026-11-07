@@ -4,7 +4,9 @@
 
 use std::time::Instant;
 
-use iced::widget::{Space, button, column, container, row, scrollable, text, text_editor};
+use iced::widget::{
+    Space, button, checkbox, column, container, row, scrollable, text, text_editor,
+};
 use iced::{Border, Element, Length, Task};
 
 use super::view::{body, dialog_button, hint, title};
@@ -378,9 +380,11 @@ impl App {
                 let summary = self.ticked_summary(self.share.include);
                 let all = feedback::all_text(&text, &d, summary.as_deref());
                 let task = match input {
+                    // Copying keeps the sheet open, with the text and the
+                    // tick as they were (editor.md §23, 2026-11-07).
                     ShareInput::CopyAll => {
                         self.banners.push("Your feedback was copied.".into());
-                        iced::clipboard::write(all)
+                        return iced::clipboard::write(all);
                     }
                     ShareInput::Form => match feedback::share_form(&text, &d, summary.as_deref()) {
                         Some(a) => self.send(a, all),
@@ -391,8 +395,7 @@ impl App {
                         self.send(a, all)
                     }
                 };
-                // It went to the browser or the clipboard: the box starts
-                // empty next time.
+                // It went to the browser: the box starts empty next time.
                 self.share.content = text_editor::Content::new();
                 self.share.include = false;
                 self.sheet = None;
@@ -855,14 +858,16 @@ impl App {
             Ok(_) => "Include my usage summary",
             Err(why) => why,
         };
-        let mark = if ticked { "[x]" } else { "[ ]" };
-        let mut tick = button(text(format!("{mark} {label}")).font(fonts::UI).size(13))
-            .padding([4, 10])
-            .style(button::text);
-        if self.share.summary.is_ok() {
-            tick = tick.on_press(m);
-        }
-        let mut col = column![tick].spacing(6);
+        // A real checkbox (editor.md §23, 2026-11-07): a box with a check
+        // mark reads as something to click; "[ ]" on a flat button didn't.
+        let tick = checkbox(ticked)
+            .label(label)
+            .font(fonts::UI)
+            .text_size(13)
+            .size(16)
+            .spacing(8)
+            .on_toggle_maybe(self.share.summary.is_ok().then_some(move |_| m.clone()));
+        let mut col = column![container(tick).padding([4, 10])].spacing(6);
         if ticked && let Ok(s) = &self.share.summary {
             col = col.push(
                 scrollable(

@@ -219,6 +219,10 @@ fn share_feedback_sends_only_what_the_sheet_shows() {
         ))]);
     }
     h.run(vec![Message::Share(ShareInput::Include)]);
+    // Copy all leaves the sheet open, the text and the tick as they were
+    // (editor.md §23): the issue below still carries both.
+    h.run(vec![Message::Share(ShareInput::CopyAll)]);
+    assert_eq!(h.app.sheet, Some(coldopen_app::app::Sheet::ShareFeedback));
     h.run(vec![Message::Share(ShareInput::Issue)]);
     let opened = h.app.opened.clone().unwrap();
     let url = opened.last().expect("an address was opened");
