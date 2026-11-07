@@ -6,7 +6,7 @@ Writes, beside this script:
 - png/<size>.png at 16, 24, 32, 48, 64, 128, 256, 512 and 1024 pixels
   (the Linux hicolor icons, and the sources of the two below);
 - coldopen.ico (Windows: the .exe and the installer), holding 16 to 256;
-- coldopen.icns (macOS), holding 16 to 1024.
+- coldopen.icns (macOS), holding 32 to 1024 in its PNG slots.
 
 Without --from it draws the mark from its geometry: the project owner's
 brand, finalized 2026-11-06 (release.md §12): a rounded C, its open side a
@@ -162,11 +162,13 @@ def ico(pngs):
 
 
 def icns(pngs):
-    """An .icns of PNG entries, by the type codes macOS reads for each size."""
+    """An .icns of PNG entries, by the type codes macOS reads for each size.
+
+    Only the slots that hold PNG inside an app bundle (release.md §12):
+    icp4, icp5 and icp6 are raw-pixel slots there, and a PNG in them drew
+    as a garbled purple tile in small views. macOS scales 16 and 32 down
+    from ic11 and ic12."""
     kinds = [
-        (b"icp4", 16),
-        (b"icp5", 32),
-        (b"icp6", 64),
         (b"ic07", 128),
         (b"ic08", 256),
         (b"ic09", 512),
