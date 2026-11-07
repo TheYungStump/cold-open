@@ -74,7 +74,27 @@ for points in [16, 32, 128] {
         let paper = px < 32 || (page.0 > 170 && page.1 > 170 && page.2 > 170)
         let ok = blue && paper
         print("\(points)pt @\(scale)x: drawn at \(box.x0),\(box.y0) to \(box.x1),\(box.y1) of \(px); tile \(tile), stroke \(page) \(ok ? "ok" : "WRONG")")
-        if !ok { failed = true }
+        if !ok {
+            failed = true
+            // A map of what was drawn, at most 64 across: . clear, B blue,
+            // P paper, G grey, D dark, ? anything else.
+            let step = max(1, px / 64)
+            for y in stride(from: 0, to: px, by: step) {
+                var line = ""
+                for x in stride(from: 0, to: px, by: step) {
+                    guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), c.alphaComponent > 0.5 else {
+                        line += "."
+                        continue
+                    }
+                    let r = Int(255 * c.redComponent), g = Int(255 * c.greenComponent), b = Int(255 * c.blueComponent)
+                    if b > r + 60 && b > g + 25 { line += "B" }
+                    else if r > 200 && g > 200 && b > 190 { line += "P" }
+                    else if abs(r - g) < 20 && abs(g - b) < 20 { line += r > 90 ? "G" : "D" }
+                    else { line += "?" }
+                }
+                print("  " + line)
+            }
+        }
     }
 }
 if failed {
