@@ -128,6 +128,16 @@ SignPath Foundation's terms (<https://signpath.org/terms>, reread 2026-11-05) we
 - **The terms say nothing about a project's website analytics.** Their website requirements are the code signing policy (on the home page; the words "Code signing policy" on the home, download and release pages) and the privacy link or statement. The site keeps both, and the privacy statement now says, in the owner's words, that the website counts visits anonymously with Cloudflare Web Analytics, without cookies, and the app sends nothing. Cloudflare's own privacy policy is linked beside it, as the terms ask for third parties whose users are affected.
 - **The download page must describe the program's functionality,** so its first paragraph now says what Cold Open does.
 
+### CI's Mac on this branch (8241210, run 42232430952; asserted since step 1)
+
+| Save | UI thread p95 | Whole save, median |
+| --- | --- | --- |
+| Fountain | 0.56 ms | 33.9 ms |
+| .fdx | **0.62 ms** (snapshot p95 0.5, marker 0.1) | 11.0 ms |
+| Project | 0.60 ms | 15.4 ms |
+
+The .fdx save on the UI thread passes on CI's Mac at p95 0.62 ms (the tester's alpha.2 bench: 4.87). The tester's bench build is that run's `packages-macos` artifact (`docs/release/mac-tester.md` now says how to fetch one), and the same build will be in the alpha.3 rehearsal.
+
 ## Step 2: the universal Mac build
 
 Release binaries on this PC (x86_64-pc-windows-msvc, `strip = true`), before and after `lto = "fat"`:
@@ -137,7 +147,7 @@ Release binaries on this PC (x86_64-pc-windows-msvc, `strip = true`), before and
 | `coldopen-app.exe` | 18,684,416 | 17,667,072 | −5.4% |
 | `coldopen.exe` | 8,949,760 | 8,465,920 | −5.4% |
 
-- The universal .dmg was 15,218,928 to 15,404,028 bytes in phase 6a. 5.4% off that is about 14.4 to 14.6 MB, so it should fit; CI's packaging job measures it.
+- **The universal .dmg is 14,892,881 bytes** with fat LTO (CI, run 42232430952), down from 15,218,928 to 15,404,028 in phase 6a: under the 15,000,000-byte budget, so the exemption of decision 2 isn't needed. The Apple chip image is 7,321,522 bytes, the Intel one 8,735,140.
 - **Every budget passes on the fat build** (the quick bench, this PC, `…20261105-224732`): open 40.7 ms, repagination 22.6 ms, journal write p95 0.10 ms, save on the UI thread p95 0.57 / 0.70 / 0.70 ms, whole save median 27.7 / 5.9 / 13.9 ms, cold start 228 ms, keystroke p95 11.8 ms (median 8.1), report scrolling p95 7.7 ms (median 6.7), memory 55 MiB. 6a's quick runs on this PC were in the same range.
 - A fat build takes 3.5 minutes here, against 2.2 for thin.
 
