@@ -1,13 +1,13 @@
 # MCP directories: steps
 
-For the project owner. Nothing has been published. The formats were read from each directory's own pages on 2026-11-06 (`docs/specs/release.md` §11.6).
+For the project owner. Cold Open is in the Official MCP Registry since alpha.3 (2026-11-07), as `io.github.TheYungStump/cold-open`. The formats were read from each directory's own pages on 2026-11-06 (`docs/specs/release.md` §11.6).
 
 ## 1. The Official MCP Registry (do this first)
 
 The registry at registry.modelcontextprotocol.io is where MCP clients and most directories look. Cold Open is listed by its **MCP bundle**, `ColdOpen-<version>-mcp.mcpb`, which every release now carries, holding `coldopen mcp` for Windows, macOS and Linux.
 
 1. **After a release is published** (alpha.3 is the first with the bundle), download its **store-files** artifact from the release's Actions run. `mcp-registry/server.json` in it is filled in with that release's bundle address and SHA-256.
-2. **Install `mcp-publisher`**, the registry's own tool: `brew install mcp-publisher` on a Mac, or the binary for your OS from the releases of github.com/modelcontextprotocol/registry.
+2. **Install `mcp-publisher`**, the registry's own tool: `brew install mcp-publisher` on a Mac, or the binary for your OS from the releases of github.com/modelcontextprotocol/registry. On Windows, the registry's quickstart has a one-line PowerShell download (`modelcontextprotocol-io/quickstart.mdx` in that repository), which puts `mcp-publisher.exe` in the current folder.
 3. In the folder holding `server.json`:
 
    ```

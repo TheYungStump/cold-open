@@ -19,6 +19,7 @@ Phase 6c is done, up to the steps that are the project owner's: Cold Open is eas
 - **Microsoft Store:** the owner submitted the `.msixbundle` (identity `TheYungStump.ColdOpen`, version 0.1.3.0, checked before upload). It's in Microsoft's certification.
 - **winget:** the owner opened microsoft/winget-pkgs#473898 with the three manifests. The installers' hashes match the release, the product code matches an installed copy, and `winget validate` passes. The CLA is signed; it waits for a reviewer.
 - **Homebrew:** on the owner's go-ahead, the tap `TheYungStump/homebrew-tap` was created, public, with a README and the release's `Casks/cold-open.rb`, committed with the noreply address. The copy on GitHub matches the release's cask, whose checksum matches the universal .dmg.
+- **The Official MCP Registry:** the owner published alpha.3's `server.json` with `mcp-publisher`, signed in as TheYungStump. The registry lists `io.github.TheYungStump/cold-open` 0.1.0-alpha.3 as active and latest (published 2026-11-07 14:17 UTC). Before that, the bundle's SHA-256 was checked against the release's file, and the file against the registry's schema. Glama reads the registry; its search needs an API key, so whether it has the listing yet is the owner's to look at on glama.ai.
 - **`store-files` and `store-msix`** from run 42346060036 are what the owner submits. They are kept until 2027-02-05.
 
 ### What was built
@@ -94,7 +95,7 @@ Release run 42335444493, from `rehearsal/v0.1.0-alpha.3` at 17a55a8, made the dr
    - Microsoft Store: upload the `store-msix` artifact's bundle in your submission (`docs/marketing/microsoft-store.md`).
    - winget: one pull request with the `store-files` artifact's manifests (`.github/packaging/winget/README.md`).
    - Homebrew: create `homebrew-tap` and add the cask (`.github/packaging/homebrew/README.md`). Done 2026-11-07.
-   - The MCP registry: `mcp-publisher publish` with the `store-files` artifact's `server.json` (`docs/marketing/mcp-directories.md`).
+   - The MCP registry: `mcp-publisher publish` with the `store-files` artifact's `server.json` (`docs/marketing/mcp-directories.md`). Done 2026-11-07.
    - itch.io: the page, the API key secret and the project variable (`docs/marketing/itch.md`).
 4. **Send Dian** the alpha.3 `.dmg` for the bench.
 5. **The drafts** in `docs/marketing/`, to send or post when you choose; the GitHub repository's details (`docs/marketing/github.md`).
