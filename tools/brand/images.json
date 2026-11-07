@@ -8,6 +8,13 @@
     "shot": "shots/cold-open-light-page-tiny-skia.png"
   },
   {
+    "name": "itch-cover",
+    "out": "docs/marketing/images/itch-cover-630x500.png",
+    "w": 630, "h": 500, "layout": "stack",
+    "sub": "Free, open-source screenwriting app",
+    "shot": "shots/cold-open-light-page-tiny-skia.png"
+  },
+  {
     "name": "github-social",
     "out": "docs/marketing/images/github-social-preview.png",
     "w": 1280, "h": 640, "layout": "side",

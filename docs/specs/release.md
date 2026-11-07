@@ -334,8 +334,14 @@ Added 2026-11-06. MCP clients and directories find servers through the Official 
 
 ## 12. Brand assets
 
-Added 2026-11-05 (phase 6c, the owner's decision 5). The icon and every image made from it come from **01 / Opening Frame** in `design/brand-explorations/2026-11-05/`: a C-shaped frame with a red cursor bar, navy on paper. It's still subject to change, so every asset is made by a script:
+Added 2026-11-05 (phase 6c, the owner's decision 5), with the stand-in **01 / Opening Frame**. Since 2026-11-06 it's the owner's final brand: a rounded C in blue `#0C447C`, whose open right side is a dark `#232326` arc cut off by two diagonal gaps, around three lines of a script, with COLD OPEN in the bundled Courier Prime Bold. Every asset is made by a script, so a later change means rerunning them:
 
-- **`.github/packaging/icon/make_icons.py`** draws the mark from its geometry, at every size, and writes the `.ico`, the `.icns`, the PNGs and an SVG. `--from <folder>` still takes final artwork's PNGs instead.
-- **`tools/brand/`** renders the share image, the GitHub social preview, the store graphics and the ads from HTML templates with Playwright. The wordmark is set in the app's own Atkinson Hyperlegible Next (SIL OFL), not the board's generated letters.
+- **`.github/packaging/icon/make_icons.py`** draws the mark from its geometry, at every size, and writes the `.ico`, the `.icns`, the PNGs and an SVG. `--from <folder>` takes artwork's PNGs instead.
+- **`tools/brand/`** renders, from one HTML card (`card.html`) and the list in `images.json`, with Playwright in CI's `site` job (artifact `brand-images`):
+  - the share image;
+  - the GitHub social preview;
+  - itch.io's cover, 630×500 (2026-11-07);
+  - the ads.
+
+  The fonts are the app's own: Courier Prime and Atkinson Hyperlegible Next, both SIL OFL.
 - **Swapping the brand later** means new geometry or artwork, then rerunning both scripts.
