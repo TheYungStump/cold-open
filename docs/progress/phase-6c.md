@@ -35,6 +35,23 @@ Phase 6c is done, up to the steps that are the project owner's: Cold Open is eas
 - **CI on #28** (8241210): every job passed on Windows, macOS and Linux, the store jobs included; on #29, the site's checks (links, tags, structured data, the AI words, accessibility, the download page in 11 browsers, JavaScript off, the analytics switch both ways).
 - **The live site** (5245636, checked 2026-11-06): all 33 pages in the sitemap answer 200, and the Cloudflare beacon is on.
 
+### The alpha.3 rehearsal
+
+Release run 42335444493, from `rehearsal/v0.1.0-alpha.3` at 17a55a8, made the draft `rehearsal-6`. Every job passed; itch.io's was skipped, as it should be until its key is set.
+
+- **18 files,** alpha.2's 14 plus the four new ones: the universal .dmg (14,895,321 bytes), the MCP bundle (12,731,145) and the two third-party license lists. `SHA256SUMS.txt` matches each file downloaded.
+- **`coldopen --version`** from the Windows zip prints `coldopen 0.1.0-alpha.3 (17a55a8a4f2d)`.
+- **The MCP bundle:**
+  - it holds the CLI for Windows, macOS and Linux, with manifest version 0.3;
+  - its Windows binary answers an MCP `initialize` as Cold Open 0.1.0-alpha.3, and lists 50 tools.
+- **`store-files`:**
+  - the winget manifests, the cask and the registry's `server.json` carry hashes that match `SHA256SUMS.txt`, and addresses under the `v0.1.0-alpha.3` tag;
+  - the Flathub manifest names the tag and its commit.
+- **`store-msix`:**
+  - an x64 and an arm64 package, and a bundle of both;
+  - Identity `TheYungStump.ColdOpen`, the Partner Center publisher, display name `TheYungStump`, package version 0.1.3.0, and the `coldopen.exe` alias.
+- **The store files and the bundle are made fresh by the tagged release.** A squash merge gives the tag a new commit, and the packages are built again, so the owner submits that run's artifacts, not these.
+
 ### Deferred
 
 - **The Fountain save's headroom on a Mac** (decision 6): waits for the Mac tester's numbers on the alpha.3 build.
@@ -68,7 +85,7 @@ Phase 6c is done, up to the steps that are the project owner's: Cold Open is eas
 | 5 | The website: two landing pages, the download page and its recommendation, the started pages, analytics behind a switch, the search pages and tags, the site root | done: TheYungStump/cold-open#29, merged 2026-11-06 as 5245636, live, analytics on |
 | 6 | Store packages: Flathub, winget, Homebrew, Microsoft Store (MSIX), itch.io | done: built and checked in CI; each store's README has the owner's step; Flathub waits for a stable release (decision 15) |
 | 7 | Listings and outreach drafts: AlternativeTo, MCP directories, list authors, ads, Show HN, the GitHub repository's details | done: `docs/marketing/`; the MCP bundle is on each release |
-| 8 | alpha.3: version, notes, changelog, the rehearsal | done: 17a55a8; the rehearsal is below |
+| 8 | alpha.3: version, notes, changelog, the rehearsal | done: 17a55a8; rehearsed as `rehearsal-6`, every check passed (above) |
 | 9 | Final checks, the manual test list, this report | done: `docs/release/manual-test-6c.md`, and this report |
 
 ## Decisions from the project owner (2026-11-05, before the phase)
