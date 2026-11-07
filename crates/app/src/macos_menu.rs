@@ -1,8 +1,8 @@
-//! "Settings…" in the macOS app menu, with Cmd+, (docs/specs/editor.md §24).
+//! "Settings…" in the macOS app menu, with Cmd+Comma (docs/specs/editor.md §24).
 //!
 //! winit gives the app the standard app menu (About, Services, Hide, Quit).
 //! [`install`] adds Settings… after About, through AppKit. A click, or
-//! Cmd+, which AppKit sends to the menu first, goes to the app as
+//! Cmd+Comma, which AppKit sends to the menu first, goes to the app as
 //! `app.settings` through a channel its subscription reads ([`requests`]).
 //! The `unsafe` calls are AppKit's; the project owner approved them with
 //! phase 6c's plan.

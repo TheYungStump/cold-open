@@ -7,7 +7,7 @@ This program will not transfer any information to other networked systems unless
 ## In practice
 
 - **Cold Open makes no network connections.** It doesn't check for updates or contact any server. The app, the command-line tool and the agent server hold no network code at all, and the project's automated checks make sure none gets in.
-- **A usage summary, on your computer only** (from 0.1.0-alpha.3). Cold Open counts which features you use, on this computer only, and it's never sent unless you include it in feedback. It holds counts, never your text, names or file paths. **Settings** (Ctrl+, or Cmd+,) shows it in full, resets it, or turns counting off.
+- **A usage summary, on your computer only** (from 0.1.0-alpha.3). Cold Open counts which features you use, on this computer only, and it's never sent unless you include it in feedback. It holds counts, never your text, names or file paths. **Settings** (Ctrl+Comma, or Cmd+Comma on a Mac) shows it in full, resets it, or turns counting off.
 - **No account, and nothing about you.** Cold Open never asks who you are. The one name it keeps is the one you give your tracked changes, in your own settings file.
 - **Links open in your browser,** and only when you click them.
 

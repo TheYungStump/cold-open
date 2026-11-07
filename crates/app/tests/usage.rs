@@ -246,7 +246,7 @@ fn settings_works_from_the_keyboard_alone() {
     let home = tempfile::tempdir().unwrap();
     let p = script(home.path());
     let mut h = app(home.path(), &p, None);
-    // Mod+, opens it (editor.md §24).
+    // Mod+Comma opens it (editor.md §24).
     h.shortcut(',', false);
     assert_eq!(h.app.sheet, Some(Sheet::Settings));
     // Theme, the first row: Right steps it.

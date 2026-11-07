@@ -29,7 +29,7 @@ Cold Open is an alpha. Everything in this guide works, and it's careful with you
 - **Notes and boneyard inside a line** are kept and shown in the margin, but you can't edit them inside the line yet. Edit them in the Fountain file, or with an agent.
 - **No screen-reader support** yet, and **no input methods for Chinese, Japanese or Korean.** Accented letters, dead keys and AltGr work.
 - **One window** at a time, and no native macOS menu bar beyond **Settings…** in the app menu: everything else is in the palette and on the keys.
-- **Shortcuts** are changed in `keymap.json`, not in Settings (Mod+,), which holds the theme, sizes, the renderer and the privacy choices.
+- **Shortcuts** are changed in `keymap.json`, not in Settings (Mod+Comma), which holds the theme, sizes, the renderer and the privacy choices.
 
 ## Production
 

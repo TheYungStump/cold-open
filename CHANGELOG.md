@@ -6,7 +6,7 @@ What changed in each release of Cold Open, newest first. Each release's notes, w
 
 **Added**
 
-- **Settings** (Mod+,; on a Mac also Cold Open ▸ Settings…): the theme, interface size, renderer, your name on tracked changes, agent access, crash reports and the usage summary, in one sheet that works from the keyboard alone.
+- **Settings** (Ctrl+Comma, or Cmd+Comma on a Mac, where it's also Cold Open ▸ Settings…): the theme, interface size, renderer, your name on tracked changes, agent access, crash reports and the usage summary, in one sheet that works from the keyboard alone.
 - **Share feedback…** (palette, About, start screen): feedback typed in the app, opened in the form or a GitHub issue with it filled in.
 - **A local usage summary:** counts of which commands, formats and renderer are used, and how long sessions last, on this computer only. Never sent; included in feedback only when you tick it and have seen it in full. View, Reset and an off switch in Settings and About.
 - **Report a problem…** can include the usage summary too.

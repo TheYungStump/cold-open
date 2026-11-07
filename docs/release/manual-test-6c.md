@@ -11,7 +11,7 @@ Mod is Ctrl on Windows and Linux, Cmd on a Mac.
 
 ## 2. Settings, by keyboard alone
 
-1. Open a script. Press **Mod+,**. The **Settings** sheet opens, the Theme row outlined.
+1. Open a script. Press **Mod+Comma** (Ctrl and the comma key, just right of M; not the plus key, which zooms). The **Settings** sheet opens, the Theme row outlined.
 2. **Right** changes the theme at once; **Left** puts it back.
 3. **Down** to Interface size, **Right**: the whole window grows. **Left** puts it back.
 4. **Down** to Crash reports, **Space**: it switches. **Space** again: back.

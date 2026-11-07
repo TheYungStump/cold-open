@@ -260,7 +260,7 @@ Shortcuts are looked up by **action** name: a core command (`undo`, `doc.save`, 
 | "Remove from recent: <file>" (one palette entry per missing recent file, §11) | — (palette; a button on the start screen) |
 | `app.report_problem`, `app.user_guide` (2026-11-02, §23) | — (palette, About, start screen) |
 | `app.crash_reports`, `app.crash_reports_toggle`, `app.crash_test` (§23) | — (palette; the first also in the crash notice) |
-| `app.settings` (the Settings sheet, 2026-11-05, §24) | Mod+, (and Settings… in the macOS app menu) |
+| `app.settings` (the Settings sheet, 2026-11-05, §24) | Mod+Comma (and Settings… in the macOS app menu) |
 | `app.share_feedback` (2026-11-05, §23) | — (palette, About, start screen) |
 | `app.usage_summary`, `app.usage_toggle` (2026-11-05, `usage-summary.md`) | — (palette, Settings, About) |
 
@@ -593,7 +593,7 @@ Added 2026-11-02 (phase 6b; `docs/specs/crash-reports.md`, `docs/specs/site.md`)
 
 Added 2026-11-05 (phase 6c; the project owner's decision 7 in `docs/progress/phase-6c.md`, `docs/specs/usage-summary.md`). Every setting already had a palette command, and `settings.json` keeps them. The sheet gathers them in one place, and adds nothing but the usage summary's switch, which the summary itself requires.
 
-- **Settings…** (`app.settings`; Mod+, on every OS; the palette, the start screen's links, About's "Settings" row; on macOS also **Settings…** in the app menu, with Cmd+, shown beside it).
+- **Settings…** (`app.settings`; Mod+Comma on every OS; the palette, the start screen's links, About's "Settings" row; on macOS also **Settings…** in the app menu, with Cmd+Comma shown beside it).
 - **The rows,** each showing its current value, and each changing it through the command the palette already has:
 
   | Row | Values | The command |
@@ -613,4 +613,4 @@ Added 2026-11-05 (phase 6c; the project owner's decision 7 in `docs/progress/pha
   - The focused row is outlined, as buttons are.
   - Esc closes the sheet.
 - **A change applies at once,** as from the palette, and is saved to `settings.json`. A banner names the renderer's change, since it waits for the next start.
-- **macOS's app menu.** winit gives a Mac app the standard app menu (About, Hide, Quit). Cold Open adds **Settings…** after About, with the key equivalent Cmd+,, through AppKit's `NSMenu` and `NSMenuItem`. Its action sends `app.settings` to the app through a channel the app listens on. **Resolution:** this needs a few `unsafe` calls into AppKit through `objc2`, which winit already depends on. Each has its SAFETY note, and the project owner approved them with the phase's plan. Without the item, AppKit would still send Cmd+, to the window, and the keymap would handle it there.
+- **macOS's app menu.** winit gives a Mac app the standard app menu (About, Hide, Quit). Cold Open adds **Settings…** after About, with the key equivalent Cmd+Comma, through AppKit's `NSMenu` and `NSMenuItem`. Its action sends `app.settings` to the app through a channel the app listens on. **Resolution:** this needs a few `unsafe` calls into AppKit through `objc2`, which winit already depends on. Each has its SAFETY note, and the project owner approved them with the phase's plan. Without the item, AppKit would still send Cmd+Comma to the window, and the keymap would handle it there.

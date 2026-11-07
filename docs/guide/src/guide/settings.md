@@ -2,7 +2,7 @@
 
 *New in 0.1.0-alpha.3.*
 
-**Settings** (Ctrl+, on Windows and Linux, Cmd+, on a Mac, also in the palette, on the start screen and in About) gathers Cold Open's settings in one place. On a Mac it's also **Cold Open ▸ Settings…** in the menu bar. Each change applies at once and is kept for next time.
+**Settings** (Ctrl+Comma on Windows and Linux, Cmd+Comma on a Mac, also in the palette, on the start screen and in About) gathers Cold Open's settings in one place. On a Mac it's also **Cold Open ▸ Settings…** in the menu bar. Each change applies at once and is kept for next time.
 
 | Setting | What it does |
 | --- | --- |
