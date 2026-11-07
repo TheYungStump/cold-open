@@ -18,6 +18,7 @@ You can stop at any point. Half a track, with a note about where you got stuck, 
 
 Use whichever suits you:
 
+- **Share feedback…** in Cold Open's palette, About or start screen (from 0.1.0-alpha.3): type what you think, and tick **Include my usage summary** if you'd like us to see which features you use ([what it holds](../guide/settings.md#the-usage-summary)).
 - **Report a problem…** in Cold Open's palette (Ctrl+K, or Cmd+K on a Mac), or in About Cold Open. It opens a ready-filled page with Cold Open's version and your system, and nothing from your script.
 - **[GitHub issues](https://github.com/TheYungStump/cold-open/issues/new/choose)** for a bug, a file that won't open, or an idea.
 - **[GitHub Discussions](https://github.com/TheYungStump/cold-open/discussions)** to say how testing went, ask a question, or talk ideas through.
