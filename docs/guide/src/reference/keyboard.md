@@ -38,6 +38,10 @@ The keys that move the caret and edit text (the arrows, Home, End, Page Up and D
 | Look at crash reports | `app.crash_reports` | — | — |
 | Turn crash reports on or off | `app.crash_reports_toggle` | — | — |
 | Crash on purpose (to test recovery) | `app.crash_test` | — | — |
+| Settings… | `app.settings` | `Ctrl+,` | `Cmd+,` |
+| Share feedback… | `app.share_feedback` | — | — |
+| View usage summary | `app.usage_summary` | — | — |
+| Turn usage counting on or off | `app.usage_toggle` | — | — |
 | Cut | `edit.cut` | `Ctrl+X` | `Cmd+X` |
 | Copy | `edit.copy` | `Ctrl+C` | `Cmd+C` |
 | Paste | `edit.paste` | `Ctrl+V` | `Cmd+V` |

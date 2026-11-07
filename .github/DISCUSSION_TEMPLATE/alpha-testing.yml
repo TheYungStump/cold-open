@@ -21,7 +21,7 @@ body:
     attributes:
       label: Version and operating system
       description: About Cold Open's "Copy version info" gives the version.
-      placeholder: 0.1.0-alpha.2 on Windows 11
+      placeholder: 0.1.0-alpha.3 on Windows 11
     validations:
       required: true
   - type: textarea

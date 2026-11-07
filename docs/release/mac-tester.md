@@ -9,6 +9,8 @@ Open the release page you were sent. Under **Assets**, download the file ending 
 - `ColdOpen-…-macos-universal.dmg` if there is one; it works on every Mac;
 - otherwise `…-macos-arm64.dmg` for an Apple chip (M1, M2, M3, M4…), or `…-macos-x64.dmg` for an Intel Mac. To check which you have:  ▸ About This Mac shows **Chip** for Apple, **Processor** for Intel.
 
+**If you were sent a link to an Actions run instead** (a build to test before its release): sign in to GitHub, open the link, scroll to **Artifacts** at the bottom, and download **packages-macos**. It's a zip holding the `.dmg` files above: unzip it, and take the universal one.
+
 ## 2. Install
 
 1. Double-click the `.dmg`. A window opens with **Cold Open** and **Applications**.

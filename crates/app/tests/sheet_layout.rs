@@ -83,6 +83,8 @@ fn app(home: &Path, file: Option<PathBuf>) -> App {
     let mut a = App::new(Boot {
         file,
         dirs: Some(Dirs::under(home)),
+        // So the usage summary's ticks have a summary to show.
+        count_usage: true,
         ..Boot::default()
     });
     a.banners.clear();
@@ -205,6 +207,10 @@ fn every_sheet_fits_its_card() {
         "app.report_problem",
         "app.crash_reports",
         "app.recovered",
+        // 2026-11-05 (editor.md §23, §24).
+        "app.settings",
+        "app.share_feedback",
+        "app.usage_summary",
     ] {
         let _ = a.update(Message::Action(action.into()));
         if let Some(f) = fault(&a) {
@@ -220,6 +226,21 @@ fn every_sheet_fits_its_card() {
         faults.push(format!("About, third party: {f}"));
     }
     assert_eq!(a.sheet, Some(Sheet::About));
+    // The ticks, ticked: the summary in full under them.
+    a.sheet = None;
+    let _ = a.update(Message::Action("app.share_feedback".into()));
+    let _ = a.update(Message::Share(coldopen_app::app::ShareInput::Include));
+    if let Some(f) = fault(&a) {
+        faults.push(format!("Share feedback, ticked: {f}"));
+    }
+    a.sheet = None;
+    let _ = a.update(Message::Action("app.report_problem".into()));
+    let _ = a.update(Message::Share(
+        coldopen_app::app::ShareInput::ProblemInclude,
+    ));
+    if let Some(f) = fault(&a) {
+        faults.push(format!("Report a problem, ticked: {f}"));
+    }
     a.d.discard();
     assert!(faults.is_empty(), "{}", faults.join("\n"));
 }

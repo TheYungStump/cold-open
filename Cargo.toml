@@ -18,7 +18,7 @@ exclude = ["fuzz", "tools/refpdf"]
 [workspace.package]
 # One version for every program, file and report (docs/specs/release.md §9).
 # The dependency requirements below follow it.
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 edition = "2024"
 # File::lock (used for journal locking) was stabilized in 1.89.
 rust-version = "1.89"
@@ -26,16 +26,16 @@ repository = "https://github.com/TheYungStump/cold-open"
 authors = ["The Cold Open contributors"]
 
 [workspace.dependencies]
-coldopen-screenplay = { path = "crates/screenplay", version = "0.1.0-alpha.2" }
-coldopen-fountain = { path = "crates/fountain", version = "0.1.0-alpha.2" }
-coldopen-fonts = { path = "crates/fonts", version = "0.1.0-alpha.2" }
-coldopen-layout = { path = "crates/layout", version = "0.1.0-alpha.2" }
-coldopen-core = { path = "crates/core", version = "0.1.0-alpha.2" }
-coldopen-fdx = { path = "crates/fdx", version = "0.1.0-alpha.2" }
-coldopen-link = { path = "crates/link", version = "0.1.0-alpha.2" }
-coldopen-app = { path = "crates/app", version = "0.1.0-alpha.2" }
-coldopen-mcp = { path = "crates/mcp", version = "0.1.0-alpha.2" }
-coldopen-diff = { path = "crates/diff", version = "0.1.0-alpha.2" }
+coldopen-screenplay = { path = "crates/screenplay", version = "0.1.0-alpha.3" }
+coldopen-fountain = { path = "crates/fountain", version = "0.1.0-alpha.3" }
+coldopen-fonts = { path = "crates/fonts", version = "0.1.0-alpha.3" }
+coldopen-layout = { path = "crates/layout", version = "0.1.0-alpha.3" }
+coldopen-core = { path = "crates/core", version = "0.1.0-alpha.3" }
+coldopen-fdx = { path = "crates/fdx", version = "0.1.0-alpha.3" }
+coldopen-link = { path = "crates/link", version = "0.1.0-alpha.3" }
+coldopen-app = { path = "crates/app", version = "0.1.0-alpha.3" }
+coldopen-mcp = { path = "crates/mcp", version = "0.1.0-alpha.3" }
+coldopen-diff = { path = "crates/diff", version = "0.1.0-alpha.3" }
 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -116,6 +116,12 @@ backtrace = "0.3.76"
 # macOS, GetModuleHandleExW on Windows. Both already in the tree.
 libc = "0.2"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_UI_Shell"] }
+# "Settings…" in the macOS app menu (docs/specs/editor.md §24, phase 6c).
+# The versions rfd already brings in, so no crate is added; only these
+# AppKit classes' features.
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSMenuItem", "NSResponder"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSThread"] }
 
 # Dev-only.
 proptest = "1.5"
@@ -125,6 +131,9 @@ tempfile = "3.10"
 unsafe_code = "deny"
 
 [profile.release]
-lto = "thin"
+# Fat LTO since 2026-11-05 (docs/specs/release.md §7): smaller binaries, so
+# the universal macOS image comes closer to the 15 MB budget. Never
+# `panic = "abort"`: the crash journal and crash reports rely on unwinding.
+lto = "fat"
 codegen-units = 1
 strip = true

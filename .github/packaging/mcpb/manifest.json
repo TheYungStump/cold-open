@@ -1,0 +1,37 @@
+{
+  "manifest_version": "0.3",
+  "name": "cold-open",
+  "display_name": "Cold Open",
+  "version": "@VERSION@",
+  "description": "Read and edit screenplays in Cold Open, a free screenwriting app. Edits arrive as tracked changes.",
+  "long_description": "Cold Open is a free, open-source screenwriting app. Its MCP server, `coldopen mcp`, lets an agent read and edit Fountain, .fdx and Cold Open project files: scenes, characters, dialogue, the title page, reports and comparisons. When the script is open in the Cold Open app, the agent attaches to it, and its edits arrive live as tracked changes under its name, which only the writer can accept. Nothing connects by default, and the server makes no network connections.",
+  "author": {
+    "name": "The Cold Open contributors",
+    "url": "https://github.com/TheYungStump/cold-open"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TheYungStump/cold-open"
+  },
+  "homepage": "https://theyungstump.github.io/cold-open/ai/",
+  "documentation": "https://theyungstump.github.io/cold-open/guide/agents.html",
+  "support": "https://github.com/TheYungStump/cold-open/issues",
+  "icon": "icon.png",
+  "server": {
+    "type": "binary",
+    "entry_point": "server/linux/coldopen",
+    "mcp_config": {
+      "command": "${__dirname}/server/linux/coldopen",
+      "args": ["mcp"],
+      "platform_overrides": {
+        "win32": { "command": "${__dirname}/server/windows/coldopen.exe", "args": ["mcp"] },
+        "darwin": { "command": "${__dirname}/server/macos/coldopen", "args": ["mcp"] }
+      }
+    }
+  },
+  "keywords": ["screenwriting", "screenplay", "fountain", "fdx", "writing", "tracked-changes"],
+  "license": "GPL-3.0-or-later",
+  "compatibility": {
+    "platforms": ["win32", "darwin", "linux"]
+  }
+}

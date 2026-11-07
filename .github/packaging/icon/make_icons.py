@@ -8,10 +8,14 @@ Writes, beside this script:
 - coldopen.ico (Windows: the .exe and the installer), holding 16 to 256;
 - coldopen.icns (macOS), holding 16 to 1024.
 
-Without --from it draws the stand-in: a page on a dark tile with a red bar,
-plain on purpose, until the project owner's artwork arrives. With --from,
-it takes <size>.png files at those sizes from FOLDER (exported from the
-artwork) and only packs them. Pure Python, no image library.
+Without --from it draws the mark from its geometry: the project owner's
+brand, finalized 2026-11-06 (release.md §12): a rounded C, its open side a
+separate arc cut off by two diagonal gaps, around three lines of a script,
+in paper on a blue tile. It also writes coldopen.svg (the icon) and
+mark.svg (the mark in its colors: blue C, dark arc and lines) for the
+website and the store graphics.
+With --from, it takes <size>.png files at those sizes from FOLDER (exported
+from the artwork) and only packs them. Pure Python, no image library.
 """
 
 import os
@@ -22,10 +26,9 @@ import zlib
 SIZES = [16, 24, 32, 48, 64, 128, 256, 512, 1024]
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-TILE = (31, 42, 68)
-PAGE = (247, 245, 239)
-BAR = (214, 69, 65)
-LINE = (150, 156, 170)
+TILE = (12, 68, 124)  # #0C447C
+PAGE = (247, 245, 239)  # #F7F5EF
+INK = (35, 35, 38)  # #232326
 
 
 def rounded(x, y, x0, y0, x1, y1, r):
@@ -37,23 +40,76 @@ def rounded(x, y, x0, y0, x1, y1, r):
     return (x - cx) ** 2 + (y - cy) ** 2 <= r * r
 
 
+# The mark, in its own 100-unit square (docs/site/static/mark.svg): the
+# ring between two rounded rectangles, cut by two diagonal gaps along
+# x + y = 92.6 and x - y = -7.4; the part beyond them is the arc; three
+# lines inside. On the icon it sits at 15 + 0.7 * m in a 100-unit tile.
+OUTER = (0, 0, 100, 100, 30)
+INNER = (14, 13, 86, 87, 18)
+GAP = 1.8  # half the gaps' width
+LINES = [(34, 39.5, 67, 43.7), (39.5, 48, 70.5, 52.2), (34, 56.5, 61.5, 60.7)]
+TILE_RADIUS = 24  # in the tile's 100 units
+MARK_AT, MARK_SCALE = 15, 0.7
+
+
+def in_ring(x, y):
+    return rounded(x, y, *OUTER) and not rounded(x, y, *INNER)
+
+
+def in_gap(x, y):
+    return x > 60 and (abs(x + y - 92.6) < GAP * 2 ** 0.5 or abs(x - y + 7.4) < GAP * 2 ** 0.5)
+
+
+def in_arc(x, y):
+    return x + y > 92.6 and x - y > -7.4
+
+
+def in_lines(x, y):
+    return any(x0 <= x <= x1 and y0 <= y <= y1 for x0, y0, x1, y1 in LINES)
+
+
 def colour_at(u, v):
-    """The stand-in's colour at (u, v) in 0..1, or None where transparent."""
-    if not rounded(u, v, 0.04, 0.04, 0.96, 0.96, 0.2):
+    """The icon's colour at (u, v) in 0..1, or None where transparent:
+    paper on a blue tile, as the brand's app icon."""
+    x, y = u * 100, v * 100
+    if not rounded(x, y, 0, 0, 100, 100, TILE_RADIUS):
         return None
-    if rounded(u, v, 0.26, 0.18, 0.74, 0.84, 0.04):
-        if 0.18 <= v <= 0.31:
-            return BAR
-        for top in (0.42, 0.52, 0.62, 0.72):
-            right = 0.62 if top in (0.52, 0.72) else 0.66
-            if top <= v <= top + 0.035 and 0.33 <= u <= right:
-                return LINE
+    mx, my = (x - MARK_AT) / MARK_SCALE, (y - MARK_AT) / MARK_SCALE
+    if (in_ring(mx, my) and not in_gap(mx, my)) or in_lines(mx, my):
         return PAGE
     return TILE
 
 
+RING_PATH = ("M30 0H70A30 30 0 0 1 100 30V70A30 30 0 0 1 70 100H30A30 30 0 0 1 0 70V30A30 30 0 0 1 30 0Z"
+             "M32 13H68A18 18 0 0 1 86 31V69A18 18 0 0 1 68 87H32A18 18 0 0 1 14 69V31A18 18 0 0 1 32 13Z")
+GAPS = ('<mask id="co-gaps" maskUnits="userSpaceOnUse" x="-10" y="-10" width="120" height="120">'
+        '<rect x="-10" y="-10" width="120" height="120" fill="#fff"/>'
+        '<path d="M66 26.6 104 -11.4M66 73.4 104 111.4" stroke="#000" stroke-width="3.6"/></mask>')
+
+
+def svg(tile=True):
+    """The icon (paper on the blue tile), or the mark in its colors."""
+    def hexc(c):
+        return "#%02X%02X%02X" % c
+
+    lines = "".join(f'<rect x="{x0}" y="{y0}" width="{round(x1 - x0, 1)}" height="{round(y1 - y0, 1)}"/>'
+                    for x0, y0, x1, y1 in LINES)
+    if tile:
+        body = (f'<defs>{GAPS}</defs><rect width="100" height="100" rx="{TILE_RADIUS}" fill="{hexc(TILE)}"/>'
+                f'<g transform="translate({MARK_AT} {MARK_AT}) scale({MARK_SCALE})" fill="{hexc(PAGE)}">'
+                f'<path mask="url(#co-gaps)" fill-rule="evenodd" d="{RING_PATH}"/>{lines}</g>')
+    else:
+        body = (f'<defs><clipPath id="co-arc"><polygon points="42.6,50 112.6,-20 130,-20 130,120 112.6,120"/>'
+                f'</clipPath>{GAPS}</defs><g mask="url(#co-gaps)">'
+                f'<path fill="{hexc(TILE)}" fill-rule="evenodd" d="{RING_PATH}"/>'
+                f'<path fill="{hexc(INK)}" fill-rule="evenodd" clip-path="url(#co-arc)" d="{RING_PATH}"/></g>'
+                f'<g fill="{hexc(INK)}">{lines}</g>')
+    return ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Cold Open">'
+            + body + "</svg>\n")
+
+
 def draw(size):
-    """RGBA rows of the stand-in at `size`, 4x4 supersampled."""
+    """RGBA rows of the icon at `size`, 4x4 supersampled."""
     n = 4
     rows = []
     for y in range(size):
@@ -147,7 +203,13 @@ def main():
         f.write(ico(pngs))
     with open(os.path.join(HERE, "coldopen.icns"), "wb") as f:
         f.write(icns(pngs))
-    print("wrote", ", ".join(f"{s}.png" for s in SIZES), "coldopen.ico, coldopen.icns")
+    written = ["coldopen.ico", "coldopen.icns"]
+    if not source:
+        for name, tile in (("coldopen.svg", True), ("mark.svg", False)):
+            with open(os.path.join(HERE, name), "w", encoding="utf-8", newline="\n") as f:
+                f.write(svg(tile))
+            written.append(name)
+    print("wrote", ", ".join(f"{s}.png" for s in SIZES), ", ".join(written))
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ You don't need a GitHub account to tell us about a problem, a crash or an idea.
 
 **[Open the feedback form](https://docs.google.com/forms/d/e/1FAIpQLSfuNuITmor09PTaR-_IX17x8w-yB3xDLDU9JgD6U3zyilyE7g/viewform)**. It takes a few minutes.
 
-From Cold Open it's quicker: **Report a problem…** (in the palette, About, or the start screen), then **Use the form**. The form opens with the details filled in.
+From Cold Open it's quicker: **Share feedback…** ▸ **Open the form**, or **Report a problem…** ▸ **Use the form** (both in the palette, About, and the start screen). The form opens with your text and the details filled in, and, if you tick it, your [usage summary](../guide/settings.md#the-usage-summary).
 
 ## How the form works
 

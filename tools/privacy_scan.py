@@ -69,6 +69,10 @@ def findings(text, private):
     """Yields (line number, what was found) for one text."""
     for n, line in enumerate(text.splitlines(), 1):
         for m in EMAIL.finditer(line):
+            # A template's placeholder before a file name, such as
+            # ColdOpen-@VERSION@-windows-x64-setup.exe, isn't an address.
+            if re.fullmatch(r"[A-Z0-9_]+", m.group(0).split("@")[0]) and line[m.start() - 1:m.start()] == "@":
+                continue
             if not ALLOWED_EMAIL.search(m.group(0)):
                 yield n, f"email address {m.group(0)}"
         for m in HOME.finditer(line):

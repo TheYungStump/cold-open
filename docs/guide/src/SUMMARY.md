@@ -20,6 +20,7 @@ is replaced by the home page. -->
 - [The title page and reports](guide/title-page-and-reports.md)
 - [PDF export](guide/pdf.md)
 - [Your work is safe: recovery](guide/recovery.md)
+- [Settings and the usage summary](guide/settings.md)
 - [Known limitations](guide/limitations.md)
 - [FAQ](guide/faq.md)
 

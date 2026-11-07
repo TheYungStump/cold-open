@@ -19,8 +19,11 @@ pub mod headless;
 pub mod icon;
 pub mod keymap;
 pub mod link;
+#[cfg(target_os = "macos")]
+pub mod macos_menu;
 pub mod page_view;
 pub mod shield;
 pub mod theme;
+pub mod usage;
 
 pub use app::{App, Boot, Message};

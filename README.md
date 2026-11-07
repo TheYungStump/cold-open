@@ -40,7 +40,7 @@ This program will not transfer any information to other networked systems unless
 In practice:
 
 - **Cold Open makes no network connections.** It doesn't check for updates or contact any server.
-- **A usage summary, on your computer only** (from 0.1.0-alpha.3). Cold Open counts which features you use, on this computer only, and it's never sent unless you include it in feedback. It holds counts, never your text, names or file paths. **Settings** (Ctrl+, or Cmd+,) shows it in full, resets it, or turns counting off. ([`docs/specs/usage-summary.md`](docs/specs/usage-summary.md))
+- **A usage summary, on your computer only** (from 0.1.0-alpha.3). Cold Open counts which features you use, on this computer only, and it's never sent unless you include it in feedback. It holds counts, never your text, names or file paths. **Settings** (Ctrl+Comma, or Cmd+Comma on a Mac) shows it in full, resets it, or turns counting off. ([`docs/specs/usage-summary.md`](docs/specs/usage-summary.md))
 - **The agent link stays on your computer.** The app and `coldopen mcp` talk through a socket or a pipe that only your user account can open ([`docs/specs/mcp.md`](docs/specs/mcp.md)). An AI agent you connect is a separate program: what it reads from your script, and where it sends it, is up to that program and its own privacy policy.
 - **Links open in your browser,** and only when you click them.
 - **Measure performance** writes two report files to your Downloads folder. They leave your computer only if you send them.

@@ -82,6 +82,11 @@ impl App {
         match (request, origin) {
             (Request::Action(name), o) if !o.is_agent() => {
                 crate::actions::note(&name);
+                // Core commands count where the dispatcher runs them; the
+                // app's own actions count here (usage-summary.md §2.2).
+                if !Command::NAMES.contains(&name.as_str()) {
+                    self.usage.counter.count(|p| p.command(&name));
+                }
                 Outcome::task(self.action_by(&name, &o))
             }
             (Request::Action(name), _) => Outcome::answer(Err(CommandError::new(

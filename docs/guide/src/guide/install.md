@@ -96,5 +96,5 @@ Each release has `SHA256SUMS.txt`, which lists every file's SHA-256 checksum. A 
 Uninstalling never touches these:
 
 - **Settings** (`settings.json`, `keymap.json`, `flow.json`): `%APPDATA%\Cold Open` on Windows, `~/Library/Application Support/Cold Open` on macOS, `~/.config/coldopen` on Linux.
-- **Untitled scripts, crash reports and other app data:** `%LOCALAPPDATA%\Cold Open` on Windows, the same folder as the settings on macOS, `~/.local/share/coldopen` on Linux.
+- **Untitled scripts, crash reports, the [usage summary](settings.md#the-usage-summary) and other app data:** `%LOCALAPPDATA%\Cold Open` on Windows, the same folder as the settings on macOS, `~/.local/share/coldopen` on Linux.
 - **Each script's crash journal** sits beside the script while it's open (see [Recovery](recovery.md)).

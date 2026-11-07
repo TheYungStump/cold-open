@@ -125,6 +125,22 @@ pub const APP_ACTIONS: &[ActionInfo] = &[
         title: "Crash on purpose (to test recovery)",
     },
     ActionInfo {
+        name: "app.settings",
+        title: "Settings…",
+    },
+    ActionInfo {
+        name: "app.share_feedback",
+        title: "Share feedback…",
+    },
+    ActionInfo {
+        name: "app.usage_summary",
+        title: "View usage summary",
+    },
+    ActionInfo {
+        name: "app.usage_toggle",
+        title: "Turn usage counting on or off",
+    },
+    ActionInfo {
         name: "edit.cut",
         title: "Cut",
     },

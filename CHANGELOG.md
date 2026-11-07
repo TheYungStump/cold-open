@@ -2,7 +2,23 @@
 
 What changed in each release of Cold Open, newest first. Each release's notes, with its files, are on the [releases page](https://github.com/TheYungStump/cold-open/releases); `docs/progress/` has the full record of how each part was built.
 
-## Unreleased
+## 0.1.0-alpha.3 (2026-11-07)
+
+**Added**
+
+- **Settings** (Ctrl+Comma, or Cmd+Comma on a Mac, where it's also Cold Open ▸ Settings…): the theme, interface size, renderer, your name on tracked changes, agent access, crash reports and the usage summary, in one sheet that works from the keyboard alone.
+- **Share feedback…** (palette, About, start screen): feedback typed in the app, opened in the form or a GitHub issue with it filled in.
+- **A local usage summary:** counts of which commands, formats and renderer are used, and how long sessions last, on this computer only. Never sent; included in feedback only when you tick it and have seen it in full. View, Reset and an off switch in Settings and About.
+- **Report a problem…** can include the usage summary too.
+- **The universal macOS disk image,** for every Mac, under the 15 MB budget.
+- **An MCP bundle** (`ColdOpen-<version>-mcp.mcpb`) on each release, for AI clients that install MCP bundles and for the Official MCP Registry.
+- **The Linux builds' third-party license lists** as release files, for building from source.
+
+**Changed**
+
+- **The icon** and the website are in the project's final brand.
+- **Smaller programs:** release builds use full link-time optimization, about 5% smaller.
+- **The website** has a writers' home page, a page for AI users, a download page that recommends the right file, and pages comparing screenwriting apps.
 
 **Fixed**
 

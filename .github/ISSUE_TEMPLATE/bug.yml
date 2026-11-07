@@ -32,7 +32,7 @@ body:
     attributes:
       label: Version
       description: About Cold Open shows it, and "Copy version info" copies it. Or run `coldopen --version`.
-      placeholder: 0.1.0-alpha.2 (5d6e764a1b2c) (x86_64-pc-windows-msvc)
+      placeholder: 0.1.0-alpha.3 (5d6e764a1b2c) (x86_64-pc-windows-msvc)
     validations:
       required: true
   - type: input
@@ -47,6 +47,11 @@ body:
     attributes:
       label: Renderer
       description: CPU or GPU, as About Cold Open says.
+  - type: textarea
+    id: usage
+    attributes:
+      label: Usage summary (optional)
+      description: Only if you chose to include it. Cold Open counts which features you use, on your computer only, and fills this in when you tick "Include my usage summary". It holds no script text, names or file paths.
   - type: textarea
     id: more
     attributes:

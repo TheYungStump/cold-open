@@ -3,7 +3,7 @@
 #
 #   package.sh windows-stage <x64|arm64> <target>   the files, in dist/stage
 #   package.sh windows-pack  <x64|arm64>            the zip and the installer
-#   package.sh macos                                 the universal .dmg (or two)
+#   package.sh macos                                 the universal .dmg, and one per architecture
 #   package.sh linux <x86_64|aarch64> <target>       .deb, AppImage, Flatpak
 #   package.sh sizes                                 checks dist/ (15,000,000 bytes)
 #   package.sh symbols <target>                      the app's symbols, then strips
@@ -117,17 +117,12 @@ macos_dmg() {
 }
 
 macos() {
+  # The universal image, which the website recommends for every Mac, and
+  # one per architecture beside it (release.md §2, 2026-11-05).
   local arm=target/aarch64-apple-darwin/release intel=target/x86_64-apple-darwin/release
   macos_dmg "ColdOpen-$version-macos-universal" "$arm" "$intel"
-  local bytes
-  bytes=$(wc -c <"dist/ColdOpen-$version-macos-universal.dmg" | tr -d ' ')
-  if [ "$bytes" -ge "$limit" ]; then
-    # One image per architecture instead (release.md §2).
-    echo "universal image is $bytes bytes; making one per architecture" >&2
-    rm "dist/ColdOpen-$version-macos-universal.dmg"
-    macos_dmg "ColdOpen-$version-macos-arm64" "$arm"
-    macos_dmg "ColdOpen-$version-macos-x64" "$intel"
-  fi
+  macos_dmg "ColdOpen-$version-macos-arm64" "$arm"
+  macos_dmg "ColdOpen-$version-macos-x64" "$intel"
 }
 
 linux_tree() {
@@ -271,7 +266,11 @@ sizes() {
     local b
     b=$(wc -c <"$f" | tr -d ' ')
     mib=$(awk -v b="$b" 'BEGIN { printf "%.2f MiB", b / 1048576 }')
-    if [ "$b" -ge "$limit" ]; then
+    if [ "$b" -ge "$limit" ] && [[ "$f" == *-macos-universal.dmg ]]; then
+      # Two architectures in one: the budget applies per architecture
+      # (release.md §7, the project owner's decision of 2026-11-05).
+      echo "| $(basename "$f") | $b ($mib) | over, but exempt: it holds two architectures |" >>dist/sizes.md
+    elif [ "$b" -ge "$limit" ]; then
       echo "| $(basename "$f") | $b ($mib) | OVER 15,000,000 |" >>dist/sizes.md
       echo "::error::$(basename "$f") is $b bytes, over the 15,000,000-byte budget"
       over=1

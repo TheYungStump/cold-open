@@ -42,8 +42,8 @@ pub mod view;
 pub use author::{Author, Clock};
 pub use command::Command;
 pub use dispatcher::{
-    Dispatcher, ImportJob, Options, PdfJob, PlannedImport, PreparedSave, RenderedSave, SaveJob,
-    SaveTicket, to_line,
+    CommandHookFn, Dispatcher, ImportJob, Options, PdfJob, PlannedImport, PreparedSave,
+    RenderedSave, SaveJob, SaveTicket, to_line,
 };
 pub use document::{Block, BlockId, Document};
 pub use error::CommandError;

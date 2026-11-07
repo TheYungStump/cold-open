@@ -303,6 +303,12 @@ jobs:
           if-no-files-found: error
       - name: App bundle and disk image
         run: bash .github/packaging/package.sh macos
+      # The universal CLI, for the release's MCP bundle (release.md §11.6).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-macos-universal
+          path: dist/stage/*-macos-universal/Cold Open.app/Contents/MacOS/coldopen
+          if-no-files-found: error
       - name: Sizes (15,000,000 bytes each)
         run: bash .github/packaging/package.sh sizes
       - uses: actions/upload-artifact@v4

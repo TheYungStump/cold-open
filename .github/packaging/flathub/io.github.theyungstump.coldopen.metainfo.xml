@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Cold Open's AppStream data for Flathub (docs/specs/release.md §11.1),
+     with the fields Flathub's quality guidelines look for: the developer's
+     id, screenshots, branding colors and release notes. The .deb, AppImage
+     and release Flatpak keep ../linux/'s simpler copy, which older
+     AppStream tools on Ubuntu 22.04 read. -->
+<component type="desktop-application">
+  <id>io.github.theyungstump.coldopen</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Cold Open</name>
+  <summary>Write screenplays that never lose work</summary>
+  <developer id="io.github.theyungstump">
+    <name>The Cold Open contributors</name>
+  </developer>
+  <description>
+    <p>
+      Cold Open is a free, open-source screenwriting app. Write in standard
+      screenplay format: Enter and Tab move from scene heading to action to
+      character to dialogue, and names, places and times of day finish
+      themselves.
+    </p>
+    <ul>
+      <li>Never lose work: every keystroke goes into a crash journal before it shows on screen, and saves replace the file in one step</li>
+      <li>Open and save Final Draft-compatible .fdx files, and repair damaged ones</li>
+      <li>Fountain, a plain-text screenplay format, as its own format</li>
+      <li>Track changes, production revision colors, script comparison, a title page editor and reports</li>
+      <li>PDFs laid out the same way on every computer</li>
+      <li>Every action is a command, from a command line, JSON over stdio or an MCP server</li>
+    </ul>
+    <p>
+      Cold Open is in alpha: careful with your work, but new.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.theyungstump.coldopen.desktop</launchable>
+  <url type="homepage">https://theyungstump.github.io/cold-open/</url>
+  <url type="bugtracker">https://github.com/TheYungStump/cold-open/issues</url>
+  <url type="help">https://theyungstump.github.io/cold-open/guide/index.html</url>
+  <url type="vcs-browser">https://github.com/TheYungStump/cold-open</url>
+  <url type="contribute">https://theyungstump.github.io/cold-open/contribute.html</url>
+  <branding>
+    <color type="primary" scheme_preference="light">#f7f5ef</color>
+    <color type="primary" scheme_preference="dark">#1f2a44</color>
+  </branding>
+  <screenshots>
+    <screenshot type="default">
+      <caption>A screenplay page beside the scene list</caption>
+      <image>https://theyungstump.github.io/cold-open/static/shot-light.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Tracked changes, with the changes panel</caption>
+      <image>https://theyungstump.github.io/cold-open/static/shot-changes-light.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>The dark theme</caption>
+      <image>https://theyungstump.github.io/cold-open/static/shot-dark.png</image>
+    </screenshot>
+  </screenshots>
+  <provides>
+    <binary>coldopen</binary>
+    <binary>coldopen-app</binary>
+    <mediatype>text/x-fountain</mediatype>
+    <mediatype>application/x-fdx</mediatype>
+    <mediatype>application/x-coldopen</mediatype>
+  </provides>
+  <categories>
+    <category>Office</category>
+    <category>WordProcessor</category>
+  </categories>
+  <keywords>
+    <keyword>screenplay</keyword>
+    <keyword>screenwriting</keyword>
+    <keyword>script</keyword>
+    <keyword>fountain</keyword>
+    <keyword>fdx</keyword>
+  </keywords>
+  <content_rating type="oars-1.1"/>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+  <releases>
+    <release version="@VERSION@" date="@DATE@" type="development">
+      <url type="details">https://github.com/TheYungStump/cold-open/releases/tag/v@VERSION@</url>
+    </release>
+  </releases>
+</component>

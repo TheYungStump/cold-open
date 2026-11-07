@@ -321,6 +321,7 @@ impl App {
             After::Quit => {
                 self.close_links();
                 self.d.shutdown();
+                self.usage_quit();
                 iced::exit()
             }
             After::Restore { copy, path } => {
@@ -659,6 +660,10 @@ impl App {
         let rev = self.d.session().map(|s| s.rev);
         match self.d.save_prepare(&p) {
             Ok(job) => {
+                // A save in place goes through the worker, not the
+                // dispatcher's `execute`, so it counts here
+                // (usage-summary.md §2.2).
+                self.usage.counter.count(|c| c.command("doc.save"));
                 self.saving = Some(Saving::Rendering { allow_lossy });
                 let render = render_on_worker(job);
                 // Saving anyway to Fountain or .fdx accepted the pending
@@ -753,6 +758,7 @@ impl App {
         }
         if let Ok(r) = &commit {
             self.notices(r);
+            self.usage_saved();
         }
         if let Some(after) = waiting {
             self.after_save = None;
@@ -796,6 +802,7 @@ impl App {
         match self.d.execute(cmd) {
             Ok(r) => {
                 self.notices(&r);
+                self.usage_saved();
                 self.settings.add_recent(&path);
                 self.save_settings();
                 match self.after_save.take() {
