@@ -597,7 +597,7 @@ jobs:
         run: |
           v=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
           mkdir -p fake
-          for n in windows-x64-setup.exe windows-arm64-setup.exe macos-universal.dmg third-party-licenses-linux-x86_64.txt third-party-licenses-linux-aarch64.txt; do echo x >"fake/ColdOpen-$v-$n"; done
+          for n in windows-x64-setup.exe windows-arm64-setup.exe macos-universal.dmg third-party-licenses-linux-x86_64.txt third-party-licenses-linux-aarch64.txt mcp.mcpb; do echo x >"fake/ColdOpen-$v-$n"; done
           python3 .github/packaging/stores.py "$v" ci 2026-01-01 fake stores
           brew tap-new --no-git local/coldopen-ci
           tap=$(brew --repository)/Library/Taps/local/homebrew-coldopen-ci

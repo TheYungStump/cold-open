@@ -324,6 +324,14 @@ Added 2026-11-05 (phase 6c). Each store is free to list in, and each has rules o
   - the job runs only when the repository has a `BUTLER_API_KEY` secret, so a release without it isn't held up.
 - **The owner's steps:** the itch.io account and page, an API key, and the secret.
 
+### 11.6 MCP directories
+
+Added 2026-11-06. MCP clients and directories find servers through the Official MCP Registry (registry.modelcontextprotocol.io), which lists a server by its package. Cold Open's MCP server is its CLI, `coldopen mcp`, which isn't on npm or PyPI, so its package is an **MCP bundle** on each release:
+
+- **`ColdOpen-<v>-mcp.mcpb`**, made by `.github/packaging/mcpb/make_mcpb.py`: a zip holding `manifest.json` (MCPB manifest version 0.3, server type `binary`), the CLI for Windows (x64, which Windows 11 on ARM also runs), macOS (universal) and Linux (x86-64) under `server/`, the icon and the GPL. `platform_overrides` names each OS's binary; the bundle's manifest can't tell architectures apart, so Linux on ARM64 isn't covered by it.
+- **`server.json`** for the registry (`.github/packaging/mcp-registry/`): the name `io.github.TheYungStump/cold-open`, which the registry ties to the GitHub account that publishes it, and the bundle's address and SHA-256, filled by `stores.py` into the **store-files** artifact.
+- **The owner publishes it** with the registry's `mcp-publisher` (`login github`, then `publish`). Directories such as Glama read the registry; `docs/marketing/mcp-directories.md` has the steps.
+
 ## 12. Brand assets
 
 Added 2026-11-05 (phase 6c, the owner's decision 5). The icon and every image made from it come from **01 / Opening Frame** in `design/brand-explorations/2026-11-05/`: a C-shaped frame with a red cursor bar, navy on paper. It's still subject to change, so every asset is made by a script:

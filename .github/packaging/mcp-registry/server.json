@@ -1,0 +1,20 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.TheYungStump/cold-open",
+  "description": "Screenplay editing for agents: Fountain and .fdx; edits arrive as tracked changes in Cold Open.",
+  "repository": {
+    "url": "https://github.com/TheYungStump/cold-open",
+    "source": "github"
+  },
+  "websiteUrl": "https://theyungstump.github.io/cold-open/ai/",
+  "version": "@VERSION@",
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/TheYungStump/cold-open/releases/download/v@VERSION@/ColdOpen-@VERSION@-mcp.mcpb",
+      "version": "@VERSION@",
+      "fileSha256": "@SHA_MCPB@",
+      "transport": { "type": "stdio" }
+    }
+  ]
+}

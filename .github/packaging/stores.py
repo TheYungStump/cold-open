@@ -8,7 +8,8 @@ OUT gets:
 - flathub/: the manifest and the metainfo (cargo-sources.json is made beside
   them by CI, from Cargo.lock);
 - winget/manifests/t/TheYungStump/ColdOpen/VERSION/: the three manifests;
-- homebrew/Casks/cold-open.rb.
+- homebrew/Casks/cold-open.rb;
+- mcp-registry/server.json, for the Official MCP Registry.
 
 A file a template needs and DIST lacks fails the run, naming it.
 """
@@ -40,6 +41,7 @@ def main():
         "SHA_MACOS_UNIVERSAL": f"ColdOpen-{version}-macos-universal.dmg",
         "SHA_THIRD_PARTY_X86_64": f"ColdOpen-{version}-third-party-licenses-linux-x86_64.txt",
         "SHA_THIRD_PARTY_AARCH64": f"ColdOpen-{version}-third-party-licenses-linux-aarch64.txt",
+        "SHA_MCPB": f"ColdOpen-{version}-mcp.mcpb",
     }
     values = {"VERSION": version, "COMMIT": commit, "DATE": date}
     for key, name in files.items():
@@ -67,6 +69,7 @@ def main():
                  "TheYungStump.ColdOpen.locale.en-US.yaml"]:
         fill(f"winget/{name}", f"{winget}/{name}")
     fill("homebrew/cold-open.rb", "homebrew/Casks/cold-open.rb")
+    fill("mcp-registry/server.json", "mcp-registry/server.json")
     return 0
 
 

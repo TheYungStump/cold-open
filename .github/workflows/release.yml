@@ -84,6 +84,19 @@ jobs:
         run: |
           cp third-party/x86_64-unknown-linux-gnu.txt "dist/ColdOpen-$VERSION-third-party-licenses-linux-x86_64.txt"
           cp third-party/aarch64-unknown-linux-gnu.txt "dist/ColdOpen-$VERSION-third-party-licenses-linux-aarch64.txt"
+      # The MCP bundle (release.md §11.6): the CLI for each OS, for MCP
+      # clients and the Official MCP Registry.
+      - uses: actions/download-artifact@v5
+        with:
+          name: cli-macos-universal
+          path: cli-macos
+      - name: MCP bundle
+        run: |
+          mkdir -p mcpb-win mcpb-linux
+          unzip -q -j "dist/ColdOpen-$VERSION-windows-x64.zip" "*coldopen.exe" -d mcpb-win
+          dpkg-deb -x "dist/cold-open_${VERSION}_amd64.deb" mcpb-linux
+          mac=$(find cli-macos -name coldopen -type f | head -1)
+          python3 .github/packaging/mcpb/make_mcpb.py "$VERSION" mcpb-win/coldopen.exe "$mac"             mcpb-linux/usr/bin/coldopen "dist/ColdOpen-$VERSION-mcp.mcpb"
       - name: Checksums
         run: |
           cd dist
@@ -106,7 +119,7 @@ jobs:
             echo
             echo "Check a download with \`sha256sum -c SHA256SUMS.txt --ignore-missing\` (Linux), \`shasum -a 256 -c SHA256SUMS.txt --ignore-missing\` (macOS) or \`Get-FileHash\` (Windows)."
             echo
-            echo "\`ColdOpen-$VERSION-symbols.zip\` isn't for installing: it lets the project read crash reports from this release. The \`third-party-licenses\` files list the licenses of the crates in the Linux builds, for building them from source."
+            echo "\`ColdOpen-$VERSION-symbols.zip\` isn't for installing: it lets the project read crash reports from this release. The \`third-party-licenses\` files list the licenses of the crates in the Linux builds, for building them from source. \`ColdOpen-$VERSION-mcp.mcpb\` is Cold Open's MCP server as a bundle, for AI clients that install MCP bundles."
             echo
             # SignPath's terms ask for the words on every release page
             # (release.md §8).
