@@ -14,14 +14,13 @@ Website: `https://theyungstump.github.io/cold-open/`
 
 ## Applying them
 
-The description, website and topics, in one command, from a terminal signed in to GitHub (`gh auth status`):
+The description, website and topics, in one command, from a terminal signed in to GitHub (`gh auth status`). It's on one line so it pastes into PowerShell, Command Prompt or bash alike:
 
 ```
-gh repo edit TheYungStump/cold-open \
-  --description "Free, open-source screenwriting app: Fountain and .fdx, never loses work, Windows, macOS and Linux. CLI, JSON and MCP." \
-  --homepage "https://theyungstump.github.io/cold-open/" \
-  --add-topic screenwriting,screenplay,fountain,fdx,final-draft,scriptwriting,writing,rust,iced,desktop-app,cross-platform,linux,mcp,mcp-server,open-source
+gh repo edit TheYungStump/cold-open --description "Free, open-source screenwriting app: Fountain and .fdx, never loses work, Windows, macOS and Linux. CLI, JSON and MCP." --homepage "https://theyungstump.github.io/cold-open/" --add-topic screenwriting,screenplay,fountain,fdx,final-draft,scriptwriting,writing,rust,iced,desktop-app,cross-platform,linux,mcp,mcp-server,open-source
 ```
+
+`gh repo view TheYungStump/cold-open` then shows the new description and topics.
 
 ## The social preview image
 
