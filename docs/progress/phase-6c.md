@@ -66,6 +66,7 @@ Release run 42335444493, from `rehearsal/v0.1.0-alpha.3` at 17a55a8, made the dr
 - **`store-msix`:**
   - an x64 and an arm64 package, and a bundle of both;
   - Identity `TheYungStump.ColdOpen`, the Partner Center publisher, display name `TheYungStump`, package version 0.1.3.0, and the `coldopen.exe` alias.
+- **A second rehearsal** after the manual test's fixes (run 42342990581, f547850, draft `rehearsal-7`) passed every job again: 18 files; the checksums match; `coldopen 0.1.0-alpha.3 (f5478508d469)`. Its new "Rebuild the website" step was skipped, as it must be for anything but a tag.
 - **The store files and the bundle are made fresh by the tagged release.** A squash merge gives the tag a new commit, and the packages are built again, so the owner submits that run's artifacts, not these.
 
 ### Deferred
