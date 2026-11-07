@@ -2,6 +2,12 @@
 
 What changed in each release of Cold Open, newest first. Each release's notes, with its files, are on the [releases page](https://github.com/TheYungStump/cold-open/releases); `docs/progress/` has the full record of how each part was built.
 
+## Unreleased
+
+**Fixed**
+
+- **The Mac icon in small views,** such as launchers and lists, drew as a garbled purple tile. Its icon file held images in slots macOS reads differently inside an app.
+
 ## 0.1.0-alpha.3 (2026-11-07)
 
 **Added**

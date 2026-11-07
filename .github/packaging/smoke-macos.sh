@@ -38,6 +38,7 @@ for b in coldopen-app coldopen; do
 done
 [ -f "$app/Contents/Resources/licenses/THIRD-PARTY-LICENSES.txt" ]
 [ -f "$app/Contents/Resources/coldopen.icns" ]
+xcrun swift "$here/icon_check.swift" "$app"
 
 bash "$here/smoke.sh" cli "$app/Contents/MacOS/coldopen"
 bash "$here/smoke.sh" app "$app/Contents/MacOS/coldopen-app"
