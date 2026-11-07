@@ -229,7 +229,7 @@ No package writes a setting at install time, so a new install over nothing start
   - each package's own version field;
   - the release's tag.
   A test checks the programs agree.
-- **Pre-releases:** `0.1.0-alpha.1`, `0.1.0-alpha.2`, and so on, then `0.1.0-beta.1`. A tag is `v` plus the version. The release workflow fails when the tag and `Cargo.toml` disagree, and marks any version with a `-` as a pre-release.
+- **Pre-releases:** `0.1.0-alpha.1`, `0.1.0-alpha.2`, and so on, then `0.1.0-beta.1`. A tag is `v` plus the version. The release workflow fails when the tag and `Cargo.toml` disagree, and marks any version with a `-` as a pre-release. Once a tag's release exists, it starts the website's deploy, so the download page names the new files (`site.md` §7; 2026-11-07).
 - **Commit:** the commit a build came from, 12 hex digits, appears in the About sheet, `coldopen --version` and the bench report. It comes from `COLDOPEN_COMMIT` at build time (CI sets it), else from `git` when the build runs in a clone, else `unknown`. It is information only: nothing reads it back, and no file Cold Open writes depends on it. **Resolution:** the journal header and `meta.json` keep the version alone, so a script saved by two builds of one version reads the same.
 - **Symbols** (2026-11-02, the project owner's decision for crash reports, `docs/specs/crash-reports.md` §5). A crash report's frames are offsets into the build's binaries, so each release keeps the symbols that name them:
   - CI's release builds add line tables (`CARGO_PROFILE_RELEASE_DEBUG=line-tables-only`) and keep the symbols out of the binary:

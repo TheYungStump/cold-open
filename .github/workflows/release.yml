@@ -52,8 +52,10 @@ jobs:
     needs: [version, build]
     runs-on: ubuntu-latest
     # Only this job can write to the repository: it makes the release.
+    # actions: write is for starting the website's deploy, below.
     permissions:
       contents: write
+      actions: write
     env:
       VERSION: ${{ needs.version.outputs.version }}
       GH_TOKEN: ${{ github.token }}
@@ -151,6 +153,12 @@ jobs:
               --title "Rehearsal: Cold Open $VERSION" --notes-file notes.md \
               $(case "$VERSION" in *-*) echo --prerelease ;; esac) dist/*
           fi
+      # The download page names the newest release's files, so the website
+      # is rebuilt now (docs/specs/site.md §7). The release made above with
+      # this workflow's token starts no other workflow by itself.
+      - name: Rebuild the website (tag)
+        if: github.ref_type == 'tag'
+        run: gh workflow run pages.yml --ref main
 
   # The Microsoft Store's package (release.md §11.4): an MSIX per Windows
   # architecture, joined in an .msixbundle, with the identity the owner's

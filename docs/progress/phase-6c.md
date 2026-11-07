@@ -35,6 +35,18 @@ Phase 6c is done, up to the steps that are the project owner's: Cold Open is eas
 - **CI on #28** (8241210): every job passed on Windows, macOS and Linux, the store jobs included; on #29, the site's checks (links, tags, structured data, the AI words, accessibility, the download page in 11 browsers, JavaScript off, the analytics switch both ways).
 - **The live site** (5245636, checked 2026-11-06): all 33 pages in the sitemap answer 200, and the Cloudflare beacon is on.
 
+### The owner's manual test (2026-11-07)
+
+Every step passed, except three findings, all fixed:
+
+1. **"Mod+," read as Ctrl and the plus key,** which zooms in. The shortcut is now written Mod+Comma (Ctrl+Comma, Cmd+Comma) in the test, the guide, the notes, the changelog, the README, the privacy statement and the spec. The keymap's syntax and the generated keyboard reference keep `Ctrl+,`, as the palette shows it.
+2. **The "[ ] Include my usage summary" tick didn't look clickable.** Both sheets now use iced's checkbox (editor.md §23).
+3. **Copy all closed Share feedback** and cleared its text. It now leaves the sheet as it was, with a notice, as Report a problem's Copy the details does. `usage.rs` checks it.
+
+Found on the way: **the download page didn't follow alpha.2's release.** The release workflow makes the release with its own token, and GitHub starts no workflow for that, so `pages.yml`'s `release` trigger never fired; the page moved to alpha.2 only with the next push to `main`. The release workflow now starts the website's deploy itself after a tag's release (`site.md` §7). It can only be seen working at the alpha.3 tag.
+
+Also seen: the alpha.3 installer went into the folder of an earlier test install, which the installer remembers by its app id, so the strict "install over alpha.2 in its usual folder" case wasn't exercised. Settings are per user, not per folder, so they carried over.
+
 ### Removed
 
 - **Three unused pages** of the docs, `docs/guide/src/index.md`, `download.md` and `download-files.md`, removed on the owner's go-ahead (2026-11-07). The new site replaced them, and no page, check or script used them. Afterwards, the site's checks pass with no broken links.

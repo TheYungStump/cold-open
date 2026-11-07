@@ -174,6 +174,7 @@ The page as served lists every build, grouped by OS, with no recommendation. Wit
   3. runs `tools/site_pages.py`: the standalone pages, the started pages, the tags of §10 on every page, `sitemap.xml`, `robots.txt` and `llms.txt`, and the beacon when its switch is on (§8);
   4. checks the built site: links (`site_links.py`), search tags (`site_seo.py`), the writers' words (`site_words.py`, §11), and personal details (`privacy_scan.py`);
   5. publishes it with `configure-pages`, `upload-pages-artifact` and `deploy-pages`.
+- **A release from a tag starts it by hand** (2026-11-07). GitHub starts no workflow for an event that another workflow made with its own token, so the release workflow's `published` event never reached this one: alpha.2's release left the download page on alpha.1 until the next push to `main`. The release workflow's `publish` job now starts it with `gh workflow run pages.yml --ref main` once the release exists, and has `actions: write` for that alone. The `release` trigger stays for a release someone publishes by hand, such as a draft.
 - **On pull requests,** CI's `site` job builds the site and runs every check without publishing:
   - the checks of step 4;
   - axe-core, in light and dark (§6);
