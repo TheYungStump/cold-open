@@ -12,13 +12,33 @@ guard args.count == 2 else {
     exit(2)
 }
 let icon = NSWorkspace.shared.icon(forFile: args[1])
+print("macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
 
-// The mean color of a box, in fractions of the icon's side.
-func mean(_ rep: NSBitmapImageRep, _ x0: Double, _ x1: Double, _ y0: Double, _ y1: Double) -> (Int, Int, Int) {
-    let n = Double(rep.pixelsWide)
+// The drawn icon's box: macOS may draw it inset, with a clear margin.
+struct Box { var x0 = 0, y0 = 0, x1 = 0, y1 = 0 }
+func opaque(_ rep: NSBitmapImageRep) -> Box? {
+    var box: Box? = nil
+    for y in 0..<rep.pixelsHigh {
+        for x in 0..<rep.pixelsWide where (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.5 {
+            if var b = box {
+                b.x0 = min(b.x0, x); b.y0 = min(b.y0, y); b.x1 = max(b.x1, x + 1); b.y1 = max(b.y1, y + 1)
+                box = b
+            } else {
+                box = Box(x0: x, y0: y, x1: x + 1, y1: y + 1)
+            }
+        }
+    }
+    return box
+}
+
+// The mean color of a part of the drawn icon, in fractions of its box.
+func mean(_ rep: NSBitmapImageRep, _ box: Box, _ fx0: Double, _ fx1: Double, _ fy0: Double, _ fy1: Double) -> (Int, Int, Int) {
+    let w = Double(box.x1 - box.x0), h = Double(box.y1 - box.y0)
+    let x0 = box.x0 + Int(fx0 * w), x1 = max(x0 + 1, box.x0 + Int(fx1 * w))
+    let y0 = box.y0 + Int(fy0 * h), y1 = max(y0 + 1, box.y0 + Int(fy1 * h))
     var r = 0.0, g = 0.0, b = 0.0, count = 0.0
-    for y in Int(y0 * n)...max(Int(y0 * n), Int(y1 * n) - 1) {
-        for x in Int(x0 * n)...max(Int(x0 * n), Int(x1 * n) - 1) {
+    for y in y0..<y1 {
+        for x in x0..<x1 {
             guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
             r += c.redComponent; g += c.greenComponent; b += c.blueComponent; count += 1
         }
@@ -41,14 +61,19 @@ for points in [16, 32, 128] {
                   from: .zero, operation: .copy, fraction: 1)
         NSGraphicsContext.restoreGraphicsState()
 
+        guard let box = opaque(rep), box.x1 - box.x0 >= px / 2, box.y1 - box.y0 >= px / 2 else {
+            print("\(points)pt @\(scale)x: drawn nearly empty WRONG")
+            failed = true
+            continue
+        }
         // The blue tile, left of the C, at mid-height: #0C447C.
-        let tile = mean(rep, 0.03, 0.12, 0.42, 0.58)
+        let tile = mean(rep, box, 0.04, 0.12, 0.42, 0.58)
         let blue = tile.2 > tile.0 + 60 && tile.2 > tile.1 + 25 && tile.0 < 80
         // The C's left stroke, in paper (#F7F5EF), where it's wide enough.
-        let page = mean(rep, 0.17, 0.23, 0.45, 0.55)
+        let page = mean(rep, box, 0.17, 0.23, 0.45, 0.55)
         let paper = px < 32 || (page.0 > 170 && page.1 > 170 && page.2 > 170)
         let ok = blue && paper
-        print("\(points)pt @\(scale)x: tile \(tile), stroke \(page) \(ok ? "ok" : "WRONG")")
+        print("\(points)pt @\(scale)x: drawn at \(box.x0),\(box.y0) to \(box.x1),\(box.y1) of \(px); tile \(tile), stroke \(page) \(ok ? "ok" : "WRONG")")
         if !ok { failed = true }
     }
 }
