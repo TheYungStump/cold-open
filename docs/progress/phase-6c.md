@@ -10,6 +10,14 @@ The owner's constraints: no cost; no personal details anywhere public; the app m
 
 Phase 6c is done, up to the steps that are the project owner's: Cold Open is easy to find and to install, and both ad campaigns have somewhere to land. `v0.1.0-alpha.3` is rehearsed (below) and not tagged.
 
+### Merged and released (2026-11-07)
+
+- **#28 squash-merged** on the owner's go-ahead as 3c64bb7, after CI passed on its last commit (b69ea2f, the store jobs included).
+- **`v0.1.0-alpha.3` tagged** on 3c64bb7, on the owner's go-ahead; release run 42346060036 passed every job. The release is published as a pre-release with 18 files. The checksums match, and `coldopen --version` prints `coldopen 0.1.0-alpha.3 (3c64bb735bfc)`. The universal .dmg is 14,898,829 bytes.
+- **The website rebuilt itself:** the release started `pages.yml` (run 42347454911, `workflow_dispatch`), the first release to do so. The live download page names alpha.3, and its started pages point at the alpha.3 files.
+- **itch.io's job found no key** and stopped, as designed. Once the owner sets the key and the project, rerunning that one job uploads alpha.3.
+- **`store-files` and `store-msix`** from run 42346060036 are what the owner submits. They are kept until 2027-02-05.
+
 ### What was built
 
 - **The website, first** (TheYungStump/cold-open#29, merged as 5245636 and live; `docs/specs/site.md`):
