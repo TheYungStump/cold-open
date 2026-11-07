@@ -6,20 +6,70 @@ Alpha.2 is out. SignPath Foundation turned the signing application down until th
 
 The owner's constraints: no cost; no personal details anywhere public; the app makes no network connections of its own; the site uses Cloudflare Web Analytics only.
 
+## Final report (2026-11-06)
+
+Phase 6c is done, up to the steps that are the project owner's: Cold Open is easy to find and to install, and both ad campaigns have somewhere to land. `v0.1.0-alpha.3` is rehearsed (below) and not tagged.
+
+### What was built
+
+- **The website, first** (TheYungStump/cold-open#29, merged as 5245636 and live; `docs/specs/site.md`):
+  - **`/cold-open/` for writers,** which never mentions AI (CI checks it), and **`/cold-open/ai/`** for AI users, with MCP setup for four clients.
+  - **A download page that recommends the build** for the visitor's computer, in the browser only, and lists every build. It doesn't guess where the browser can't tell.
+  - **Download counts by build and landing page:** every download goes through `/download/started/<build>/[writers|ai/]`, since Cloudflare drops query strings. Downloads start with JavaScript off and with ad blockers.
+  - **Five search pages,** including a comparison whose every fact cites the other app's own page; titles, descriptions, Open Graph, `SoftwareApplication` data, `sitemap.xml`, `robots.txt` and `llms.txt`; and the host's root in `TheYungStump.github.io`, which the owner created.
+  - **Cloudflare Web Analytics** on every page with the owner's token; the privacy statement says so everywhere.
+  - **The owner's finalized brand,** the share image and the ad images, rendered in CI.
+- **The Mac's .fdx save:** #27's fix (before the phase) confirmed: CI's Mac now asserts the UI thread's save, and measures the .fdx save at p95 0.62 ms (the tester's alpha.2: 4.87). The crash gate passed five times in a row.
+- **One download for every Mac:** fat link-time optimization makes the binaries 5.4% smaller, and the universal disk image is 14,892,881 bytes, under the budget. Every budget still passes.
+- **In the app** (`docs/specs/usage-summary.md`, `editor.md` §23 and §24):
+  - **a local usage summary:** counts only, from fixed tables, never sent, on by default and disclosed, with View, Reset and an off switch;
+  - **Settings** (Mod+,, and Settings… in the macOS app menu), from the keyboard alone;
+  - **Share feedback…,** and the summary's tick in it and in Report a problem.
+- **Store packages,** built and checked in CI: a from-source Flatpak, winget manifests, a Homebrew cask, an MSIX installed and started; an `.msixbundle` for the Store with the owner's Partner Center identity; an itch.io upload job; an MCP bundle and the Official MCP Registry's file on each release. `stores.py` fills them all from a release.
+- **Drafts** in `docs/marketing/`: the ads and their claims ledger, AlternativeTo, emails to list authors, Show HN, the GitHub repository's details, itch.io, the Microsoft Store listing, the MCP directories.
+
+### Checks
+
+- **Tests here (Windows):** the app's new tests (usage, sheet layout, reference, and the `usage` and `feedback` unit tests; Checks, below), fmt, and clippy (`-D warnings`), also for Linux and macOS. The whole workspace's tests ran in CI on all three systems.
+- **The crash gate,** five times in a row on the app's final code (`crash_gate` and core's `restart`, one thread): 9 of 9 and 3 of 3 each time.
+- **CI on #28** (8241210): every job passed on Windows, macOS and Linux, the store jobs included; on #29, the site's checks (links, tags, structured data, the AI words, accessibility, the download page in 11 browsers, JavaScript off, the analytics switch both ways).
+- **The live site** (5245636, checked 2026-11-06): all 33 pages in the sitemap answer 200, and the Cloudflare beacon is on.
+
+### Deferred
+
+- **The Fountain save's headroom on a Mac** (decision 6): waits for the Mac tester's numbers on the alpha.3 build.
+- **Flathub** waits for a stable release, and for a manifest the owner writes (decision 15).
+- **The usage summary end to end on Linux** is covered by the integration tests CI runs there (the addresses and the file), not by a submitted form; the owner's form submission on Windows is the end-to-end check.
+- **Three unused source files** of the docs: `docs/guide/src/index.md`, `download.md` and `download-files.md`, which the new site replaced. They're not built; they go when the owner says.
+
+### What's left for the project owner
+
+1. **The manual test** (`docs/release/manual-test-6c.md`), ending in a form submission that arrives with the summary.
+2. **Merge #28** (on your go-ahead), then **tag `v0.1.0-alpha.3`** (on your go-ahead).
+3. **After the release:**
+   - Microsoft Store: upload the `store-msix` artifact's bundle in your submission (`docs/marketing/microsoft-store.md`).
+   - winget: one pull request with the `store-files` artifact's manifests (`.github/packaging/winget/README.md`).
+   - Homebrew: create `homebrew-tap` and add the cask (`.github/packaging/homebrew/README.md`).
+   - The MCP registry: `mcp-publisher publish` with the `store-files` artifact's `server.json` (`docs/marketing/mcp-directories.md`).
+   - itch.io: the page, the API key secret and the project variable (`docs/marketing/itch.md`).
+4. **Send Dian** the alpha.3 `.dmg` for the bench.
+5. **The drafts** in `docs/marketing/`, to send or post when you choose; the GitHub repository's details (`docs/marketing/github.md`).
+6. **Search Console:** recheck the sitemap; Bing has it.
+
 ## Plan and status
 
 | # | Step | Status |
 | --- | --- | --- |
 | 0 | Branch, this record, specs first: `usage-summary.md` (new), `site.md`, `release.md` §2, §7, §11, §12, `editor.md` §23 and §24, `bench.md` §5 | done |
-| 1 | The Mac save: confirm #27 on CI's Mac (asserted), explain the 44 ms Fountain save, widen the headroom if cheap, the crash gate five times, a bench build for the Mac tester | CI assertion and the analysis done (below). The crash gate and the bench build follow step 2, so they cover the release profile that ships. The headroom waits for the Mac tester's worker rows (decision 6). |
-| 2 | The universal Mac build: fat LTO, sizes and budgets before and after | done here (below); the universal .dmg's size comes from CI's packaging job |
+| 1 | The Mac save: confirm #27 on CI's Mac (asserted), explain the 44 ms Fountain save, widen the headroom if cheap, the crash gate five times, a bench build for the Mac tester | done: CI's Mac asserts it (.fdx p95 0.62 ms); the crash gate passed five times; the bench build is out. The headroom waits for the Mac tester's numbers (decision 6) |
+| 2 | The universal Mac build: fat LTO, sizes and budgets before and after | done: 14,892,881 bytes, under the budget |
 | 3 | The brand: the icon, the mark, the image templates | done in the finalized brand (owner's change 8): icon 52191a4; images rendered by CI in #29 |
 | 4 | The usage summary, the Settings sheet, Share feedback… | done; tests pass here (below) |
-| 5 | The website: two landing pages, the download page and its recommendation, the started pages, analytics behind a switch, the search pages and tags, the site root | in TheYungStump/cold-open#29, first (owner's change 9); its website checks pass in CI; merge waits for the owner |
-| 6 | Store packages: Flathub, winget, Homebrew, Microsoft Store (MSIX), itch.io | built (54efeeb); CI jobs added; the Store waits for the owner's decision on the publisher name |
-| 7 | Listings and outreach drafts: AlternativeTo, MCP directories, list authors, ads, Show HN, the GitHub repository's details | |
-| 8 | alpha.3: version, notes, changelog, the rehearsal | |
-| 9 | Final checks, the manual test list, this report | |
+| 5 | The website: two landing pages, the download page and its recommendation, the started pages, analytics behind a switch, the search pages and tags, the site root | done: TheYungStump/cold-open#29, merged 2026-11-06 as 5245636, live, analytics on |
+| 6 | Store packages: Flathub, winget, Homebrew, Microsoft Store (MSIX), itch.io | done: built and checked in CI; each store's README has the owner's step; Flathub waits for a stable release (decision 15) |
+| 7 | Listings and outreach drafts: AlternativeTo, MCP directories, list authors, ads, Show HN, the GitHub repository's details | done: `docs/marketing/`; the MCP bundle is on each release |
+| 8 | alpha.3: version, notes, changelog, the rehearsal | done: 17a55a8; the rehearsal is below |
+| 9 | Final checks, the manual test list, this report | done: `docs/release/manual-test-6c.md`, and this report |
 
 ## Decisions from the project owner (2026-11-05, before the phase)
 
@@ -112,6 +162,10 @@ What's left for 6c (step 1): confirm it on CI's Mac with the budget asserted, ex
 12. **Share feedback keeps the letter keys** of the other sheets (spec updated): iced's buttons can't take keyboard focus, so a Tab order through them isn't possible. The text box's own key binding sends Mod+Enter to the form, and Esc or Tab let go of it.
 13. **Both issue templates gained an optional "Usage summary" field** (`usage`), and the feedback template a "Renderer" field, so the issue addresses carry what the sheet showed. The Google Form needs no change: the summary goes in its existing `report` box.
 14. **"Settings…" in the macOS app menu** (`crates/app/src/macos_menu.rs`): an `NSMenuItem` with Cmd+, after About, whose target sends `app.settings` through a channel the app's subscription reads. Three `unsafe` calls (the target's `init`, the item's `init`, `setTarget`), each with its SAFETY note, approved with the plan. It's installed on the first timer tick, once winit has made its menu. Checked here with `cargo clippy --target aarch64-apple-darwin`; it runs on CI's Mac and the Mac tester's.
+15. **Flathub waits** (2026-11-06): its requirements now say manifests "must not contain AI-generated or AI-assisted content" and that AI tools must not open submission pull requests, and its stable repository takes only stable software. The manifest here stays as CI's from-source build test; the submitted one is the owner's, for a stable release.
+16. **The MCP directories go through the Official MCP Registry,** which lists a server by its package. Cold Open's CLI isn't on npm or PyPI, so each release carries an MCP bundle (`.mcpb`, the CLI for Windows x64, macOS universal and Linux x86-64), and `stores.py` fills the registry's `server.json`. Glama reads the registry; Smithery is a registry only since October 31.
+17. **The store checks' first run** found three faults of mine, all fixed: `brew style` wants `depends_on macos: :monterey`; the zip keeps `coldopen.exe` beside the app, not in `bin\`; Flathub's linter can't see `/tmp`. Then Homebrew 6 refused the untrusted temporary tap: CI runs `brew trust` first, and the tap's instructions tell writers to.
+18. **The usage summary's tests run on every OS** (`crates/app/tests/usage.rs`), so Linux's end-to-end is CI's: the sentinel session, off means no writes, and the addresses.
 
 ## New dependencies
 
