@@ -2,7 +2,7 @@
 
 What changed in each release of Cold Open, newest first. Each release's notes, with its files, are on the [releases page](https://github.com/TheYungStump/cold-open/releases); `docs/progress/` has the full record of how each part was built.
 
-## 0.1.0-alpha.3 (unreleased)
+## 0.1.0-alpha.3 (2026-11-07)
 
 **Added**
 
